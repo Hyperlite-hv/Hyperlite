@@ -12,9 +12,9 @@ import { ErrorState } from "../components/States";
 import { PageHeader, Card, Empty, SideDrawer, Field, Chip, Loading } from "../components/ui";
 import { Clock, PencilLine, Play, Plus, Trash2, Zap } from "lucide-react";
 
-const newStep = () => ({ cible_type: "host", cible: "", commande: "", condition_type: "exit_code", condition_valeur: "0" });
-const runWire = (s) => (s === "succes" ? "termine" : s === "echec" ? "echec" : "en_cours");
-const targetLabel = (s, t) => (s.cible_type === "host" ? t("au.host") : s.cible_type === "vm" ? `VM ${s.cible}` : t("au.eachTarget"));
+const newStep = () => ({ target_type: "host", target: "", command: "", condition_type: "exit_code", condition_value: "0" });
+const runWire = (s) => (s === "success" ? "succeeded" : s === "failed" ? "failed" : "running");
+const targetLabel = (s, t) => (s.target_type === "host" ? t("au.host") : s.target_type === "vm" ? `VM ${s.target}` : t("au.eachTarget"));
 
 const LB_PREDEFINED_KEY = "deploy_load_balancing";
 const jobName = (job, t) => { const k = `au.pre.${job.predefined_key}.name`; const v = job.predefined_key ? t(k) : k; return v === k ? job.name : v; };
@@ -51,7 +51,7 @@ export default function AutomationPage() {
   }, [pushToast, t]);
 
   // while the expanded job has a run in progress, refresh its history every 3 s
-  const running = open != null && (runs[open] || []).some((r) => r.statut !== "succes" && r.statut !== "echec");
+  const running = open != null && (runs[open] || []).some((r) => r.status !== "success" && r.status !== "failed");
   useEffect(() => {
     if (!running) return undefined;
     const id = setInterval(() => loadRuns(open), 3000);
@@ -78,10 +78,10 @@ export default function AutomationPage() {
     // run time), so its target requirement cannot be read from the steps.
     const predefined = job.predefined_key === LB_PREDEFINED_KEY;
     if (predefined && list.length < 2) { pushToast({ kind: "error", title: t("au.needTargets"), message: t("au.needLbTargetsHelp") }); return; }
-    const needsTargets = (steps || []).some((s) => s.cible_type === "chaque_cible");
+    const needsTargets = (steps || []).some((s) => s.target_type === "each_target");
     if (needsTargets && list.length === 0) { pushToast({ kind: "error", title: t("au.needTargets"), message: t("au.needTargetsHelp") }); return; }
     if (!dry) {
-      const cmds = predefined ? jobDesc(job, t) : steps ? steps.map((s, i) => `${i + 1}. [${targetLabel(s, t)}] ${s.commande}`).join("  •  ") : t("au.stepsUnknown");
+      const cmds = predefined ? jobDesc(job, t) : steps ? steps.map((s, i) => `${i + 1}. [${targetLabel(s, t)}] ${s.command}`).join("  •  ") : t("au.stepsUnknown");
       if (!(await confirmAction({ title: t("au.runTitle", { name: job.name }), message: `${t("au.runMsg", { n: list.length })} ${cmds}`, confirmLabel: t("au.run"), danger: true }))) return;
     }
     try {
@@ -93,9 +93,9 @@ export default function AutomationPage() {
   }
 
   const problems = (s) => ({
-    commande: !s.commande.trim(),
-    cible: s.cible_type === "vm" && !(s.cible || "").trim(),
-    valeur: s.condition_type === "stdout_contains" ? !(s.condition_valeur || "").trim() : !/^-?\d+$/.test((s.condition_valeur ?? "").trim()),
+    command: !s.command.trim(),
+    target: s.target_type === "vm" && !(s.target || "").trim(),
+    value: s.condition_type === "stdout_contains" ? !(s.condition_value || "").trim() : !/^-?\d+$/.test((s.condition_value ?? "").trim()),
   });
   const formOk = form.name.trim() && form.steps.length > 0 && form.steps.every((s) => !Object.values(problems(s)).some(Boolean));
   const upd = (i, patch) => setForm((f) => ({ ...f, steps: f.steps.map((s, k) => (k === i ? { ...s, ...patch } : s)) }));
@@ -106,7 +106,7 @@ export default function AutomationPage() {
     if (!formOk) return;
     setBusy(true);
     try {
-      await createJob({ ...form, name: form.name.trim(), steps: form.steps.map((s) => ({ ...s, cible: s.cible_type === "vm" ? s.cible.trim() : null })) });
+      await createJob({ ...form, name: form.name.trim(), steps: form.steps.map((s) => ({ ...s, target: s.target_type === "vm" ? s.target.trim() : null })) });
       pushToast({ kind: "success", title: t("au.created"), message: form.name });
       setCreating(false); setTouched(false); setForm({ name: "", description: "", steps: [newStep()] }); await reload();
     } catch (er) { pushToast({ kind: "error", title: t("nt.createFailed"), message: errorMessage(er) }); }
@@ -162,21 +162,21 @@ export default function AutomationPage() {
             {!selected ? <Empty icon={Clock} title={t("au.pickJob")} text={t("au.pickJobHelp")} /> : (
               <div className="nx-stack">
                 {detail[selected.id]?.steps?.length > 0 && (
-                  <ol className="nx-steps" aria-label={t("au.steps")}>{detail[selected.id].steps.map((st) => <li key={st.id ?? st.ordre}><span className="nx-muted">[{targetLabel(st, t)}]</span> <code className="nx-mono">{st.commande}</code></li>)}</ol>
+                  <ol className="nx-steps" aria-label={t("au.steps")}>{detail[selected.id].steps.map((st) => <li key={st.id ?? st.position}><span className="nx-muted">[{targetLabel(st, t)}]</span> <code className="nx-mono">{st.command}</code></li>)}</ol>
                 )}
                 {!runs[selected.id] ? <Loading style={{ margin: 0 }} /> : runs[selected.id].length === 0 ? <Empty icon={Clock} title={t("au.noRuns")} text={t("au.noRunsHelp")} /> : (
                   <ul className="nx-list2">
                     {runs[selected.id].map((r) => (
                       <li key={r.id} style={{ flexWrap: "wrap" }}>
-                        <StatusIndicator kind="task" wire={runWire(r.statut)} compact />
+                        <StatusIndicator kind="task" wire={runWire(r.status)} compact />
                         <div className="nx-list2-main">
                           <button type="button" className="nx-lnk" style={{ fontWeight: 500 }} aria-expanded={runOpen === r.id} onClick={() => showRun(r.id)}>{new Date(r.started_at).toLocaleString(lang)}</button>
-                          <div className="nx-list2-sub"><span>{r.dry_run ? t("au.dryRun") : t("au.real")}</span>{r.resultat ? ` · ${r.resultat}` : ""}</div>
+                          <div className="nx-list2-sub"><span>{r.dry_run ? t("au.dryRun") : t("au.real")}</span>{r.result ? ` · ${r.result}` : ""}</div>
                         </div>
                         {runOpen === r.id && (
                           <div style={{ flexBasis: "100%" }}>
                             {!runDetail ? <span className="nx-muted">{t("loading")}</span> : runDetail.logs.length === 0 ? <span className="nx-muted">{t("au.noLogs")}</span> : (
-                              <pre className="nx-logs" tabIndex={0} aria-label={t("au.logs")}>{runDetail.logs.map((l) => `${l.reussi ? "✓" : "✗"} [${l.cible}] ${l.commande} → exit=${l.exit_code}${l.stdout ? `\n${l.stdout.trim().slice(0, 2000)}` : ""}`).join("\n")}</pre>
+                              <pre className="nx-logs" tabIndex={0} aria-label={t("au.logs")}>{runDetail.logs.map((l) => `${l.succeeded ? "✓" : "✗"} [${l.target}] ${l.command} → exit=${l.exit_code}${l.stdout ? `\n${l.stdout.trim().slice(0, 2000)}` : ""}`).join("\n")}</pre>
                             )}
                           </div>
                         )}
@@ -204,12 +204,12 @@ export default function AutomationPage() {
             <fieldset key={i} className="nx-fs nx-stepbox">
               <legend>{t("au.step", { n: i + 1 })}</legend>
               <div className="nx-fg">
-                <Field label={t("au.target")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.step_target_type")} value={st.cible_type} onChange={(e) => upd(i, { cible_type: e.target.value })}><option value="host">{t("au.host")}</option><option value="vm">{t("au.aVm")}</option><option value="chaque_cible">{t("au.eachTarget")}</option></select>}</Field>
-                {st.cible_type === "vm" && <Field label={t("au.vmName")} error={bad(pb.cible) ? t("nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vm_name")} value={st.cible || ""} onChange={(e) => upd(i, { cible: e.target.value })} />}</Field>}
-                <Field label={t("au.condition")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.success_condition_type")} value={st.condition_type} onChange={(e) => upd(i, { condition_type: e.target.value, condition_valeur: e.target.value === "exit_code" ? "0" : "" })}><option value="exit_code">{t("au.exitCode")}</option><option value="stdout_contains">{t("au.contains")}</option></select>}</Field>
-                <Field label={t("au.conditionValue")} error={bad(pb.valeur) ? t(st.condition_type === "exit_code" ? "au.badInt" : "nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.success_condition_value")} value={st.condition_valeur || ""} onChange={(e) => upd(i, { condition_valeur: e.target.value })} />}</Field>
+                <Field label={t("au.target")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.step_target_type")} value={st.target_type} onChange={(e) => upd(i, { target_type: e.target.value })}><option value="host">{t("au.host")}</option><option value="vm">{t("au.aVm")}</option><option value="each_target">{t("au.eachTarget")}</option></select>}</Field>
+                {st.target_type === "vm" && <Field label={t("au.vmName")} error={bad(pb.target) ? t("nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vm_name")} value={st.target || ""} onChange={(e) => upd(i, { target: e.target.value })} />}</Field>}
+                <Field label={t("au.condition")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.success_condition_type")} value={st.condition_type} onChange={(e) => upd(i, { condition_type: e.target.value, condition_value: e.target.value === "exit_code" ? "0" : "" })}><option value="exit_code">{t("au.exitCode")}</option><option value="stdout_contains">{t("au.contains")}</option></select>}</Field>
+                <Field label={t("au.conditionValue")} error={bad(pb.value) ? t(st.condition_type === "exit_code" ? "au.badInt" : "nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.success_condition_value")} value={st.condition_value || ""} onChange={(e) => upd(i, { condition_value: e.target.value })} />}</Field>
               </div>
-              <Field label={t("au.command")} error={bad(pb.commande) ? t("nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.shell_command")} value={st.commande} onChange={(e) => upd(i, { commande: e.target.value })} placeholder="systemctl status nginx" />}</Field>
+              <Field label={t("au.command")} error={bad(pb.command) ? t("nt.required") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.shell_command")} value={st.command} onChange={(e) => upd(i, { command: e.target.value })} placeholder="systemctl status nginx" />}</Field>
               {form.steps.length > 1 && <div><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.remove_step_x", { v: i + 1 })} onClick={() => setForm((f) => ({ ...f, steps: f.steps.filter((_, k) => k !== i) }))}><Trash2 size={14} aria-hidden="true" />{t("sec.remove")}</button></div>}
             </fieldset>
           );

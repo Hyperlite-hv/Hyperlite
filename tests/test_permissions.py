@@ -5,7 +5,7 @@ import pytest
 from app.core import permissions
 
 
-def user(username, role="utilisateur"):
+def user(username, role="user"):
     return {"username": username, "role": role}
 
 
@@ -15,7 +15,7 @@ def test_admin_has_every_privilege(database):
 
 
 def test_observer_is_read_only(database):
-    observer = user("watcher", "observateur")
+    observer = user("watcher", "viewer")
     assert permissions.has_privilege(observer, "vm1", "vm.view")
     assert permissions.has_privilege(observer, "vm1", "vm.console")
     assert not permissions.has_privilege(observer, "vm1", "vm.power")
@@ -27,7 +27,7 @@ def test_user_without_acl_has_no_access(database):
 
 
 def test_direct_user_acl_grants_only_the_role_privileges(database):
-    permissions.create_acl("user", "bob", "operateur", "vm", "vm1")
+    permissions.create_acl("user", "bob", "operator", "vm", "vm1")
     bob = user("bob")
     assert permissions.has_privilege(bob, "vm1", "vm.power")
     assert not permissions.has_privilege(bob, "vm1", "vm.hardware")  # not part of the operator role
@@ -37,7 +37,7 @@ def test_direct_user_acl_grants_only_the_role_privileges(database):
 def test_group_acl_applies_to_members_only(database):
     group_id = permissions.create_group("ops")
     permissions.add_group_member(group_id, "carol")
-    permissions.create_acl("group", str(group_id), "gestionnaire", "vm", "vm1")
+    permissions.create_acl("group", str(group_id), "manager", "vm", "vm1")
     assert permissions.has_privilege(user("carol"), "vm1", "vm.snapshot")
     assert not permissions.has_privilege(user("dave"), "vm1", "vm.snapshot")
 
@@ -45,13 +45,13 @@ def test_group_acl_applies_to_members_only(database):
 def test_pool_acl_covers_every_vm_in_the_pool(database):
     pool_id = permissions.create_pool("web")
     permissions.add_pool_member(pool_id, "vm-a")
-    permissions.create_acl("user", "erin", "lecteur", "pool", str(pool_id))
+    permissions.create_acl("user", "erin", "drive", "pool", str(pool_id))
     assert permissions.has_privilege(user("erin"), "vm-a", "vm.view")
     assert not permissions.has_privilege(user("erin"), "vm-b", "vm.view")
 
 
 def test_deleting_an_acl_revokes_the_access(database):
-    acl_id = permissions.create_acl("user", "bob", "lecteur", "vm", "vm1")
+    acl_id = permissions.create_acl("user", "bob", "drive", "vm", "vm1")
     assert permissions.has_privilege(user("bob"), "vm1", "vm.view")
     permissions.delete_acl(acl_id)
     assert not permissions.has_privilege(user("bob"), "vm1", "vm.view")
@@ -72,9 +72,9 @@ def test_custom_role_uses_its_own_privilege_set(database):
 
 def test_container_privileges_follow_the_same_model(database):
     assert permissions.has_container_privilege(user("root", "admin"), "ct1", "container.power")
-    assert permissions.has_container_privilege(user("watcher", "observateur"), "ct1", "container.view")
-    assert not permissions.has_container_privilege(user("watcher", "observateur"), "ct1", "container.power")
-    permissions.create_acl("user", "bob", "operateur", "container", "ct1")
+    assert permissions.has_container_privilege(user("watcher", "viewer"), "ct1", "container.view")
+    assert not permissions.has_container_privilege(user("watcher", "viewer"), "ct1", "container.power")
+    permissions.create_acl("user", "bob", "operator", "container", "ct1")
     assert permissions.has_container_privilege(user("bob"), "ct1", "container.power")
     assert not permissions.has_container_privilege(user("bob"), "ct2", "container.power")
 
@@ -97,24 +97,24 @@ def test_deleting_a_custom_role_removes_the_acls_that_used_it(database):
 def test_terminal_ticket_is_admin_only(client, auth_headers):
     # The web SSH terminal lands in a passwordless-sudo shell: neither the
     # observer console right nor a VM ACL may open it, only the admin role.
-    headers = auth_headers("watcher", "observateur")
-    permissions.create_acl("user", "watcher", "gestionnaire", "vm", "vm1")
+    headers = auth_headers("watcher", "viewer")
+    permissions.create_acl("user", "watcher", "manager", "vm", "vm1")
     assert client.post("/vms/vm1/terminal-ticket", headers=headers).status_code == 403
 
 
 def test_object_acl_lists_own_and_pool_assignments(client, auth_headers):
     pool_id = permissions.create_pool("web")
     permissions.add_pool_member(pool_id, "vm-a")
-    permissions.create_acl("user", "bob", "operateur", "vm", "vm-a")
-    permissions.create_acl("user", "erin", "lecteur", "pool", str(pool_id))
-    permissions.create_acl("user", "zed", "lecteur", "vm", "vm-b")
-    permissions.create_acl("user", "ct", "lecteur", "container", "vm-a")
+    permissions.create_acl("user", "bob", "operator", "vm", "vm-a")
+    permissions.create_acl("user", "erin", "drive", "pool", str(pool_id))
+    permissions.create_acl("user", "zed", "drive", "vm", "vm-b")
+    permissions.create_acl("user", "ct", "drive", "container", "vm-a")
     admin = auth_headers("root", "admin")
 
-    rows = client.get("/acl/object/vm/vm-a", headers=admin).json()
-    assert [(r["subject_id"], r["herite_de"]) for r in rows] == [("bob", None), ("erin", "web")]
-    rows = client.get("/acl/object/container/vm-a", headers=admin).json()
+    rows = client.get("/acl/object/vm/vm-a", headers=admin).json()["items"]
+    assert [(r["subject_id"], r["inherited_from"]) for r in rows] == [("bob", None), ("erin", "web")]
+    rows = client.get("/acl/object/container/vm-a", headers=admin).json()["items"]
     assert [r["subject_id"] for r in rows] == ["ct"]
 
     assert client.get("/acl/object/pool/1", headers=admin).status_code == 422
-    assert client.get("/acl/object/vm/vm-a", headers=auth_headers("watcher", "observateur")).status_code == 403
+    assert client.get("/acl/object/vm/vm-a", headers=auth_headers("watcher", "viewer")).status_code == 403

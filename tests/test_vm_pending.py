@@ -41,12 +41,12 @@ def test_changes_are_listed_with_their_running_and_next_values():
         "<interface type='bridge'><mac address='52:54:00:00:00:02'/><source bridge='br0'/><vlan><tag id='20'/></vlan><model type='e1000'/></interface>"
         "<hostdev mode='subsystem' type='pci'><source><address domain='0x0000' bus='0x03' slot='0x00' function='0x0'/></source></hostdev></devices>",
     )
-    changes = {(c["cle"], c["objet"]): (c["actuel"], c["prochain"]) for c in vm_pending.diff(LIVE, nxt)}
+    changes = {(c["key"], c["object"]): (c["current"], c["next"]) for c in vm_pending.diff(LIVE, nxt)}
     assert changes == {
         ("vcpu", None): ("2", "4"),
-        ("memoire", None): ("2048 MiB", "4096 MiB"),
+        ("memory", None): ("2048 MiB", "4096 MiB"),
         ("machine", None): ("pc-q35-8.2", "pc-q35-9.0"),
-        ("disque", "vda"): (
+        ("disk", "vda"): (
             "/var/lib/libvirt/images/web.qcow2 · virtio · type=qcow2, cache=none",
             "/var/lib/libvirt/images/web.qcow2 · virtio · type=qcow2, cache=writeback",
         ),
@@ -59,9 +59,9 @@ def test_removed_device_and_boot_order():
     nxt = LIVE.replace("<boot order='1'/>", "")
     nxt = nxt[: nxt.index("<interface")] + nxt[nxt.index("</interface>") + len("</interface>") :]
     nxt = nxt.replace("<os>", "<os><boot dev='network'/>")
-    changes = {(c["cle"], c["objet"]): (c["actuel"], c["prochain"]) for c in vm_pending.diff(LIVE, nxt)}
+    changes = {(c["key"], c["object"]): (c["current"], c["next"]) for c in vm_pending.diff(LIVE, nxt)}
     assert changes == {
-        ("demarrage", None): ("vda", "network"),
+        ("boot", None): ("vda", "network"),
         ("interface", "52:54:00:00:00:01"): ("default · virtio", None),
     }
 
@@ -101,8 +101,8 @@ def test_api_reports_pending_changes_of_a_running_vm(client, auth_headers, monke
     monkeypatch.setattr(settings, "open_conn", lambda node=None: opened.append(node) or conn)
     admin = auth_headers("root", "admin")
     r = client.get("/vms/web/pending-changes?node=n2", headers=admin).json()
-    assert r == {"en_marche": True, "changements": [{"cle": "vcpu", "objet": None, "actuel": "2", "prochain": "3"}]}
+    assert r == {"running": True, "changes": [{"key": "vcpu", "object": None, "current": "2", "next": "3"}]}
     assert opened == ["n2"]
     conn.dom.active = False
-    assert client.get("/vms/web/pending-changes", headers=admin).json() == {"en_marche": False, "changements": []}
+    assert client.get("/vms/web/pending-changes", headers=admin).json() == {"running": False, "changes": []}
     assert client.get("/vms/nope/pending-changes", headers=admin).status_code == 404

@@ -7,11 +7,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core import cluster_view, ha_selffence, initial_password, inventory_cache, rolling_update, version
+from app.core import cluster_view, error_codes, ha_selffence, initial_password, inventory_cache, rolling_update, version
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -68,6 +71,7 @@ from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
 from app.routers.replication import router as replication_router
+from app.routers.sso import pages as sso_pages
 from app.routers.sso import router as sso_router
 from app.routers.storage import router as storage_router
 from app.routers.tasks import router as tasks_router
@@ -76,6 +80,7 @@ from app.routers.update import router as update_router
 from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
 from app.routers.vms import router as vms_router
+from app.routers.workstation import pages as workstation_pages
 from app.routers.workstation import router as workstation_router
 
 logger = logging.getLogger(__name__)
@@ -131,44 +136,55 @@ async def remember_client_ip(request: Request, call_next):
         request_ip.reset(token)
 
 
-app.include_router(auth_router)
-app.include_router(sso_router)
-app.include_router(dashboard_router)
-app.include_router(vms_router)
-app.include_router(storage_router)
-app.include_router(network_router)
-app.include_router(templates_router)
-app.include_router(isos_router)
-app.include_router(audit_router)
-app.include_router(tasks_router)
-app.include_router(groups_router)
-app.include_router(pools_router)
-app.include_router(acl_router)
-app.include_router(host_router)
-app.include_router(update_router)
-app.include_router(metrics_router)
-app.include_router(backups_router)
-app.include_router(jobs_router)
-app.include_router(nodes_router)
-app.include_router(containers_router)
-app.include_router(vm_disks_router)
-app.include_router(vm_export_router)
-app.include_router(ha_router)
-app.include_router(notifications_router)
-app.include_router(workstation_router)
-app.include_router(kubernetes_router)
-app.include_router(meta_router)
-app.include_router(cfs_router)
-app.include_router(cluster_setup_router)
-app.include_router(cluster_update_router)
-app.include_router(certificate_router)
-app.include_router(host_system_router)
-app.include_router(metric_servers_router)
-app.include_router(backup_groups_router)
-app.include_router(replication_router)
-app.include_router(file_restore_router)
-app.include_router(ldap_router)
-app.include_router(api_docs_router)
+# Every route of the API under one versioned prefix (docs/design/api-v1.md): a client names the contract it was written
+# for, and a later incompatible version can live next to it. Old addresses answer 410 (gone_before_v1 below).
+API = "/api/v1"
+_API_ROUTERS = (
+    auth_router,
+    sso_router,
+    dashboard_router,
+    vms_router,
+    storage_router,
+    network_router,
+    templates_router,
+    isos_router,
+    audit_router,
+    tasks_router,
+    groups_router,
+    pools_router,
+    acl_router,
+    host_router,
+    update_router,
+    metrics_router,
+    backups_router,
+    jobs_router,
+    nodes_router,
+    containers_router,
+    vm_disks_router,
+    vm_export_router,
+    ha_router,
+    notifications_router,
+    workstation_router,
+    kubernetes_router,
+    meta_router,
+    cfs_router,
+    cluster_setup_router,
+    cluster_update_router,
+    certificate_router,
+    host_system_router,
+    metric_servers_router,
+    backup_groups_router,
+    replication_router,
+    file_restore_router,
+    ldap_router,
+    api_docs_router,
+)
+for _router in _API_ROUTERS:
+    app.include_router(_router, prefix=API)
+# Opened by a browser or written in another system's configuration, not called by an API client: they stay where they
+# were (the SSO sign-in and the callback an identity provider was given, the client's download).
+app.include_router(sso_pages)
+app.include_router(workstation_pages)
 if not _API_DOCS:
     # Swagger for the accounts an administrator chose (app/core/api_docs.py); HYPERLITE_API_DOCS=1 serves FastAPI's
     # own public pages instead, for development.
@@ -192,7 +208,7 @@ def serve_favicon():
     favicon_path = f"{DASHBOARD_DIST}/favicon.svg"
     if os.path.isfile(favicon_path):
         return FileResponse(favicon_path, media_type="image/svg+xml")
-    return JSONResponse(status_code=404, content={"detail": "favicon not found"})
+    return JSONResponse(status_code=404, content={"detail": "favicon not found", "code": "not_found"})
 
 
 def _environment_label():
@@ -219,7 +235,7 @@ def _is_loopback(request):
 @app.get("/health")
 def health(request: Request):
     """Answers everyone (the sign-in page reads the environment label before any
-    sign-in), but host name and software versions only go to a signed-in caller: to
+    sign-in), purpose host name and software versions only go to a signed-in caller: to
     anyone else they are a precise fingerprint of the host. The update watchdog
     (scripts/update_watchdog.sh) polls from the host itself without a session and
     needs the running version, so a loopback caller gets that one field."""
@@ -237,7 +253,8 @@ def health(request: Request):
 
     conn = open_conn()
     try:
-        body = {"status": "ok", "environment": _environment_label()}
+        # "api": the version of the API (/api/v1), for a client to know which addresses and names to use.
+        body = {"status": "ok", "environment": _environment_label(), "api": 1}
         if optional_user(request) is None:
             if _is_loopback(request):
                 body["hyperlite_version"] = _running_version()
@@ -279,7 +296,7 @@ def serve_ui(request: Request, path: str = ""):
     # Only a browser navigating asks for HTML. An API client calling a path that does not exist (a typo, a route of
     # another version) got the dashboard page with a 200, which reads as a success: it gets a JSON 404.
     if "text/html" not in request.headers.get("accept", ""):
-        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        return JSONResponse(status_code=404, content={"detail": "Not Found", "code": "not_found"})
     dashboard_index = f"{DASHBOARD_DIST}/index.html"
     if os.path.isfile(dashboard_index):
         return FileResponse(dashboard_index, headers=NO_CACHE_HEADERS)
@@ -348,7 +365,7 @@ async def confirm_writes(request: Request, call_next):
 
 # Requests that change nothing in the cluster's configuration, or must work to see why it is read-only: signing in and
 # out. Everything else that changes something is refused on a node that lost the quorum (cluster_lead.read_only_reason).
-_READ_ONLY_EXEMPT = ("/auth/login", "/auth/logout")
+_READ_ONLY_EXEMPT = (f"{API}/auth/login", f"{API}/auth/logout")
 
 
 @app.middleware("http")
@@ -358,7 +375,35 @@ async def read_only_without_quorum(request: Request, call_next):
 
         reason = await run_in_threadpool(cluster_lead.read_only_reason)
         if reason:
-            return JSONResponse(status_code=503, content={"detail": reason})
+            return JSONResponse(status_code=503, content={"detail": reason, "code": "read_only"})
+    return await call_next(request)
+
+
+# The API before 1.0 had no prefix. A client still calling those addresses (a script, an old hyperlite-cli) gets a
+# clear answer naming what to do, never the dashboard page or a bare 404 (docs/design/api-v1.md, "Old clients").
+_OLD_ROUTES = []
+
+
+def _old_routes():
+    from starlette.routing import compile_path
+
+    if not _OLD_ROUTES:
+        for router in _API_ROUTERS:
+            _OLD_ROUTES.extend(compile_path(route.path)[0] for route in router.routes if getattr(route, "path", None))
+    return _OLD_ROUTES
+
+
+@app.middleware("http")
+async def gone_before_v1(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith(API + "/") and any(rx.match(path) for rx in _old_routes()):
+        cli = request.headers.get("user-agent", "").startswith("hyperlite-cli/")
+        detail = (
+            "This hyperlite-cli is older than the server: update it (Account > Workstation client)"
+            if cli
+            else f"This address is gone since Hyperlite 1.0: use {API}{path}"
+        )
+        return JSONResponse(status_code=410, content={"detail": detail, "code": "api_gone"})
     return await call_next(request)
 
 
@@ -378,7 +423,10 @@ async def no_id_handler(request: Request, exc: NoId):
     # In a cluster whose hyperlite-cfs does not answer, a new object cannot get a safe id (app/repositories/cfs/ids.py).
     return JSONResponse(
         status_code=503,
-        content={"detail": "The cluster configuration service does not answer: nothing new can be created right now"},
+        content={
+            "detail": "The cluster configuration service does not answer: nothing new can be created right now",
+            "code": "cluster_unavailable",
+        },
     )
 
 
@@ -388,23 +436,40 @@ async def forwarded_handler(request: Request, exc: cluster_view.Forwarded):
     return JSONResponse(status_code=exc.status, content=exc.body)
 
 
+# Every error of the API names a code of app/core/error_codes.py next to its sentence: its own, or its status's.
+@app.exception_handler(StarletteHTTPException)
+async def http_error_handler(request: Request, exc: StarletteHTTPException):
+    code = getattr(exc, "code", None) or error_codes.for_status(exc.status_code)
+    return JSONResponse(
+        status_code=exc.status_code, content={"detail": exc.detail, "code": code}, headers=getattr(exc, "headers", None)
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors()), "code": "invalid"})
+
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     print(f"UNHANDLED ERROR on {request.method} {request.url.path}: {exc!r}", flush=True)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    return JSONResponse(status_code=500, content={"detail": "Internal server error", "code": "internal"})
 
 
 def on_startup():
     pwd = seed_admin()
     from app.core import access_log
 
-    access_log.start()
+    access_log.start()  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
     from app.core import peer_https
 
     peer_https.start()  # this node's certificate fingerprint, for the other members' HTTPS calls
     from app.core import statd
 
-    statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
+    statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
+    from app.core import cluster_v1
+
+    cluster_v1.start()  # the replicated configuration rewritten once every member runs 1.0 (docs/design/api-v1.md)
     if pwd:
         # Never log the password: store it in a root-only file and log only where it is.
         pw_file = Path(__file__).resolve().parent.parent / "data" / "initial-admin-password.txt"

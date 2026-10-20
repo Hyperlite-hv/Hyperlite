@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from app.domain.common import AlreadyExists
 from app.repositories import registry
 
-STEP_TYPES = ("vm", "host", "chaque_cible")
+STEP_TYPES = ("vm", "host", "each_target")
 
 
 class JobNotFound(LookupError):
@@ -41,14 +41,14 @@ async def get_job(job_id):
 
 
 async def create_job(name, description, steps, username):
-    """steps: dicts (cible_type, cible, commande, condition_type, condition_valeur)."""
+    """steps: dicts (target_type, target, command, condition_type, condition_value)."""
     if not steps:
         raise JobInvalid("A job needs at least one step")
     for s in steps:
-        if s["cible_type"] not in STEP_TYPES:
-            raise JobInvalid("cible_type invalide")
-        if s["cible_type"] == "vm" and not s["cible"]:
-            raise JobInvalid("cible requise quand cible_type='vm'")
+        if s["target_type"] not in STEP_TYPES:
+            raise JobInvalid("target_type invalide")
+        if s["target_type"] == "vm" and not s["target"]:
+            raise JobInvalid("target requise quand target_type='vm'")
     try:
         job_id = await registry.automation().create_job(
             name, description, username, datetime.now(UTC).isoformat(), steps

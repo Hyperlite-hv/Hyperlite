@@ -17,15 +17,15 @@ export function useVmActions() {
     try {
       if (action === "stop") {
         // As Proxmox's shutdown timeout: a guest may ignore the request (still booting, agent not connected yet).
-        const ok = await confirmAction({ title: t("confirm.stop.title", { name: vm.nom }), message: t("confirm.stop.message"), confirmLabel: t("confirm.stop.confirm"), danger: false, option: { label: t("confirm.stop.forceAfter") } });
+        const ok = await confirmAction({ title: t("confirm.stop.title", { name: vm.name }), message: t("confirm.stop.message"), confirmLabel: t("confirm.stop.confirm"), danger: false, option: { label: t("confirm.stop.forceAfter") } });
         if (!ok) return;
         await runVMAction(vmKey(vm), "stop", { force: false, forceAfter: ok.option ? 180 : null });
       } else if (action === "force-stop") {
-        const ok = await confirmAction({ title: t("confirm.forceStop.title", { name: vm.nom }), message: t("confirm.forceStop.message"), confirmLabel: t("confirm.forceStop.confirm"), danger: true });
+        const ok = await confirmAction({ title: t("confirm.forceStop.title", { name: vm.name }), message: t("confirm.forceStop.message"), confirmLabel: t("confirm.forceStop.confirm"), danger: true });
         if (!ok) return;
         await runVMAction(vmKey(vm), "stop", { force: true });
       } else if (action === "restart") {
-        const ok = await confirmAction({ title: t("confirm.restart.title", { name: vm.nom }), message: t("confirm.restart.message"), confirmLabel: t("confirm.restart.confirm"), danger: true });
+        const ok = await confirmAction({ title: t("confirm.restart.title", { name: vm.name }), message: t("confirm.restart.message"), confirmLabel: t("confirm.restart.confirm"), danger: true });
         if (!ok) return;
         await runVMAction(vmKey(vm), "restart");
       } else {
@@ -51,5 +51,5 @@ export function consoleUrl(vm, mode) {
   if (apiNode(vm.node)) params.set("node", vm.node);
   if (mode) params.set("mode", mode);
   const qs = params.toString();
-  return `/console/${encodeURIComponent(vm.nom)}${qs ? `?${qs}` : ""}`;
+  return `/console/${encodeURIComponent(vm.name)}${qs ? `?${qs}` : ""}`;
 }

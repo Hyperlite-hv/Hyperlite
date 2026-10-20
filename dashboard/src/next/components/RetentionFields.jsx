@@ -3,7 +3,7 @@ import { Field } from "./ui";
 
 // Retention of a backup schedule: how many recent backups to keep, plus (optional) the newest of the last days,
 // weeks and months, the grandfather-father-son policy. An empty period field does not use that period.
-export const RETENTION_LIMITS = { retention_count: [1, 365], garder_jours: [1, 366], garder_semaines: [1, 260], garder_mois: [1, 120] };
+export const RETENTION_LIMITS = { retention_count: [1, 365], keep_days: [1, 366], keep_weeks: [1, 260], keep_months: [1, 120] };
 
 export function retentionProblems(value) {
   const bad = {};
@@ -24,7 +24,7 @@ export function retentionPayload(value) {
 }
 
 export function retentionForm(row) {
-  return { retention_count: row?.retention_count ?? 7, garder_jours: row?.garder_jours ?? "", garder_semaines: row?.garder_semaines ?? "", garder_mois: row?.garder_mois ?? "" };
+  return { retention_count: row?.retention_count ?? 7, keep_days: row?.keep_days ?? "", keep_weeks: row?.keep_weeks ?? "", keep_months: row?.keep_months ?? "" };
 }
 
 export default function RetentionFields({ value, onChange, disabled }) {
@@ -41,9 +41,9 @@ export default function RetentionFields({ value, onChange, disabled }) {
       <legend>{t("gfs.title")}</legend>
       <div className="nx-fg">
         {input("retention_count", t("gfs.last"), t("vb.copies"))}
-        {input("garder_jours", t("gfs.daily"), t("gfs.days"))}
-        {input("garder_semaines", t("gfs.weekly"), t("gfs.weeks"))}
-        {input("garder_mois", t("gfs.monthly"), t("gfs.months"))}
+        {input("keep_days", t("gfs.daily"), t("gfs.days"))}
+        {input("keep_weeks", t("gfs.weekly"), t("gfs.weeks"))}
+        {input("keep_months", t("gfs.monthly"), t("gfs.months"))}
       </div>
       <p className="nx-f-h" style={{ margin: 0 }}>{t("gfs.help")}</p>
     </fieldset>
@@ -52,8 +52,8 @@ export default function RetentionFields({ value, onChange, disabled }) {
 
 export function describeRetention(t, row) {
   const parts = [t("gfs.sumLast", { n: row.retention_count })];
-  if (row.garder_jours) parts.push(t("gfs.sumDaily", { n: row.garder_jours }));
-  if (row.garder_semaines) parts.push(t("gfs.sumWeekly", { n: row.garder_semaines }));
-  if (row.garder_mois) parts.push(t("gfs.sumMonthly", { n: row.garder_mois }));
+  if (row.keep_days) parts.push(t("gfs.sumDaily", { n: row.keep_days }));
+  if (row.keep_weeks) parts.push(t("gfs.sumWeekly", { n: row.keep_weeks }));
+  if (row.keep_months) parts.push(t("gfs.sumMonthly", { n: row.keep_months }));
   return parts.join(" · ");
 }

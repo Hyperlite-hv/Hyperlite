@@ -28,28 +28,28 @@ function DiskRow({ vm, disk, admin, onSaved }) {
   async function save() {
     setBusy(true);
     try {
-      const r = await setVMDiskOptions(vm.nom, disk.cible, {
+      const r = await setVMDiskOptions(vm.name, disk.target, {
         cache: v.cache || null, discard: v.discard || null, io: v.io || null, iothread: v.iothread,
         iops: v.iops === "" ? null : Number(v.iops), mbps: v.mbps === "" ? null : Number(v.mbps),
       });
-      pushToast({ kind: "success", title: t("va.diskSaved", { dev: disk.cible }), message: r.a_redemarrer ? t("va.nextStart") : t("va.appliedNow") });
+      pushToast({ kind: "success", title: t("va.diskSaved", { dev: disk.target }), message: r.needs_restart ? t("va.nextStart") : t("va.appliedNow") });
       onSaved(r);
     } catch (e) { pushToast({ kind: "error", title: t("va.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   const sel = (k, list, label) => (
-    <select className="nx-sel" aria-label={`${label} ${disk.cible}`} value={v[k]} disabled={!admin} onChange={set(k)}>
+    <select className="nx-sel" aria-label={`${label} ${disk.target}`} value={v[k]} disabled={!admin} onChange={set(k)}>
       {list.map((o) => <option key={o} value={o}>{o || t("va.default")}</option>)}
     </select>
   );
   return (
     <tr>
-      <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{disk.cible}<small className="nx-muted"> {disk.bus}</small></th>
+      <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{disk.target}<small className="nx-muted"> {disk.bus}</small></th>
       <td>{sel("cache", CACHE, t("va.cache"))}</td>
       <td>{sel("discard", DISCARD, t("va.discard"))}</td>
       <td>{sel("io", IO, t("va.io"))}{bad.io && <small className="is-error">{t("va.nativeRule")}</small>}</td>
-      <td><input type="checkbox" aria-label={`${t("va.iothread")} ${disk.cible}`} checked={v.iothread} disabled={!admin || disk.bus !== "virtio"} onChange={set("iothread")} title={disk.bus !== "virtio" ? t("va.iothreadVirtio") : undefined} /></td>
-      <td><input className="nx-inp nx-mono nx-inp--sm" aria-label={`IOPS ${disk.cible}`} placeholder="∞" inputMode="numeric" value={v.iops} disabled={!admin} onChange={set("iops")} aria-invalid={bad.iops || undefined} /></td>
-      <td><input className="nx-inp nx-mono nx-inp--sm" aria-label={`MB/s ${disk.cible}`} placeholder="∞" inputMode="numeric" value={v.mbps} disabled={!admin} onChange={set("mbps")} aria-invalid={bad.mbps || undefined} /></td>
+      <td><input type="checkbox" aria-label={`${t("va.iothread")} ${disk.target}`} checked={v.iothread} disabled={!admin || disk.bus !== "virtio"} onChange={set("iothread")} title={disk.bus !== "virtio" ? t("va.iothreadVirtio") : undefined} /></td>
+      <td><input className="nx-inp nx-mono nx-inp--sm" aria-label={`IOPS ${disk.target}`} placeholder="∞" inputMode="numeric" value={v.iops} disabled={!admin} onChange={set("iops")} aria-invalid={bad.iops || undefined} /></td>
+      <td><input className="nx-inp nx-mono nx-inp--sm" aria-label={`MB/s ${disk.target}`} placeholder="∞" inputMode="numeric" value={v.mbps} disabled={!admin} onChange={set("mbps")} aria-invalid={bad.mbps || undefined} /></td>
       <td>{admin && <button type="button" className="nx-btn nx-btn--sm" disabled={!dirty || busy || bad.iops || bad.mbps || bad.io} onClick={save}>{t("va.save")}</button>}</td>
     </tr>
   );
@@ -60,18 +60,18 @@ function BootOrderCard({ vm, state, admin, onSaved }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const devices = [
-    ...state.disques.map((d) => ({ id: d.cible, label: `${d.cible} (${d.type === "cdrom" ? "CD-ROM" : t("va.disk")})` })),
+    ...state.disks.map((d) => ({ id: d.target, label: `${d.target} (${d.type === "cdrom" ? "CD-ROM" : t("va.disk")})` })),
     ...(state.interfaces || []).map((x) => ({ id: x, label: `${t("va.network")} ${x.slice(4)}` })),
   ];
-  const [order, setOrder] = useState(state.ordre_demarrage);
+  const [order, setOrder] = useState(state.boot_order);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setOrder(state.ordre_demarrage); }, [state.ordre_demarrage]);
+  useEffect(() => { setOrder(state.boot_order); }, [state.boot_order]);
   const move = (i, d) => setOrder((o) => { const n = [...o]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n; });
   const toggle = (id) => setOrder((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id]));
-  const dirty = order.join() !== state.ordre_demarrage.join();
+  const dirty = order.join() !== state.boot_order.join();
   async function save() {
     setBusy(true);
-    try { const r = await setVMBootOrder(vm.nom, order); pushToast({ kind: "success", title: t("va.bootSaved"), message: t("va.bootNext") }); onSaved(r); }
+    try { const r = await setVMBootOrder(vm.name, order); pushToast({ kind: "success", title: t("va.bootSaved"), message: t("va.bootNext") }); onSaved(r); }
     catch (e) { pushToast({ kind: "error", title: t("va.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   return (
@@ -105,15 +105,15 @@ function BalloonCard({ vm, state, admin, onSaved }) {
   const lang = useLangStore((s) => s.lang);
   const pushToast = useInfraStore((s) => s.pushToast);
   const b = state.ballooning;
-  const [on, setOn] = useState(b.actif);
-  const [min, setMin] = useState(String(b.minimum_mo));
+  const [on, setOn] = useState(b.active);
+  const [min, setMin] = useState(String(b.minimum_mb));
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setOn(b.actif); setMin(String(b.minimum_mo)); }, [b.actif, b.minimum_mo]);
-  const bad = on && !(Number.isInteger(Number(min)) && Number(min) >= 256 && Number(min) <= b.memoire_mo);
-  const dirty = on !== b.actif || (on && Number(min) !== b.minimum_mo);
+  useEffect(() => { setOn(b.active); setMin(String(b.minimum_mb)); }, [b.active, b.minimum_mb]);
+  const bad = on && !(Number.isInteger(Number(min)) && Number(min) >= 256 && Number(min) <= b.memory_mb);
+  const dirty = on !== b.active || (on && Number(min) !== b.minimum_mb);
   async function save() {
     setBusy(true);
-    try { const r = await setVMBalloon(vm.nom, { actif: on, minimum_mo: on ? Number(min) : null }); pushToast({ kind: "success", title: t("va.balloonSaved"), message: r.a_redemarrer ? t("va.nextStart") : t("va.appliedNow") }); onSaved(r); }
+    try { const r = await setVMBalloon(vm.name, { active: on, minimum_mb: on ? Number(min) : null }); pushToast({ kind: "success", title: t("va.balloonSaved"), message: r.needs_restart ? t("va.nextStart") : t("va.appliedNow") }); onSaved(r); }
     catch (e) { pushToast({ kind: "error", title: t("va.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   return (
@@ -121,7 +121,7 @@ function BalloonCard({ vm, state, admin, onSaved }) {
       <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("va.balloonHelp")}</p>
       <label className="nx-check"><input type="checkbox" checked={on} disabled={!admin} onChange={(e) => setOn(e.target.checked)} /> {t("va.balloonOn")}</label>
       {on && <div className="nx-fg nx-fg--2" style={{ marginTop: "var(--space-3)" }}>
-        <Field label={t("va.balloonMin")} help={t("hlp.balloonMin")} unit={lang === "fr" ? "Mo" : "MB"} error={bad ? t("va.balloonRule", { max: b.memoire_mo }) : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={256} max={b.memoire_mo} disabled={!admin} value={min} onChange={(e) => setMin(e.target.value)} />}</Field>
+        <Field label={t("va.balloonMin")} help={t("hlp.balloonMin")} unit={lang === "fr" ? "Mo" : "MB"} error={bad ? t("va.balloonRule", { max: b.memory_mb }) : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={256} max={b.memory_mb} disabled={!admin} value={min} onChange={(e) => setMin(e.target.value)} />}</Field>
       </div>}
       {admin && <div className="nx-fa"><button type="button" className="nx-btn" disabled={!dirty || bad || busy} onClick={save}>{t("va.save")}</button></div>}
     </Card>
@@ -131,10 +131,10 @@ function BalloonCard({ vm, state, admin, onSaved }) {
 function MachineCard({ vm, state, admin, onSaved }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
-  const next = state.machines_plus_recentes?.[0];
+  const next = state.newer_machines?.[0];
   async function upgrade() {
     if (!(await confirmAction({ title: t("va.machineTitle", { m: next }), message: t("va.machineMsg"), confirmLabel: t("va.machineGo") }))) return;
-    try { const r = await setVMMachine(vm.nom, next); pushToast({ kind: "success", title: t("va.machineSaved"), message: r.machine }); onSaved(r); }
+    try { const r = await setVMMachine(vm.name, next); pushToast({ kind: "success", title: t("va.machineSaved"), message: r.machine }); onSaved(r); }
     catch (e) { pushToast({ kind: "error", title: t("va.saveFailed"), message: errorMessage(e) }); }
   }
   return (
@@ -143,7 +143,7 @@ function MachineCard({ vm, state, admin, onSaved }) {
       <p className="nx-muted" style={{ margin: "var(--space-3) 0 0", fontSize: "var(--fs-13)" }}>{t("va.machineHelp")}</p>
       {next && admin && (
         <div className="nx-fa">
-          <button type="button" className="nx-btn" aria-disabled={state.en_marche || undefined} title={state.en_marche ? t("menu.reason.mustStop") : undefined} onClick={() => !state.en_marche && upgrade()}>{t("va.machineUpgrade", { m: next })}</button>
+          <button type="button" className="nx-btn" aria-disabled={state.running || undefined} title={state.running ? t("menu.reason.mustStop") : undefined} onClick={() => !state.running && upgrade()}>{t("va.machineUpgrade", { m: next })}</button>
         </div>
       )}
     </Card>
@@ -157,13 +157,13 @@ export default function VmAdvancedPage({ resource: vm }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState(null);
   const load = useCallback(async () => {
-    try { setState(await fetchVMHardwareOptions(vm.nom)); setError(null); } catch (e) { setError(errorMessage(e)); }
-  }, [vm.nom]);
+    try { setState(await fetchVMHardwareOptions(vm.name)); setError(null); } catch (e) { setError(errorMessage(e)); }
+  }, [vm.name]);
   useEffect(() => { load(); }, [load]);
   if (error && !state) return <ErrorState message={error} onRetry={load} />;
   if (!state) return <Loading />;
   const onSaved = (r) => setState((s) => ({ ...s, ...r }));
-  const disks = state.disques.filter((d) => d.type !== "cdrom");
+  const disks = state.disks.filter((d) => d.type !== "cdrom");
   return (
     <>
       <Card title={t("va.disks")} flush>
@@ -177,7 +177,7 @@ export default function VmAdvancedPage({ resource: vm }) {
         <TableWrap>
           <table className="nx-table">
             <thead><tr><th scope="col">{t("vh.device")}</th><th scope="col">{t("va.cache")}</th><th scope="col">{t("va.discard")}</th><th scope="col">{t("va.io")}</th><th scope="col">{t("va.iothread")}</th><th scope="col">IOPS</th><th scope="col">MB/s</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
-            <tbody>{disks.map((d) => <DiskRow key={`${d.cible}:${d.cache}:${d.discard}:${d.io}:${d.iothread}:${d.iops}:${d.mbps}`} vm={vm} disk={d} admin={admin} onSaved={onSaved} />)}</tbody>
+            <tbody>{disks.map((d) => <DiskRow key={`${d.target}:${d.cache}:${d.discard}:${d.io}:${d.iothread}:${d.iops}:${d.mbps}`} vm={vm} disk={d} admin={admin} onSaved={onSaved} />)}</tbody>
           </table>
         </TableWrap>
       </Card>

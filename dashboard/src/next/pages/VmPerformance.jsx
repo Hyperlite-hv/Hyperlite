@@ -32,7 +32,7 @@ function useMetricsHistory(key, fetcher, local, range) {
   return { ...state, local };
 }
 export function useVmHistory(vm, range) {
-  const name = vm?.nom;
+  const name = vm?.name;
   const node = vm?.node;
   const fetcher = useCallback((r) => fetchVMMetricsHistory(name, r, node), [name, node]);
   return useMetricsHistory(name && `${node}:${name}`, fetcher, true, range);
@@ -113,7 +113,7 @@ export function ChartGrid({ hist, running, charts, remoteKey, height = 150, head
 }
 
 export function VmChartGrid({ vm, hist, height }) {
-  return <ChartGrid hist={hist} running={vm.etat === "actif"} height={height} />;
+  return <ChartGrid hist={hist} running={vm.state === "active"} height={height} />;
 }
 
 // Performance tab: the charts, larger, with the range picker and min / average / max over the period.
@@ -121,13 +121,13 @@ export default function VmPerformancePage({ resource: vm }) {
   const [range, setRange] = useState("1h");
   const hist = useVmHistory(vm, range);
   if (!vm) return null;
-  return <PerformanceView hist={hist} range={range} setRange={setRange} running={vm.etat === "actif"} />;
+  return <PerformanceView hist={hist} range={range} setRange={setRange} running={vm.state === "active"} />;
 }
 export function NodePerformancePage({ resource: node }) {
   const [range, setRange] = useState("1h");
   const hist = useHostHistory(node, range);
   if (!node) return null;
-  return <PerformanceView hist={hist} range={range} setRange={setRange} running={node.etat === "online"} charts={NODE_CHARTS} />;
+  return <PerformanceView hist={hist} range={range} setRange={setRange} running={node.state === "online"} charts={NODE_CHARTS} />;
 }
 export const NODE_CHARTS = null; // the host probe reports CPU, memory, disk and network like a VM
 

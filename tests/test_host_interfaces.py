@@ -38,15 +38,15 @@ def test_only_interfaces_a_network_can_sit_on_are_listed(sysnet):
     from app.core.host_interfaces import list_host_interfaces
 
     listed = list_host_interfaces(sysnet, addresses={"eno1": ["192.168.3.42/24"]})
-    assert [(i["nom"], i["type"], i["utilisable"]) for i in listed] == [
-        ("br0", "pont", True),
-        ("eno1", "physique", True),
+    assert [(i["name"], i["type"], i["usable"]) for i in listed] == [
+        ("br0", "bridge", True),
+        ("eno1", "physical", True),
         ("bond0", "bond", True),
         ("eno1.20", "vlan", True),
         ("wlp1s0", "wifi", False),
     ]
-    eno1 = next(i for i in listed if i["nom"] == "eno1")
-    assert eno1["adresses"] == ["192.168.3.42/24"] and eno1["etat"] == "up" and eno1["mac"] == "00:11:22:33:44:55"
+    eno1 = next(i for i in listed if i["name"] == "eno1")
+    assert eno1["addresses"] == ["192.168.3.42/24"] and eno1["state"] == "up" and eno1["mac"] == "00:11:22:33:44:55"
 
 
 class _Net:
@@ -107,10 +107,8 @@ def api(database, sysnet, monkeypatch):
 def test_the_form_gets_the_list_from_the_api(api, client, auth_headers):
     r = client.get("/networks/host-interfaces", headers=auth_headers("admin"))
     assert r.status_code == 200
-    assert [i["nom"] for i in r.json()] == ["br0", "eno1", "bond0", "eno1.20", "wlp1s0"]
-    assert (
-        client.get("/networks/host-interfaces", headers=auth_headers("viewer", role="observateur")).status_code == 403
-    )
+    assert [i["name"] for i in r.json()["items"]] == ["br0", "eno1", "bond0", "eno1.20", "wlp1s0"]
+    assert client.get("/networks/host-interfaces", headers=auth_headers("viewer", role="viewer")).status_code == 403
 
 
 def test_an_existing_bridge_is_used_as_a_bridge(api, client, auth_headers):
@@ -120,7 +118,7 @@ def test_an_existing_bridge_is_used_as_a_bridge(api, client, auth_headers):
     assert r.status_code == 201, r.text
     root = ET.fromstring(api.defined[-1])
     assert root.find("bridge").get("name") == "br0" and root.find("forward/interface") is None
-    assert r.json()["pont"] == "br0" and r.json()["macvtap"] is False
+    assert r.json()["bridge"] == "br0" and r.json()["macvtap"] is False
 
 
 @pytest.mark.parametrize("nic", ["eno1", "bond0", "eno1.20"])
@@ -132,7 +130,7 @@ def test_a_nic_bond_or_vlan_is_used_through_macvtap(api, client, auth_headers, n
     root = ET.fromstring(api.defined[-1])
     assert root.find("forward").get("mode") == "bridge" and root.find("forward/interface").get("dev") == nic
     assert root.find("bridge") is None
-    assert r.json()["pont"] == nic and r.json()["macvtap"] is True
+    assert r.json()["bridge"] == nic and r.json()["macvtap"] is True
 
 
 @pytest.mark.parametrize(

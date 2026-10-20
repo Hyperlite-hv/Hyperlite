@@ -10,7 +10,7 @@ EXPORT_COLUMNS = ("timestamp", "username", "action", "resource", "result", "erro
 
 
 def _clauses(filters):
-    """filters: action, result, username (exact), resource (part of it), depuis / jusqu_a (timestamp bounds)."""
+    """filters: action, result, username (exact), resource (part of it), since / until (timestamp bounds)."""
     clauses, params = [], []
     for column in ("action", "result", "username"):
         if filters.get(column):
@@ -19,12 +19,12 @@ def _clauses(filters):
     if filters.get("resource"):
         clauses.append("resource LIKE ?")
         params.append(f"%{filters['resource']}%")
-    if filters.get("depuis"):
+    if filters.get("since"):
         clauses.append("timestamp >= ?")
-        params.append(filters["depuis"])
-    if filters.get("jusqu_a"):
+        params.append(filters["since"])
+    if filters.get("until"):
         clauses.append("timestamp <= ?")
-        params.append(filters["jusqu_a"])
+        params.append(filters["until"])
     return clauses, params
 
 

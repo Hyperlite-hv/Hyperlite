@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 from app.core import vm_locks
 from app.core.audit import log_action
 from app.core.backups import refuse_vm_with_block_disks
+from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import require_role, require_vm_privilege
 from app.core.vm_export import EXPORTS_DIR, list_exports, run_export
@@ -36,7 +37,7 @@ DOWNLOAD_TICKET_TTL = 60
 
 @router.get("/vm-exports")
 def list_vm_exports(user: dict = Depends(require_role("admin"))):
-    return list_exports()
+    return listing(list_exports())
 
 
 @router.post("/vms/{name}/export", status_code=202)
@@ -56,7 +57,7 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
             )  # already logged and tracked in run_export (task + audit_log)
 
     threading.Thread(target=vm_locks.released_after(claim, job), daemon=True).start()
-    log_action(user["username"], "export_vm_requested", name, "succes")
+    log_action(user["username"], "export_vm_requested", name, "success")
     return {"message": f"Export of '{name}' started in the background"}
 
 
@@ -67,8 +68,8 @@ def delete_vm_export(filename: str, user: dict = Depends(require_role("admin")))
     if not path.exists():
         raise HTTPException(status_code=404, detail="Export not found")
     path.unlink()
-    log_action(user["username"], "delete_vm_export", filename, "succes")
-    return {"nom": filename, "supprime": True}
+    log_action(user["username"], "delete_vm_export", filename, "success")
+    return {"name": filename, "deleted": True}
 
 
 @router.post("/vm-exports/{filename}/download-ticket")
@@ -85,8 +86,8 @@ def create_download_ticket(filename: str, user: dict = Depends(require_role("adm
 
     ticket = secrets.token_urlsafe(24)
     DOWNLOAD_TICKETS[ticket] = (filename, now + DOWNLOAD_TICKET_TTL)
-    log_action(user["username"], "create_vm_export_download_ticket", filename, "succes")
-    return {"ticket": ticket, "expire_dans_s": DOWNLOAD_TICKET_TTL}
+    log_action(user["username"], "create_vm_export_download_ticket", filename, "success")
+    return {"ticket": ticket, "expires_in_s": DOWNLOAD_TICKET_TTL}
 
 
 @router.get("/vm-exports/download")

@@ -8,27 +8,28 @@ from pydantic import BaseModel
 
 from app.core import metric_export
 from app.core.audit import log_action
+from app.core.listing import listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/metric-servers", tags=["metrics"])
 
 
 class MetricServer(BaseModel):
-    nom: str
+    name: str
     type: str
-    actif: bool = True
+    active: bool = True
     url: str | None = None
     org: str | None = None
     bucket: str | None = None
-    jeton: str | None = None  # write-only; empty on an update keeps the stored one
-    hote: str | None = None
+    token: str | None = None  # write-only; empty on an update keeps the stored one
+    host: str | None = None
     port: int | None = None
-    prefixe: str | None = None
+    prefix: str | None = None
 
 
 @router.get("")
 def list_metric_servers(user: dict = Depends(require_role("admin"))):
-    return metric_export.list_servers()
+    return listing(metric_export.list_servers())
 
 
 @router.post("", status_code=201)
@@ -37,7 +38,7 @@ def create_metric_server(payload: MetricServer, user: dict = Depends(require_rol
         server = metric_export.save_server(payload.model_dump())
     except metric_export.ExportError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "create_metric_server", server["nom"], "succes", server["type"])
+    log_action(user["username"], "create_metric_server", server["name"], "success", server["type"])
     return server
 
 
@@ -49,7 +50,7 @@ def update_metric_server(server_id: int, payload: MetricServer, user: dict = Dep
         server = metric_export.save_server(payload.model_dump(), server_id)
     except metric_export.ExportError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "update_metric_server", server["nom"], "succes")
+    log_action(user["username"], "update_metric_server", server["name"], "success")
     return server
 
 
@@ -57,7 +58,7 @@ def update_metric_server(server_id: int, payload: MetricServer, user: dict = Dep
 def delete_metric_server(server_id: int, user: dict = Depends(require_role("admin"))):
     if not metric_export.delete_server(server_id):
         raise HTTPException(status_code=404, detail="Metric server not found")
-    log_action(user["username"], "delete_metric_server", str(server_id), "succes")
+    log_action(user["username"], "delete_metric_server", str(server_id), "success")
     return {"message": "Metric server deleted"}
 
 
@@ -80,4 +81,4 @@ def test_metric_server(server_id: int, user: dict = Depends(require_role("admin"
         metric_export.record_result(server_id, e)
         raise HTTPException(status_code=502, detail=f"Sending failed: {e}") from e
     metric_export.record_result(server_id, None)
-    return {"envoyes": len(rows)}
+    return {"sent": len(rows)}

@@ -47,9 +47,9 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   const term = useRef(null);
   const ws = useRef(null);
   const onResize = useRef(null);
-  const name = vm?.nom;
+  const name = vm?.name;
   const node = apiNode(vm?.node);
-  const running = vm?.etat === "actif";
+  const running = vm?.state === "active";
   // A refusal will not change by asking again every few seconds.
   const failed = (e) => { setError(errorMessage(e)); setStatus("error"); if (e?.status >= 400 && e.status < 500) setGaveUp(true); };
   const terminal = mode === "terminal";

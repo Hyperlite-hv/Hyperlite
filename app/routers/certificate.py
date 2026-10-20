@@ -31,23 +31,23 @@ def get_certificate(user: dict = Depends(require_role("admin"))):
 
 
 class CertificateImport(BaseModel):
-    certificat: str
-    cle: str
-    chaine: str = ""
+    certificate: str
+    key: str
+    chain: str = ""
 
 
 @router.post("")
 def import_certificate(payload: CertificateImport, user: dict = Depends(require_role("admin"))):
     try:
-        described = tls_certs.import_pem(payload.certificat, payload.cle, payload.chaine)
+        described = tls_certs.import_pem(payload.certificate, payload.key, payload.chain)
     except tls_certs.CertError as e:
-        log_action(user["username"], "import_certificate", "tls", "echec", str(e))
+        log_action(user["username"], "import_certificate", "tls", "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
     log_action(
-        user["username"], "import_certificate", "tls", "succes", f"{described['sujet']} until {described['fin']}"
+        user["username"], "import_certificate", "tls", "success", f"{described['subject']} until {described['end']}"
     )
     _restart_soon()
-    return {**tls_certs.info(), "redemarrage": True}
+    return {**tls_certs.info(), "restart": True}
 
 
 @router.post("/previous")
@@ -56,9 +56,9 @@ def restore_previous_certificate(user: dict = Depends(require_role("admin"))):
         tls_certs.restore_previous()
     except tls_certs.CertError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    log_action(user["username"], "restore_certificate", "tls", "succes")
+    log_action(user["username"], "restore_certificate", "tls", "success")
     _restart_soon()
-    return {**tls_certs.info(), "redemarrage": True}
+    return {**tls_certs.info(), "restart": True}
 
 
 @router.post("/self-signed")
@@ -66,15 +66,15 @@ def self_signed_certificate(user: dict = Depends(require_role("admin"))):
     try:
         tls_certs.self_signed()
     except (subprocess.SubprocessError, OSError) as e:
-        log_action(user["username"], "self_signed_certificate", "tls", "echec", str(e))
+        log_action(user["username"], "self_signed_certificate", "tls", "failed", str(e))
         raise HTTPException(status_code=500, detail=f"The self-signed certificate could not be created: {e}") from e
-    log_action(user["username"], "self_signed_certificate", "tls", "succes")
+    log_action(user["username"], "self_signed_certificate", "tls", "success")
     _restart_soon()
-    return {**tls_certs.info(), "redemarrage": True}
+    return {**tls_certs.info(), "restart": True}
 
 
 class AcmeRequest(BaseModel):
-    domaine: str
+    domain: str
     email: str
     test: bool = False
 
@@ -84,16 +84,16 @@ def acme_certificate(payload: AcmeRequest, user: dict = Depends(require_role("ad
     """Let's Encrypt by HTTP-01: the domain must resolve to this node and port 80 must reach it from the Internet.
     certbot's deploy hook installs the certificate and restarts the service; certbot's own timer renews it."""
     try:
-        run = tls_certs.run_acme(payload.domaine, payload.email, payload.test, ACME_TIMEOUT_S)
+        run = tls_certs.run_acme(payload.domain, payload.email, payload.test, ACME_TIMEOUT_S)
     except tls_certs.CertError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     except subprocess.TimeoutExpired:
-        log_action(user["username"], "acme_certificate", payload.domaine, "echec", "timeout")
+        log_action(user["username"], "acme_certificate", payload.domain, "failed", "timeout")
         raise HTTPException(status_code=504, detail="certbot did not finish in time") from None
     if run.returncode != 0:
         # certbot's last lines name the cause (DNS, port 80 unreachable, rate limit): shown as they are.
         tail = "\n".join((run.stderr or run.stdout).strip().splitlines()[-8:])
-        log_action(user["username"], "acme_certificate", payload.domaine, "echec", tail[-500:])
+        log_action(user["username"], "acme_certificate", payload.domain, "failed", tail[-500:])
         raise HTTPException(status_code=502, detail=f"certbot failed:\n{tail}")
-    log_action(user["username"], "acme_certificate", payload.domaine, "succes", "staging" if payload.test else None)
-    return {**tls_certs.info(), "redemarrage": True}
+    log_action(user["username"], "acme_certificate", payload.domain, "success", "staging" if payload.test else None)
+    return {**tls_certs.info(), "restart": True}

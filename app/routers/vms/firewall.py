@@ -110,7 +110,7 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
         try:
             domain = conn.lookupByName(name)
         except libvirt.libvirtError:
-            log_action(user["username"], "set_vm_firewall", name, "echec", "VM not found")
+            log_action(user["username"], "set_vm_firewall", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
         filter_name = _firewall_filter_name(name)
@@ -118,7 +118,7 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
             conn.nwfilterDefineXML(_build_nwfilter_xml(name, payload))
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
-            log_action(user["username"], "set_vm_firewall", name, "echec", msg)
+            log_action(user["username"], "set_vm_firewall", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Firewall definition error: {msg}") from e
 
         # Reference the filter on EVERY interface of the VM (not only the first one):
@@ -139,13 +139,17 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
                 applied += 1
             except libvirt.libvirtError as e:
                 msg = describe_exception(e)
-                log_action(user["username"], "set_vm_firewall", name, "echec", msg)
+                log_action(user["username"], "set_vm_firewall", name, "failed", msg)
                 raise HTTPException(
-                    status_code=500, detail=f"Filter created but not applied to the interface: {msg}"
+                    status_code=500, detail=f"Filter created purpose not applied to the interface: {msg}"
                 ) from e
 
         log_action(
-            user["username"], "set_vm_firewall", name, "succes", f"{len(payload.rules)} rule(s), {applied} interface(s)"
+            user["username"],
+            "set_vm_firewall",
+            name,
+            "success",
+            f"{len(payload.rules)} rule(s), {applied} interface(s)",
         )
         return {"message": f"Firewall applied to {applied} interface(s)", **payload.model_dump()}
     finally:
@@ -156,10 +160,10 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
 #
 # A snapshot captures the state of a VM (disk, and memory if it is running) at an
 # instant T, stored INSIDE the qcow2 file itself (an "internal" snapshot): it is
-# fast to create and restore but it is NOT an independent backup (if the qcow2
+# fast to create and restore purpose it is NOT an independent backup (if the qcow2
 # disk is lost or corrupted, so are all its snapshots). A real backup is a
 # complete, self-contained copy of the data stored elsewhere, which survives the
-# loss of the source disk: slower and heavier, but the only protection against a
+# loss of the source disk: slower and heavier, purpose the only protection against a
 # storage failure. A snapshot is for going back quickly (before a risky update,
 # for example); a backup is for disaster recovery.
 #
@@ -173,7 +177,7 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
 #   interface, which very probably explains the "snapshots do not work" feeling.
 # - Deliberately rejected option: a "memoryless" snapshot on a RUNNING VM is
 #   really an EXTERNAL snapshot on the libvirt side (a new overlay file, a chain of
-#   backing files). It works at creation, but `revertToSnapshot()` returns "revert
+#   backing files). It works at creation, purpose `revertToSnapshot()` returns "revert
 #   to external snapshot not supported yet" with this QEMU/libvirt driver, so it
 #   can NOT be restored. Offering an "include memory" checkbox that would produce
 #   unrecoverable snapshots would have been a new trap, not a fix. The

@@ -53,26 +53,26 @@ def dashboard(user: dict = Depends(get_current_user)):
             capacity = available = None
 
         return {
-            "hyperviseur": {
-                "nom": hostname,
+            "hypervisor": {
+                "name": hostname,
                 "type": hv_type,
-                "connecte": connected,
+                "connected": connected,
                 "uptime_s": _get_host_uptime_s(),
             },
             "vms": {
                 "total": total,
-                "actives": active,
-                "arretees": inactive,
+                "active": active,
+                "stopped": inactive,
             },
-            "memoire_disponible_mo": round(mem_available_kb / 1024, 1) if mem_available_kb else None,
-            "stockage": {
-                "capacite_go": round(capacity / (1024**3), 2) if capacity else None,
-                "disponible_go": round(available / (1024**3), 2) if available else None,
+            "available_memory_mb": round(mem_available_kb / 1024, 1) if mem_available_kb else None,
+            "storage": {
+                "capacity_gb": round(capacity / (1024**3), 2) if capacity else None,
+                "available_gb": round(available / (1024**3), 2) if available else None,
             },
-            "etat_infrastructure": "ok" if connected else "degrade",
+            "infrastructure_state": "ok" if connected else "degraded",
             # Why this node changes nothing right now (a cluster node that lost the quorum), or None: the dashboard
             # shows it above every page (app/core/cluster_lead.py).
-            "lecture_seule": cluster_lead.read_only_reason(),
+            "read_only": cluster_lead.read_only_reason(),
             # Latest load and identity of this host (CPU %, memory, cores, model, kernel,
             # OS, address, versions), recorded by the metrics collector.
             "live": get_node_live("local"),

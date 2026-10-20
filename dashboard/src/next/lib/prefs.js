@@ -40,4 +40,4 @@ export function termOptions() {
 }
 
 // Key of a storage pool in the overview selection.
-export const poolKey = (p) => `${p.node}:${p.nom}`;
+export const poolKey = (p) => `${p.node}:${p.name}`;

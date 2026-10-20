@@ -62,7 +62,7 @@ def test_device_sign_in_needs_a_web_session_and_hands_out_one_expiring_token(cli
     # the token works and is listed as a workstation token
     me = client.get("/workstation/config", headers={"Authorization": f"Bearer {granted['access_token']}"})
     assert me.status_code == 200 and me.json()["tunnel_ports"] == [22, 3389]
-    tokens = client.get("/auth/tokens", headers=headers).json()
+    tokens = client.get("/auth/tokens", headers=headers).json()["items"]
     assert [t["kind"] for t in tokens if t["name"] == "Workstation: PC-ALICE"] == ["cli"]
 
 
@@ -124,7 +124,7 @@ def test_tunnel_ticket_checks_port_privilege_and_state(client, auth_headers, mon
     from app.routers.vms import tunnel
 
     admin = auth_headers("alice")
-    observer = auth_headers("bob", role="observateur")
+    observer = auth_headers("bob", role="viewer")
     monkeypatch.setattr(tunnel, "open_conn", lambda: _Conn(_Domain()))
     assert client.post("/vms/vm1/tunnel-ticket", json={"port": 22}, headers=observer).status_code == 403
     assert client.post("/vms/vm1/tunnel-ticket", json={"port": 25}, headers=admin).status_code == 403
@@ -143,8 +143,8 @@ def test_tunnel_ticket_checks_port_privilege_and_state(client, auth_headers, mon
 def test_scoped_operator_role_grants_the_tunnel():
     from app.core.permissions import ROLES
 
-    assert "vm.tunnel" in ROLES["operateur"]["privileges"] and "vm.tunnel" in ROLES["gestionnaire"]["privileges"]
-    assert "vm.tunnel" not in ROLES["lecteur"]["privileges"]
+    assert "vm.tunnel" in ROLES["operator"]["privileges"] and "vm.tunnel" in ROLES["manager"]["privileges"]
+    assert "vm.tunnel" not in ROLES["drive"]["privileges"]
 
 
 def _echo_server():
@@ -167,7 +167,7 @@ def test_tunnel_relays_bytes_both_ways(client, make_user):
     make_user("alice")
     port = _echo_server()
     ticket = workstation.issue_tunnel_ticket("vm1", "127.0.0.1", port, "alice")
-    with client.websocket_connect(f"/vms/vm1/tunnel?ticket={ticket}") as ws:
+    with client.websocket_connect(f"/api/v1/vms/vm1/tunnel?ticket={ticket}") as ws:
         ws.send_bytes(b"SSH-2.0-test\r\n")
         assert ws.receive_bytes() == b"SSH-2.0-test\r\n"
         assert workstation.open_tunnel_count("alice") == 1
@@ -177,7 +177,10 @@ def test_tunnel_relays_bytes_both_ways(client, make_user):
 def test_tunnel_refuses_a_bad_ticket_with_a_reason(client):
     from starlette.websockets import WebSocketDisconnect
 
-    with client.websocket_connect("/vms/vm1/tunnel?ticket=nope") as ws, pytest.raises(WebSocketDisconnect) as closed:
+    with (
+        client.websocket_connect("/api/v1/vms/vm1/tunnel?ticket=nope") as ws,
+        pytest.raises(WebSocketDisconnect) as closed,
+    ):
         ws.receive_bytes()
     assert closed.value.code == 4401
 
@@ -188,10 +191,12 @@ def test_client_download_is_public_and_listed(client, auth_headers, tmp_path, mo
     monkeypatch.setattr(router, "CLI_DIST", tmp_path)
     (tmp_path / "windows-amd64").mkdir()
     (tmp_path / "windows-amd64" / "hyperlite.exe").write_bytes(b"MZ binary")
-    got = client.get("/downloads/hyperlite/windows-amd64")
+    got = client.get("http://testserver/downloads/hyperlite/windows-amd64")
     assert got.status_code == 200 and got.content == b"MZ binary"
-    assert client.get("/downloads/hyperlite/linux-amd64").status_code == 404
-    assert client.get("/downloads/hyperlite/windows-amd64..").status_code == 404  # only listed platforms
+    assert client.get("http://testserver/downloads/hyperlite/linux-amd64").status_code == 404
+    assert (
+        client.get("http://testserver/downloads/hyperlite/windows-amd64..").status_code == 404
+    )  # only listed platforms
     listed = client.get("/workstation/config", headers=auth_headers("alice")).json()["downloads"]
     assert [d["platform"] for d in listed] == ["windows-amd64"] and len(listed[0]["sha256"]) == 64
 

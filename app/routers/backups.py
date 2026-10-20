@@ -22,6 +22,7 @@ from app.core.backups import (
     verify_backup,
 )
 from app.core.libvirt_utils import open_conn
+from app.core.listing import listing
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task
 from app.core.vm_builder import validate_name
@@ -49,26 +50,26 @@ async def list_all_backups(cluster: bool = False, user: dict = Depends(get_curre
     answer; outside a cluster this node's, in the same shape."""
     rows = await backup_service.list_all()
     if not cluster:
-        return rows
+        return listing(rows)
     answers, missing = await run_in_threadpool(cluster_view.gather, user["username"], "/backups", {})
-    return {"items": cluster_view.merge(rows, answers, "cree_le"), "unreachable": missing}
+    return listing(cluster_view.merge(rows, answers, "created_at"), unreachable=missing)
 
 
 class RecoveryItem(BaseModel):
-    chemin: str = Field(max_length=4096)
-    nom: str = Field(max_length=128)
+    path: str = Field(max_length=4096)
+    name: str = Field(max_length=128)
 
 
 class RecoveryRequest(BaseModel):
     elements: list[RecoveryItem] = Field(max_length=site_recovery.MAX_VMS)
-    reseau: str | None = Field(None, max_length=64)
+    network: str | None = Field(None, max_length=64)
 
 
 @router.get("/backups/site-recovery/scan")
-def scan_foreign_backups(chemin: str, user: dict = Depends(require_role("admin"))):
-    """The backups another site wrote under `chemin` (an NFS share of this site, for instance), per VM."""
+def scan_foreign_backups(path: str, user: dict = Depends(require_role("admin"))):
+    """The backups another site wrote under `path` (an NFS share of this site, for instance), per VM."""
     try:
-        return site_recovery.scan(chemin)
+        return listing(site_recovery.scan(path))
     except site_recovery.RecoveryError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
 
@@ -78,7 +79,7 @@ def start_site_recovery(payload: RecoveryRequest, user: dict = Depends(require_r
     """Restore the chosen backups as new VMs of this node, one after another, in one task."""
     try:
         task_id = site_recovery.recover(
-            [item.model_dump() for item in payload.elements], payload.reseau or None, user["username"]
+            [item.model_dump() for item in payload.elements], payload.network or None, user["username"]
         )
     except site_recovery.RecoveryError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
@@ -88,14 +89,14 @@ def start_site_recovery(payload: RecoveryRequest, user: dict = Depends(require_r
 @router.get("/backup-schedules")
 async def list_backup_schedules(user: dict = Depends(get_current_user)):
     """Every scheduled backup, so a list page can tell which VMs have none."""
-    return await backup_service.list_schedules()
+    return listing(await backup_service.list_schedules())
 
 
 @router.get("/vms/{name}/backups")
 async def list_vm_backups(
     name: str, user: dict = Depends(require_vm_privilege("vm.view")), _: None = Depends(_on_vm_node)
 ):
-    return await backup_service.list_for_vm(name)
+    return listing(await backup_service.list_for_vm(name))
 
 
 class BackupRequest(BaseModel):
@@ -151,7 +152,7 @@ def create_backup(
     except BaseException:
         claim.release()
         raise
-    log_action(user["username"], "backup_vm_requested", name, "succes")
+    log_action(user["username"], "backup_vm_requested", name, "success")
     return {"message": f"Backup of '{name}' started in the background"}
 
 
@@ -168,9 +169,9 @@ def delete_backup(
     except backup_service.BackupNotFound:
         raise HTTPException(status_code=404, detail="Backup not found") from None
     except backup_use.BackupInUse as e:
-        log_action(user["username"], "delete_backup", backup_service.find(backup_id)["vm_name"], "echec", str(e))
+        log_action(user["username"], "delete_backup", backup_service.find(backup_id)["vm_name"], "failed", str(e))
         raise HTTPException(status_code=409, detail=str(e)) from None
-    log_action(user["username"], "delete_backup", row["vm_name"], "succes", f"backup #{backup_id}")
+    log_action(user["username"], "delete_backup", row["vm_name"], "success", f"backup #{backup_id}")
     return {"message": "Backup deleted"}
 
 
@@ -180,17 +181,17 @@ def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("ad
     row = backup_service.find(backup_id)
     if not row:
         raise HTTPException(status_code=404, detail="Backup not found")
-    if row["statut"] != "termine":
+    if row["status"] != "succeeded":
         raise HTTPException(status_code=409, detail="Only a finished backup can be verified")
     task_id = create_task("verify_backup", row["vm_name"], username=user["username"])
 
     def job():
         try:
             verify_backup(backup_id, username=user["username"], task_id=task_id)
-            finish_task(task_id, "termine")
+            finish_task(task_id, "succeeded")
         except Exception as e:
             logger.warning("Verification of backup #%s failed", backup_id, exc_info=True)
-            finish_task(task_id, "echec", str(e))
+            finish_task(task_id, "failed", str(e))
 
     threading.Thread(target=job, daemon=True).start()
     return {"task_id": task_id, "backup": backup_id}
@@ -215,7 +216,7 @@ def restore_backup_endpoint(
     # What can be refused at once is refused here, so a request that cannot run never reads as started.
     if payload.mode not in ("overwrite", "new"):
         raise HTTPException(status_code=422, detail="Invalid mode (expected 'overwrite' or 'new')")
-    if row["statut"] != "termine":
+    if row["status"] != "succeeded":
         raise HTTPException(status_code=409, detail="This backup is not in a restorable state (failed or in progress)")
     if payload.mode == "new":
         name_error = validate_name(payload.new_name or "")
@@ -237,19 +238,19 @@ def restore_backup_endpoint(
     except BaseException:
         claim.release()
         raise
-    log_action(user["username"], "restore_backup_requested", row["vm_name"], "succes", f"mode={payload.mode}")
+    log_action(user["username"], "restore_backup_requested", row["vm_name"], "success", f"mode={payload.mode}")
     return {"message": "Restore started in the background"}
 
 
 class ScheduleRequest(BaseModel):
-    frequence: str = Field(description="'quotidien' | 'hebdomadaire' | 'mensuel'")
-    heure: str = Field(description="Heure locale UTC au format HH:MM")
-    cible_dir: str | None = None
+    frequency: str = Field(description="'daily' | 'weekly' | 'monthly'")
+    time: str = Field(description="Heure locale UTC au format HH:MM")
+    target_dir: str | None = None
     retention_count: int = Field(7, ge=1, le=365)
     # GFS retention on top of the count (app/core/backup_retention.py); None: not used.
-    garder_jours: int | None = Field(None, ge=1, le=366)
-    garder_semaines: int | None = Field(None, ge=1, le=260)
-    garder_mois: int | None = Field(None, ge=1, le=120)
+    keep_days: int | None = Field(None, ge=1, le=366)
+    keep_weeks: int | None = Field(None, ge=1, le=260)
+    keep_months: int | None = Field(None, ge=1, le=120)
 
 
 @router.get("/vms/{name}/backup-schedule")
@@ -279,10 +280,10 @@ def set_backup_schedule(
     # cluster, the schedule of another member's VM is set on that member (the schedules are shared; it runs them).
     if not _vm_exists(name):
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found on this node")
-    if payload.frequence not in ("quotidien", "hebdomadaire", "mensuel"):
+    if payload.frequency not in ("daily", "weekly", "monthly"):
         raise HTTPException(status_code=422, detail="Invalid frequency")
     try:
-        hh, mm = payload.heure.split(":")
+        hh, mm = payload.time.split(":")
         valid_time = 0 <= int(hh) <= 23 and 0 <= int(mm) <= 59
     except ValueError:
         valid_time = False
@@ -290,25 +291,25 @@ def set_backup_schedule(
         raise HTTPException(status_code=422, detail="Invalid time (expected HH:MM)")
 
     current = backup_service.schedule_of(name)
-    target = _target_dir(payload.cible_dir, user, current and current.get("cible_dir")) or str(DEFAULT_BACKUP_DIR)
-    next_run = _next_run(payload.frequence, payload.heure)
+    target = _target_dir(payload.target_dir, user, current and current.get("target_dir")) or str(DEFAULT_BACKUP_DIR)
+    next_run = _next_run(payload.frequency, payload.time)
     backup_service.set_schedule(
         name,
-        payload.frequence,
-        payload.heure,
+        payload.frequency,
+        payload.time,
         target,
         payload.retention_count,
-        payload.garder_jours,
-        payload.garder_semaines,
-        payload.garder_mois,
+        payload.keep_days,
+        payload.keep_weeks,
+        payload.keep_months,
         next_run.isoformat(),
     )
-    log_action(user["username"], "set_backup_schedule", name, "succes", f"{payload.frequence} at {payload.heure}")
+    log_action(user["username"], "set_backup_schedule", name, "success", f"{payload.frequency} at {payload.time}")
     return backup_service.schedule_of(name)
 
 
 @router.delete("/vms/{name}/backup-schedule")
 def delete_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
     backup_service.delete_schedule(name)
-    log_action(user["username"], "delete_backup_schedule", name, "succes")
+    log_action(user["username"], "delete_backup_schedule", name, "success")
     return {"message": "Schedule deleted"}

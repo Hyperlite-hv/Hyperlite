@@ -36,7 +36,7 @@ test.describe("Virtual networks (real libvirt backend)", () => {
 
     const token = await apiLogin(request);
     const nets = await (await request.get("/networks", { headers: { Authorization: `Bearer ${token}` } })).json();
-    const created = nets.find((n: { nom: string }) => n.nom === NAME);
+    const created = nets.find((n: { name: string }) => n.name === NAME);
     expect(created, "network exists in libvirt").toBeTruthy();
 
     await page.reload();
@@ -95,6 +95,6 @@ test.describe("Virtual networks (real libvirt backend)", () => {
 
     const token = await apiLogin(request);
     const nets = await (await request.get("/networks", { headers: { Authorization: `Bearer ${token}` } })).json();
-    expect(nets.map((n: { nom: string }) => n.nom)).not.toContain(NAME);
+    expect(nets.map((n: { name: string }) => n.name)).not.toContain(NAME);
   });
 });

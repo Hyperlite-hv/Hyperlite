@@ -9,6 +9,7 @@ from app.core.audit import log_action
 from app.core.libvirt_utils import (
     open_conn,
 )
+from app.core.listing import listing
 from app.core.security import get_current_user
 from app.routers.vms._shared import _domain_summaries, _domain_summary, router
 
@@ -58,7 +59,10 @@ def _cluster_vms(username):
             code, body = cluster_view.forward(member, username, "GET", "/vms")
         except cluster_view.PeerError:
             return member["name"], None
-        return member["name"], body if code == 200 and isinstance(body, list) else None
+        if code != 200:
+            return member["name"], None
+        vms = body.get("items") if isinstance(body, dict) else body  # a member's list (v1: {items, total})
+        return member["name"], vms if isinstance(vms, list) else None
 
     if ask:
         with ThreadPoolExecutor(max_workers=min(16, len(ask))) as pool:
@@ -67,7 +71,7 @@ def _cluster_vms(username):
                     unreachable.append(name)
                 else:
                     items += [{**v, "node": name} for v in vms]
-    return {"items": items, "stale": stale, "unreachable": unreachable}
+    return listing(items, stale=stale, unreachable=unreachable)
 
 
 @router.get("", dependencies=[Depends(_on_member)])
@@ -81,7 +85,7 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
     cluster=true: every member's VMs from the cluster's status (_cluster_vms, phase E)."""
     if cluster:
         result = _cluster_vms(user["username"])
-        log_action(user["username"], "list_vms", "vms", "succes")
+        log_action(user["username"], "list_vms", "vms", "success")
         # Already JSON-ready (plain dicts from the summaries): FastAPI's generic encoder walked a thousand of them on
         # every request, the largest cost of this list under load (docs/scale-results.md).
         return JSONResponse(result)
@@ -96,8 +100,8 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
         raise HTTPException(status_code=502, detail=f"{node or 'This node'} does not answer: {e}") from None
     finally:
         conn.close()
-    log_action(user["username"], "list_vms", "vms", "succes")
-    return result
+    log_action(user["username"], "list_vms", "vms", "success")
+    return listing(result)
 
 
 @router.get("/{name}")
@@ -107,10 +111,10 @@ def get_vm(name: str, node: str | None = None, user: dict = Depends(get_current_
     try:
         domain = conn.lookupByName(name)
     except libvirt.libvirtError:
-        log_action(user["username"], "get_vm", name, "echec", "VM not found")
+        log_action(user["username"], "get_vm", name, "failed", "VM not found")
         conn.close()
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
     result = _domain_summary(domain)
     conn.close()
-    log_action(user["username"], "get_vm", name, "succes")
+    log_action(user["username"], "get_vm", name, "success")
     return result

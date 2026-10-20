@@ -43,7 +43,7 @@ def members():
     except Exception as e:  # the daemon does not answer: this node's own lists only, said in the log
         logger.warning("Cluster members unknown: %s", e)
         return []
-    names = {m["nom"] for m in conf.get("membres", [])} - {self_node.name()}
+    names = {m["name"] for m in conf.get("members", [])} - {self_node.name()}
     return sorted((n for n in cluster.list_nodes() if n["name"] in names), key=lambda n: n["name"])
 
 
@@ -75,7 +75,7 @@ def gather(username, path, params):
     sending = _sending()
 
     def ask(node):
-        if node.get("statut") == "hors_ligne" and node["name"] not in sending:
+        if node.get("status") == "offline" and node["name"] not in sending:
             return node["name"], None
         try:
             status, body = _call(node, username, "GET", full)
@@ -131,6 +131,7 @@ def merge(local, answers, key, reverse=True, limit=None):
     me = self_node.name()
     rows = [{**r, "on": me} for r in local]
     for name, body in answers.items():
+        body = body.get("items", []) if isinstance(body, dict) else body  # a member's list (v1: {items, total})
         rows += [{**r, "on": name} for r in body if isinstance(r, dict)] if isinstance(body, list) else []
     rows.sort(key=lambda r: (r.get(key) is not None, r.get(key) or ""), reverse=reverse)
     return rows[:limit] if limit else rows
@@ -186,6 +187,8 @@ def forward_to(param, refuse_others=None):
         query = urllib.parse.urlencode([(k, v) for k, v in request.query_params.multi_items() if k != param])
         path = request.scope.get("raw_path", b"").decode("latin-1") or urllib.parse.quote(request.url.path)
         path = path.split("?", 1)[0] + (f"?{query}" if query else "")
+        if path.startswith("/api/v1/"):
+            path = path[len("/api/v1") :]  # the member's API prefix is added by peer_api, as for every call
         body = None
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             raw = await request.body()

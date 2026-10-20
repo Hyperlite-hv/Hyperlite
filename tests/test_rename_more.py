@@ -122,7 +122,7 @@ def test_a_storage_pool_is_redefined_under_its_new_name_with_the_same_path(clien
         db.commit()
     headers = auth_headers("alice")
     r = client.post("/storage/fast/rename", json={"new_name": "ssd"}, headers=headers)
-    assert r.status_code == 200 and r.json()["nom"] == "ssd"
+    assert r.status_code == 200 and r.json()["name"] == "ssd"
     pool = hosts["local"].pools["ssd"]
     assert "fast" not in hosts["local"].pools and pool.isActive() and pool.autostart()
     root = ET.fromstring(pool.xml)
@@ -179,10 +179,10 @@ def test_a_shared_pool_is_renamed_on_every_node_and_its_definition_follows(clien
     shared_pools.save(
         {"name": "nas", "type": "netfs", "nfs_host": "h", "nfs_export_path": "/e"}, True, ["local", "n2"], "a"
     )
-    r = client.post("/storage/nas/rename", json={"new_name": "nas2", "partout": True}, headers=auth_headers("alice"))
-    assert r.status_code == 200 and {x["noeud"]: x["etat"] for x in r.json()["resultats"]} == {
-        "local": "renomme",
-        "n2": "renomme",
+    r = client.post("/storage/nas/rename", json={"new_name": "nas2", "everywhere": True}, headers=auth_headers("alice"))
+    assert r.status_code == 200 and {x["node"]: x["state"] for x in r.json()["results"]} == {
+        "local": "renamed",
+        "n2": "renamed",
     }
     assert "nas2" in hosts["n2"].pools and shared_pools.get("nas") is None
     assert shared_pools.get("nas2")["definition"]["name"] == "nas2"
@@ -266,7 +266,7 @@ def nets(database, monkeypatch):
     qemu.nets["lab"] = _Net(qemu, "<network><name>lab</name><bridge name='virbr7'/><ip address='10.9.0.1'/></network>")
     monkeypatch.setattr(network, "open_conn", lambda node=None: qemu)
     monkeypatch.setattr(network, "open_lxc_conn", lambda: lxc)
-    monkeypatch.setattr(network, "_network_summary", lambda net: {"nom": net.name()})
+    monkeypatch.setattr(network, "_network_summary", lambda net: {"name": net.name()})
     monkeypatch.setattr(network, "remove_network_firewall", lambda conn, name: None)
     applied = []
     monkeypatch.setattr(network, "apply_network_firewall", lambda conn, name, config: applied.append((name, config)))
@@ -286,7 +286,7 @@ def test_a_network_is_renamed_and_its_stopped_guests_follow(client, auth_headers
         )
         db.commit()
     r = client.post("/networks/lab/rename", json={"new_name": "labo"}, headers=auth_headers("alice"))
-    assert r.status_code == 200 and r.json()["invites_mis_a_jour"] == ["pg", "web"]
+    assert r.status_code == 200 and r.json()["guests_updated"] == ["pg", "web"]
     assert "labo" in qemu.nets and "lab" not in qemu.nets and qemu.nets["labo"].isActive()
     assert '<source network="labo" />' in qemu.defined[0] and '<source network="labo" />' in lxc.defined[0]
     assert get_container_app("pg")["network"] == "labo"
@@ -322,7 +322,7 @@ def test_labels_are_renamed_unique_and_for_administrators(client, auth_headers, 
     assert client.patch(f"/acl/custom-roles/{role}", json={"name": "readers"}, headers=admin).status_code == 200
     assert client.patch(f"/jobs/{job}", json={"name": "every night"}, headers=admin).status_code == 200
     assert client.patch("/pools/999", json={"name": "x"}, headers=admin).status_code == 404
-    viewer = auth_headers("olga", role="observateur")
+    viewer = auth_headers("olga", role="viewer")
     assert client.patch(f"/groups/{group}", json={"name": "x"}, headers=viewer).status_code == 403
     with database.get_conn() as db:
         names = [
@@ -338,7 +338,7 @@ def test_an_api_token_is_renamed_by_its_owner_only(client, auth_headers):
     token = client.post("/auth/tokens", json={"name": "ci"}, headers=alice).json()["id"]
     assert client.patch(f"/auth/tokens/{token}", json={"name": "x"}, headers=bob).status_code == 404
     assert client.patch(f"/auth/tokens/{token}", json={"name": "gitlab-ci"}, headers=alice).status_code == 200
-    assert client.get("/auth/tokens", headers=alice).json()[0]["name"] == "gitlab-ci"
+    assert client.get("/auth/tokens", headers=alice).json()["items"][0]["name"] == "gitlab-ci"
 
 
 # ---- Files ----
@@ -348,11 +348,11 @@ def test_a_template_takes_its_new_name(client, auth_headers, tmp_path, monkeypat
     from app.core import templates_store
 
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tmp_path)
-    for ext, content in (("json", json.dumps({"nom": "deb"})), ("xml", "<domain/>"), ("qcow2", "disk")):
+    for ext, content in (("json", json.dumps({"name": "deb"})), ("xml", "<domain/>"), ("qcow2", "disk")):
         (tmp_path / f"deb.{ext}").write_text(content)
     headers = auth_headers("alice")
     r = client.post("/templates/deb/rename", json={"new_name": "debian-13"}, headers=headers)
-    assert r.status_code == 200 and r.json()["nom"] == "debian-13"
+    assert r.status_code == 200 and r.json()["name"] == "debian-13"
     assert (tmp_path / "debian-13.qcow2").read_text() == "disk" and not (tmp_path / "deb.json").exists()
     assert client.post("/templates/nope/rename", json={"new_name": "x-y"}, headers=headers).status_code == 404
 
@@ -375,7 +375,7 @@ def test_an_iso_is_renamed_unless_a_vm_has_it_in_its_drive(client, auth_headers,
     )
     headers = auth_headers("alice")
     r = client.post("/isos/debian.iso/rename", json={"new_name": "debian-13.1-netinst"}, headers=headers)
-    assert r.status_code == 200 and r.json()["nom"] == "debian-13.1-netinst.iso"
+    assert r.status_code == 200 and r.json()["name"] == "debian-13.1-netinst.iso"
     assert (tmp_path / "debian-13.1-netinst.iso").exists()
     assert client.post("/isos/used.iso/rename", json={"new_name": "other"}, headers=headers).status_code == 409
     assert client.post("/isos/used.iso/rename", json={"new_name": "../x"}, headers=headers).status_code in (409, 422)

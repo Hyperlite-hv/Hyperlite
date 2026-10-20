@@ -42,16 +42,16 @@ function CleanupDrawer({ vm, state, onClose, onSaved }) {
   const bad = !Number.isInteger(n) || n < 1 || n > 365;
   async function save() {
     setBusy(true);
-    try { await setVMAutoCleanup(vm.nom, n); pushToast({ kind: "success", title: t("vc.enabled"), message: t("vc.enabledMsg", { name: vm.nom, n }) }); onSaved({ active: true, inactive_days: n }); onClose(); }
+    try { await setVMAutoCleanup(vm.name, n); pushToast({ kind: "success", title: t("vc.enabled"), message: t("vc.enabledMsg", { name: vm.name, n }) }); onSaved({ active: true, inactive_days: n }); onClose(); }
     catch (e) { pushToast({ kind: "error", title: t("vc.failed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   async function off() {
     setBusy(true);
-    try { await disableVMAutoCleanup(vm.nom); pushToast({ kind: "success", title: t("vc.disabled"), message: vm.nom }); onSaved({ active: false }); onClose(); }
+    try { await disableVMAutoCleanup(vm.name); pushToast({ kind: "success", title: t("vc.disabled"), message: vm.name }); onSaved({ active: false }); onClose(); }
     catch (e) { pushToast({ kind: "error", title: t("vc.failed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
   return (
-    <SideDrawer open title={t("vc.title", { name: vm.nom })} onClose={onClose} busy={busy} footer={<>
+    <SideDrawer open title={t("vc.title", { name: vm.name })} onClose={onClose} busy={busy} footer={<>
       {state?.active && <button type="button" className="nx-btn nx-btn--danger" disabled={busy} onClick={off}>{t("vc.disable")}</button>}
       <span className="nx-sp" />
       <button type="button" className="nx-btn nx-btn--ghost" disabled={busy} onClick={onClose}>{t("action.cancel")}</button>
@@ -87,76 +87,76 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   const [cleanup, setCleanup] = useState(undefined);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [ha, setHa] = useState(undefined);
-  const running = vm.etat === "actif";
+  const running = vm.state === "active";
   const act = (a) => vmActionState(a, vm, caps);
   const admin = (state = { enabled: true }) => (caps.admin ? state : { enabled: false, reason: "menu.reason.admin" });
   const stopped = running ? { enabled: false, reason: "menu.reason.mustStop" } : { enabled: true };
-  const targets = nodes.filter((n) => n.id !== vm.node && n.etat === "online" && !n.maintenance);
+  const targets = nodes.filter((n) => n.id !== vm.node && n.state === "online" && !n.maintenance);
   const mig = !caps.admin ? { enabled: false, reason: "menu.reason.admin" } : !running ? { enabled: false, reason: "menu.reason.notRunning" } : targets.length === 0 ? { enabled: false, reason: "mig.noTarget" } : { enabled: true };
 
   useEffect(() => {
     if (!open || !caps.admin || isRemoteVm(vm)) return;
     setHa(undefined); setCleanup(undefined);
-    fetchHaProtected().then((r) => setHa((Array.isArray(r) ? r : []).some((x) => x.vm_name === vm.nom))).catch(() => setHa(null));
-    fetchVMAutoCleanup(vm.nom).then(setCleanup).catch(() => setCleanup(null));
-  }, [open, caps.admin, vm.nom, vm.node]); // eslint-disable-line react-hooks/exhaustive-deps
+    fetchHaProtected().then((r) => setHa((Array.isArray(r) ? r : []).some((x) => x.vm_name === vm.name))).catch(() => setHa(null));
+    fetchVMAutoCleanup(vm.name).then(setCleanup).catch(() => setCleanup(null));
+  }, [open, caps.admin, vm.name, vm.node]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // These operations are served for the VMs of this host only (the backend has no node for them): on a remote VM
   // they would act on a local VM of the same name, so they are unavailable, with the reason.
   const remote = isRemoteVm(vm);
   const localOnly = (state) => (remote ? { enabled: false, reason: "menu.reason.localOnly" } : state);
   // A VM of another cluster member is backed up by that member, through this node; a node driven over SSH keeps none.
-  const member = remote && Boolean(nodes.find((n) => n.id === vm.node)?.membre);
+  const member = remote && Boolean(nodes.find((n) => n.id === vm.node)?.member);
   const onMember = (state) => (member ? state : localOnly(state));
   const known = (value) => (value === undefined ? { enabled: false, reason: "menu.reason.loading" } : value === null ? { enabled: false, reason: "menu.reason.unknown" } : admin());
   const fail = (title, e) => pushToast({ kind: "error", title, message: errorMessage(e) });
 
   async function clone() {
-    const name = await promptText({ title: t("vx.cloneTitle", { name: vm.nom }), message: t("vx.cloneMsg"), label: t("vx.cloneName"), defaultValue: `${vm.nom}-clone`, confirmLabel: t("vx.clone"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
+    const name = await promptText({ title: t("vx.cloneTitle", { name: vm.name }), message: t("vx.cloneMsg"), label: t("vx.cloneName"), defaultValue: `${vm.name}-clone`, confirmLabel: t("vx.clone"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
     if (!name) return;
-    try { await cloneVM(vm.nom, name.trim()); pushToast({ kind: "success", title: t("vx.cloned"), message: `${vm.nom} → ${name.trim()}` }); refreshAll?.(); }
+    try { await cloneVM(vm.name, name.trim()); pushToast({ kind: "success", title: t("vx.cloned"), message: `${vm.name} → ${name.trim()}` }); refreshAll?.(); }
     catch (e) { fail(t("vx.cloneFailed"), e); }
   }
   async function rename() {
-    const name = await promptText({ title: t("vx.renameTitle", { name: vm.nom }), message: t("vx.renameMsg"), label: t("vx.renameName"), defaultValue: vm.nom, confirmLabel: t("vx.rename"), validate: (v) => (!NAME_RE.test(v) ? t("vx.nameRule") : v === vm.nom ? t("vx.renameSame") : "") });
+    const name = await promptText({ title: t("vx.renameTitle", { name: vm.name }), message: t("vx.renameMsg"), label: t("vx.renameName"), defaultValue: vm.name, confirmLabel: t("vx.rename"), validate: (v) => (!NAME_RE.test(v) ? t("vx.nameRule") : v === vm.name ? t("vx.renameSame") : "") });
     if (!name) return;
     try {
-      await renameVM(vm.nom, name.trim(), vm.node);
-      pushToast({ kind: "success", title: t("vx.renamed"), message: `${vm.nom} → ${name.trim()}` });
+      await renameVM(vm.name, name.trim(), vm.node);
+      pushToast({ kind: "success", title: t("vx.renamed"), message: `${vm.name} → ${name.trim()}` });
       await refreshAll?.();
-      onRenamed?.(vmKey({ ...vm, nom: name.trim() }));
+      onRenamed?.(vmKey({ ...vm, name: name.trim() }));
     } catch (e) { fail(t("vx.renameFailed"), e); }
   }
   async function toTemplate() {
-    const name = await promptText({ title: t("vx.tplTitle", { name: vm.nom }), message: t("vx.tplMsg"), label: t("vx.tplName"), defaultValue: vm.nom, confirmLabel: t("vx.tpl"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
+    const name = await promptText({ title: t("vx.tplTitle", { name: vm.name }), message: t("vx.tplMsg"), label: t("vx.tplName"), defaultValue: vm.name, confirmLabel: t("vx.tpl"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
     if (!name) return;
-    try { await createTemplateFromVM(vm.nom, name.trim()); pushToast({ kind: "success", title: t("vx.tplDone"), message: name.trim() }); refreshAll?.(); useInfraStore.getState().navigateTo("datacenter", null, "templates"); }
+    try { await createTemplateFromVM(vm.name, name.trim()); pushToast({ kind: "success", title: t("vx.tplDone"), message: name.trim() }); refreshAll?.(); useInfraStore.getState().navigateTo("datacenter", null, "templates"); }
     catch (e) { fail(t("vx.tplFailed"), e); }
   }
   async function backupNow() {
-    try { await createBackup(vm.nom, null, vm.node); pushToast({ kind: "success", title: t("vb.started"), message: vm.nom }); if (followBackup) openTab("backup"); }
+    try { await createBackup(vm.name, null, vm.node); pushToast({ kind: "success", title: t("vb.started"), message: vm.name }); if (followBackup) openTab("backup"); }
     catch (e) { fail(t("vb.startFailed"), e); }
   }
   async function doExport() {
-    try { await exportVM(vm.nom); pushToast({ kind: "success", title: t("vx.exportStarted"), message: t("vx.exportMsg", { name: vm.nom }) }); }
+    try { await exportVM(vm.name); pushToast({ kind: "success", title: t("vx.exportStarted"), message: t("vx.exportMsg", { name: vm.name }) }); }
     catch (e) { fail(t("vx.exportFailed"), e); }
   }
   async function toggleHa() {
     const on = !!ha;
-    if (!(await confirmAction({ title: t(on ? "vx.haOffTitle" : "vx.haOnTitle", { name: vm.nom }), message: t(on ? "vx.haOffMsg" : "vx.haOnMsg"), confirmLabel: t(on ? "vx.haOff" : "vx.haOn"), danger: on }))) return;
+    if (!(await confirmAction({ title: t(on ? "vx.haOffTitle" : "vx.haOnTitle", { name: vm.name }), message: t(on ? "vx.haOffMsg" : "vx.haOnMsg"), confirmLabel: t(on ? "vx.haOff" : "vx.haOn"), danger: on }))) return;
     try {
-      if (on) await disableHa(vm.nom); else await enableHa(vm.nom, vm.node);
+      if (on) await disableHa(vm.name); else await enableHa(vm.name, vm.node);
       setHa(!on);
-      pushToast({ kind: "success", title: t(on ? "vx.haOffDone" : "vx.haOnDone"), message: vm.nom });
+      pushToast({ kind: "success", title: t(on ? "vx.haOffDone" : "vx.haOnDone"), message: vm.name });
     } catch (e) { fail(t("vx.haFailed"), e); }
   }
   async function remove() {
-    if (!(await confirmAction({ title: t("vx.deleteTitle", { name: vm.nom }), message: t("vx.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
+    if (!(await confirmAction({ title: t("vx.deleteTitle", { name: vm.name }), message: t("vx.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
     try { await useInfraStore.getState().runVMAction(vmKey(vm), "delete"); onDeleted?.(); }
     catch { /* the store already shows the error */ }
   }
   function snapshot() {
-    requestIntent("snapshot", vm.nom);
+    requestIntent("snapshot", vm.name);
     openTab("snapshots");
   }
 
@@ -224,7 +224,7 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
     onDeleted: () => navigateTo("datacenter", null, "vms"),
     onRenamed: (key) => navigateTo("vm", key, currentTab || "summary"),
   });
-  const running = vm.etat === "actif";
+  const running = vm.state === "active";
   const act = (a) => vmActionState(a, vm, caps);
   const c = act("console"); const st = act("start"); const sp = act("stop");
   return (
@@ -263,7 +263,7 @@ export function VmContextMenu({ vm, at, returnFocus, onDone }) {
   useEffect(() => { if (!menuOpen && !dialogOpen) onDone(); }, [menuOpen, dialogOpen, onDone]);
   return (
     <>
-      {menuOpen && <ContextMenu at={at} label={t("ctx.menuOf", { name: vm.nom })} returnFocus={returnFocus} onClose={() => setMenuOpen(false)}>{menu.items}</ContextMenu>}
+      {menuOpen && <ContextMenu at={at} label={t("ctx.menuOf", { name: vm.name })} returnFocus={returnFocus} onClose={() => setMenuOpen(false)}>{menu.items}</ContextMenu>}
       {menu.dialogs}
     </>
   );
@@ -284,11 +284,11 @@ function useNodeMenu(node, { close, openTab, withOpen = false, onRenamed }) {
   const renameState = admin;
   async function rename() {
     const valid = (v) => (local ? HOST_NAME_RE.test(v) && !/^(localhost|local)(\.|$)/i.test(v) && !/^[\d.]+$/.test(v) : NODE_NAME_RE.test(v) && v !== "local");
-    const name = await promptText({ title: t("node.renameTitle", { name: node.nom }), message: t(local ? "node.renameLocalMsg" : "node.renameMsg"), label: t("node.renameName"), defaultValue: node.nom, confirmLabel: t("vx.rename"), validate: (v) => (!valid(v) ? t(local ? "node.hostNameRule" : "node.nameRule") : v === node.nom ? t("vx.renameSame") : "") });
+    const name = await promptText({ title: t("node.renameTitle", { name: node.name }), message: t(local ? "node.renameLocalMsg" : "node.renameMsg"), label: t("node.renameName"), defaultValue: node.name, confirmLabel: t("vx.rename"), validate: (v) => (!valid(v) ? t(local ? "node.hostNameRule" : "node.nameRule") : v === node.name ? t("vx.renameSame") : "") });
     if (!name) return;
     try {
       if (local) await renameLocalHost(name.trim()); else await renameRemoteNode(node.id, name.trim());
-      pushToast({ kind: "success", title: t("node.renamed"), message: `${node.nom} → ${name.trim()}` });
+      pushToast({ kind: "success", title: t("node.renamed"), message: `${node.name} → ${name.trim()}` });
       await refreshAll?.();
       if (!local) onRenamed?.(name.trim()); // the local node keeps its address, /node/local
     } catch (e) { pushToast({ kind: "error", title: t("node.renameFailed"), message: errorMessage(e) }); }
@@ -342,7 +342,7 @@ export function NodeContextMenu({ node, at, returnFocus, onDone }) {
   const t = useT();
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const items = useNodeMenu(node, { close: onDone, openTab: (tab) => navigateTo("node", node.id, tab), withOpen: true });
-  return <ContextMenu at={at} label={t("ctx.menuOf", { name: node.nom })} returnFocus={returnFocus} onClose={onDone}>{items}</ContextMenu>;
+  return <ContextMenu at={at} label={t("ctx.menuOf", { name: node.name })} returnFocus={returnFocus} onClose={onDone}>{items}</ContextMenu>;
 }
 
 function HeadBtn({ state, label, onClick, primary, icon: Icon }) {

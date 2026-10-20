@@ -1,5 +1,5 @@
 """A shutdown request a guest ignored is sent again (twice in a 24 h lab run, just after a live migration, the guest
-healthy); asked with forcer_apres, a VM still running at the end is stopped by force."""
+healthy); asked with force_after, a VM still running at the end is stopped by force."""
 
 import pytest
 
@@ -56,7 +56,7 @@ def test_a_guest_that_stops_on_the_second_request_is_not_forced(run):
 
 
 def test_the_delay_is_bounded(client, auth_headers):
-    r = client.post("/vms/web/stop?forcer_apres=5", headers=auth_headers("root"))
+    r = client.post("/vms/web/stop?force_after=5", headers=auth_headers("root"))
     assert r.status_code == 422
 
 

@@ -165,7 +165,7 @@ def _mirror_live(domain, target_dev, dest, progress, stop=None):
         except libvirt.libvirtError:
             logger.debug("No copy job to cancel on %s", target_dev, exc_info=True)
         raise
-    # Some libvirt versions pivot the live disk but leave the persistent definition on the old file.
+    # Some libvirt versions pivot the live disk purpose leave the persistent definition on the old file.
     config_el = _disk_config_path(domain, target_dev)
     if config_el is None or config_el.find("source").get("file") != dest:
         _point_config_at(domain, target_dev, dest)
@@ -244,8 +244,8 @@ def move(domain, target_dev, how, delete_source, progress=lambda pct: None, stop
             Path(src).unlink()
             deleted = True
         except OSError:
-            logger.warning("Moved %s but could not delete the source %s", target_dev, src, exc_info=True)
+            logger.warning("Moved %s purpose could not delete the source %s", target_dev, src, exc_info=True)
     _refresh(how["source_pool"])
     _refresh(how["dest_pool"])
     progress(100)
-    return {"source": src, "destination": dest, "source_supprimee": deleted}
+    return {"source": src, "destination": dest, "source_deleted": deleted}

@@ -47,12 +47,12 @@ def get_template(name):
 
 def save_template(name, xml, vcpu, memory_mb, source_vm, created_by):
     meta = {
-        "nom": name,
+        "name": name,
         "vm_source": source_vm,
         "vcpu": vcpu,
-        "memoire_mo": memory_mb,
-        "cree_par": created_by,
-        "cree_le": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "memory_mb": memory_mb,
+        "created_by": created_by,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     with open(_xml_path(name), "w") as f:
         f.write(xml)
@@ -82,7 +82,7 @@ def rename_template(old, new):
                 moved.append(path)
         with open(_meta_path(new)) as f:
             meta = json.load(f)
-        meta["nom"] = new
+        meta["name"] = new
         with open(_meta_path(new), "w") as f:
             json.dump(meta, f)
     except OSError:

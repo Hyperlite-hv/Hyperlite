@@ -136,7 +136,7 @@ def test_the_host_support_comes_from_libvirt_and_names_what_to_install(xml, uefi
     conn.getDomainCapabilities.return_value = xml
     support = firmware.host_support(conn)
     assert (support["uefi"], support["uefi_secure"]) == (uefi, secure)
-    assert (reason is None and support["raison"] is None) or reason in support["raison"]
+    assert (reason is None and support["reason"] is None) or reason in support["reason"]
     assert firmware.check_choice(conn, firmware.BIOS) is None
     assert (firmware.check_choice(conn, firmware.UEFI_SECURE) is None) == secure
 
@@ -147,7 +147,7 @@ def test_without_kvm_the_support_is_read_for_qemu_and_without_either_nothing_is_
     assert firmware.host_support(conn)["uefi_secure"] is True
     conn.getDomainCapabilities.side_effect = libvirt.libvirtError("no q35")
     support = firmware.host_support(conn)
-    assert support["uefi"] is False and support["uefi_secure"] is False and "q35" in support["raison"]
+    assert support["uefi"] is False and support["uefi_secure"] is False and "q35" in support["reason"]
 
 
 def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path):
