@@ -27,3 +27,10 @@ def without_epoch(value):
     if value and ":" in value:
         return value.split(":", 1)[1]
     return value
+
+
+def dated(value):
+    """True for the versions before 1.0.0, named after their date (2026.10.19.0616). From 1.0 the database and the
+    cluster's configuration use the names of API v1 (app/core/schema_v1.py), which a dated version cannot read."""
+    head = str(without_epoch(value) or "").split(".")[0]
+    return not (head.isdigit() and int(head) < 1000)
