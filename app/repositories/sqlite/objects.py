@@ -83,20 +83,6 @@ class SqliteObjectStore:
     def delete_vm_os_label(self, vm_name):
         _write("DELETE FROM vm_os_label WHERE vm_name = ?", (vm_name,))
 
-    def mark_provisioning(self, vm_name, os_family, started_at, task_id):
-        _write(
-            "INSERT INTO vm_provisioning (vm_name, os_family, started_at, task_id) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(vm_name) DO UPDATE SET os_family = excluded.os_family, started_at = excluded.started_at, "
-            "task_id = excluded.task_id",
-            (vm_name, os_family, started_at, task_id),
-        )
-
-    def provisioning(self, vm_name):
-        return _one("SELECT os_family, started_at, task_id FROM vm_provisioning WHERE vm_name = ?", (vm_name,))
-
-    def clear_provisioning(self, vm_name):
-        _write("DELETE FROM vm_provisioning WHERE vm_name = ?", (vm_name,))
-
     # ---- VMs: automatic deletion when inactive ----
 
     def set_auto_cleanup(self, vm_name, inactive_days, now):

@@ -16,7 +16,7 @@ Architecture choice: IN-PROCESS ASYNCIO/THREADING, NOT Celery/RQ.
     job runs kills it without resuming, which is acceptable for jobs lasting a
     few minutes and worth revisiting if multi-hour jobs ever appear.
 
-SSH execution on a target VM: the same pattern as get_vm_provisioning, `ssh`
+SSH execution on a target VM: `ssh`
 in a subprocess with the automation key, rather than reimplementing a
 persistent asyncssh session (one command per step, not an interactive shell).
 

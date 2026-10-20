@@ -29,7 +29,6 @@ def build(fw, **kwargs):
         ["/var/lib/libvirt/images/vm1.qcow2"],
         "/var/lib/libvirt/images/vm1-cloudinit.iso",
         iso_path="/isos/win11.iso",
-        seed_iso_path="/var/lib/libvirt/images/vm1-oemdrv.iso",
         drivers_iso_path="/isos/virtio-win.iso",
         firmware=fw,
         **kwargs,
@@ -75,8 +74,8 @@ def test_a_uefi_vm_has_no_ide_bus_its_drives_are_sata_and_the_installer_stays_fi
     found = targets(build(fw, disk_bus="sata"))
     assert not [t for t in found.values() if t["bus"] == "ide"]
     assert found["vm1.qcow2"] == {"dev": "sda", "bus": "sata"}
-    drives = [found[n]["dev"] for n in ("win11.iso", "vm1-oemdrv.iso", "vm1-cloudinit.iso", "virtio-win.iso")]
-    assert drives == ["sdw", "sdx", "sdy", "sdz"]
+    drives = [found[n]["dev"] for n in ("win11.iso", "vm1-cloudinit.iso", "virtio-win.iso")]
+    assert drives == ["sdw", "sdy", "sdz"]
 
 
 def test_an_unknown_firmware_is_refused():

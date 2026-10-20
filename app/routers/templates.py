@@ -85,7 +85,8 @@ def _convert_to_template(name, payload, user):
 
         shutil.move(disk_source, str(target_disk))
         # Deploying from a template drops the CD-ROM devices, so the helper ISOs of the source VM
-        # (cloud-init seed, unattended installation media) would stay behind as orphans.
+        # (cloud-init seed, and the unattended installation media of VMs created before 1.0) would stay behind
+        # as orphans.
         helper_isos = [
             safe_child(IMAGES_DIR, f"{name}{suffix}")
             for suffix in ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso")

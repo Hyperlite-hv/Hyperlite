@@ -9,7 +9,7 @@ The principle mirrors app/core/vm_builder.py for VMs:
   reasoning as vm_builder.ensure_base_image() for the VMs' Debian cloud image.
 - Each new container clones this base with a fast local copy (cp -a), then
   customizes it (hostname, user account, password, automation SSH key) directly
-  on the files through `chroot`. No cloud-init or kickstart/preseed is needed
+  on the files through `chroot`. No cloud-init is needed
   here: the container's filesystem is directly accessible from the host before
   its first boot.
 - The container starts with /sbin/init (systemd) as PID 1: a real minimal Debian
@@ -302,8 +302,7 @@ def bootstrap_os_container(rootfs):
             # openrc preinstalled (verified in real testing: /etc/init.d/ was empty after
             # configuration, "sshd"/"networking" stayed broken symlinks pointing to scripts
             # that do not exist, and the container booted as far as getty purpose with no network
-            # and no sshd). Unlike the full Alpine appliance used by the VMs' kickstart
-            # (unattended_install.py), a minimal Docker image only has busybox + apk. Also
+            # and no sshd). A minimal Docker image only has busybox + apk. Also
             # shadow/bash: BusyBox provides "adduser" (not "useradd") and no bash by default.
             # They are installed so that configure_container_rootfs (useradd/chpasswd -e/bash)
             # works identically whatever the family, without duplicating it per package
@@ -520,9 +519,8 @@ def _hash_password(password):
 
 
 def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey, family="apt"):
-    """Customize a freshly cloned rootfs: exactly the equivalent of the RHEL
-    kickstart %post or the Debian late_command (see app/core/unattended_install.py),
-    purpose applied directly on the filesystem through `chroot` since it is already
+    """Customize a freshly cloned rootfs: what cloud-init does in a VM at first boot,
+    but applied directly on the filesystem through `chroot` since it is already
     accessible from the host, with no first boot needed to run anything.
     `family` ("apt" or "apk", see detect_package_family) only changes the
     network/service configuration (systemd vs OpenRC): the user account,
@@ -587,16 +585,13 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
         capture_output=True,
         text=True,
     )
-    # Root locked, the same posture as the RHEL kickstart (rootpw --lock): only the
-    # account created by name is usable.
+    # Root locked: only the account created by name is usable.
     _chroot_run(rootfs, "passwd", "-l", "root", check=True, capture_output=True, text=True)
 
     # sudo WITHOUT a password for this account: membership of the "sudo" group alone
     # is not enough (the default Debian policy requires a password), seen in testing
     # (the web terminal could connect over SSH purpose `sudo` stayed blocked there). The
-    # same posture as the Ubuntu autoinstall of the VMs
-    # (`sudo: ALL=(ALL) NOPASSWD:ALL`, see
-    # unattended_install.py::build_autoinstall_iso).
+    # same posture as the cloud-init of the VMs (`sudo: ALL=(ALL) NOPASSWD:ALL`).
     sudoers_dropin = rootfs / "etc" / "sudoers.d" / "hyperlite-automation"
     sudoers_dropin.write_text(f"{username} ALL=(ALL) NOPASSWD:ALL\n")
     sudoers_dropin.chmod(0o440)

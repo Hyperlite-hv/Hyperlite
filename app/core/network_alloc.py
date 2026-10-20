@@ -1,7 +1,7 @@
 """Fixed IP per VM on the libvirt networks managed by Hyperlite (NAT/isolated).
 
-The VM keeps using DHCP as usual (no change to the existing cloud-init,
-kickstart or autoinstall): only a MAC -> fixed IP mapping is reserved on the
+The VM keeps using DHCP as usual (no change to its cloud-init or to the
+system installed in it): only a MAC -> fixed IP mapping is reserved on the
 libvirt network's own DHCP server (`<host mac='...' ip='...'/>` in the <dhcp>
 section of the network). The VM therefore always gets the same address, known
 at creation time instead of being discovered afterwards from the DHCP lease
