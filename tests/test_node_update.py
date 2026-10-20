@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from app.core import host_system
+from app.core import audit, host_system
 from app.core.tasks import create_task
 from app.routers import update
 
@@ -73,6 +73,7 @@ def test_hyperlite_changed_it_restarts_under_its_watchdog_and_a_reboot_is_said(j
     run, calls = job
     assert run(["1.0.0", "1.0.1"], reboot=True) == "succeeded"
     assert calls["spawned"] == ["hyperlite-update-watchdog", "hyperlite-update-restart"]
+    audit._AUDIT_QUEUE.join()  # the audit is written in the background
     with database.get_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE action = 'host_reboot_required'").fetchone()[0] == 1
 
