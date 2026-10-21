@@ -21,7 +21,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.core import firmware, passthrough, pty_session
+from app.core import firmware, passthrough, paths, pty_session
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_local_capabilities
@@ -88,7 +88,7 @@ def host_preflight(user: dict = Depends(require_role("admin"))):
     from app.core import preflight
 
     try:
-        report = preflight.run(python=sys.executable, requirements=str(preflight.APP_DIR / "requirements.txt"))
+        report = preflight.run(python=sys.executable, requirements=str(paths.CODE / "requirements.txt"))
     except Exception as e:
         msg = describe_exception(e)
         log_action(user["username"], "host_preflight", "local", "failed", msg)

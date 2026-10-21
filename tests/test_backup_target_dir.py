@@ -50,7 +50,8 @@ def test_a_vm_manager_backs_up_to_the_default_directory_only(started, client, au
         client.post("/vms/web/backups", json={"target_dir": str(backups.DEFAULT_BACKUP_DIR)}, headers=bob).status_code
         == 202
     )
-    assert started == [None, str(backups.DEFAULT_BACKUP_DIR)]
+    # The default directory, named or not, is the default: stored empty (backup_groups.validate_target).
+    assert started == [None, None]
     assert client.post("/vms/web/backups", json={"target_dir": "/home/bob"}, headers=bob).status_code == 403
     assert len(started) == 2
 

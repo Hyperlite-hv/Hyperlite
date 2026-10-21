@@ -18,7 +18,7 @@ FastAPI service (uvicorn, runs as root)         SQLite (WAL) hyperlite.db
 
 There is no agent on the managed nodes: remote hosts are driven through libvirt over SSH.
 
-ISO images are per node: a VM boots only from an image in its own host's library (`data/isos`, at the same path on every node). The Library lists every node's images and shares one by copying it through the local host with the cluster SSH key (`app/core/iso_share.py`); a copy lands under a hidden temporary name and is renamed once complete.
+ISO images are per node: a VM boots only from an image in its own host's library (`/var/lib/hyperlite/template/iso`, at the same path on every node). The Library lists every node's images and shares one by copying it through the local host with the cluster SSH key (`app/core/iso_share.py`); a copy lands under a hidden temporary name and is renamed once complete.
 
 ## Backend (`app/`)
 
@@ -41,10 +41,10 @@ Hyperlite keeps very little state of its own: libvirt is the source of truth for
 - Authentication: local accounts (bcrypt), optional TOTP, API tokens (`hlt_` prefix, SHA-256 hash stored), optional OIDC single sign-on. Sessions are HS256 JWTs signed with `HYPERLITE_SECRET_KEY`.
 - Authorization: a global role (`admin` or `observateur`) plus scoped rights (roles, groups, pools, per-VM and per-container ACL) evaluated in `app/core/permissions.py`. Endpoints declare the privilege they require.
 - Consoles and terminals use short-lived single-use tickets.
-- Secrets in the database (SMTP password, OIDC client secret) are encrypted with a Fernet key from `.env`.
+- Secrets in the database (SMTP password, OIDC client secret) are encrypted with a Fernet key from `/etc/hyperlite/priv/env`.
 - Cluster nodes: dedicated SSH key, trust-on-first-use host keys, and a reverse-trust key per node (restricted with `from=`) for peer-to-peer migration.
 - User-supplied URLs are restricted to `http(s)` (`app/core/http_safety.py`).
 
 ## Deployment layout
 
-The package installs the application in `/root/hyperlite` and a systemd unit (`hyperlite.service`) serving HTTPS on port 8000 with a self-signed certificate created on first start (`scripts/ensure-tls-cert.sh`). Runtime data lives under `/root/hyperlite/data` (ISOs, templates, SSH keys, TLS, exports).
+The package installs the application in `/usr/lib/hyperlite` and a systemd unit (`hyperlite.service`) serving HTTPS on port 8000 with a self-signed certificate created on first start (`scripts/ensure-tls-cert.sh`). The data lives under `/var/lib/hyperlite` (database, ISOs, templates, backups, exports) and the node's secrets under `/etc/hyperlite` (keys, SSH keys, TLS), as Proxmox VE keeps its own: see [configuration.md](configuration.md#files).

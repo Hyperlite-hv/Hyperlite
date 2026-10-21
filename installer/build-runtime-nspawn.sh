@@ -4,7 +4,7 @@
 #
 #   build-runtime-nspawn.sh ROOT OUT     ROOT: the Debian 13 root; OUT: where the runtime goes (on this machine)
 #
-# The repository is mounted read-only; nothing of this machine's own /root/hyperlite is visible inside.
+# The repository is mounted read-only; nothing of this machine's own installation is visible inside.
 set -euo pipefail
 ROOT=${1:?usage: build-runtime-nspawn.sh ROOT OUT}
 OUT=${2:?usage: build-runtime-nspawn.sh ROOT OUT}

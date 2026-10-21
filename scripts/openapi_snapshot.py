@@ -7,6 +7,7 @@ holds the code to: inside v1 a change may only add (docs/design/api-v1.md, "Vers
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,9 @@ SNAPSHOT = ROOT / "docs" / "api" / "openapi-v1.json"
 def current():
     sys.path.insert(0, str(ROOT))
     os.environ.setdefault("HYPERLITE_DB_PATH", "/nonexistent/hyperlite.db")  # importing the app opens nothing
+    # ...and writes nowhere of the machine's: the libraries it creates at import (app/core/paths.py) go to a temporary place.
+    os.environ.setdefault("HYPERLITE_VAR_DIR", tempfile.mkdtemp(prefix="hyperlite-openapi-"))
+    os.environ.setdefault("HYPERLITE_ETC_DIR", tempfile.mkdtemp(prefix="hyperlite-openapi-"))
     from app.main import app
 
     spec = app.openapi()

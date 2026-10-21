@@ -45,13 +45,12 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import cluster_lead
+from app.core import cluster_lead, paths
 from app.core.audit import log_action
-from app.core.vm_builder import PROJDIR
 
 logger = logging.getLogger(__name__)
 
-CLUSTER_SSH_KEY_DIR = PROJDIR / "data" / "ssh"
+CLUSTER_SSH_KEY_DIR = paths.SSH_DIR
 POLL_INTERVAL_S = 60
 # While a node is down, it is checked this often: one back after a cut shows as such within seconds, not a minute (the
 # lab saw the cluster views skip a member for 61 s after a network cut).

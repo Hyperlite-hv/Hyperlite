@@ -9,7 +9,7 @@
 # IP is known.
 set -e
 
-TLS_DIR=/root/hyperlite/data/tls
+TLS_DIR=/etc/hyperlite/local  # app/core/paths.py
 KEY="$TLS_DIR/hyperlite.key"
 CRT="$TLS_DIR/hyperlite.crt"
 CNF="$TLS_DIR/openssl-hyperlite.cnf"

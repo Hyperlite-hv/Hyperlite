@@ -1,18 +1,18 @@
 [Unit]
 Description=Hyperlite daemon (the operations that need root, behind a local socket)
-Documentation=file:///root/hyperlite/docs/design/privilege-separation.md
+Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/privilege-separation.md
 After=libvirtd.service
 Before=hyperlite.service
 
 [Service]
 Type=simple
-WorkingDirectory=/root/hyperlite
+WorkingDirectory=/usr/lib/hyperlite
 Environment=PYTHONUNBUFFERED=1
 Environment=LC_ALL=C.UTF-8
 # /run/hyperlite: the socket, 0660 root and the API's group (app/daemon/server.py). Nothing listens on the network.
 RuntimeDirectory=hyperlite
 RuntimeDirectoryMode=0755
-ExecStart=/root/hyperlite/venv/bin/python -m app.daemon
+ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.daemon
 Restart=on-failure
 RestartSec=2
 

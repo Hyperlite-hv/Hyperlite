@@ -6,8 +6,11 @@ Requires=libvirtd.service
 
 [Service]
 Type=simple
-WorkingDirectory=/root/hyperlite
-EnvironmentFile=/root/hyperlite/.env
+WorkingDirectory=/usr/lib/hyperlite
+# The node's keys, root only (app/core/paths.py). Optional for systemd only because it is read again for each command:
+# at the first start of 1.1 they are still in /root/hyperlite/.env until the first ExecStartPre moves them; the
+# second refuses to start without them.
+EnvironmentFile=-/etc/hyperlite/priv/env
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/root
 # The tools Hyperlite reads (apt, df, virsh, qemu-img...) answer in English whatever the server's language, so the
@@ -18,13 +21,16 @@ Environment=LC_ALL=C.UTF-8
 # NOT to /tmp: on recent Debian /tmp is a tmpfs (RAM/2), so an ISO larger than
 # it fails with "error parsing the body" (seen with a RHEL 10 DVD larger than
 # 7.8 GB of tmpfs).
-Environment=TMPDIR=/root/hyperlite/data/tmp
-# The files a newer version moved (a 1.1 rolled back to this one) come back before anything reads them.
-ExecStartPre=/bin/bash /root/hyperlite/scripts/migrate_layout.sh back
-ExecStartPre=/bin/mkdir -p /root/hyperlite/data/tmp
-ExecStartPre=/root/hyperlite/scripts/ensure-tls-cert.sh
-ExecStartPre=/root/hyperlite/scripts/write-motd.sh
-ExecStart=/root/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /root/hyperlite/data/tls/hyperlite.key --ssl-certfile /root/hyperlite/data/tls/hyperlite.crt --timeout-graceful-shutdown 5
+Environment=TMPDIR=/var/lib/hyperlite/tmp
+# The files of an installation up to 1.0 (/root/hyperlite) move where Proxmox VE keeps its own, with nothing running
+# on them; all or nothing: a failure puts back what moved and the start fails, which the update watchdog turns into
+# a return to the previous version (docs/design/privilege-separation.md, section 9).
+ExecStartPre=/bin/bash /usr/lib/hyperlite/scripts/migrate_layout.sh forward
+ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStartPre=/bin/mkdir -p /var/lib/hyperlite/tmp
+ExecStartPre=/usr/lib/hyperlite/scripts/ensure-tls-cert.sh
+ExecStartPre=/usr/lib/hyperlite/scripts/write-motd.sh
+ExecStart=/usr/lib/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /etc/hyperlite/local/hyperlite.key --ssl-certfile /etc/hyperlite/local/hyperlite.crt --timeout-graceful-shutdown 5
 # A dashboard keeps connections open (terminals, polling): without a bound on the graceful shutdown a restart
 # waited up to 30 s for them, longer than the update watchdog allowed, and a good update was rolled back.
 TimeoutStopSec=20

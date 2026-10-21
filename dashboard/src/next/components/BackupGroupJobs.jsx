@@ -113,7 +113,7 @@ export default function BackupGroupJobs({ onChange }) {
             <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" value={form.frequency} onChange={set("frequency")}><option value="daily">{t("vb.f.daily")}</option><option value="weekly">{t("vb.f.weekly")}</option><option value="monthly">{t("vb.f.monthly")}</option></select>}</Field>
             <Field label={t("vb.time")} hint={t("vb.utc")} error={bad.time ? t("vb.timeRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="time" value={form.time} onChange={set("time")} />}</Field>
           </div>
-          <Field label={t("bg.target")} hint={t("bg.targetHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.target_dir} placeholder="/root/hyperlite/data/backups" onChange={set("target_dir")} />}</Field>
+          <Field label={t("bg.target")} hint={t("bg.targetHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.target_dir} placeholder="/var/lib/hyperlite/dump" onChange={set("target_dir")} />}</Field>
           <RetentionFields value={form} onChange={(v) => setForm((f) => ({ ...f, ...v }))} />
           <label className="nx-check"><input type="checkbox" checked={form.active} onChange={set("active")} /> {t("bg.active")}</label>
         </>}

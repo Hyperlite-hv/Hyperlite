@@ -1,11 +1,11 @@
 import contextlib
 import json
 import time
-from pathlib import Path
 
+from app.core import paths
 from app.core.safe_paths import safe_child
 
-TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "templates"
+TEMPLATES_DIR = paths.TEMPLATES
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 

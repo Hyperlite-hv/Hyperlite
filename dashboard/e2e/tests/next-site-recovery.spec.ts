@@ -1,14 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import { ADMIN, expect, test } from "../support/fixtures";
 
 // Recovery of another site on the Backups page. The other site's backups are written by the test into a directory
 // the real backend reads (the backend runs on this machine); the backend really scans it. The restore itself
 // (qemu-img, a new libvirt domain) is covered by tests/test_site_recovery.py, so the start request is captured here.
-// The directory is under the backend's own backup directory: the scan reads only storage the node knows.
-const BACKUPS = fileURLToPath(new URL("../../../data/backups", import.meta.url));
+// The directory is under the backend's own backup directory (dump/ of its data directory, playwright.config.ts): the
+// scan reads only storage the node knows.
+const BACKUPS = join(process.env.E2E_VAR_DIR ?? "/var/lib/hyperlite", "dump");
 test.describe.configure({ mode: "serial", timeout: 90_000 });
 
 let share = "";

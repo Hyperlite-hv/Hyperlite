@@ -4,6 +4,7 @@
 import asyncio
 import json
 
+from app.core import paths
 from app.core.database import get_conn
 from app.repositories.sqlite import schedule_state
 
@@ -26,21 +27,31 @@ GROUP_COLUMNS = (
 GROUP_KIND = "backup_group"
 
 
+def _here(row):
+    """A row with its paths where this version keeps them (app/core/paths.py): rows written up to 1.0 name
+    /root/hyperlite, and an empty target directory is the default one."""
+    if "path" in row:
+        row["path"] = paths.current(row["path"])
+    if "target_dir" in row:
+        row["target_dir"] = paths.current(row["target_dir"]) or str(paths.BACKUPS)
+    return row
+
+
 def _with_own_schedule(sql, params=()):
     with get_conn() as db:
-        rows = [dict(r) for r in db.execute(sql, params).fetchall()]
+        rows = [_here(dict(r)) for r in db.execute(sql, params).fetchall()]
         return schedule_state.overlay(db, GROUP_KIND, rows)
 
 
 def _one(sql, params=()):
     with get_conn() as db:
         row = db.execute(sql, params).fetchone()
-    return dict(row) if row else None
+    return _here(dict(row)) if row else None
 
 
 def _all(sql, params=()):
     with get_conn() as db:
-        return [dict(r) for r in db.execute(sql, params).fetchall()]
+        return [_here(dict(r)) for r in db.execute(sql, params).fetchall()]
 
 
 def _write(sql, params=()):

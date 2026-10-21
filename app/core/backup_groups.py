@@ -16,7 +16,7 @@ import re
 import threading
 from pathlib import PurePosixPath
 
-from app.core import backup_retention, object_meta, permissions, vm_locks
+from app.core import backup_retention, object_meta, paths, permissions, vm_locks
 from app.core.libvirt_utils import open_conn
 
 logger = logging.getLogger(__name__)
@@ -55,14 +55,20 @@ def validate_target(path):
     p = PurePosixPath(path)
     if not p.is_absolute() or ".." in p.parts or "\x00" in path:
         raise GroupError("The backup directory must be an absolute path without '..'")
-    normalized = str(p)
+    normalized = paths.current(str(p))
+    default = str(paths.BACKUPS)
+    if normalized == default:
+        # The default directory is stored empty, which every version reads as its own: a full path would send a node
+        # still on 1.0 (rolling update) to the directory of 1.1.
+        return None
+    if normalized.startswith(default + "/"):
+        return normalized
     if normalized == "/" or any(normalized == root or normalized.startswith(root + "/") for root in FORBIDDEN_ROOTS):
         raise GroupError(f"Backups cannot be written in {normalized}")
     return normalized
 
 
 def validate(payload):
-    from app.core.backups import DEFAULT_BACKUP_DIR
 
     name = (payload.get("name") or "").strip()
     if not NAME_RE.match(name):
@@ -86,7 +92,7 @@ def validate(payload):
         raise GroupError("Invalid frequency")
     if not TIME_RE.match(payload.get("time") or ""):
         raise GroupError("Invalid time (expected HH:MM)")
-    target = validate_target(payload.get("target_dir")) or str(DEFAULT_BACKUP_DIR)
+    target = validate_target(payload.get("target_dir")) or ""  # the default directory (validate_target)
     policy = {}
     for key, low, high in (
         ("retention_count", 1, 365),

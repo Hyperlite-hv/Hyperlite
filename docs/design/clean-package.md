@@ -35,8 +35,8 @@ The `package` job builds in a `debian:13` container:
    `/usr/lib/hyperlite/hyperlite-cfs` (the unit's `ExecStart` follows; `/usr/local/sbin/hyperlite-cfs` stays as a
    symlink for one version, for the scripts and docs that name it).
 2. The Python environment: `python3 -m venv`, then `pip install --require-hashes --no-deps -r requirements.lock`
-   from wheels built in the same container (`pip wheel`). The venv goes in the package at its final path (today
-   `/root/hyperlite/venv`; moved with the application when it leaves `/root`, a separate project).
+   from wheels built in the same container (`pip wheel`). The venv goes in the package at its final path,
+   `/usr/lib/hyperlite/venv` from 1.1 (`/root/hyperlite/venv` up to 1.0).
 3. The wheels themselves, at `/usr/lib/hyperlite/wheels/`, with `requirements.lock`.
 
 ### `requirements.lock`

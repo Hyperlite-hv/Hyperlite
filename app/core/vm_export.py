@@ -17,10 +17,10 @@ it."""
 
 import shutil
 from datetime import UTC, datetime
-from pathlib import Path
 
 import libvirt
 
+from app.core import paths
 from app.core.audit import log_action
 from app.core.backups import backup_cold, backup_hot, block_disk_error, domain_disk_paths
 from app.core.error_messages import describe_exception
@@ -28,7 +28,7 @@ from app.core.libvirt_utils import open_conn
 from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 
-EXPORTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "vm-exports"
+EXPORTS_DIR = paths.EXPORTS
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 

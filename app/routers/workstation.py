@@ -4,12 +4,11 @@ itself is in app/routers/vms/tunnel.py; the logic in app/core/workstation.py."""
 
 import hashlib
 import re
-from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from app.core import workstation
+from app.core import paths, workstation
 from app.core.audit import log_action
 from app.core.security import get_current_user, oauth2_scheme
 
@@ -18,7 +17,7 @@ router = APIRouter(tags=["workstation"])
 pages = APIRouter(tags=["workstation"])
 
 # Built by installer/build-cli.sh and shipped in the package next to the dashboard.
-CLI_DIST = Path(__file__).resolve().parent.parent.parent / "cli" / "dist"
+CLI_DIST = paths.CODE / "cli" / "dist"
 PLATFORMS = {
     "windows-amd64": "hyperlite.exe",
     "windows-arm64": "hyperlite.exe",

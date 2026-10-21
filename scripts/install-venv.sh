@@ -6,7 +6,7 @@
 # system (Debian moved Python), it is rebuilt from the wheels, without network, at its final path. When that fails too,
 # the previous environment is put back and the script fails.
 #
-#   install-venv.sh APP_DIR RUNTIME     e.g. /root/hyperlite /usr/lib/hyperlite
+#   install-venv.sh APP_DIR RUNTIME     e.g. /usr/lib/hyperlite /usr/lib/hyperlite
 set -euo pipefail
 APP_DIR=${1:?usage: install-venv.sh APP_DIR RUNTIME}
 RUNTIME=${2:?usage: install-venv.sh APP_DIR RUNTIME}

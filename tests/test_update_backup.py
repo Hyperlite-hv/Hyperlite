@@ -14,36 +14,45 @@ def test_only_the_newest_update_backups_are_kept(tmp_path):
     assert left == sorted([*names[-3:], "pre-apt-adoption-20260917T165612Z.tar.gz", "update.log"])
 
 
-def test_bulky_user_data_is_left_out_of_the_backup():
-    for path in ("data/isos", "data/backups", "data/vm-exports", "data/templates", "data/imported-disks"):
-        assert f"--exclude={path}" in update._BACKUP_EXCLUDES
-    assert "--exclude=data" not in update._BACKUP_EXCLUDES
+def _layout(tmp_path, monkeypatch):
+    """The code and /etc/hyperlite of a node, under tmp_path; the archive rooted there instead of /."""
+    from app.core import paths
+
+    code, etc = tmp_path / "usr/lib/hyperlite", tmp_path / "etc/hyperlite"
+    for path in (
+        code / "app/main.py",
+        code / "venv/bin/python3",
+        code / "app/__pycache__/main.pyc",
+        etc / "priv/env",
+        etc / "priv/ssh/hyperlite_cluster",
+        etc / "local/hyperlite.key",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x")
+    monkeypatch.setattr(update, "ARCHIVE_ROOT", tmp_path)
+    monkeypatch.setattr(update, "REPO_DIR", code)
+    monkeypatch.setattr(paths, "ETC", etc)
+    return code, etc
 
 
-def test_tar_excludes_bulky_data_but_keeps_the_rest(tmp_path):
+def test_the_archive_holds_the_code_and_the_nodes_secrets_not_what_is_derived(tmp_path, monkeypatch):
+    """The data (/var/lib/hyperlite: ISO images, VM backups, the database) is never in it: an update does not change
+    it, and the database is copied separately and consistently (SQLite backup API)."""
     import subprocess
 
-    repo = tmp_path / "hyperlite"
-    for rel in (
-        "data/isos/big.iso",
-        "data/backups/vm/disk.qcow2",
-        "data/ssh/key",
-        "app/main.py",
-        ".env",
-        "hyperlite.db",
-    ):
-        target = repo / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("x")
+    _layout(tmp_path, monkeypatch)
     tarball = tmp_path / "b.tar.gz"
-    subprocess.run(["tar", "czf", str(tarball), *update._BACKUP_EXCLUDES, "-C", str(tmp_path), "hyperlite"], check=True)
+    cmd = ["tar", "czf", str(tarball), *update._BACKUP_EXCLUDES, "-C", str(tmp_path), *update._backup_members()]
+    subprocess.run(cmd, check=True)
     listing = subprocess.run(["tar", "-tzf", str(tarball)], capture_output=True, text=True, check=True).stdout
-    assert "hyperlite/data/isos/big.iso" not in listing
-    assert "hyperlite/data/backups/vm/disk.qcow2" not in listing
-    for kept in ("hyperlite/data/ssh/key", "hyperlite/app/main.py", "hyperlite/.env"):
-        assert kept in listing
-    # Copied separately and consistently (SQLite backup API), never archived live nor extracted over the live one.
-    assert "hyperlite/hyperlite.db" not in listing
+    for kept in (
+        "usr/lib/hyperlite/app/main.py",
+        "etc/hyperlite/priv/env",
+        "etc/hyperlite/priv/ssh/hyperlite_cluster",
+        "etc/hyperlite/local/hyperlite.key",
+    ):
+        assert kept in listing, kept
+    assert "venv" not in listing and "__pycache__" not in listing
 
 
 def test_update_backups_are_readable_by_root_only(tmp_path, monkeypatch):
@@ -51,10 +60,8 @@ def test_update_backups_are_readable_by_root_only(tmp_path, monkeypatch):
     import stat
     import subprocess
 
-    repo = tmp_path / "hyperlite"
-    (repo / "data").mkdir(parents=True)
-    (repo / ".env").write_text("HYPERLITE_SECRET_KEY=secret\n")
-    db = repo / "hyperlite.db"
+    _layout(tmp_path, monkeypatch)
+    db = tmp_path / "hyperlite.db"
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("CREATE TABLE t (x)")
@@ -63,7 +70,6 @@ def test_update_backups_are_readable_by_root_only(tmp_path, monkeypatch):
     backups.mkdir(mode=0o755)
     (backups / "hyperlite-backup-20260101T000000Z.tar.gz").write_text("old archive")
     (backups / "hyperlite-backup-20260101T000000Z.tar.gz").chmod(0o644)
-    monkeypatch.setattr(update, "REPO_DIR", repo)
     monkeypatch.setattr(update, "BACKUP_DIR", backups)
     monkeypatch.setattr(update, "DB_PATH", db)
 
@@ -76,4 +82,4 @@ def test_update_backups_are_readable_by_root_only(tmp_path, monkeypatch):
     with sqlite3.connect(copy) as conn:
         assert conn.execute("SELECT x FROM t").fetchone()[0] == 42
     listing = subprocess.run(["tar", "-tzf", str(tarball)], capture_output=True, text=True, check=True).stdout
-    assert "hyperlite/.env" in listing and "hyperlite.db" not in listing
+    assert "etc/hyperlite/priv/env" in listing and "hyperlite.db" not in listing

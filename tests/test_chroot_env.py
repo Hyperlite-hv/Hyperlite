@@ -7,7 +7,7 @@ from pathlib import Path
 def test_the_service_environment_does_not_leak_into_the_container(monkeypatch):
     from app.core import container_builder
 
-    monkeypatch.setenv("TMPDIR", "/root/hyperlite/data/tmp")  # the service's: absent inside the container
+    monkeypatch.setenv("TMPDIR", "/var/lib/hyperlite/tmp")  # the service's: absent inside the container
     monkeypatch.setenv("LANG", "fr_FR.UTF-8")  # may not be installed inside the container
     env = container_builder.chroot_env()
     assert "TMPDIR" not in env

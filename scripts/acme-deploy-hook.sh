@@ -8,7 +8,7 @@
 # itself (first issuance from the dashboard), restarting from inside its cgroup would kill certbot mid-hook.
 set -euo pipefail
 
-REPO=/root/hyperlite
+REPO=/usr/lib/hyperlite
 [ -n "${RENEWED_LINEAGE:-}" ] || { echo "RENEWED_LINEAGE is not set: run by certbot only" >&2; exit 1; }
 DOMAIN=$(basename "$RENEWED_LINEAGE")
 

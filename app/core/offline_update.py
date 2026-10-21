@@ -25,7 +25,9 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-WORK_DIR = Path("/var/lib/hyperlite/update-file")
+from app.core import paths
+
+WORK_DIR = paths.VAR / "update-file"
 KEYRING = Path("/usr/share/keyrings/hyperlite-archive-keyring.gpg")
 OS_RELEASE = Path("/etc/os-release")
 MANIFEST = "manifest.json"

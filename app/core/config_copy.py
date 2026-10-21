@@ -35,7 +35,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core import database, schema_v1
+from app.core import database, paths, schema_v1
 
 
 def _store():
@@ -224,7 +224,7 @@ def copy_now(force=False, username="system"):
             due.append(node)
     if not due:
         return []
-    staging = database.DB_PATH.parent / "data" / "config-copy"
+    staging = paths.CONFIG_COPY_STAGING
     staging.mkdir(parents=True, exist_ok=True)
     staging.chmod(0o700)
     bundle, meta = build_bundle(staging)

@@ -1,5 +1,5 @@
 """The admin account's random initial password (code review, #448): changed at the first sign-in, and every copy of
-it (a root-only file, the service's .env, the copy the service writes in data/) removed once the admin account has a
+it (a root-only file, the service's environment file, the copy the service writes in /etc/hyperlite/priv) removed once the admin account has a
 password of its own. The console banner (scripts/write-motd.sh) shows it only while that file exists."""
 
 import threading
@@ -63,12 +63,12 @@ def test_a_copy_that_cannot_be_removed_never_fails_the_password_change(database,
     monkeypatch.setattr(initial_password.os, "replace", refuse)
     set_password("admin", "A-new-long-password-42")
     assert "INITIAL_ADMIN_PASSWORD" in env.read_text()  # left, with a warning in the journal
-    assert not env.with_name(".env.tmp").exists()
+    assert not env.with_name(env.name + ".tmp").exists()
 
 
 def test_the_suite_never_points_at_the_hosts_files():
     files, env = initial_password._paths()
-    assert not str(files[0]).startswith("/root/") and not str(env).startswith(str(initial_password.APP_DIR))
+    assert not str(files[0]).startswith("/root/") and not str(env).startswith("/etc/")
 
 
 def test_an_initial_password_already_changed_is_removed_at_start(database, copies):
