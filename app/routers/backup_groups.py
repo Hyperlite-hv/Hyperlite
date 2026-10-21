@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.core import backup_groups
 from app.core.audit import log_action
-from app.core.listing import listing
+from app.core.listing import item, listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/backup-groups", tags=["backups"])
@@ -32,6 +32,12 @@ class GroupJob(BaseModel):
 @router.get("")
 def list_group_jobs(user: dict = Depends(require_role("admin"))):
     return listing(backup_groups.list_jobs())
+
+
+@router.get("/{job_id}")
+def get_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
+    """One job, as GET /backup-groups lists it (with the VMs it selects now)."""
+    return item(backup_groups.list_jobs(), "id", job_id, "Backup job")
 
 
 @router.post("", status_code=201)

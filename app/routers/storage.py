@@ -16,7 +16,7 @@ from app.core.audit import log_action
 from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
-from app.core.listing import listing
+from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
 from app.core.vm_limits import validate_vm_resources
@@ -163,6 +163,12 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
     calls on THIS server, no remote management over SSH; see
     app/core/zfs_storage.py). A ZFS pool of a registered remote node is
     therefore not visible here for now."""
+    result = _pools(node)
+    log_action(user["username"], "list_storage_pools", "storage", "success")
+    return listing(result)
+
+
+def _pools(node):
     conn = open_conn(node)
     try:
         ensure_default_pool(conn)
@@ -180,8 +186,7 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
         for p in result:
             p["node"] = node or "local"
             p.setdefault("path", None)
-        log_action(user["username"], "list_storage_pools", "storage", "success")
-        return listing(result)
+        return result
     finally:
         conn.close()
 
@@ -861,6 +866,12 @@ def _delete_single(pool_name, node, detach, user):
 
 @router.get("/{pool_name}/volumes")
 def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
+    result = _volumes(pool_name)
+    log_action(user["username"], "list_volumes", pool_name, "success")
+    return listing(result)
+
+
+def _volumes(pool_name):
     conn = open_conn()
     try:
         if zfs_storage.pool_exists(pool_name):
@@ -868,8 +879,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
             result = zfs_storage.list_zvols(pool_name)
             for vol in result:
                 vol["used"] = vol["path"] in in_use
-            log_action(user["username"], "list_volumes", pool_name, "success")
-            return listing(result)
+            return result
 
         try:
             pool = conn.storagePoolLookupByName(pool_name)
@@ -889,8 +899,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
                     "used": vol.path() in in_use,
                 }
             )
-        log_action(user["username"], "list_volumes", pool_name, "success")
-        return listing(result)
+        return result
     finally:
         conn.close()
 
@@ -1035,3 +1044,16 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         return {"message": f"Volume '{volume_name}' deleted"}
     finally:
         conn.close()
+
+
+# Reading one object, registered last so that the fixed paths above (/support, /shared...) keep their routes.
+@router.get("/{pool_name}/volumes/{volume_name}")
+def get_volume(pool_name: str, volume_name: str, user: dict = Depends(get_current_user)):
+    """One volume, as GET /storage/{pool}/volumes lists it."""
+    return item(_volumes(pool_name), "name", volume_name, f"Volume '{volume_name}'")
+
+
+@router.get("/{pool_name}")
+def get_pool(pool_name: str, node: str | None = None, user: dict = Depends(get_current_user)):
+    """One storage pool, as GET /storage lists it (node: the same convention)."""
+    return item(_pools(node), "name", pool_name, f"Storage pool '{pool_name}'")

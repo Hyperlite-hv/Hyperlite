@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- Each object a list of API v1 gives can be read alone, with the same fields: a storage pool, a volume, a pool, a group, an assignment, a custom role, an account, a grouped backup job, a VM's HA protection (additions to API v1, `docs/api.md`). A custom role's privileges and a pool's description change in place (`PATCH`): a role changed by deleting and creating it again lost all its assignments. What the Terraform provider reads after each change (#330).
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
