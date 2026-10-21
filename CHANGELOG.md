@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Security
+
+- Sessions are signed by `hyperlite-daemon` with an Ed25519 key pair only root reads (`/etc/hyperlite/priv/authkey.key`), renewed every day; the API verifies them with the public keys (`/etc/hyperlite/authkeys.json`), as Proxmox VE's `pveproxy` does with `authkey.pub`. The first part of moving the sign-in out of the API (#511, `docs/design/privilege-separation.md`, section 12). Sessions opened before the update stay valid; the calls between the members of a cluster still use the key they share. Without the daemon, signing in answers that it is unavailable.
+
 ### Changed
 
 - Hyperlite's files live where Proxmox VE keeps its own (#511, `app/core/paths.py`, `docs/design/privilege-separation.md`, section 9): the code in `/usr/lib/hyperlite`, the web interface in `/usr/share/hyperlite/www`, the node's secrets in `/etc/hyperlite/priv` (no more `.env` next to the code), its certificate in `/etc/hyperlite/local`, the data in `/var/lib/hyperlite` (`template/iso`, `template/vm`, `dump`, `import`, the database). The first start moves the files of `/root/hyperlite` with the service stopped, all or nothing; a failure is rolled back by the 1.0.2 watchdog. The VMs with an ISO image inserted and certbot's renewal hook follow the move; the backup schedules and catalogue written before are read at the new place. What 1.0 leaves of `/root/hyperlite` is removed. The package refuses to install over a version older than 1.0.2, and the return to the previous version never goes below it.
