@@ -176,3 +176,32 @@ def finish_task(task_id, status, error_message=None):
         error_message = f"Cancelled by {cancelled_by}" + (f": {error_message}" if error_message else "")
     _store().finish(task_id, status, error_message, cancelled_by, _now())
     unregister_cancel(task_id)
+
+
+def answer_later(task_id, work, **answer):
+    """The `?wait=false` form of a long endpoint (API v1, docs/api.md "Long operations"): `work()` runs on a thread
+    and closes the task itself (log_action with its task_id); the request answers 202 at once with the task, as every
+    other long operation does. A client then follows GET /tasks/{id} instead of holding a request for the whole copy,
+    which a proxy cuts long before a large disk is copied.
+
+    A task `work` leaves open (an error raised without being recorded on the task) is closed here, with the error:
+    a task never stays "running" with nothing behind it."""
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+
+    from app.core.error_messages import describe_exception
+
+    def body():
+        error = None
+        try:
+            work()
+        except HTTPException as e:
+            error = str(e.detail)
+        except Exception as e:
+            logger.exception("Task %s failed", task_id)
+            error = describe_exception(e)
+        if task_status(task_id) == "running":
+            finish_task(task_id, "failed" if error else "succeeded", error)
+
+    threading.Thread(target=body, daemon=True).start()
+    return JSONResponse(status_code=202, content={"task_id": task_id, "status": "running", **answer})

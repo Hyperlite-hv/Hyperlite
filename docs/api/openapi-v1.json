@@ -14080,6 +14080,7 @@
   },
   "/api/v1/templates/from-vm/{name}": {
    "post": {
+    "description": "wait=false: every check is made, then the work runs as a task and the answer is 202 with its id.",
     "operationId": "convert_to_template_api_v1_templates_from_vm__name__post",
     "parameters": [
      {
@@ -14089,6 +14090,16 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
       }
      }
     ],
@@ -14190,6 +14201,7 @@
   },
   "/api/v1/templates/{template_name}/deploy": {
    "post": {
+    "description": "wait=false: every check is made, then the copy runs as a task and the answer is 202 with its id.",
     "operationId": "deploy_template_api_v1_templates__template_name__deploy_post",
     "parameters": [
      {
@@ -14199,6 +14211,16 @@
       "schema": {
        "title": "Template Name",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
       }
      }
     ],
@@ -14992,7 +15014,20 @@
     ]
    },
    "post": {
+    "description": "wait=false: every check is made, then the creation runs as a task and the answer is 202 with its id.",
     "operationId": "create_vm_api_v1_vms_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -16006,6 +16041,7 @@
   },
   "/api/v1/vms/{name}/clone": {
    "post": {
+    "description": "wait=false: every check is made, then the copy runs as a task and the answer is 202 with its id.",
     "operationId": "clone_vm_api_v1_vms__name__clone_post",
     "parameters": [
      {
@@ -16015,6 +16051,16 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
       }
      }
     ],

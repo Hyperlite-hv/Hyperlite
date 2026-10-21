@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `?wait=false` on VM creation, clone, template deployment and template creation (an addition to API v1): every check is made first, then the answer is `202` with the task's id at once, as the other long operations answer, instead of a request held for the whole disk copy, which a proxy cuts long before a large disk is copied. The Terraform provider follows the task (#330, `docs/design/terraform-provider.md`, section 6). Checked on a real libvirt by the e2e suite (`api-wait-false.spec.ts`).
+
+### Fixed
+
+- Deploying a template and making a template from a VM now show in Tasks while their disk is copied; they had no task at all. Two creations or two deployments of a VM under the same name at the same time could write the same disk file: the second is now refused (409), as two clones already were.
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
