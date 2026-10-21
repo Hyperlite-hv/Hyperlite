@@ -11,6 +11,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import PyJWTError
 
+from app.core import tickets
 from app.core.passwords import bcrypt_hash, bcrypt_verify
 
 logger = logging.getLogger(__name__)
@@ -19,9 +20,10 @@ MIN_SECRET_KEY_LENGTH = 32
 
 
 def _load_secret_key():
-    """The key that signs every session token. Set purpose empty or short, it is refused: an empty HMAC key lets anyone
-    forge a session. Unset (development only), a random key is used and every session is lost at restart; the
-    installer always writes one to .env."""
+    """The key the members of a cluster share, which signs the calls between them (create_peer_token) and signed every
+    session token up to 1.1.0; sessions are signed by hyperlite-daemon now (app/core/tickets.py). Set purpose empty
+    or short, it is refused: an empty HMAC key lets anyone forge a token. Unset (development only), a random key is
+    used; the installer always writes one to /etc/hyperlite/priv/env."""
     raw = os.environ.get("HYPERLITE_SECRET_KEY")
     if raw is None:
         logger.warning("HYPERLITE_SECRET_KEY is not set: using a random key, every session ends at restart")
@@ -52,15 +54,22 @@ def hash_password(plain):
 REMEMBER_TOKEN_EXPIRE_DAYS = 7  # "Stay signed in" on the login screen
 
 
-def create_access_token(data: dict, remember: bool = False):
+def _sign(claims):
+    """A session for the tests (tickets.sign): on a node, sessions are opened by hyperlite-daemon once it checked a
+    proof (app/core/sign_in.py)."""
+    return tickets.sign(claims)
+
+
+def _claims(data: dict, lifetime: timedelta):
+    """`data` with what every token carries: exp and iat in whole seconds (they travel as JSON to the daemon), and
+    uid: the account itself, not only its name."""
     to_encode = data.copy()
-    lifetime = (
-        timedelta(days=REMEMBER_TOKEN_EXPIRE_DAYS) if remember else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
     now = datetime.now(UTC)
     # iat (issued at, whole seconds): lets a password change sign out every session opened before it
     # (see _session_user and set_password). jti: identifies this session, so that signing out revokes it.
-    to_encode.update({"exp": now + lifetime, "iat": int(now.timestamp()), "jti": secrets.token_urlsafe(16)})
+    to_encode.update(
+        {"exp": int((now + lifetime).timestamp()), "iat": int(now.timestamp()), "jti": secrets.token_urlsafe(16)}
+    )
     # uid: the account itself, not only its name: an account deleted and created again under the same name (a new
     # colleague also called Bob) is another account, and the former one's sessions are refused whatever the clocks say
     # (in a cluster each node issues them with its own).
@@ -71,7 +80,20 @@ def create_access_token(data: dict, remember: bool = False):
             account = None
         if account is not None:
             to_encode["uid"] = account["id"]
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return to_encode
+
+
+def create_access_token(data: dict, remember: bool = False):
+    lifetime = (
+        timedelta(days=REMEMBER_TOKEN_EXPIRE_DAYS) if remember else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    return _sign(_claims(data, lifetime))
+
+
+def create_peer_token(data: dict):
+    """The token of a call from this member to another member's API, signed with the key the members share: the other
+    member has no other way to verify it yet (docs/design/privilege-separation.md, section 12, PR C)."""
+    return jwt.encode(_claims(data, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)), SECRET_KEY, algorithm=ALGORITHM)
 
 
 def _accounts():
@@ -129,10 +151,8 @@ def create_preauth_token(username: str, remember: bool = False):
     explicitly marked `2fa_pending`: get_current_user() rejects that claim so
     that a stolen or intercepted intermediate token can never serve as a full
     session token."""
-    to_encode = {"sub": username, "2fa_pending": True, "remember": bool(remember)}
     expire = datetime.now(UTC) + timedelta(minutes=5)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return _sign({"sub": username, "2fa_pending": True, "remember": bool(remember), "exp": int(expire.timestamp())})
 
 
 def get_user(username: str):
@@ -185,11 +205,19 @@ def _credentials_exception():
     )
 
 
-def _decode_session(token: str):
+def decode_token(token: str):
+    """The claims of a token signed by this node's daemon, or by a member with the shared key (a call between members,
+    or a session opened before 1.1.1); None for any other."""
+    claims = tickets.decode(token)
+    if claims is not None:
+        return claims
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except PyJWTError:
         return None
+
+
+_decode_session = decode_token
 
 
 def _password_change_required():

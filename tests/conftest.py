@@ -32,6 +32,9 @@ os.environ["HYPERLITE_ACCESS_LOG_DIR"] = tempfile.mkdtemp(prefix="hyperlite-acce
 # goes to directories of its own.
 os.environ["HYPERLITE_VAR_DIR"] = tempfile.mkdtemp(prefix="hyperlite-var-tests-")
 os.environ["HYPERLITE_ETC_DIR"] = tempfile.mkdtemp(prefix="hyperlite-etc-tests-")
+# No hyperlite-daemon runs here: sessions are signed in this process, with keys under HYPERLITE_ETC_DIR
+# (app/core/tickets.py).
+os.environ["HYPERLITE_AUTH_SIGNING"] = "local"
 
 import pytest
 
