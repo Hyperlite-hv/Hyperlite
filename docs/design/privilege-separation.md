@@ -1,6 +1,6 @@
 # Design: privilege separation, a non-root API and a root daemon (#511)
 
-Status: **draft**, 2026-10-21. No code before it is accepted. Target: 1.1.
+Status: **accepted** (Antho, 2026-10-21, section 8). Target: 1.1.
 
 The decision itself is older: on 2026-10-01 the maintainers chose Proxmox VE's service layout, with
 `hyperlite-proxy` (the API, unprivileged) and `hyperlite-daemon` (the privileged actions, root, local socket)
@@ -99,3 +99,12 @@ step 4, so the move can be done domain by domain and released between them.
    removed?
 4. **The layout move** (`/root/hyperlite` → `/var/lib/hyperlite`, `/usr/lib/hyperlite`): accepted, with a symlink left
    for the scripts that use the old path?
+
+## 8. Decisions (Antho, 2026-10-21)
+
+1. **Step 0 first**: the systemd hardening of the service as it is, then the split.
+2. **libvirt read-only in the proxy**; every change goes through the daemon.
+3. **The host shell stays**, opened by the daemon, administrators only, audited.
+4. **The layout move, without a link**: `/root/hyperlite` moves to `/var/lib/hyperlite` (data) and `/usr/lib/hyperlite`
+   (code) and is not left behind as a symlink; every script, unit and document that names the old path changes in the
+   same step.
