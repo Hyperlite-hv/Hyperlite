@@ -9,8 +9,9 @@ test.beforeAll(async ({ request }) => {
 });
 
 test("a storage pool and the storage history are each read at their own address", async ({ request }) => {
-  const pools = (await (await request.get("/storage", { headers: auth() })).json()) as { items: Array<{ name: string }> };
-  const listed = pools.items.find((p) => p.name === "default");
+  // The fixture reads a list ({items, total}) as its items, as the dashboard does.
+  const pools = (await (await request.get("/storage", { headers: auth() })).json()) as Array<{ name: string }>;
+  const listed = pools.find((p) => p.name === "default");
   expect(listed).toBeTruthy();
   const one = await request.get("/storage/default", { headers: auth() });
   expect(one.status()).toBe(200);
@@ -20,5 +21,5 @@ test("a storage pool and the storage history are each read at their own address"
   // The metrics' route, not a pool named "history".
   const history = await request.get("/storage/history", { headers: auth() });
   expect(history.status()).toBe(200);
-  expect(Object.keys(await history.json())).toContain("items");
+  expect(Array.isArray(await history.json())).toBe(true);
 });
