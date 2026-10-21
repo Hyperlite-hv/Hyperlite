@@ -1,6 +1,7 @@
 """hyperlite-daemon (app/daemon): who may connect, what a request may hold, and the client's view of it."""
 
 import json
+import os
 import socket
 import threading
 
@@ -34,6 +35,8 @@ def daemon(tmp_path, monkeypatch):
     path = tmp_path / "daemon.sock"
     monkeypatch.setenv(SOCKET_ENV, str(path))
     srv = server.Server(str(path), server.Handler)
+    # The account running the tests stands for the API (root in production until step 4, then www-data).
+    srv.allowed_uids = lambda: {0, os.getuid()}
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
     thread.start()
     yield srv
