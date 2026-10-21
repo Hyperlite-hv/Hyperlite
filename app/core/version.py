@@ -34,3 +34,22 @@ def dated(value):
     cluster's configuration use the names of API v1 (app/core/schema_v1.py), which a dated version cannot read."""
     head = str(without_epoch(value) or "").split(".")[0]
     return not (head.isdigit() and int(head) < 1000)
+
+
+# The first version that knows the layout of 1.1 (app/core/paths.py): installed again over it, it moves the files back
+# where it reads them (scripts/migrate_layout.sh back). The package of 1.1 refuses to install over anything older
+# (installer/deb/preinst), and no return goes below it.
+LAYOUT_BRIDGE = (1, 0, 2)
+
+
+def knows_layout(value):
+    """True from 1.0.2. A test build of 1.0.2 (1.0.2~test.20261020.2039) sorts before 1.0.2 and may predate the
+    bridge: False, as for every dated version."""
+    if dated(value):
+        return False
+    base, _, suffix = str(without_epoch(value)).partition("~")
+    try:
+        numbers = tuple(int(part) for part in base.split("."))
+    except ValueError:
+        return False
+    return numbers > LAYOUT_BRIDGE or (numbers == LAYOUT_BRIDGE and not suffix)

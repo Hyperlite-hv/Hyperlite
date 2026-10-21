@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.core import host_system, offline_update, version
+from app.core import host_system, offline_update, paths, version
 from app.core.audit import log_action
 from app.core.database import DB_PATH
 from app.core.http_safety import require_http_url
@@ -46,15 +46,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/update", tags=["update"])
 
-REPO_DIR = Path(__file__).resolve().parent.parent.parent  # /root/hyperlite
-BACKUP_DIR = Path("/root/hyperlite-backups")
+REPO_DIR = paths.CODE  # /usr/lib/hyperlite, a checkout for a Git installation
+BACKUP_DIR = paths.UPDATE_BACKUPS
 # The package of the version before the last update, for a return to it (docs/design/updates-1.0.md): kept on the
 # node, so the return works without the mirror too. One version only.
-PREVIOUS_DIR = Path("/var/lib/hyperlite/previous")
+PREVIOUS_DIR = paths.PREVIOUS
 WATCHDOG_SCRIPT = REPO_DIR / "scripts" / "update_watchdog.sh"
 # Where the updater keeps the copy of the watchdog it starts: out of the package, which may remove or move the
 # original while the update runs (docs/design/privilege-separation.md, section 9).
-WATCHDOG_STAGE = Path("/var/lib/hyperlite/update/update_watchdog.sh")
+WATCHDOG_STAGE = paths.UPDATE / "update_watchdog.sh"
 
 
 def _stage_watchdog():
@@ -66,12 +66,18 @@ def _stage_watchdog():
     return WATCHDOG_STAGE
 
 
-def _watchdog_argv(tarball, log_file, expected, previous):
+def _watchdog_argv(tarball, log_file, expected, previous, now=False):
     """The watchdog's command for a package update: the staged copy, told the version to wait for and the package to
-    reinstall if the new one does not answer."""
-    env = ["env", f"HYPERLITE_EXPECTED_VERSION={version.without_epoch(expected) or ''}"]
+    reinstall if the new one does not answer; `now`: reinstall it at once, the return to the previous version."""
+    env = [
+        "env",
+        f"HYPERLITE_EXPECTED_VERSION={version.without_epoch(expected) or ''}",
+        f"HYPERLITE_ARCHIVE_ROOT={ARCHIVE_ROOT}",
+    ]
     if previous:
         env.append(f"HYPERLITE_PREVIOUS_DEB={previous['file']}")
+    if now:
+        env.append("HYPERLITE_ROLLBACK_NOW=1")
     # Its log next to it, out of every directory a version may move (docs/design/privilege-separation.md).
     return [*env, "bash", str(WATCHDOG_STAGE), str(tarball), str(REPO_DIR), str(WATCHDOG_STAGE.parent / "update.log")]
 
@@ -99,33 +105,33 @@ def _spawn_outside_service(unit_prefix, argv):
     subprocess.Popen(argv, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-# Exclusions from the backup tarball: DERIVED code/state, plus the bulky user data an update
-# never touches (uploaded ISOs, VM backups, exports, templates, imported disks). .env and the
-# rest of data/ stay included, which is what a rollback must be able to restore.
-# Excluded files are simply left in place by a rollback (tar extraction never deletes), so
-# leaving them out cannot lose them; including them made each backup ~12 GB.
+# What the archive of an update holds: the code (a Git installation goes back to it) and the node's configuration and
+# secrets (/etc/hyperlite, app/core/paths.py), what a rollback must be able to restore. Rooted at /, extracted there by
+# the watchdog (HYPERLITE_ARCHIVE_ROOT). Derived files are left out: excluded files are simply left in place by a
+# rollback (tar extraction never deletes), so leaving them out cannot lose them.
 #
-# The SQLite database is left out too: archived while the service writes to it, the database
-# and its WAL came from different instants, and extracting them over the live files on
-# rollback corrupted the database or dropped every write made during the update. A
-# consistent copy is taken separately with SQLite's online backup API (_backup_database), and
-# a rollback leaves the live database alone: the schema only ever grows (CREATE TABLE/ADD
+# The data (/var/lib/hyperlite) is left out: an update never changes it, and its bulk (ISOs, VM backups) made each
+# archive ~12 GB. The SQLite database above all: archived while the service writes to it, the database and its WAL came
+# from different instants, and extracting them over the live files on rollback corrupted the database or dropped every
+# write made during the update. A consistent copy is taken separately with SQLite's online backup API
+# (_backup_database), and a rollback leaves the live database alone: the schema only ever grows (CREATE TABLE/ADD
 # COLUMN IF NOT EXISTS), so the previous code runs on the newer database.
+ARCHIVE_ROOT = Path("/")
 _BACKUP_EXCLUDES = [
-    f"--exclude={DB_PATH.name}",
-    f"--exclude={DB_PATH.name}-wal",
-    f"--exclude={DB_PATH.name}-shm",
-    f"--exclude={DB_PATH.name}-journal",
     "--exclude=venv",
+    "--exclude=venv.old",
+    "--exclude=venv.new",
+    "--exclude=__pycache__",
     "--exclude=dashboard/node_modules",
     "--exclude=dashboard/dist",
     "--exclude=.git",
-    "--exclude=data/isos",
-    "--exclude=data/backups",
-    "--exclude=data/vm-exports",
-    "--exclude=data/templates",
-    "--exclude=data/imported-disks",
 ]
+
+
+def _backup_members():
+    return [str(p.relative_to(ARCHIVE_ROOT)) for p in (REPO_DIR, paths.ETC) if p.exists()]
+
+
 UPDATE_BACKUPS_KEPT = 3
 
 
@@ -232,9 +238,11 @@ def _raw_candidate_version():
 
 
 def _previous():
-    """The kept package of the previous version: {"version", "file"} or None. Never a dated version under 1.0 or
-    later: 1.0 renamed the database and the cluster's configuration (API v1), which a dated version cannot read, and
-    the return reinstalls the package only, on the database as it is."""
+    """The kept package of the previous version: {"version", "file"} or None. Never one older than 1.0.2: from 1.1 the
+    files live where Proxmox VE keeps its own (app/core/paths.py), and 1.0.2 is the first version that moves them back
+    when it is installed again (scripts/migrate_layout.sh back); an older one would start without its database, its
+    keys and its certificate. Nor, for the same kind of reason, a dated version (before 1.0, which renamed the database
+    and the cluster's configuration)."""
     debs = sorted(PREVIOUS_DIR.glob("hyperlite_*.deb")) if PREVIOUS_DIR.is_dir() else []
     if not debs:
         return None
@@ -242,7 +250,7 @@ def _previous():
     if r.returncode != 0 or not r.stdout.strip():
         return None
     kept = version.without_epoch(r.stdout.strip())
-    if version.dated(kept) and not version.dated(_raw_installed_version()):
+    if not version.knows_layout(kept):
         return None
     return {"version": kept, "file": debs[-1]}
 
@@ -253,8 +261,8 @@ def _keep_previous(task_id):
     installed, candidate = _raw_installed_version(), _raw_candidate_version()
     if not installed or not candidate or installed == candidate:
         return
-    if version.dated(installed) and not version.dated(candidate):
-        # The update to 1.0: no return below it (see _previous), so nothing worth keeping.
+    if not version.knows_layout(installed):
+        # A version no return may reach (see _previous): nothing worth keeping.
         for old in PREVIOUS_DIR.glob("hyperlite_*.deb"):
             old.unlink(missing_ok=True)
         return
@@ -534,7 +542,7 @@ def _backup(task_id):
     if DB_PATH.exists():
         _backup_database(BACKUP_DIR / f"hyperlite-backup-{stamp}.db")
     _private_file(tarball)  # tar keeps the mode of an existing file: never world-readable, even for a moment
-    cmd = ["tar", "czf", str(tarball), *_BACKUP_EXCLUDES, "-C", str(REPO_DIR.parent), REPO_DIR.name]
+    cmd = ["tar", "czf", str(tarball), *_BACKUP_EXCLUDES, "-C", str(ARCHIVE_ROOT), *_backup_members()]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     # WARNING (a real bug found on the very first /update/apply ever run under real
     # conditions): tar returns exit code 1, neither 0 nor a real error, as soon as a
@@ -619,7 +627,16 @@ def _run_update_job(task_id, username, branch):
         # this process cannot verify its own replacement).
         _spawn_outside_service(
             "hyperlite-update-watchdog",
-            ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file), old_commit or ""],
+            [
+                "env",
+                f"HYPERLITE_ARCHIVE_ROOT={ARCHIVE_ROOT}",
+                "bash",
+                str(WATCHDOG_SCRIPT),
+                str(tarball),
+                str(REPO_DIR),
+                str(log_file),
+                old_commit or "",
+            ],
         )
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
@@ -849,37 +866,26 @@ def _start_update(user, system=True):
 
 
 def _run_rollback_job(task_id, username, previous):
+    """The package of the previous version is installed again by the watchdog, out of this service, with the service
+    stopped: the previous version's package may move the files back (1.0.2: scripts/migrate_layout.sh back), which this
+    process, still running, would otherwise recreate empty at the new place (seen on a test node: a second, empty
+    database). The task ends before: the service stops with it."""
     log_file = BACKUP_DIR / "update.log"
     old_version = _dpkg_installed_version()
     try:
         update_task_progress(task_id, 5)
         tarball = _backup(task_id)
         _stage_watchdog()
-        update_task_progress(task_id, 30)
-        task_log(task_id, f"Installing {previous['version']} again")
-        env = {
-            **os.environ,
-            "HYPERLITE_SKIP_RESTART": "1",
-            "LC_ALL": "C",
-            "LANG": "C",
-            "DEBIAN_FRONTEND": "noninteractive",
-        }
-        r = subprocess.run(
-            ["apt-get", "install", "-y", "--allow-downgrades", str(previous["file"])],
-            cwd=str(REPO_DIR), capture_output=True, text=True, timeout=600, env=env,
-        )  # fmt: skip
-        if r.returncode != 0:
-            raise RuntimeError(f"apt-get install failed: {(r.stderr or r.stdout).strip()[-400:]}")
-        # One step back only: the version left is the one the mirror offers again.
-        previous["file"].unlink(missing_ok=True)
         update_task_progress(task_id, 90)
-        _spawn_outside_service(
-            "hyperlite-update-watchdog",
-            _watchdog_argv(tarball, log_file, previous["version"], None),
-        )
-        _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
+        task_log(task_id, f"The service stops, {previous['version']} is installed again, then the service starts")
         finish_task(task_id, "succeeded")
         log_action(username, "hyperlite_rollback", f"{old_version} -> {previous['version']}", "success")
+        # One step back only: the watchdog removes the package once installed, the version left is the one the mirror
+        # offers again.
+        _spawn_outside_service(
+            "hyperlite-update-watchdog",
+            _watchdog_argv(tarball, log_file, previous["version"], previous, now=True),
+        )
     except Exception as exc:
         finish_task(task_id, "failed", str(exc))
         log_action(username, "hyperlite_rollback", str(exc), "failed")

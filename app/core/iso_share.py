@@ -60,9 +60,9 @@ def _iso_path(name):
     return safe_child(isos_dir(), name)
 
 
-# Where a node keeps its ISO library: up to 1.0 under /root/hyperlite, from 1.1 where Proxmox VE keeps its own
-# (docs/design/privilege-separation.md, section 9). During a rolling update the nodes do not all run the same
-# version, so another node's library is looked for in both places.
+# Where a node keeps its ISO library: from 1.1 where Proxmox VE keeps its own (app/core/paths.py), up to 1.0 under
+# /root/hyperlite. During a rolling update the nodes do not all run the same version, so another node's library is
+# looked for in both places.
 LIBRARY_DIRS = ("/var/lib/hyperlite/template/iso", "/root/hyperlite/data/isos")
 _PROBE = 'for d in "$@"; do if [ -d "$d" ]; then echo "$d"; exit 0; fi; done; exit 1'
 

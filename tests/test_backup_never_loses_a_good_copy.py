@@ -145,9 +145,15 @@ def test_the_space_check_creates_nothing_and_accepts_the_default_directory(tmp_p
     assert not (tmp_path / "not").exists()
     monkeypatch.setattr(backups, "DEFAULT_BACKUP_DIR", tmp_path / "data" / "backups")
     backups.check_free_space(None, ["disk"])  # no target: the default directory, which the validator accepts
+    from app.core import paths
     from app.core.backup_groups import validate_target
 
-    assert validate_target("/root/hyperlite/data/backups") == "/root/hyperlite/data/backups"  # the installed default
+    # The default directory, of 1.0 as of this version, is the default: stored empty; below it is accepted, though
+    # /var/lib/hyperlite is refused.
+    assert validate_target("/root/hyperlite/data/backups") is None
+    assert validate_target(str(paths.BACKUPS)) is None
+    assert validate_target(str(paths.BACKUPS / "weekly")) == str(paths.BACKUPS / "weekly")
+    assert validate_target("/root/hyperlite/data/backups/weekly") == str(paths.BACKUPS / "weekly")
 
 
 def test_the_estimate_falls_back_to_the_files_blocks_without_qemu_img(tmp_path, monkeypatch):

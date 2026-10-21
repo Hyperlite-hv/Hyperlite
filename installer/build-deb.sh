@@ -5,6 +5,10 @@
 # tracked by Git (never any secret or data, already excluded through
 # .gitignore: .env, hyperlite.db, data/ssh, data/tls...) PLUS the already
 # built frontend (dashboard/dist, not tracked by Git but required at runtime).
+#
+# From 1.1 the files go where Proxmox VE keeps its own (app/core/paths.py): the code in /usr/lib/hyperlite, the web
+# interface in /usr/share/hyperlite/www. The package never ships anything under /etc/hyperlite or /var/lib/hyperlite:
+# that is the node's own (postinst, scripts/migrate_layout.sh).
 set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,12 +23,14 @@ fi
 BUILD_DIR="$REPO_DIR/installer/deb-build"
 STAGE="$BUILD_DIR/hyperlite_${VERSION}"
 OUT_DEB="$REPO_DIR/installer/hyperlite_${VERSION}_amd64.deb"
+CODE="$STAGE/usr/lib/hyperlite"
+WWW="$STAGE/usr/share/hyperlite/www"
 
 log() { echo "[build-deb] $*"; }
 
 log "version $VERSION"
 rm -rf "$STAGE"
-mkdir -p "$STAGE/DEBIAN" "$STAGE/root/hyperlite"
+mkdir -p "$STAGE/DEBIAN" "$CODE"
 
 log "building the frontend (npm run build)"
 ( cd "$REPO_DIR/dashboard" && npm install --silent && npm run build --silent )
@@ -49,17 +55,17 @@ log "copying the files tracked by Git"
         scripts/ci-publish.sh|scripts/publish-gh-pages.sh|scripts/release.sh|scripts/release-notes.sh|scripts/sign-iso.sh) continue ;;
         scripts/verify-apt-mirror.sh) continue ;;
     esac
-    mkdir -p "$STAGE/root/hyperlite/$(dirname "$f")"
-    cp "$REPO_DIR/$f" "$STAGE/root/hyperlite/$f"
+    mkdir -p "$CODE/$(dirname "$f")"
+    cp "$REPO_DIR/$f" "$CODE/$f"
 done
 
-log "adding the built frontend (dashboard/dist, not tracked by Git)"
-mkdir -p "$STAGE/root/hyperlite/dashboard"  # its sources are not shipped, so the copy loop did not create it
-cp -r "$REPO_DIR/dashboard/dist" "$STAGE/root/hyperlite/dashboard/dist"
+log "adding the built frontend (dashboard/dist, not tracked by Git) as /usr/share/hyperlite/www"
+mkdir -p "$(dirname "$WWW")"
+cp -r "$REPO_DIR/dashboard/dist" "$WWW"
 
 log "adding the workstation client (cli/dist, not tracked by Git)"
-mkdir -p "$STAGE/root/hyperlite/cli"  # its sources are not shipped, so the copy loop did not create it
-cp -r "$REPO_DIR/cli/dist" "$STAGE/root/hyperlite/cli/dist"
+mkdir -p "$CODE/cli"  # its sources are not shipped, so the copy loop did not create it
+cp -r "$REPO_DIR/cli/dist" "$CODE/cli/dist"
 
 # What a node used to build for itself (docs/design/clean-package.md): hyperlite-cfs, the ready Python environment
 # and the wheels it is made of, from installer/build-runtime.sh (CI: the debian:13 container).
@@ -70,21 +76,21 @@ done
 cmp -s "$RUNTIME_DIR/wheels/requirements.txt" "$REPO_DIR/requirements.txt" ||
     { echo "[build-deb] ERROR: $RUNTIME_DIR was built from another requirements.txt: build it again" >&2; exit 1; }
 log "adding the runtime built in CI ($RUNTIME_DIR)"
-mkdir -p "$STAGE/usr/lib/hyperlite"
-install -m 755 "$RUNTIME_DIR/hyperlite-cfs" "$STAGE/usr/lib/hyperlite/hyperlite-cfs"
-install -m 644 "$RUNTIME_DIR/venv.tar.xz" "$STAGE/usr/lib/hyperlite/venv.tar.xz"
-cp -r "$RUNTIME_DIR/wheels" "$STAGE/usr/lib/hyperlite/wheels"
+install -m 755 "$RUNTIME_DIR/hyperlite-cfs" "$CODE/hyperlite-cfs"
+install -m 644 "$RUNTIME_DIR/venv.tar.xz" "$CODE/venv.tar.xz"
+cp -r "$RUNTIME_DIR/wheels" "$CODE/wheels"
 
 # VERSION is copied explicitly (not only through `git ls-files`): the file may
 # not be tracked yet, in which case it would be missing from the package
 # despite existing on disk. Copying it here keeps the embedded content always
 # the one used to NAME the package.
-cp "$REPO_DIR/VERSION" "$STAGE/root/hyperlite/VERSION"
+cp "$REPO_DIR/VERSION" "$CODE/VERSION"
 
-log "control/postinst"
+log "control and maintainer scripts"
 sed "s/__VERSION__/$DEB_VERSION/" "$REPO_DIR/installer/deb/control.template" > "$STAGE/DEBIAN/control"
-cp "$REPO_DIR/installer/deb/postinst" "$STAGE/DEBIAN/postinst"
-chmod 755 "$STAGE/DEBIAN/postinst"
+for script in preinst postinst prerm postrm; do
+    install -m 755 "$REPO_DIR/installer/deb/$script" "$STAGE/DEBIAN/$script"
+done
 
 log "dpkg-deb --build"
 dpkg-deb --root-owner-group --build "$STAGE" "$OUT_DEB"

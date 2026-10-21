@@ -8,9 +8,10 @@ import os
 import threading
 from pathlib import Path
 
+from app.core import paths
+
 logger = logging.getLogger(__name__)
 
-APP_DIR = Path(__file__).resolve().parents[2]
 ENV_LINE = "HYPERLITE_INITIAL_ADMIN_PASSWORD="
 
 
@@ -21,8 +22,10 @@ def _root():
 
 def _paths():
     root = _root()
-    app = root / APP_DIR.relative_to("/")
-    return [root / "root/.hyperlite-initial-password", app / "data/initial-admin-password.txt"], app / ".env"
+    return (
+        [root / "root/.hyperlite-initial-password", root / paths.INITIAL_PASSWORD_FILE.relative_to("/")],
+        root / paths.ENV_FILE.relative_to("/"),
+    )
 
 
 def forget():

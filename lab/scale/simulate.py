@@ -27,6 +27,8 @@ WORK = tempfile.mkdtemp(prefix="hyperlite-scale-")
 os.environ.update(
     HYPERLITE_SECRET_KEY="scale-simulation-" + "0" * 48,
     HYPERLITE_DB_PATH=f"{WORK}/hyperlite.db",
+    HYPERLITE_VAR_DIR=f"{WORK}/var",
+    HYPERLITE_ETC_DIR=f"{WORK}/etc",
     HYPERLITE_NODE_NAME="node000",
     HYPERLITE_CFS_SOCKET="/nonexistent/scale-simulation/socket",
     HYPERLITE_WATCHDOG_DEVICE="/nonexistent/scale-simulation/watchdog",

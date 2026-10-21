@@ -22,6 +22,9 @@
 #                               <repo_directory>/VERSION, when it moves the files);
 #   HYPERLITE_PREVIOUS_DEB      the kept package of the version replaced: the rollback reinstalls it instead of
 #                               extracting the archive, which works whatever the layout of either version.
+#   HYPERLITE_ARCHIVE_ROOT      where the archive is extracted (from 1.1: /, see app/routers/update.py).
+#   HYPERLITE_ROLLBACK_NOW      1: no waiting, the kept package is installed again at once, with the service stopped
+#                               (the return to the previous version, asked from the dashboard). From 1.1.
 set -u
 BACKUP_TARBALL="$1"
 REPO_DIR="$2"
@@ -45,10 +48,15 @@ run_logged() { # a command whose output goes to the log when it can: the command
     return "$rc"
 }
 
-log "Watchdog started, waiting for the service to restart${EXPECTED:+ on $EXPECTED}..."
-sleep 4
-
 OK=0
+if [ "${HYPERLITE_ROLLBACK_NOW:-}" = 1 ]; then
+    log "Return to the previous version asked: ${PREVIOUS_DEB:-no package} installed again, the service stopped meanwhile."
+    ATTEMPTS=0
+else
+    log "Watchdog started, waiting for the service to restart${EXPECTED:+ on $EXPECTED}..."
+    sleep 4
+fi
+
 for i in $(seq 1 "$ATTEMPTS"); do
     if BODY="$(curl -sk --max-time 3 https://localhost:8000/health 2>/dev/null)"; then
         GOT="$(printf '%s' "$BODY" | sed -n 's/.*"hyperlite_version": *"\([^"]*\)".*/\1/p')"
@@ -65,7 +73,8 @@ for i in $(seq 1 "$ATTEMPTS"); do
 done
 
 if [ "$OK" -eq 0 ]; then
-    log "FAILURE: the new code still does not answer after $ATTEMPTS attempts: automatic ROLLBACK."
+    [ "${HYPERLITE_ROLLBACK_NOW:-}" = 1 ] ||
+        log "FAILURE: the new code still does not answer after $ATTEMPTS attempts: automatic ROLLBACK."
     if [ -n "$PREVIOUS_DEB" ] && [ -f "$PREVIOUS_DEB" ]; then
         # The package of the version replaced, installed again: its own postinst puts its files and units back
         # (and, from 1.0.2, the files a newer version moved: scripts/migrate_layout.sh back).
@@ -73,6 +82,8 @@ if [ "$OK" -eq 0 ]; then
         if run_logged env HYPERLITE_SKIP_RESTART=1 DEBIAN_FRONTEND=noninteractive \
             apt-get install -y --allow-downgrades "$PREVIOUS_DEB"; then
             log "Previous version reinstalled from $PREVIOUS_DEB"
+            # It is the version installed now, no longer one to go back to.
+            rm -f -- "$PREVIOUS_DEB"
         else
             log "CRITICAL ERROR: reinstalling $PREVIOUS_DEB failed. Manual intervention required."
         fi
@@ -88,9 +99,10 @@ if [ "$OK" -eq 0 ]; then
                 log "WARNING: git reset to $PREVIOUS_COMMIT failed: the working tree may differ from HEAD."
             fi
         fi
-        # The archive is rooted at the directory NAME (tar -C <parent> <name>), so it must be
-        # extracted from the PARENT: extracting inside $REPO_DIR nests a copy and restores nothing.
-        tar -xzf "$BACKUP_TARBALL" -C "$(dirname "$REPO_DIR")"
+        # From 1.1 the archive is rooted at HYPERLITE_ARCHIVE_ROOT (/: the code and /etc/hyperlite). Without it, at
+        # the directory NAME (tar -C <parent> <name>), so it must be extracted from the PARENT: extracting inside
+        # $REPO_DIR nests a copy and restores nothing.
+        tar -xzf "$BACKUP_TARBALL" -C "${HYPERLITE_ARCHIVE_ROOT:-$(dirname "$REPO_DIR")}"
         log "Backup restored from $BACKUP_TARBALL (the database was left as it is; copy from before the update: ${BACKUP_TARBALL%.tar.gz}.db)"
         # The built interface is not in the archive (derived): rebuild it for the restored code when the tools are there.
         if [ -n "$PREVIOUS_COMMIT" ] && [ -d "$REPO_DIR/dashboard/node_modules" ] && command -v npm >/dev/null 2>&1; then

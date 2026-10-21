@@ -28,6 +28,10 @@ os.environ["HYPERLITE_WATCHDOG_DEVICE"] = "/nonexistent/hyperlite-watchdog-tests
 os.environ["HYPERLITE_INITIAL_PASSWORD_ROOT"] = "/nonexistent/hyperlite-initial-password-tests"
 # Nor /var/log/hyperlite: the access log of a test client goes to a directory of its own (app/core/access_log.py).
 os.environ["HYPERLITE_ACCESS_LOG_DIR"] = tempfile.mkdtemp(prefix="hyperlite-access-log-tests-")
+# Nor /var/lib/hyperlite and /etc/hyperlite (app/core/paths.py): what the suite writes there (ISOs, templates, keys)
+# goes to directories of its own.
+os.environ["HYPERLITE_VAR_DIR"] = tempfile.mkdtemp(prefix="hyperlite-var-tests-")
+os.environ["HYPERLITE_ETC_DIR"] = tempfile.mkdtemp(prefix="hyperlite-etc-tests-")
 
 import pytest
 

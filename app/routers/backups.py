@@ -291,7 +291,8 @@ def set_backup_schedule(
         raise HTTPException(status_code=422, detail="Invalid time (expected HH:MM)")
 
     current = backup_service.schedule_of(name)
-    target = _target_dir(payload.target_dir, user, current and current.get("target_dir")) or str(DEFAULT_BACKUP_DIR)
+    # Empty: the default directory (backup_groups.validate_target).
+    target = _target_dir(payload.target_dir, user, current and current.get("target_dir")) or ""
     next_run = _next_run(payload.frequency, payload.time)
     backup_service.set_schedule(
         name,
