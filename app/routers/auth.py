@@ -1,10 +1,8 @@
 import re
 from datetime import UTC, datetime, timedelta
 
-import jwt
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from jwt import PyJWTError
 from pydantic import BaseModel, Field
 
 from app.core import login_guard, renaming, webauthn_keys
@@ -15,11 +13,10 @@ from app.core.listing import listing
 from app.core.password_policy import password_problem
 from app.core.permissions import delete_acl_for_user, get_user_groups, remove_group_member
 from app.core.security import (
-    ALGORITHM,
-    SECRET_KEY,
     authenticate_user,
     create_access_token,
     create_preauth_token,
+    decode_token,
     flag_weak_password,
     get_current_user,
     get_current_user_pending_ok,
@@ -269,10 +266,9 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
 
 
 def _preauth_username(token):
-    try:
-        claims = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except PyJWTError:
-        raise HTTPException(status_code=401, detail="Login session expired, sign in again") from None
+    claims = decode_token(token)
+    if claims is None:
+        raise HTTPException(status_code=401, detail="Login session expired, sign in again")
     username = claims.get("sub")
     if not claims.get("2fa_pending") or not username:
         raise HTTPException(status_code=401, detail="Invalid pre-authentication token")
@@ -339,10 +335,9 @@ def login_2fa(request: Request, payload: Login2FA):
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many failed attempts from this address, try again in {LOGIN_IP_WINDOW_S // 60} minutes",
         )
-    try:
-        claims = jwt.decode(payload.preauth_token, SECRET_KEY, algorithms=[ALGORITHM])
-    except PyJWTError:
-        raise HTTPException(status_code=401, detail="Login session expired, sign in again") from None
+    claims = decode_token(payload.preauth_token)
+    if claims is None:
+        raise HTTPException(status_code=401, detail="Login session expired, sign in again")
     username = claims.get("sub")
     if not claims.get("2fa_pending") or not username:
         raise HTTPException(status_code=401, detail="Invalid pre-authentication token")
