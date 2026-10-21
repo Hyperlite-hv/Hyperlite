@@ -69,3 +69,28 @@ def test_the_updater_starts_a_staged_copy_told_the_version_and_the_package(tmp_p
     ]
     assert argv[3:5] == ["bash", str(staged)]
     assert "HYPERLITE_PREVIOUS_DEB" not in " ".join(update._watchdog_argv("/b", "/u", "1.0.2", None))
+
+
+def test_the_rollback_runs_even_when_the_new_version_took_the_log_directory_away(tmp_path):
+    """Seen on a test node: the log's directory (/root/hyperlite-backups) moved with the new version's files, and the
+    rollback's apt-get, redirected to it, never ran. The package must be reinstalled whatever happens to the log."""
+    staged = tmp_path / "update" / "update_watchdog.sh"
+    staged.parent.mkdir()
+    staged.write_bytes(WATCHDOG.read_bytes())
+    deb = tmp_path / "hyperlite_1.0.2_amd64.deb"
+    deb.write_text("deb")
+    bin_dir = _bin(tmp_path, "exit 7")
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HYPERLITE_EXPECTED_VERSION": "1.1.0",
+           "HYPERLITE_PREVIOUS_DEB": str(deb)}  # fmt: skip
+    gone = tmp_path / "moved-away" / "update.log"  # its directory no longer exists
+    subprocess.run(["bash", str(staged), str(tmp_path / "none.tar.gz"), str(tmp_path), str(gone)], check=True, env=env)
+
+    assert (tmp_path / "apt.log").read_text().split()[-1] == str(deb)  # reinstalled
+    assert (tmp_path / "systemctl.log").read_text().splitlines() == ["stop hyperlite", "start hyperlite"]
+    assert "reinstalled" in (staged.parent / "watchdog.log").read_text()  # the log went next to the watchdog
+
+
+def test_the_updater_keeps_the_watchdog_log_next_to_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(update, "WATCHDOG_STAGE", tmp_path / "update" / "update_watchdog.sh")
+    argv = update._watchdog_argv("/b.tar.gz", "/root/hyperlite-backups/update.log", "1.1.0", None)
+    assert argv[-1] == str(tmp_path / "update" / "update.log")
