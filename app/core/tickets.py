@@ -1,4 +1,4 @@
-"""Session tokens signed with Ed25519 key pairs held by hyperlite-daemon, as Proxmox VE signs its tickets with
+"""Session tickets (as Proxmox VE calls them): tokens signed with Ed25519 key pairs held by hyperlite-daemon, as Proxmox VE signs its tickets with
 authkey.key, which only root reads, and pveproxy verifies them with authkey.pub (docs/design/privilege-separation.md,
 section 12).
 
@@ -8,8 +8,9 @@ section 12).
 A new pair every ROTATE_S, made when a token is signed after that time; a public key is kept KEEP_S after its successor
 appeared, so a session of "Stay signed in" (7 days) outlives the rotations. A token names its key (`kid`).
 
-The API asks the daemon to sign (`auth.sign`). HYPERLITE_AUTH_SIGNING=local signs in this process instead, with the
-keys under HYPERLITE_ETC_DIR: the test suite and the e2e backend, which run no daemon; a node never sets it."""
+The daemon signs a session only after checking a proof itself (app/core/sign_in.py). HYPERLITE_AUTH_SIGNING=local makes
+the API do it in its own process, with the keys under HYPERLITE_ETC_DIR: the test suite and the e2e backend, which run no
+daemon; a node never sets it."""
 
 import base64
 import contextlib
@@ -122,13 +123,13 @@ def sign_local(claims):
 
 
 def sign(claims):
-    """A token for `claims` (exp and iat as whole seconds), signed by hyperlite-daemon. Raises DaemonError when the
-    daemon does not answer: no session can be opened without it, as on Proxmox VE without pvedaemon."""
-    if os.environ.get(SIGNING_ENV) == "local":
-        return sign_local(claims)
-    from app.core import daemon_client
-
-    return daemon_client.call("auth.sign", {"claims": claims}, user=claims.get("sub"))  # named in its log
+    """A token for `claims`, signed in this process: the tests only (HYPERLITE_AUTH_SIGNING=local). Anywhere else a
+    session is opened by hyperlite-daemon once it checked a proof (app/core/sign_in.py), never for claims it is handed."""
+    if os.environ.get(SIGNING_ENV) != "local":
+        raise RuntimeError(
+            "Sessions are signed by hyperlite-daemon after it checks the credentials (app/core/sign_in.py)"
+        )
+    return sign_local(claims)
 
 
 def _verification_key(kid):

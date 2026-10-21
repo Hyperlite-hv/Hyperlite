@@ -6,6 +6,7 @@ nobody would see (these are BROWSER redirects, not API calls consumed by the JS
 frontend)."""
 
 import json
+import logging
 import urllib.error
 from urllib.parse import urlencode
 
@@ -14,11 +15,14 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from jwt import PyJWTError
 from pydantic import BaseModel
 
-from app.core import sso, webauthn_keys
+from app.core import sign_in, sso
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.security import create_access_token, create_preauth_token, get_user, require_role
+from app.core.security import require_role
+from app.daemon.registry import DaemonError
 from app.services import account_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth/sso", tags=["sso"])
 # What a browser opens, not a client of the API: the sign-in redirection, and the callback the identity provider was
@@ -222,28 +226,35 @@ def sso_exchange(request: Request):
     """The dashboard's session after an SSO sign-in, from the one-time handoff cookie the callback set. When the
     account has a second factor, the answer is the same as a password sign-in's (require_2fa): the identity
     provider proves who signs in, not the second factor this account chose to require."""
-    username = sso.consume_handoff(request.cookies.get(HANDOFF_COOKIE))
-    user = get_user(username) if username else None
-    if user is None:
+    # The one-time code is consumed by hyperlite-daemon, which signs (app/core/sign_in.py).
+    try:
+        answer = sign_in.ask("sso", handoff=request.cookies.get(HANDOFF_COOKIE))
+    except DaemonError as e:
+        logger.error("SSO sign-in unavailable: %s", e.detail)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Signing in is unavailable: hyperlite-daemon does not answer", "code": "unavailable"},
+        )
+    if answer["result"] == "expired":
         response = JSONResponse(
             status_code=401, content={"detail": "SSO sign-in expired, try again", "code": "unauthorized"}
         )
         response.delete_cookie(HANDOFF_COOKIE, path=HANDOFF_PATH)
         return response
-    methods = [m for m, on in (("totp", user["totp_enabled"]), ("webauthn", webauthn_keys.has_keys(username))) if on]
-    if methods:
-        body = {"require_2fa": True, "preauth_token": create_preauth_token(username), "methods": methods}
+    user = answer["user"]
+    username = user["username"]
+    if answer["result"] == "second_factor":
+        body = {"require_2fa": True, "preauth_token": answer["preauth_token"], "methods": answer["methods"]}
         log_action(username, "login", "auth", "success", "SSO validated, second factor required")
     else:
-        token = create_access_token({"sub": username, "role": user["role"]})
         account_service.record_login(username)
         log_action(username, "login", "auth", "success", "SSO login")
         body = {
-            "access_token": token,
+            "access_token": answer["token"],
             "token_type": "bearer",
             "role": user["role"],
             "username": username,
-            "password_change_required": bool(user.get("must_change_password")),
+            "password_change_required": user["password_change_required"],
         }
     response = JSONResponse(content=body)
     response.delete_cookie(HANDOFF_COOKIE, path=HANDOFF_PATH)

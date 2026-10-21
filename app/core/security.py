@@ -11,9 +11,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import PyJWTError
 
-from app.core import auth_keys
+from app.core import tickets
 from app.core.passwords import bcrypt_hash, bcrypt_verify
-from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ MIN_SECRET_KEY_LENGTH = 32
 
 def _load_secret_key():
     """The key the members of a cluster share, which signs the calls between them (create_peer_token) and signed every
-    session token up to 1.1.0; sessions are signed by hyperlite-daemon now (app/core/auth_keys.py). Set purpose empty
+    session token up to 1.1.0; sessions are signed by hyperlite-daemon now (app/core/tickets.py). Set purpose empty
     or short, it is refused: an empty HMAC key lets anyone forge a token. Unset (development only), a random key is
     used; the installer always writes one to /etc/hyperlite/priv/env."""
     raw = os.environ.get("HYPERLITE_SECRET_KEY")
@@ -56,16 +55,9 @@ REMEMBER_TOKEN_EXPIRE_DAYS = 7  # "Stay signed in" on the login screen
 
 
 def _sign(claims):
-    """A session token signed by hyperlite-daemon (app/core/auth_keys.py). Without the daemon no session is opened,
-    as Proxmox VE opens none without pvedaemon."""
-    try:
-        return auth_keys.sign(claims)
-    except DaemonError as e:
-        logger.error("A session could not be signed: %s", e.detail)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Signing in is unavailable: hyperlite-daemon does not answer (systemctl status hyperlite-daemon)",
-        ) from None
+    """A session for the tests (tickets.sign): on a node, sessions are opened by hyperlite-daemon once it checked a
+    proof (app/core/sign_in.py)."""
+    return tickets.sign(claims)
 
 
 def _claims(data: dict, lifetime: timedelta):
@@ -216,7 +208,7 @@ def _credentials_exception():
 def decode_token(token: str):
     """The claims of a token signed by this node's daemon, or by a member with the shared key (a call between members,
     or a session opened before 1.1.1); None for any other."""
-    claims = auth_keys.decode(token)
+    claims = tickets.decode(token)
     if claims is not None:
         return claims
     try:

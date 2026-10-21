@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format is based on 
 
 - Sessions are signed by `hyperlite-daemon` with an Ed25519 key pair only root reads (`/etc/hyperlite/priv/authkey.key`), renewed every day; the API verifies them with the public keys (`/etc/hyperlite/authkeys.json`), as Proxmox VE's `pveproxy` does with `authkey.pub`. The first part of moving the sign-in out of the API (#511, `docs/design/privilege-separation.md`, section 12). Sessions opened before the update stay valid; the calls between the members of a cluster still use the key they share. Without the daemon, signing in answers that it is unavailable.
 
+- `hyperlite-daemon` opens a session only after checking the proof itself: the password (local account or LDAP directory), the TOTP code, the security key, the one-time code an SSO sign-in leaves, and for a password change the session, the current password and the code (`app/core/sign_in.py`). The API keeps the locks after repeated failures and the audit log; it can no longer have a session signed for claims of its choosing (#511, section 12, PR B).
+
 ## [1.1.0] - 2026-10-21
 
 ### Changed

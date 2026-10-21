@@ -237,8 +237,8 @@ In three pull requests, each released and checked on the test VM:
 
 | PR | Content | What a compromised API can still do |
 |---|---|---|
-| A | `app/core/auth_keys.py` (keys, rotation, signing, verification), the daemon makes and rotates the keys and signs (`auth.sign`); the API asks it for every session token and verifies EdDSA; HS256 still accepted, for the calls between members | ask the daemon to sign any session; sign HS256 with the shared key |
-| B | sign-in, second factor, SSO exchange and token renewal become daemon operations (`auth.login`, `auth.second_factor`, `auth.sso_session`, `auth.renew`) that check before they sign; `auth.sign` removed | sign HS256 with the shared key |
+| A | `app/core/tickets.py` (keys, rotation, signing, verification), the daemon makes and rotates the keys and signs (`auth.sign`); the API asks it for every session token and verifies EdDSA; HS256 still accepted, for the calls between members | ask the daemon to sign any session; sign HS256 with the shared key |
+| B | sign-in, second factor, SSO exchange and password change become daemon operations (`auth.password`, `auth.totp`, `auth.webauthn`, `auth.sso`, `auth.change_password`, app/core/sign_in.py) that check before they sign; `auth.sign` removed | sign HS256 with the shared key |
 | C | the calls between members stop carrying a session signed with the shared key (each member verifies the caller's own published public keys, as it already pins its TLS certificate, `/cluster/tls/<node>` → `/cluster/authkey/<node>`); `HYPERLITE_SECRET_KEY` retired once every member runs it | nothing: no key to sign with |
 
 Development and tests run without a daemon: `HYPERLITE_AUTH_SIGNING=local` makes the API sign in-process with keys under
