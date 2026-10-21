@@ -118,3 +118,29 @@ def test_a_running_vm_is_refused_in_both_modes(node, client, auth_headers, keep_
     node["domain"].active = True
     assert _make(client, auth_headers("root"), keep_vm=keep_vm).status_code == 409
     assert not node["domain"].undefined and node["copies"] == []
+
+
+def test_the_vms_account_and_system_go_with_its_template(node, client, auth_headers):
+    """Seen on a real node: an ISO-installed RHEL converted to a template, then deployed, had no SSH user, so the web
+    terminal could not reach it; the source's rows stayed under a VM that no longer existed."""
+    from app.core import vm_meta
+
+    vm_meta.set_vm_ssh_user("web", "ansible")
+    vm_meta.set_vm_os_label("web", "rhel-10.2-x86_64-dvd")
+    admin = auth_headers("root")
+    assert _make(client, admin, keep_vm=True).status_code == 201
+    copied = templates_store.get_template("base")
+    assert (copied["ssh_user"], copied["os_label"]) == ("ansible", "rhel-10.2-x86_64-dvd")
+    assert vm_meta.get_vm_ssh_user("web") == "ansible"  # a copy: the VM keeps them
+
+    r = client.post("/templates/from-vm/web", json={"template_name": "conv"}, headers=admin)
+    assert r.status_code == 201, r.text
+    converted = templates_store.get_template("conv")
+    assert (converted["ssh_user"], converted["os_label"]) == ("ansible", "rhel-10.2-x86_64-dvd")
+    assert vm_meta.get_vm_ssh_user("web") is None and vm_meta.get_vm_os_label("web") is None  # the VM is gone
+
+
+def test_a_vm_without_account_or_system_makes_a_template_without_them(node, client, auth_headers):
+    assert _make(client, auth_headers("root"), keep_vm=True).status_code == 201
+    tpl = templates_store.get_template("base")
+    assert "ssh_user" not in tpl and "os_label" not in tpl

@@ -76,3 +76,23 @@ def test_other_templates_deploy_without_any_cd_rom(deploy, client, auth_headers)
     assert run(client, admin, "/isos/debian.iso") == []
     assert run(client, admin, None) == []
     assert seeds == []
+
+
+@pytest.mark.usefixtures("deploy")
+def test_a_deployed_vm_takes_the_templates_account_and_system(client, auth_headers, monkeypatch):
+    from app.core import vm_meta
+
+    tpl = {"xml": _xml(None), "disk_path": "/t/base.qcow2", "ssh_user": "ansible", "os_label": "rhel-10.2-x86_64-dvd"}
+    monkeypatch.setattr(templates.templates_store, "get_template", lambda n: tpl)
+    r = client.post("/templates/base/deploy", json={"new_name": "copy"}, headers=auth_headers("root"))
+    assert r.status_code == 201, r.text
+    assert vm_meta.get_vm_ssh_user("copy") == "ansible"
+    assert vm_meta.get_vm_os_label("copy") == "rhel-10.2-x86_64-dvd"
+
+
+def test_a_template_made_before_they_were_kept_deploys_without_them(deploy, client, auth_headers):
+    from app.core import vm_meta
+
+    run, _, _ = deploy
+    assert run(client, auth_headers("root"), None) == []
+    assert vm_meta.get_vm_ssh_user("copy") is None
