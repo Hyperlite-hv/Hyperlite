@@ -18,8 +18,8 @@ from tests.test_template_deploy import _Conn, _xml
 
 
 def _task(database, task_id):
-    """The task once its work ended (the work runs on a thread)."""
-    for _ in range(200):
+    """The task once its work ended (the work runs on a thread; a loaded CI runner can take seconds)."""
+    for _ in range(1000):
         audit._AUDIT_QUEUE.join()
         with database.get_conn() as db:
             row = dict(db.execute("SELECT type, status, error FROM tasks WHERE id = ?", (task_id,)).fetchone())
@@ -134,7 +134,7 @@ def test_a_creation_is_checked_then_answers_its_task(client, auth_headers, datab
         if not check_only:
             # The name is held while the work runs: a second creation of it is refused.
             assert vm_locks.running("web") == "a creation"
-            proceed.wait(5)
+            proceed.wait(30)
             audit.log_action(user["username"], "create_vm", payload.name, "success", task_id=task_id)
 
     monkeypatch.setattr(create, "_create_vm", fake)

@@ -59,8 +59,9 @@ test("a VM is created, cloned, copied to a template and deployed, each answering
   expect((await request.get(`/vms/${CLONE}`, { headers: auth() })).ok()).toBe(true);
 
   await finished(request, await started(request, `/templates/from-vm/${CLONE}?wait=false`, { template_name: TEMPLATE, keep_vm: true }, TEMPLATE));
-  const templates = (await (await request.get("/templates", { headers: auth() })).json()) as { items: Array<{ name: string }> };
-  expect(templates.items.map((t) => t.name)).toContain(TEMPLATE);
+  // The fixture reads a list ({items, total}) as its items, as the dashboard does.
+  const templates = (await (await request.get("/templates", { headers: auth() })).json()) as Array<{ name: string }>;
+  expect(templates.map((t) => t.name)).toContain(TEMPLATE);
 
   await finished(request, await started(request, `/templates/${TEMPLATE}/deploy?wait=false`, { new_name: DEPLOYED }, DEPLOYED));
   const deployed = (await (await request.get(`/vms/${DEPLOYED}`, { headers: auth() })).json()) as { state: string };
