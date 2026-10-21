@@ -185,3 +185,20 @@ def test_a_name_that_would_leave_the_library_never_becomes_a_path(cluster):
         assert iso_share.iso_size(None, name) is None
         with pytest.raises(ValueError):
             iso_share.delete_remote({"ssh_user": "root", "hostname": "n"}, name)
+
+
+def test_a_copy_lands_in_the_library_of_a_node_on_either_layout(cluster, client, auth_headers, database):
+    """During a rolling update to 1.1 the nodes keep their libraries in different places: each copy goes to the
+    target's own (docs/design/privilege-separation.md, section 9)."""
+    from app.core import iso_share
+
+    (cluster["local"] / "debian.iso").write_bytes(b"d" * 32)
+    cluster["add_node"]("old", "10.0.0.2", layout="old")
+    cluster["add_node"]("new", "10.0.0.3", layout="new")
+    r = client.post("/isos/copy", json={"name": "debian.iso", "source": "local", "targets": ["old", "new"]},
+                    headers=auth_headers("admin"))  # fmt: skip
+    assert r.status_code == 202, r.text
+    _wait_tasks(database, [t["task_id"] for t in r.json()["tasks"]])
+    for host, layout in (("10.0.0.2", 1), ("10.0.0.3", 0)):
+        moves = [c for c in cluster["roots"][host]["commands"] if c[0] == "mv"]
+        assert moves and moves[-1][-1] == f"{iso_share.LIBRARY_DIRS[layout]}/debian.iso", (host, moves)
