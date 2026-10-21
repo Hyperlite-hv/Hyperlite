@@ -114,12 +114,13 @@ def cluster(database, tmp_path, monkeypatch):
     monkeypatch.setattr(isos, "ISOS_DIR", local)
     roots = {}
 
-    def add_node(name, hostname, reachable=True, library=True):
+    def add_node(name, hostname, reachable=True, library=True, layout="old"):
+        """layout: where the node keeps its library, "old" (/root/hyperlite, up to 1.0) or "new" (from 1.1)."""
         root = tmp_path / name
         root.mkdir()
         if library:
             (root / "isos").mkdir()
-        roots[hostname] = {"root": root, "reachable": reachable, "library": library}
+        roots[hostname] = {"root": root, "reachable": reachable, "library": library, "layout": layout, "commands": []}
         with database.get_conn() as conn:
             conn.execute(
                 "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, status, added_at) VALUES (?, ?, 'root', 22, 'online', ?)",
@@ -140,7 +141,12 @@ def cluster(database, tmp_path, monkeypatch):
         host = roots[node["hostname"]]
         if not host["reachable"]:
             return Result(255, err="ssh: connect to host: Connection timed out")
+        host["commands"].append(command)
         verb = command[0]
+        if verb == "sh":  # iso_share._library: where the node keeps its library
+            if not host["library"]:
+                return Result(1)
+            return Result(0, iso_share.LIBRARY_DIRS[0 if host["layout"] == "new" else 1] + "\n")
         if verb == "find":
             if not host["library"]:
                 return Result(1, err=f"find: '{command[1]}': No such file or directory")
@@ -182,7 +188,16 @@ def cluster(database, tmp_path, monkeypatch):
     monkeypatch.setattr(iso_share, "_ssh", fake_ssh)
     monkeypatch.setattr(iso_share, "_scp", fake_scp)
     monkeypatch.setattr(iso_share, "PROGRESS_EVERY_S", 0.01)
-    return {"local": local, "add_node": add_node, "scp_calls": scp_calls}
+    return {"local": local, "add_node": add_node, "scp_calls": scp_calls, "roots": roots}
+
+
+@pytest.fixture(autouse=True)
+def _watchdog_stage(tmp_path, monkeypatch):
+    """The updater's copy of its watchdog (app/routers/update.py) goes to the test's directory, never to the host's
+    /var/lib/hyperlite."""
+    from app.routers import update
+
+    monkeypatch.setattr(update, "WATCHDOG_STAGE", tmp_path / "update-stage" / "update_watchdog.sh")
 
 
 @pytest.fixture(autouse=True)

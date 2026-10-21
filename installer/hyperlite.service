@@ -19,6 +19,8 @@ Environment=LC_ALL=C.UTF-8
 # it fails with "error parsing the body" (seen with a RHEL 10 DVD larger than
 # 7.8 GB of tmpfs).
 Environment=TMPDIR=/root/hyperlite/data/tmp
+# The files a newer version moved (a 1.1 rolled back to this one) come back before anything reads them.
+ExecStartPre=/bin/bash /root/hyperlite/scripts/migrate_layout.sh back
 ExecStartPre=/bin/mkdir -p /root/hyperlite/data/tmp
 ExecStartPre=/root/hyperlite/scripts/ensure-tls-cert.sh
 ExecStartPre=/root/hyperlite/scripts/write-motd.sh

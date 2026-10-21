@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Changed
+
+- The update is ready for the files to move where Proxmox VE keeps its own, in 1.1 (`/var/lib/hyperlite`, `/etc/hyperlite`): its watchdog runs from a copy kept out of the package and is told the version to wait for, a failed update is rolled back by reinstalling the package replaced, and the files of a newer version are moved back when it is rolled back to this one. An ISO library on another node is found in either place. Every node must run this version before 1.1.
+
 ## [1.0.1] - 2026-10-20
 
 ### Fixed
