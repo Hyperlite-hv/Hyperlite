@@ -13,7 +13,6 @@ from jwt import PyJWTError
 
 from app.core import auth_keys
 from app.core.passwords import bcrypt_hash, bcrypt_verify
-from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
@@ -56,16 +55,9 @@ REMEMBER_TOKEN_EXPIRE_DAYS = 7  # "Stay signed in" on the login screen
 
 
 def _sign(claims):
-    """A session token signed by hyperlite-daemon (app/core/auth_keys.py). Without the daemon no session is opened,
-    as Proxmox VE opens none without pvedaemon."""
-    try:
-        return auth_keys.sign(claims)
-    except DaemonError as e:
-        logger.error("A session could not be signed: %s", e.detail)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Signing in is unavailable: hyperlite-daemon does not answer (systemctl status hyperlite-daemon)",
-        ) from None
+    """A session for the tests (auth_keys.sign): on a node, sessions are opened by hyperlite-daemon once it checked a
+    proof (app/core/sign_in.py)."""
+    return auth_keys.sign(claims)
 
 
 def _claims(data: dict, lifetime: timedelta):

@@ -7,7 +7,6 @@ import time
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import HTTPException
 
 import app.daemon.ops  # noqa: F401  (registers the operations)
 from app.core import auth_keys, paths, security
@@ -81,21 +80,49 @@ def test_a_call_between_members_still_carries_the_shared_key(database):
     assert security.decode_token(token)["sub"] == "admin"
 
 
-def test_no_session_without_the_daemon(monkeypatch, tmp_path):
+def test_no_session_without_the_daemon(client, make_user, monkeypatch, tmp_path):
+    make_user("alice", "admin", "correct horse battery")
     monkeypatch.delenv(auth_keys.SIGNING_ENV)
     monkeypatch.setenv("HYPERLITE_DAEMON_SOCKET", str(tmp_path / "none.sock"))
-    with pytest.raises(HTTPException) as exc:
-        security.create_access_token({"sub": "alice"})
-    assert exc.value.status_code == 503 and "hyperlite-daemon" in exc.value.detail
+    r = client.post("/auth/login", data={"username": "alice", "password": "correct horse battery"})
+    assert r.status_code == 503 and "hyperlite-daemon" in r.json()["detail"]
 
 
-def _sign_op(claims):
-    return dispatch({"op": "auth.sign", "args": {"claims": claims}}, Context("alice", None, 1, 0))
+def test_outside_the_tests_nothing_signs_claims_it_is_handed(monkeypatch):
+    """A session is opened by the daemon once it checked a proof (app/core/sign_in.py), never for given claims."""
+    monkeypatch.delenv(auth_keys.SIGNING_ENV)
+    with pytest.raises(RuntimeError):
+        auth_keys.sign(_claims())
 
 
-def test_the_daemon_signs_a_session_and_refuses_one_without_account_or_too_long(keys):
-    answer = _sign_op(_claims())
-    assert answer["ok"] and auth_keys.decode(answer["result"])["sub"] == "alice"
-    assert _sign_op({"exp": int(time.time()) + 60})["error"] == "invalid_arguments"
-    assert _sign_op(_claims(exp=int(time.time()) + 30 * 24 * 3600))["error"] == "invalid_arguments"
-    assert _sign_op(_claims(exp=int(time.time()) - 60))["error"] == "invalid_arguments"
+def _op(op, **args):
+    return dispatch({"op": op, "args": args}, Context(None, None, 1, 0))
+
+
+def test_the_daemon_signs_only_after_checking_the_password(make_user, keys):
+    make_user("alice", "admin", "correct horse battery")
+    assert _op("auth.sign", claims=_claims())["error"] == "unknown_operation"  # PR A's operation is gone
+    assert _op("auth.password", username="alice", password="wrong")["result"] == {"result": "invalid"}
+    answer = _op("auth.password", username="alice", password="correct horse battery")["result"]
+    assert answer["result"] == "session" and answer["user"] == {
+        "username": "alice",
+        "role": "admin",
+        "password_change_required": False,
+    }
+    assert auth_keys.decode(answer["token"])["sub"] == "alice"
+    assert _op("auth.password", username="alice", password="x" * 5000)["error"] == "invalid_arguments"
+
+
+def test_a_pre_authentication_token_is_no_session_and_the_code_is_checked_by_the_daemon(make_user, keys, monkeypatch):
+    make_user("alice", "admin", "correct horse battery")
+    from app.core import twofa
+
+    monkeypatch.setattr(security, "get_user", lambda name: {**security._accounts().get(name), "totp_enabled": 1})
+    answer = _op("auth.password", username="alice", password="correct horse battery")["result"]
+    assert answer["result"] == "second_factor" and answer["methods"] == ["totp"]
+    assert auth_keys.decode(answer["preauth_token"])["2fa_pending"] is True
+    monkeypatch.setattr(twofa, "verify_code", lambda user, secret, code: code == "123456")
+    assert _op("auth.totp", preauth_token=answer["preauth_token"], code="000000")["result"]["result"] == "invalid"
+    session = _op("auth.totp", preauth_token=answer["preauth_token"], code="123456")["result"]
+    assert session["result"] == "session" and "2fa_pending" not in auth_keys.decode(session["token"])
+    assert _op("auth.totp", preauth_token=session["token"], code="123456")["result"]["result"] == "expired"
