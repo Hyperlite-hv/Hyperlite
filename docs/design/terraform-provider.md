@@ -20,8 +20,9 @@ with Hyperlite and tested against it, is the client that proves the contract.
   token, v1 errors, "server older than 1.0"), the TLS check (system trust store, then a pinned SHA-256 fingerprint),
   `normalizeURL`, `HYPERLITE_SERVER`/`HYPERLITE_TOKEN`. All of it is in `package main`: nothing can import it.
 - **Long operations** answer in three ways (section 6): 23 routes answer `202 {"task_id": ...}`; others create a task
-  but hold the request until the work is done (VM creation, clone, start, stop, deletion, disk upload); template
-  deployment holds it with no task at all.
+  but hold the request until the work is done (VM creation, clone, deletion, disk upload); template deployment and
+  template creation hold it with no task at all. Start and stop are quick (stop sends the request and a thread watches,
+  with `force_after`).
 - **Identity**: a VM is known by its name on its node; it has a libvirt UUID (`uuid` in `GET /vms`) and can be renamed
   (`POST /vms/{name}/rename`). There is no numeric VM id yet (#517).
 - **Cluster**: 14 routes of `vms/`, `network.py`, `storage.py` and `templates.py` take `?node=`; the others act on the
@@ -193,7 +194,8 @@ What the API does today:
 - **`202 {"task_id"}`** (23 routes): snapshots and their restore, disk move, migration, backup, backup restore and
   verification, ISO copy, export, the runs of jobs, a node's maintenance, updates.
 - **Held until done, with a task alongside** (the answer is the result, the `task_id` is not returned): VM creation,
-  clone, start, stop, restart and deletion, the disk upload, a container's creation and clone.
+  clone, deletion, the disk upload, a container's creation and clone (start, stop and restart too, but they are
+  quick: stop sends the request, a thread watches the guest, and `force_after` stops it hard).
 - **Held until done, no task at all**: template deployment and template creation (each a full copy of the disk).
 
 A held request is a problem for any client, not only Terraform: a clone of a 200 GB disk outlives every proxy and load
@@ -229,8 +231,8 @@ version → oldest Hyperlite version", as `vsphere`'s "vSphere 7.0 or later".
 
 ## 8. Clusters: the `node` argument
 
-The rule today is not one: `GET /vms/{name}`, `DELETE`, start, rename and the console take `?node=`; create, clone,
-stop, restart, the update (`PATCH`), disks, interfaces, cloud-init, snapshots and templates act only on the node that
+The rule today is not one: `GET /vms/{name}`, `DELETE`, start, stop, restart, rename and the console take `?node=`;
+create, clone, the update (`PATCH`), disks, interfaces, cloud-init, snapshots and templates act only on the node that
 answers. And `node` means two things: forwarded to that member's own API (`cluster_view.forward_to`, the list and the
 backups), or reached from here through libvirt over SSH (`open_conn(node)`, the others). The tasks call it `?on=`.
 
@@ -242,8 +244,8 @@ locks and tasks.
 
 - Every route on a VM, a template, a network, a storage pool and their sub-routes takes `?node=`, through
   `cluster_view.forward_to("node")`: the member does the work itself, its task id comes back (and is followed with
-  `?on=<node>`). Absent, `local` or this node: here, as today. `stop`, `restart` and `PATCH` lose the asymmetry with
-  `start` and `DELETE`.
+  `?on=<node>`). Absent, `local` or this node: here, as today. `PATCH`, disks and cloud-init lose the asymmetry with
+  start, stop and `DELETE`.
 - `open_conn(node)` stays for nodes registered over SSH only (not members, no Hyperlite on them).
 - `?on=` of the tasks is also accepted as `?node=` (additive), so a client uses one name.
 
@@ -269,11 +271,11 @@ changes; on a network or a local pool it is a replacement. A shared pool (NFS, i
 | all | `?node=` on 14 routes, `?on=` on tasks | `?node=` on every route of section 8, forwarded to the member; `?node=auto` on creation and clone (placement) | additive |
 | all | answers mostly untyped in `openapi-v1.json` | `response_model` on the routes the provider reads, so the document describes them and the contract check covers them | additive |
 | `hyperlite_vm` | `POST /vms` (`vms/create.py`), held until done | `?wait=false` → `202 {"task_id", "name"}`; `ssh_keys` at creation (today only at the next boot, `PUT /cloud-init`); `vlan_tag` of the first interface | additive |
-| `hyperlite_vm` (clone) | `POST /vms/{name}/clone` (`vms/clone.py`), held; `POST /templates/{name}/deploy` (`templates.py`), held, no task | `?wait=false` and a task for both; `storage_pool` of the copy (today the source's pool) | additive |
+| `hyperlite_vm` (clone) | `POST /vms/{name}/clone` (`vms/clone.py`), held; `POST /templates/{name}/deploy` (`templates.py`), held, no task | `?wait=false` and a task for both (#546); `storage_pool` of the copy (today the source's pool) | additive |
 | `hyperlite_vm` (customisation) | cloud-init at creation: `user`, `password`; hostname = VM name (`core/vm_builder.py`) | what `customize` holds (inspired by `vsphere`'s): a host name and domain other than the VM's name, static addresses per interface, a gateway, resolvers; and a user-data snippet appended to Hyperlite's own (`user_data`) | additive |
 | `hyperlite_vm` | `GET /vms/{name}`, `/disks`, `/network`, `/boot`, `/cloud-init`, `GET /meta/vm/{name}` | one read with all of them (`GET /vms/{name}?full=true`): six calls per VM per plan is slow at 100 VMs | additive |
 | `hyperlite_vm` | `PATCH /vms/{name}` (`vcpu`, `memory_mb`, `os_label`), local only | `?node=`; nothing else | additive |
-| `hyperlite_vm` | `POST /vms/{name}/start`, `/stop`, held, local for stop | `?wait=false`; `stop` takes `force` and a `timeout_s` of the clean shutdown (the provider's `shutdown_timeout`, `force_stop`) | additive |
+| `hyperlite_vm` | `POST /vms/{name}/start`, `/stop` (`force`, `force_after`), quick, both with `?node=` | nothing: the provider sends `force_after` (its `shutdown_timeout` with `force_stop`) and follows the VM's state | |
 | `hyperlite_vm` | `POST /vms/{name}/migrate` (`vms/migration.py`), 202 | nothing | |
 | `hyperlite_vm` | `POST /vms` requires `admin`; clone requires `vm.clone` | the privileges of section 10, so that a token for Terraform is not an administrator's | additive |
 | `hyperlite_vm` (disks) | `POST /vms/{name}/disks` (`DiskAttach`: an existing volume), `/resize`, `DELETE` (`vms/devices.py`) | create and attach in one call (`size_gb`, `storage_pool`), as the creation form does | additive |
@@ -393,7 +395,7 @@ an id so that `terraform plan -generate-config-out` writes the configuration of 
 |---|---|---|
 | 1 | Hyperlite | `cli/hyperlite`: the client as a package (`Client`, `Call`, TLS, errors, `WaitTask`); `cli` uses it; module tags `cli/v…` |
 | 2 | Hyperlite | API, section 9 row "all": `?node=` forwarded on every route, `?node=` for the tasks, versions in the node summary |
-| 3 | Hyperlite | API: `?wait=false` and tasks for create, clone, deploy, start, stop; placement (`?node=auto`); the customisation at creation (host name, addresses, resolvers, `ssh_keys`, `user_data`); `GET` of one object where missing; `response_model` on what the provider reads |
+| 3 | Hyperlite | API: `?wait=false` and tasks for create, clone, deploy, template creation (Hyperlite-hv/Hyperlite#546); placement (`?node=auto`); the customisation at creation (host name, addresses, resolvers, `ssh_keys`, `user_data`); `GET` of one object where missing; `response_model` on what the provider reads |
 | 4 | provider | Skeleton: provider block, `/health` check, data sources `hyperlite_node(s)`, `hyperlite_template`, `hyperlite_network`; GoReleaser, signed pre-release in a private test |
 | 5 | provider | `hyperlite_vm` (create, clone, customisation, cloud-init, disks, interfaces, power-off rule, guest wait, import), the acceptance job |
 | 6 | provider | networks, storage pools and volumes, ISO images, snapshots, HA, backup schedules and jobs |
