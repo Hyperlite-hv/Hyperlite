@@ -179,6 +179,8 @@ async def get_node_summary(name: str, user: dict = Depends(get_current_user)):
     await _require(name)
     try:
         return {**await run_in_threadpool(node_summary, name), "live": await node_service.live(name)}
+    except HTTPException:  # the node seen down (503) or not answering (502), already said
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Node unreachable: {e}") from e
 
@@ -215,6 +217,8 @@ async def get_node_capabilities(name: str, user: dict = Depends(get_current_user
     await _require(name)
     try:
         return await run_in_threadpool(get_remote_capabilities, name)
+    except HTTPException:  # the node seen down (503) or not answering (502), already said
+        raise
     except Exception as e:
         msg = describe_exception(e)
         raise HTTPException(status_code=502, detail=f"Node unreachable: {msg}") from e

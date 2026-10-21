@@ -369,8 +369,9 @@ def _compute_migratable_cpu_xml():
     ('Skylake-Client-v3') is simply UNKNOWN to the other, and `baselineCPU()`
     fails with 'Unknown CPU model'. It is a known limitation, documented rather
     than hidden."""
+    from app.core import node_health
     from app.core.cluster import (  # late import: cluster.py imports this module, a cycle otherwise
-        build_libvirt_uri,
+        libvirt_uri_from_here,
         list_nodes,
     )
 
@@ -391,10 +392,13 @@ def _compute_migratable_cpu_xml():
         if local_xml:
             cpu_xmls.append(local_xml)
 
+        seen_down = node_health.down(nodes)
         for node in nodes:
+            if node["name"] in seen_down:
+                continue  # an unreachable node is ignored below anyway: not waited for
             remote_conn = None
             try:
-                remote_conn = libvirt.open(build_libvirt_uri(node))
+                remote_conn = libvirt.open(libvirt_uri_from_here(node))
                 if remote_conn is not None:
                     remote_xml = _host_cpu_caps_xml(remote_conn)
                     if remote_xml:

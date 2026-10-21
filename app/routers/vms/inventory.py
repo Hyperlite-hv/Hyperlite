@@ -29,7 +29,7 @@ def _cluster_vms(username):
     not answer is named."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from app.core import self_node, statd
+    from app.core import node_health, self_node, statd
 
     table = statd.table()
     # This node's own VMs from its status too, as Proxmox does (Antho, 2026-10-18): a change made through Hyperlite
@@ -45,10 +45,17 @@ def _cluster_vms(username):
         finally:
             conn.close()
     stale, unreachable, ask = [], [], []
-    for member in cluster_view.members():
+    members = cluster_view.members()
+    current = {name for name, s in table.items() if not s["stale"]}
+    seen_down = node_health.down(members, current)
+    for member in members:
         status = table.get(member["name"])
         if status is None:
-            ask.append(member)
+            # No status to read: asked live, unless the cluster sees it down (app/core/node_health.py).
+            if member["name"] in seen_down:
+                unreachable.append(member["name"])
+            else:
+                ask.append(member)
             continue
         items += [{**v, "node": member["name"]} for v in status["vms"]]
         if status["stale"]:

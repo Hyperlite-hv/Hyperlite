@@ -28,17 +28,28 @@ def open_conn(node_name=None):
     """node_name=None (the default): unchanged local connection, so every existing
     call (dozens, across all routers) keeps working without any change.
     node_name='<registered name>': remote connection through qemu+ssh://
-    (see app/core/cluster.py) to a registered cluster node."""
+    (see app/core/cluster.py) to a registered cluster node. A node the cluster
+    sees down is refused at once (node_health.NodeDown, 503), never waited for."""
     if node_name and node_name != "local":
-        from app.core.cluster import build_libvirt_uri, get_node
+        from app.core import node_health
+        from app.core.cluster import get_node, libvirt_uri_from_here
 
         node = get_node(node_name)
         if not node:
             raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
-        uri = build_libvirt_uri(node)
+        node_health.check(node)
+        uri = libvirt_uri_from_here(node)
     else:
         uri = LIBVIRT_URI
-    conn = libvirt.open(uri)
+    try:
+        conn = libvirt.open(uri)
+    except libvirt.libvirtError as e:
+        if uri == LIBVIRT_URI:
+            raise
+        # Another node that does not answer: said as such (502), as the node's own page says it, not an internal error.
+        from app.core.error_messages import describe_exception
+
+        raise HTTPException(status_code=502, detail=f"Node unreachable: {describe_exception(e)}") from e
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt connection")
     return conn

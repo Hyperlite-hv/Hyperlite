@@ -15,7 +15,7 @@ import logging
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-from app.core import cluster_lead, self_node
+from app.core import cluster_lead, node_health, self_node
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +70,11 @@ def gather(username, path, params):
     query = urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, "")})
     full = f"{path}?{query}" if query else path
     answers, missing = {}, []
-    # A member marked down by the last poll that sent its status since (phase E) is back: it is asked. The others marked
-    # down are not, so a list never waits for a node that is really gone.
-    sending = _sending()
+    # A member seen down is not asked, so a list never waits for a node that is really gone (app/core/node_health.py).
+    seen_down = node_health.down(nodes)
 
     def ask(node):
-        if node.get("status") == "offline" and node["name"] not in sending:
+        if node["name"] in seen_down:
             return node["name"], None
         try:
             status, body = _call(node, username, "GET", full)
@@ -91,17 +90,6 @@ def gather(username, path, params):
             else:
                 answers[name] = body
     return answers, missing
-
-
-def _sending():
-    """The members whose status is current (app/core/statd.py): alive, whatever the last poll said."""
-    from app.core import statd
-
-    try:
-        return {name for name, s in statd.table().items() if not s["stale"]}
-    except Exception as e:  # no status to read: the poll's word stands
-        logger.debug("Statuses not read: %s", e)
-        return set()
 
 
 def peer(on):

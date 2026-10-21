@@ -150,6 +150,14 @@ def cluster(database, tmp_path, monkeypatch):
             return Result(255, err="ssh: connect to host: Connection timed out")
         host["commands"].append(command)
         verb = command[0]
+        if verb == "sh" and command[2] == iso_share._LIST:  # remote_isos: the library's place and content at once
+            if not host["library"]:
+                return Result(3)
+            lines = [
+                f"{p.name}\t{p.stat().st_size}\t{p.stat().st_mtime}"
+                for p in sorted((host["root"] / "isos").glob("*.iso"))
+            ]
+            return Result(0, "\n".join(lines) + ("\n" if lines else ""))
         if verb == "sh":  # iso_share._library: where the node keeps its library
             if not host["library"]:
                 return Result(1)
