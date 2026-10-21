@@ -20,13 +20,14 @@ import fcntl
 import logging
 import os
 import threading
-from pathlib import Path
 
 from cryptography.fernet import Fernet
 
+from app.core import paths
+
 logger = logging.getLogger(__name__)
 
-ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+ENV_PATH = paths.ENV_FILE
 _KEY_VAR = "HYPERLITE_ENCRYPTION_KEY"
 _fernet = None
 _key_lock = threading.Lock()

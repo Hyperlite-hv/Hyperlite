@@ -28,11 +28,11 @@ import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 
+from app.core import paths
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.secrets_crypto import SecretUnreadable, decrypt, encrypt
 from app.core.tasks import create_task, finish_task, update_task_progress
-from app.core.vm_builder import PROJDIR
 
 
 def _store():
@@ -47,7 +47,7 @@ CHANNELS_URL = "https://update.k3s.io/v1-release/channels"
 # The k3s project's own releases (a third-party source, unrelated to Hyperlite's APT address).
 K3S_RELEASES = "https://github.com/k3s-io/k3s/releases"
 RELEASE_URL = K3S_RELEASES + "/download/{tag}/{file}"
-ARTIFACTS_DIR = PROJDIR / "data" / "k3s"
+ARTIFACTS_DIR = paths.K3S
 BINARY = "k3s"
 IMAGES = "k3s-airgap-images-amd64.tar.zst"
 CHECKSUMS = "sha256sum-amd64.txt"

@@ -3,7 +3,6 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
@@ -14,7 +13,16 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core import cluster_view, error_codes, ha_selffence, initial_password, inventory_cache, rolling_update, version
+from app.core import (
+    cluster_view,
+    error_codes,
+    ha_selffence,
+    initial_password,
+    inventory_cache,
+    paths,
+    rolling_update,
+    version,
+)
 from app.core.audit import request_ip
 from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
@@ -116,8 +124,8 @@ app = FastAPI(
 # to every open tab. Live streams (text/event-stream) are left alone by Starlette.
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 
-# Web interface (React/Vite, dashboard/), served at the root.
-DASHBOARD_DIST = "dashboard/dist"
+# Web interface (React/Vite, dashboard/), served at the root: /usr/share/hyperlite/www once installed.
+DASHBOARD_DIST = str(paths.WWW)
 # Read once: the built index.html only changes with an update, which restarts the service.
 _INLINE_SCRIPT_HASHES = inline_script_hashes(f"{DASHBOARD_DIST}/index.html")
 
@@ -482,8 +490,8 @@ def on_startup():
     cluster_v1.start()  # the replicated configuration rewritten once every member runs 1.0 (docs/design/api-v1.md)
     if pwd:
         # Never log the password: store it in a root-only file and log only where it is.
-        pw_file = Path(__file__).resolve().parent.parent / "data" / "initial-admin-password.txt"
-        pw_file.parent.mkdir(parents=True, exist_ok=True)
+        pw_file = paths.INITIAL_PASSWORD_FILE
+        pw_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         fd = os.open(pw_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write(pwd + "\n")

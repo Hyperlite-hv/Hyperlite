@@ -169,3 +169,56 @@ def test_a_git_rollback_sets_head_back_so_later_updates_are_not_refused(tmp_path
     assert head == previous
     assert status == ""  # a clean tree: the next update is not refused
     assert (repo / "VERSION").read_text() == "old\n"
+
+
+def test_from_1_1_the_archive_is_extracted_where_it_is_rooted(tmp_path):
+    """From 1.1 the archive holds /usr/lib/hyperlite and /etc/hyperlite, rooted at / (app/routers/update.py); the
+    watchdog is told where (HYPERLITE_ARCHIVE_ROOT), here tmp_path in place of /."""
+    code, etc = tmp_path / "usr/lib/hyperlite", tmp_path / "etc/hyperlite"
+    for path, text in ((code / "app/main.py", "GOOD = True\n"), (etc / "priv/env", "KEY=good\n")):
+        path.parent.mkdir(parents=True)
+        path.write_text(text)
+    tarball = tmp_path / "backup.tar.gz"
+    subprocess.run(["tar", "czf", str(tarball), "-C", str(tmp_path), "usr/lib/hyperlite", "etc/hyperlite"], check=True)
+    (code / "app/main.py").write_text('raise RuntimeError("broken release")\n')
+    (etc / "priv/env").write_text("KEY=changed\n")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _fake_bin(bin_dir, "curl", "exit 7")
+    _fake_bin(bin_dir, "sleep", "exit 0")
+    _fake_bin(bin_dir, "systemctl", "exit 0")
+    subprocess.run(
+        ["bash", str(WATCHDOG), str(tarball), str(code), str(tmp_path / "update.log")],
+        check=True,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "HYPERLITE_ARCHIVE_ROOT": str(tmp_path)},
+    )
+    assert (code / "app/main.py").read_text() == "GOOD = True\n"
+    assert (etc / "priv/env").read_text() == "KEY=good\n"
+
+
+def test_the_return_asked_from_the_dashboard_stops_reinstalls_removes_the_package_and_starts(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls.log"
+    _fake_bin(bin_dir, "curl", f'echo curl >> "{calls}"; exit 7')
+    _fake_bin(bin_dir, "sleep", "exit 0")
+    _fake_bin(bin_dir, "systemctl", f'echo "systemctl $*" >> "{calls}"')
+    _fake_bin(bin_dir, "apt-get", f'echo "apt-get $*" >> "{calls}"')
+    deb = tmp_path / "hyperlite_1.0.3_amd64.deb"
+    deb.write_text("deb")
+    subprocess.run(
+        ["bash", str(WATCHDOG), str(tmp_path / "none.tar.gz"), str(tmp_path), str(tmp_path / "update.log")],
+        check=True,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "HYPERLITE_ROLLBACK_NOW": "1",
+            "HYPERLITE_PREVIOUS_DEB": str(deb),
+        },
+    )
+    assert calls.read_text().splitlines() == [
+        "systemctl stop hyperlite",
+        f"apt-get install -y --allow-downgrades {deb}",
+        "systemctl start hyperlite",
+    ]  # no waiting on /health first
+    assert not deb.exists()

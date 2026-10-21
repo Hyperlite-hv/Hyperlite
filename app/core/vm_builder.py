@@ -13,16 +13,14 @@ from pathlib import Path
 import libvirt
 
 from app.core import firmware as fw
+from app.core import paths
 from app.core.safe_paths import safe_child
 
 IMAGES_DIR = Path("/var/lib/libvirt/images")
 BASE_IMAGE = IMAGES_DIR / "base" / "debian-12-generic-amd64.qcow2"
 BASE_IMAGE_URL = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
 
-# Project root directory (app/core/vm_builder.py -> app/core -> app -> root),
-# computed dynamically so it works whatever the installation path.
-PROJDIR = Path(__file__).resolve().parents[2]
-SSH_KEY_DIR = PROJDIR / "data" / "ssh"
+SSH_KEY_DIR = paths.SSH_DIR
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$")
 USERNAME_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
@@ -371,7 +369,7 @@ def _compute_migratable_cpu_xml():
     ('Skylake-Client-v3') is simply UNKNOWN to the other, and `baselineCPU()`
     fails with 'Unknown CPU model'. It is a known limitation, documented rather
     than hidden."""
-    from app.core.cluster import (  # late import: cluster.py imports PROJDIR from THIS module, a cycle otherwise
+    from app.core.cluster import (  # late import: cluster.py imports this module, a cycle otherwise
         build_libvirt_uri,
         list_nodes,
     )

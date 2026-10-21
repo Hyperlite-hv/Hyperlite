@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from app.core import paths
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.listing import listing
@@ -22,7 +23,7 @@ from app.core.tasks import create_task, finish_task
 
 router = APIRouter(prefix="/vm-disks", tags=["vm-disks"])
 
-IMPORTED_DISKS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "imported-disks"
+IMPORTED_DISKS_DIR = paths.IMPORTED_DISKS
 IMPORTED_DISKS_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXTENSIONS = (".qcow2", ".img", ".raw", ".vmdk", ".vdi", ".vhd", ".vhdx")

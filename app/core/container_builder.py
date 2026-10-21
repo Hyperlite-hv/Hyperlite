@@ -58,7 +58,7 @@ def chroot_env():
     """Environment for debootstrap and every command run inside a container's filesystem.
 
     Not the service's own: its TMPDIR points to a host directory that does not exist in the container (package
-    scripts then fail with "mktemp: failed to create file via template '/root/hyperlite/data/tmp/...'", which
+    scripts then fail with "mktemp: failed to create file via template '/var/lib/hyperlite/tmp/...'", which
     broke openssh-server's post-installation), and its locale (fr_FR.UTF-8, say) may not be installed there
     (perl warns on every call). A minimal, always-valid environment instead."""
     return {

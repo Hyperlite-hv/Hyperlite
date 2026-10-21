@@ -45,6 +45,7 @@ from app.core import (
     disk_space,
     firmware,
     guest_agent,
+    paths,
     replication,
     vm_locks,
 )
@@ -58,7 +59,7 @@ from app.core.vm_meta import get_vm_os_label, get_vm_ssh_user, set_vm_os_label, 
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BACKUP_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "backups"
+DEFAULT_BACKUP_DIR = paths.BACKUPS
 SCHEDULER_INTERVAL_S = 300  # checks due jobs every 5 minutes: enough, the granularity is the hour (HH:MM)
 
 # Backups are serialized: only one at a time, the others wait their turn. Firing
@@ -413,7 +414,8 @@ def check_space_for(vm_name, target_dir=None):
     try:
         domain = conn.lookupByName(vm_name)
         check_free_space(
-            Path(target_dir) if target_dir else DEFAULT_BACKUP_DIR, [s for _d, s in domain_disk_paths(domain)]
+            Path(paths.current(target_dir)) if target_dir else DEFAULT_BACKUP_DIR,
+            [s for _d, s in domain_disk_paths(domain)],
         )
     except libvirt.libvirtError:
         return  # the backup itself says the VM is not found
@@ -422,7 +424,7 @@ def check_space_for(vm_name, target_dir=None):
 
 
 def _run_backup_locked(vm_name, target_dir, job_id, username):
-    target_root = Path(target_dir) if target_dir else DEFAULT_BACKUP_DIR
+    target_root = Path(paths.current(target_dir)) if target_dir else DEFAULT_BACKUP_DIR
     conn = open_conn()
     try:
         try:

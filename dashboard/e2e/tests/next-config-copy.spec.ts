@@ -51,7 +51,7 @@ test("each node shows its last copy, a failure its reason, and Copy now sends it
   const card = page.getByRole("main").getByRole("region", { name: "Configuration copy" });
   await expect(card.getByRole("row", { name: /^peer/ }).getByText("Copied")).toBeVisible({ timeout: 20_000 });
   await expect(card.getByRole("row", { name: /^far/ }).getByText("Copy failed: Connection refused")).toBeVisible();
-  await expect(card.getByText("/root/hyperlite/scripts/hyperlite-promote")).toBeVisible();
+  await expect(card.getByText("/usr/lib/hyperlite/scripts/hyperlite-promote")).toBeVisible();
   await card.getByRole("button", { name: "Copy now" }).click();
   await expect(page.getByText("Configuration copied").first()).toBeVisible({ timeout: 20_000 });
   await expect(card.getByRole("row", { name: /^far/ }).getByText("Copied")).toBeVisible();

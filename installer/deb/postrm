@@ -1,0 +1,109 @@
+#!/bin/bash
+# Debian maintainer script (postrm). It lives in dpkg's database, not in the package's files: when it runs, the code
+# under /usr/lib/hyperlite may already be the next version's, or gone, so it relies on nothing from it.
+#
+# remove, purge: what postinst made under /usr/lib/hyperlite (the Python environment, the bytecode) goes with the
+# package, and on purge the systemd units it copied. The node's data (/var/lib/hyperlite) and secrets (/etc/hyperlite)
+# stay: VM backups, ISO images, keys.
+#
+# upgrade, to a version that runs from /root/hyperlite (the return to 1.0.2: the update watchdog, or "return to the
+# previous version"): that version's postinst moves the files back (scripts/migrate_layout.sh back), but knows nothing
+# of what else names them. The VMs reading an ISO image of the library, certbot's renewal hook and the backups made on
+# this version are pointed back at the old paths here, before it runs. The service is stopped meanwhile (the update
+# watchdog stops it before it installs a package again, app/routers/update.py).
+set -e
+
+CODE=/usr/lib/hyperlite
+NEW_ISO=/var/lib/hyperlite/template/iso
+OLD_ISO=/root/hyperlite/data/isos
+
+clean_code_dir() {
+    rm -rf -- "$CODE/venv" "$CODE/venv.old" "$CODE/venv.new"
+    if [ -d "$CODE" ]; then
+        find "$CODE" -name __pycache__ -type d -prune -exec rm -rf -- {} + 2>/dev/null || true
+        find "$CODE" -depth -type d -empty -delete 2>/dev/null || true
+    fi
+}
+
+vms_back_to_old_paths() {
+    command -v virsh >/dev/null 2>&1 || return 0
+    local name xml path tmp changed
+    tmp="$(mktemp)" || return 0
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        # --security-info: a definition read without it and written back would lose the console's password.
+        xml="$(virsh dumpxml --inactive --security-info -- "$name" 2>/dev/null)" || continue
+        changed=0
+        while IFS= read -r path; do
+            if [ -n "$path" ] && [ -e "$path" ]; then
+                xml="${xml//"'$path'"/"'$OLD_ISO/${path#"$NEW_ISO"/}'"}"
+                changed=1
+            fi
+        done < <(printf '%s\n' "$xml" | grep -o "'$NEW_ISO/[^']*'" | tr -d "'" | sort -u)
+        if [ "$changed" = 1 ] && printf '%s\n' "$xml" > "$tmp" && virsh define "$tmp" >/dev/null 2>&1; then
+            echo "[hyperlite-postrm] VM $name: its ISO image is read from $OLD_ISO again"
+        fi
+    done < <(virsh list --all --name 2>/dev/null)
+    rm -f -- "$tmp"
+}
+
+# The backups made on this version name their directory under /var/lib/hyperlite/dump, in this node's own catalogue
+# (not replicated): they move back with it.
+backups_back_to_old_paths() {
+    local db=/var/lib/hyperlite/hyperlite.db
+    if [ ! -f "$db" ] || ! command -v python3 >/dev/null 2>&1; then return 0; fi
+    python3 - "$db" <<'PY'
+import sqlite3
+import sys
+
+MOVES = (
+    ("/var/lib/hyperlite/dump/export", "/root/hyperlite/data/vm-exports"),
+    ("/var/lib/hyperlite/dump/container", "/root/hyperlite-container-backups"),
+    ("/var/lib/hyperlite/dump", "/root/hyperlite/data/backups"),
+)
+
+
+def old(path):
+    for new, before in MOVES:
+        if path == new or path.startswith(new + "/"):
+            return before + path[len(new):]
+    return None
+
+
+conn = sqlite3.connect(sys.argv[1], timeout=30)
+for table in ("backups", "container_backups"):
+    try:
+        rows = conn.execute(f"SELECT id, path FROM {table}").fetchall()
+    except sqlite3.Error:
+        continue
+    for row_id, path in rows:
+        target = old(path or "")
+        if target:
+            conn.execute(f"UPDATE {table} SET path = ? WHERE id = ?", (target, row_id))
+conn.commit()
+PY
+}
+
+case "$1" in
+    remove)
+        clean_code_dir
+        ;;
+    purge)
+        clean_code_dir
+        # The units postinst copied (not the package's files: dpkg does not remove them).
+        rm -f /etc/systemd/system/hyperlite.service /etc/systemd/system/hyperlite-daemon.service \
+            /etc/systemd/system/hyperlite-cfs.service
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        ;;
+    upgrade)
+        if [ -f /root/hyperlite/app/main.py ]; then
+            vms_back_to_old_paths || true
+            backups_back_to_old_paths || echo "[hyperlite-postrm] WARNING: the backups made on this version keep their new path"
+            for conf in /etc/letsencrypt/renewal/*.conf; do
+                [ -f "$conf" ] && sed -i "s#$CODE/scripts/acme-deploy-hook.sh#/root/hyperlite/scripts/acme-deploy-hook.sh#g" "$conf"
+            done
+            clean_code_dir
+        fi
+        ;;
+esac
+exit 0

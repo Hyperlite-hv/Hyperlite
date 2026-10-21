@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from app.core import paths
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/isos", tags=["isos"])
 
 ISO_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,200}")
 
-ISOS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "isos"
+ISOS_DIR = paths.ISOS
 ISOS_DIR.mkdir(parents=True, exist_ok=True)
 
 

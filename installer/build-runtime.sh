@@ -5,8 +5,8 @@
 #
 #   build-runtime.sh SRC OUT     SRC: the repository; OUT: where hyperlite-cfs, wheels/ and venv.tar.xz go
 #
-# Runs as root in a Debian 13 and NEVER on a node: the environment is built at its final path, /root/hyperlite/venv, so
-# its scripts start the right interpreter. CI runs it in the debian:13 container; installer/build-runtime-nspawn.sh
+# Runs as root in a Debian 13 and NEVER on a node: the environment is built at its final path, /usr/lib/hyperlite/venv,
+# so its scripts start the right interpreter. CI runs it in the debian:13 container; installer/build-runtime-nspawn.sh
 # runs it in an isolated Debian 13 root on a development machine.
 set -euo pipefail
 
@@ -17,7 +17,9 @@ fail() { echo "[build-runtime] ERROR: $*" >&2; exit 1; }
 
 . /etc/os-release
 [ "${VERSION_ID:-}" = 13 ] || fail "Debian 13 expected, this is ${PRETTY_NAME:-unknown}: the package runs on Debian 13 only"
-[ ! -e /root/hyperlite/app ] || fail "/root/hyperlite holds an installation: this is a node, not a build environment"
+for d in /usr/lib/hyperlite /root/hyperlite; do
+    [ ! -e "$d/app" ] || fail "$d holds an installation: this is a node, not a build environment"
+done
 
 log "build dependencies"
 export DEBIAN_FRONTEND=noninteractive
@@ -45,13 +47,14 @@ if find "$OUT/wheels" -type f ! -name '*.whl' ! -name requirements.txt | grep -q
 fi
 
 log "the Python environment, at its final path"
-python3 -m venv /root/hyperlite/venv
+python3 -m venv /usr/lib/hyperlite/venv
 # By version: libvirt-python's wheel was just built from its source package, whose hash was checked above.
 sed -E -e 's/[[:space:]]*\\$//' -e '/^[[:space:]]*--hash=/d' "$SRC/requirements.txt" > "$work/requirements"
-/root/hyperlite/venv/bin/pip install -q --no-index --find-links "$OUT/wheels" -r "$work/requirements"
-/root/hyperlite/venv/bin/pip check
-tar -C /root/hyperlite --sort=name --owner=0 --group=0 --numeric-owner -cJf "$OUT/venv.tar.xz" venv
-rm -rf /root/hyperlite "$work"
+/usr/lib/hyperlite/venv/bin/pip install -q --no-index --find-links "$OUT/wheels" -r "$work/requirements"
+/usr/lib/hyperlite/venv/bin/pip check
+tar -C /usr/lib/hyperlite --sort=name --owner=0 --group=0 --numeric-owner -cJf "$OUT/venv.tar.xz" venv
+rm -rf /usr/lib/hyperlite/venv "$work"
+rmdir /usr/lib/hyperlite 2>/dev/null || true
 
 if [ -n "${HOST_UID:-}" ]; then
     chown -R "$HOST_UID:${HOST_GID:-$HOST_UID}" "$OUT"

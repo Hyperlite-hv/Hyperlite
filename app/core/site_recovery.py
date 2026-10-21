@@ -23,7 +23,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import backup_integrity
+from app.core import backup_integrity, paths
 from app.core.backup_groups import GroupError, validate_target
 from app.core.tasks import create_task, finish_task, update_task_progress
 
@@ -57,8 +57,8 @@ def _allowed_roots():
 
     roots = [*MOUNT_ROOTS, str(DEFAULT_BACKUP_DIR)]
     # The jobs' rows straight from their stores: list_jobs() would also ask libvirt for each job's VMs.
-    roots += [dict(row).get("target_dir") for row in backup_groups._store().list_group_jobs()]
-    roots += [dict(row).get("target_dir") for row in replication._store().list_jobs()]
+    roots += [paths.current(dict(row).get("target_dir")) for row in backup_groups._store().list_group_jobs()]
+    roots += [paths.current(dict(row).get("target_dir")) for row in replication._store().list_jobs()]
     try:
         conn = open_conn()
         try:

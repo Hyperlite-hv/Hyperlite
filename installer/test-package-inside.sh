@@ -24,9 +24,9 @@ fi
 runtime_deps=$(echo "$deps" | grep -E '^(lib|python3|xz-utils)')
 apt-get install -y -qq --no-install-recommends $runtime_deps systemd > /dev/null
 
-mkdir -p /usr/lib/hyperlite /root/hyperlite/data
+mkdir -p /usr/lib/hyperlite
 cp -r /runtime/. /usr/lib/hyperlite/
-cp -r /src/app /src/scripts /src/requirements.txt /root/hyperlite/
+cp -r /src/app /src/scripts /src/requirements.txt /usr/lib/hyperlite/
 
 /usr/lib/hyperlite/hyperlite-cfs --help > /dev/null
 mkdir -p /run/hyperlite-cfs /var/lib/hyperlite-cfs
@@ -42,8 +42,8 @@ problems=$(systemd-analyze verify /src/installer/hyperlite-cfs.service 2>&1 | gr
 [ -z "$problems" ] || { echo "$problems"; log "the unit has errors"; exit 1; }
 log "unit valid"
 
-imports() { /root/hyperlite/venv/bin/python3 -c "import fastapi, uvicorn, libvirt, cryptography, asyncssh, ldap3, webauthn"; }
-bash /root/hyperlite/scripts/install-venv.sh /root/hyperlite /usr/lib/hyperlite | tee /tmp/venv.log
+imports() { /usr/lib/hyperlite/venv/bin/python3 -c "import fastapi, uvicorn, libvirt, cryptography, asyncssh, ldap3, webauthn"; }
+bash /usr/lib/hyperlite/scripts/install-venv.sh /usr/lib/hyperlite /usr/lib/hyperlite | tee /tmp/venv.log
 grep -q "shipped environment is in place" /tmp/venv.log && imports
 log "the shipped environment works"
 
@@ -52,14 +52,14 @@ broken=$(mktemp -d)
 tar -C "$broken" -xJf /runtime/venv.tar.xz
 for py in "$broken"/venv/bin/python*; do ln -sfn /nonexistent/python3 "$py"; done
 tar -C "$broken" -cJf /usr/lib/hyperlite/venv.tar.xz venv
-PIP_NO_INDEX=1 bash /root/hyperlite/scripts/install-venv.sh /root/hyperlite /usr/lib/hyperlite | tee /tmp/venv.log
+PIP_NO_INDEX=1 bash /usr/lib/hyperlite/scripts/install-venv.sh /usr/lib/hyperlite /usr/lib/hyperlite | tee /tmp/venv.log
 grep -q "rebuilt from the wheels" /tmp/venv.log && imports
 log "a broken environment is rebuilt from the wheels without network"
 
 # Neither works: the previous environment stays.
 mv /usr/lib/hyperlite/wheels /usr/lib/hyperlite/wheels.away
 mkdir /usr/lib/hyperlite/wheels && cp /usr/lib/hyperlite/wheels.away/requirements.txt /usr/lib/hyperlite/wheels/
-if bash /root/hyperlite/scripts/install-venv.sh /root/hyperlite /usr/lib/hyperlite; then
+if bash /usr/lib/hyperlite/scripts/install-venv.sh /usr/lib/hyperlite /usr/lib/hyperlite; then
     log "it should have failed"; exit 1
 fi
 imports
