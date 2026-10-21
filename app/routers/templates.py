@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import disk_space, firmware, maintenance, templates_store, vm_locks, vm_meta
+from app.core import disk_space, firmware, maintenance, templates_store, vm_locks, vm_meta, vm_records
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.listing import listing
@@ -107,9 +107,11 @@ def _convert_to_template(name, payload, user):
             iso.unlink(missing_ok=True)
         # The disk left its pool behind libvirt's back: without a refresh the pool keeps listing a volume that is gone.
         refresh_pools_for_paths(conn, [disk_source, target_disk, *helper_isos])
-        # The VM is gone: its rows would name a VM that no longer exists (the template keeps them).
-        vm_meta.delete_vm_ssh_user(name)
-        vm_meta.delete_vm_os_label(name)
+        # The VM is gone, as after a deletion: its DHCP reservations (a deployed VM gets a new MAC address) and every
+        # record of it (rights, pools, backup schedule, which would fail at every run...) go; the template keeps its
+        # SSH user and system.
+        vm_records.release_addresses(conn, vm_records.reservations(root))
+        vm_records.forget(name)
 
         log_action(user["username"], "convert_to_template", name, "success", f"template -> {tpl_name}")
         return {"template": tpl_name, "vm_source": name, "vm_kept": False}
