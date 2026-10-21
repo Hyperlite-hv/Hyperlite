@@ -23,6 +23,7 @@ from pathlib import Path
 from app.core.audit import log_action
 from app.core.cluster import get_node, list_nodes, node_ssh_options
 from app.core.error_messages import describe_exception
+from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ def _iso_path(name):
     a name such as "../x" would leave the library, here and over SSH on the other nodes."""
     if not valid_iso_name(name):
         raise ValueError(f"Invalid ISO name '{name}'")
-    return isos_dir() / name
+    return safe_child(isos_dir(), name)
 
 
 def _target(node):
@@ -101,6 +102,16 @@ def local_isos():
     return [_entry(p.name, p.stat().st_size, p.stat().st_mtime, LOCAL) for p in sorted(isos_dir().glob("*.iso"))]
 
 
+# What a library that could not be read says to the dashboard: fixed sentences, the node's own error (an SSH or shell
+# message) stays in the service log.
+NO_LIBRARY = "no Hyperlite ISO library on this node"
+UNREADABLE = "the node's library could not be read (details in the service log)"
+
+
+class NoLibrary(Exception):
+    pass
+
+
 def remote_isos(node):
     r = _ssh(
         node,
@@ -110,7 +121,7 @@ def remote_isos(node):
     if r.returncode != 0:
         detail = r.stderr.strip()
         if "No such file" in detail:
-            raise RuntimeError("no Hyperlite ISO library on this node")
+            raise NoLibrary()
         raise RuntimeError(detail[:200] or "unreachable")
     out = []
     for line in r.stdout.splitlines():
@@ -136,8 +147,11 @@ def cluster_isos():
         for name, fut in futures.items():
             try:
                 isos.extend(fut.result())
+            except NoLibrary:
+                unreachable.append({"node": name, "error": NO_LIBRARY})
             except Exception as e:  # one node's failure must not hide the others
-                unreachable.append({"node": name, "error": describe_exception(e)})
+                logger.warning("ISO library of %s not read: %s", name, e)
+                unreachable.append({"node": name, "error": UNREADABLE})
     return {"isos": isos, "unreachable": unreachable}
 
 

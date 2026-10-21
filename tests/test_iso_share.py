@@ -45,6 +45,7 @@ def test_the_cluster_list_shows_every_node_and_reports_the_ones_that_cannot_be_r
     errors = {u["node"]: u["error"] for u in body["unreachable"]}
     assert set(errors) == {"down", "bare"}
     assert "no Hyperlite ISO library" in errors["bare"]
+    assert errors["down"] == "the node's library could not be read (details in the service log)"
 
 
 def test_the_local_list_keeps_its_shape_and_names_the_node(cluster, client, auth_headers):

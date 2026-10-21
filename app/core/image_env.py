@@ -9,8 +9,6 @@ Each requirement is a list of variables of which one must be set: postgres also 
 POSTGRES_HOST_AUTH_METHOD=trust instead of a password. The first variable is the one the form asks for.
 """
 
-import re
-
 # name: (description, secret, generated). A generated variable gets a random value in the form, which the user can
 # change; it is a secret shown once, like a password typed at creation.
 _VARS = {
@@ -111,7 +109,13 @@ KNOWN = {
 _DOCKER_HUB = ("docker.io", "index.docker.io", "registry-1.docker.io", "registry.hub.docker.com")
 # Mirrors people use for the same official images.
 _ALIASES = {"public.ecr.aws/docker/library/": "", "mirror.gcr.io/library/": "", "mirror.gcr.io/": ""}
-_REGISTRY = re.compile(r"^[^/]+[.:][^/]*/|^localhost/")
+
+
+def _has_registry(ref):
+    """True when the reference names its registry: "ghcr.io/x", "registry:5000/x", "localhost/x". The test of the
+    former regular expression ^[^/]+[.:][^/]*/|^localhost/, in linear time (it backtracked on a long run of dots)."""
+    host, sep, _ = ref.partition("/")
+    return bool(sep) and (host == "localhost" or "." in host[1:] or ":" in host[1:])
 
 
 def repository(image):
@@ -127,7 +131,7 @@ def repository(image):
     host = ref.split("/", 1)[0]
     if host in _DOCKER_HUB and "/" in ref:
         ref = ref.split("/", 1)[1]
-    elif _REGISTRY.match(ref):
+    elif _has_registry(ref):
         return ref
     return ref[len("library/") :] if ref.startswith("library/") else ref
 
