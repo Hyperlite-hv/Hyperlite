@@ -9,7 +9,7 @@
 #   container backups /root/hyperlite-container-backups -> /var/lib/hyperlite/dump/container
 #   disks to import   data/imported-disks  -> /var/lib/hyperlite/import            (Proxmox: /var/lib/vz/import)
 #   node TLS          data/tls             -> /etc/hyperlite/local                 (Proxmox: /etc/pve/local/pve-ssl.*)
-#   node secrets      .env, data/ssh, data/initial-admin-password -> /etc/hyperlite/priv  (Proxmox: /etc/pve/priv)
+#   node secrets      .env, data/ssh, data/initial-admin-password.txt -> /etc/hyperlite/priv  (Proxmox: /etc/pve/priv)
 #   the rest          database, k3s, bin, tmp, update backups -> /var/lib/hyperlite; the configuration copy
 #                     staged here goes to config-copy-staging (config-copy is where a node RECEIVES one: never touched)
 #
@@ -34,7 +34,7 @@ OLD=(
     "$O/hyperlite.db" "$O/hyperlite.db-wal" "$O/hyperlite.db-shm"
     "$O/data/isos" "$O/data/templates" "$O/data/backups" "$O/data/vm-exports" "$R/root/hyperlite-container-backups"
     "$O/data/imported-disks" "$O/data/k3s" "$O/data/bin" "$O/data/config-copy" "$O/data/tmp"
-    "$O/data/tls" "$O/.env" "$O/data/ssh" "$O/data/initial-admin-password"
+    "$O/data/tls" "$O/.env" "$O/data/ssh" "$O/data/initial-admin-password.txt"
     "$R/root/hyperlite-backups"
     "$O/data"
 )
@@ -42,7 +42,7 @@ NEW=(
     "$N/hyperlite.db" "$N/hyperlite.db-wal" "$N/hyperlite.db-shm"
     "$N/template/iso" "$N/template/vm" "$N/dump" "$N/dump/export" "$N/dump/container"
     "$N/import" "$N/k3s" "$N/bin" "$N/config-copy-staging" "$N/tmp"
-    "$E/local" "$E/priv/env" "$E/priv/ssh" "$E/priv/initial-admin-password"
+    "$E/local" "$E/priv/env" "$E/priv/ssh" "$E/priv/initial-admin-password.txt"
     "$N/update-backups"
     "$N/legacy-data"
 )

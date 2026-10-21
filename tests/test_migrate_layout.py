@@ -21,6 +21,7 @@ PAIRS = [
     ("root/hyperlite/data/tls/hyperlite.key", "etc/hyperlite/local/hyperlite.key"),
     ("root/hyperlite/.env", "etc/hyperlite/priv/env"),
     ("root/hyperlite/data/ssh/hyperlite_cluster", "etc/hyperlite/priv/ssh/hyperlite_cluster"),
+    ("root/hyperlite/data/initial-admin-password.txt", "etc/hyperlite/priv/initial-admin-password.txt"),
     ("root/hyperlite-backups/b.tar.gz", "var/lib/hyperlite/update-backups/b.tar.gz"),
     ("root/hyperlite/data/something-else/x", "var/lib/hyperlite/legacy-data/something-else/x"),
 ]
