@@ -17,7 +17,32 @@ concurrency:
 # The actions are pinned to a commit, not to a tag that can be moved (the version is in the comment, which Dependabot
 # keeps up to date): a job of this workflow hands the signing key to the publication.
 jobs:
+  # How much of this workflow the commit needs (scripts/ci-reuse.sh): `exact` when a push to test or master already
+  # passed every check on exactly these files (a release: the test -> master PR and the master push), `docs` when only
+  # release files differ from such files (the release PR: the long jobs are not run again), `full` otherwise. A job it
+  # skips reports as passed to the branch protection; the e2e gate below accepts a skip only from it.
+  reuse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # the earlier runs and their jobs
+    outputs:
+      mode: ${{ steps.reuse.outputs.mode }}
+      from: ${{ steps.reuse.outputs.from }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: bash scripts/ci-reuse.sh
+
   backend:
+    needs: reuse
+    if: needs.reuse.outputs.mode != 'exact'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -52,6 +77,8 @@ jobs:
         run: pip install pip-audit==2.10.1 && pip-audit -r requirements.txt
 
   frontend:
+    needs: reuse
+    if: needs.reuse.outputs.mode != 'exact'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -76,6 +103,8 @@ jobs:
   cli:
     # The workstation client (cli/): vet, tests, vulnerability check, and a build for
     # every platform the server offers for download.
+    needs: reuse
+    if: needs.reuse.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -105,6 +134,8 @@ jobs:
         run: bash installer/build-cli.sh
 
   shell:
+    needs: reuse
+    if: needs.reuse.outputs.mode != 'exact'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -121,6 +152,8 @@ jobs:
     # What the package ships, built as the publication builds it (installer/build-runtime.sh in debian:13: hyperlite-cfs,
     # the Python environment and its wheels), then checked on Debian 13: dependencies, the daemon, the environment, and
     # its rebuild from the wheels without network (installer/test-package-inside.sh).
+    needs: reuse
+    if: needs.reuse.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -139,6 +172,8 @@ jobs:
     # daemon, a three-node cluster on a real Corosync in network namespaces (its fault tests and five soak rounds
     # included; the thousand rounds run every night in lab.yml), two-node clusters with and without a QDevice, and
     # fuzzing of the requests and of the messages between nodes.
+    needs: reuse
+    if: needs.reuse.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -191,6 +226,8 @@ jobs:
     # End-to-end suite against a real backend and a real libvirt/QEMU, in three parts on three runners (each with its
     # own backend): the suite took ten minutes on one, the longest job of the CI by far.
     name: e2e (${{ matrix.shard }}/3)
+    needs: reuse
+    if: needs.reuse.outputs.mode == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -261,21 +298,34 @@ jobs:
           retention-days: 7
 
   e2e:
-    # The check the branch protection requires: the three parts all passed. A part skipped or cancelled fails it too.
-    needs: e2e-shard
+    # The check the branch protection requires: the three parts all passed, or were skipped by the reuse because these
+    # files, or files that differ from them only in release files, already passed them. Anything else fails it: a part
+    # cancelled, or skipped for another reason (the reuse job itself failed).
+    needs: [reuse, e2e-shard]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - env:
           RESULT: ${{ needs.e2e-shard.result }}
+          REUSE: ${{ needs.reuse.result }}
+          MODE: ${{ needs.reuse.outputs.mode }}
+          FROM: ${{ needs.reuse.outputs.from }}
         run: |
+          if [ "$RESULT" = skipped ] && [ "$REUSE" = success ] && { [ "$MODE" = exact ] || [ "$MODE" = docs ]; }; then
+            echo "::notice::end-to-end suite not run again ($MODE): passed on ${FROM:0:12}"
+            exit 0
+          fi
           test "$RESULT" = success || { echo "::error::the end-to-end suite: $RESULT"; exit 1; }
 
   publish:
-    # Every push to master or test is published once all of the above passed on that very commit.
-    needs: [backend, frontend, cli, shell, package, cfs, e2e]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/test')
+    # Every push to master or test is published once all of the above passed on that very commit, or on its very files
+    # (reuse: the e2e gate accepted the skip). A failed or cancelled job stops it.
+    needs: [reuse, backend, frontend, cli, shell, package, cfs, e2e]
+    if: >-
+      always() && github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/test')
+      && needs.reuse.result == 'success' && needs.e2e.result == 'success'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     permissions:
       contents: write # the ISO release
     uses: ./.github/workflows/publish.yml
