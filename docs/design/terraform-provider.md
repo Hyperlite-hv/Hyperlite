@@ -1,7 +1,6 @@
 # Design: the official Terraform / OpenTofu provider (#330)
 
-Status: **proposed**, inspired by vSphere as the maintainer asked (2026-10-21, section 4). No code before the
-document is accepted.
+Status: **accepted** (Antho, 2026-10-21, section 17), inspired by vSphere as the maintainer asked (section 4).
 
 ## 1. Why
 
@@ -203,7 +202,7 @@ to read its end. Proxmox answers every such call with its task id at once (UPID,
 → `UPID:...`) and `vsphere` returns a `Task` object for every `*_Task` method; both providers then poll it
 (`bpg/proxmox`: `WaitForTask`; `vsphere`: `task.WaitForResult`).
 
-**Common rule, proposed for API v1**: every route that makes a task answers `202 {"task_id", "status": "running", ...}`
+**Common rule for API v1** (decided, section 17): every route that makes a task answers `202 {"task_id", "status": "running", ...}`
 at once, plus what the caller needs to find the result (`name`, `node`). This is not an additive change for a route
 that answers `201` today (the dashboard and the e2e tests read the result from the answer): it is done **per route
 with an opt-in** `?wait=false` first (additive, v1 allows it), which the provider always sends; the default changes in
@@ -239,7 +238,7 @@ Proxmox has one rule: everything about a guest is under `/nodes/{node}/…`, and
 node to that node's `pveproxy`. A client talks to any node; the node that owns the guest does the work, with its own
 locks and tasks.
 
-**Proposed**, as one change for the API (not the provider alone):
+**Decided**, as one change for the API (not the provider alone):
 
 - Every route on a VM, a template, a network, a storage pool and their sub-routes takes `?node=`, through
   `cluster_view.forward_to("node")`: the member does the work itself, its task id comes back (and is followed with
@@ -412,12 +411,11 @@ an id so that `terraform plan -generate-config-out` writes the configuration of 
 - **Names as keys**: a VM renamed elsewhere and another created with its old name: the UUID keeps the provider on the
   right one.
 
-## 17. Questions for the maintainer
+## 17. Decisions (Antho, 2026-10-21)
 
-The first draft's questions are answered by section 4 (inspired by vSphere). Left:
-
-1. **The privileges of section 10** (`vm.allocate`, `storage.allocate`, `network.assign`), so that a Terraform token
-   is not an administrator's?
-2. **Placement** when no node is given (section 8): the member with the most free memory among those that can host the
-   VM, until DRS?
-3. **This document as a whole**: accepted, so that step 1 (the client library) can start?
+1. **Inspired by vSphere**, not a copy of it: section 4.
+2. **The privileges of section 10**, all three: `vm.allocate`, `storage.allocate`, `network.assign`.
+3. **Placement**: without a node, the cluster picks the member with the most free memory among those that can host the
+   VM (section 8), until DRS (#334).
+4. **Long operations**: `?wait=false` in v1, answering `202 {"task_id"}`; the default changes in v2 (section 6).
+5. **The document is accepted**: step 1 (the client library) starts.
