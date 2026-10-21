@@ -107,7 +107,7 @@ function ConfigCopyCard({ nodes }) {
   }
   return (
     <Card title={t("cfc.title")} flush actions={<button type="button" className="nx-btn nx-btn--sm" disabled={busy} onClick={now}><CopyCheck size={14} aria-hidden="true" />{t("cfc.now")}</button>}>
-      <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("cfc.help")} <code className="nx-mono">/root/hyperlite/scripts/hyperlite-promote</code></p>
+      <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("cfc.help")} <code className="nx-mono">/usr/lib/hyperlite/scripts/hyperlite-promote</code></p>
       <TableWrap>
         <table className="nx-table">
           <thead><tr><th scope="col">{t("nd.node")}</th><th scope="col">{t("cfc.last")}</th></tr></thead>

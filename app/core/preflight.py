@@ -11,7 +11,7 @@ Each check returns one of these statuses:
 Exit code: 1 if there is at least one `blocking` check, otherwise 0.
 
 Usage:
-  python3 preflight.py [--json] [--python /root/hyperlite/venv/bin/python3]
+  python3 preflight.py [--json] [--python /usr/lib/hyperlite/venv/bin/python3]
                        [--requirements requirements.txt] [--only system|python]
                        [--offline]
 
@@ -37,7 +37,8 @@ MIN_RAM_MB_BLOCKING = 1024
 MIN_RAM_MB_WARNING = 4096
 MIN_APP_DISK_GB = 2
 MIN_VM_DISK_GB_WARNING = 20
-APP_DIR = Path(os.environ.get("HYPERLITE_APP_DIR", "/root/hyperlite"))
+# Where the data goes (app/core/paths.py, not importable here: standard library only, run before the venv exists).
+DATA_DIR = Path(os.environ.get("HYPERLITE_VAR_DIR") or "/var/lib/hyperlite")
 VM_IMAGES_DIR = Path("/var/lib/libvirt/images")
 
 # (importable module, pip distribution, severity if missing, feature)
@@ -263,17 +264,17 @@ def check_system(offline=False):
     else:
         out.append(_c("memory", OK, f"{ram} MB of RAM"))
 
-    app_free = _free_gb(APP_DIR)
+    app_free = _free_gb(DATA_DIR)
     if app_free < MIN_APP_DISK_GB:
         out.append(
             _c(
                 "app_disk",
                 BLOCKING,
-                f"{app_free:.1f} GB free under {APP_DIR}: minimum {MIN_APP_DISK_GB} GB",
+                f"{app_free:.1f} GB free under {DATA_DIR}: minimum {MIN_APP_DISK_GB} GB",
             )
         )
     else:
-        out.append(_c("app_disk", OK, f"{app_free:.1f} GB free under {APP_DIR}"))
+        out.append(_c("app_disk", OK, f"{app_free:.1f} GB free under {DATA_DIR}"))
     vm_free = _free_gb(VM_IMAGES_DIR)
     if vm_free < MIN_VM_DISK_GB_WARNING:
         out.append(

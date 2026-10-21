@@ -15,7 +15,7 @@ The controller copies its configuration to every online node:
 - every 15 minutes, and within a minute after a configuration change (a user, a permission, a node, HA or fencing
   settings, a backup schedule, an API token, a security key...);
 - as a bundle holding a consistent snapshot of the database **without the telemetry** (metrics), the two keys of
-  `.env` (`HYPERLITE_SECRET_KEY`, `HYPERLITE_ENCRYPTION_KEY`) without which the copy could not read its own secrets,
+  `/etc/hyperlite/priv/env` (`HYPERLITE_SECRET_KEY`, `HYPERLITE_ENCRYPTION_KEY`) without which the copy could not read its own secrets,
   and a description (source controller, date);
 - over the cluster SSH key (encrypted in transit) into `/var/lib/hyperlite/config-copy/` on the node: a root-only
   directory (0700), files 0600. `latest.tar.gz` is the last copy, `previous.tar.gz` the one before.
@@ -30,7 +30,7 @@ and the metrics history. Configuration changes are copied within a minute, so th
 On the node that takes over, which must have the Hyperlite package installed:
 
 ```bash
-/root/hyperlite/scripts/hyperlite-promote
+/usr/lib/hyperlite/scripts/hyperlite-promote
 ```
 
 The command:

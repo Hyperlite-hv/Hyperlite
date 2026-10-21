@@ -4,9 +4,10 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+from app.core import paths
 from app.repositories.cfs import ids as _ids
 
-DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or Path(__file__).resolve().parent.parent.parent / "hyperlite.db")
+DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or paths.DB)
 
 
 @contextmanager
@@ -28,6 +29,11 @@ def get_conn():
 
 
 def init_db():
+    # Root only, as Proxmox VEs config.db: it holds every accounts password hash. Made so before SQLite creates it
+    # with the default mode; its -wal and -shm files take the same.
+    with contextlib.suppress(OSError):
+        os.close(os.open(DB_PATH, os.O_RDWR | os.O_CREAT, 0o600))
+        os.chmod(DB_PATH, 0o600)
     with get_conn() as conn:
         # API v1: the old French names renamed first, before any statement below uses the new ones (app/core/schema_v1.py).
         from app.core import schema_v1

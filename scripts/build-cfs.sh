@@ -3,16 +3,16 @@
 # runs it on every installation and upgrade: the daemon links the distribution's own Corosync and SQLite libraries,
 # so it is built against them here, as libvirt-python is by pip, rather than shipped prebuilt for one distribution.
 #
-#   build-cfs.sh [APP_DIR [PREFIX]]   APP_DIR: the installed application (default /root/hyperlite);
+#   build-cfs.sh [APP_DIR [PREFIX]]   APP_DIR: the installed application (default /usr/lib/hyperlite);
 #                                     PREFIX: where sbin/hyperlite-cfs goes (default /usr/local)
 #
 # Nothing starts the daemon: its unit (hyperlite-cfs.service) stays disabled until a cluster is set up. A running
 # daemon keeps the binary it started with until it is restarted, since the new one replaces the file by a rename.
 set -euo pipefail
 
-APP_DIR=${1:-/root/hyperlite}
+APP_DIR=${1:-/usr/lib/hyperlite}
 PREFIX=${2:-/usr/local}
-BUILD="$APP_DIR/data/cfs-build"
+BUILD="${HYPERLITE_VAR_DIR:-/var/lib/hyperlite}/cfs-build"
 
 log() { echo "[build-cfs] $*"; }
 

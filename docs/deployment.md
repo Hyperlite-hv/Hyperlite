@@ -25,7 +25,7 @@ Two kinds of releases exist: the moving `appliance-iso-latest` release, refreshe
 
 ## Installing the package
 
-The `hyperlite` Debian package installs the application in `/root/hyperlite` (the frontend is shipped already built), creates the virtual environment, generates secrets on first installation only, installs the systemd unit and starts the service. Its `postinst` runs a preflight check first and stops a fresh installation when a blocking requirement is missing. See the README for the commands.
+The `hyperlite` Debian package installs the application in `/usr/lib/hyperlite` and the built frontend in `/usr/share/hyperlite/www`, keeps the node's data in `/var/lib/hyperlite` and its secrets in `/etc/hyperlite` as Proxmox VE does (see [configuration.md](configuration.md#files)), creates the virtual environment, generates secrets on first installation only, installs the systemd unit and starts the service. Its `postinst` runs a preflight check first and stops a fresh installation when a blocking requirement is missing. See the README for the commands.
 
 ## Updating
 

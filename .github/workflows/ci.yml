@@ -113,7 +113,7 @@ jobs:
           persist-credentials: false
       - name: Syntax check shell scripts
         run: |
-          for f in installer/*.sh installer/deb/postinst scripts/*.sh lab/*.sh cfs/tests/cluster/*.sh; do
+          for f in installer/*.sh installer/deb/preinst installer/deb/postinst installer/deb/prerm installer/deb/postrm scripts/*.sh lab/*.sh cfs/tests/cluster/*.sh; do
             bash -n "$f"
           done
 
