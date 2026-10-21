@@ -88,6 +88,12 @@ The Debian page keeps its package-by-package list for the cases that need it.
 - Each suite has its own pool (`pool/main`, `pool/test`): the stable index lists only releases, the test index
   lists both, so a test node takes the release that follows its build. A test build is the next patch as a
   pre-release (`1.0.1~test.20261011.1530`; dated before 1.0.0), never an ISO.
+- A release goes through four CI runs over nearly the same files: the release PR into `test`, its push to `test`
+  (the test channel), the `test` → `master` PR and its push to `master` (stable). The CI does not run the same suite
+  again over the same files (`scripts/ci-reuse.sh`, job `reuse`): files that a push to `test` or `master` already
+  passed every check with run nothing again (the `test` → `master` PR and the `master` push, then published at once),
+  and files that differ from those only in release files (`VERSION`, the changelog, `docs/`, Markdown) skip the long
+  jobs (end-to-end, cfs, package, client), the quick ones still running (the release PR and its push).
 
 ## 8. Automatic security updates, announced Hyperlite updates
 
