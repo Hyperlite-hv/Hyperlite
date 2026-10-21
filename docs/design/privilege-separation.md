@@ -217,3 +217,29 @@ These move with the domains of step 3 (authentication first); step 1 only moves 
 6. **The API runs as `www-data`**, as `pveproxy` does.
 7. **The cluster configuration as files in `/etc/hyperlite`**, as pmxcfs mounts `/etc/pve`: hyperlite-cfs gets a FUSE
    mount, after the split (#525).
+
+## 12. Step 3, first domain: authentication (2026-10-21)
+
+Where it starts: every session token is a JWT signed HS256 with `HYPERLITE_SECRET_KEY`, a key the API reads from
+`/etc/hyperlite/priv/env` and that every member of a cluster shares (the API of one member calls another's with a token
+it signs itself: `rolling_update.peer_api`, `cluster_view.forward_to`). Whoever controls the API can sign any session.
+
+Target, as Proxmox VE (`authkey.key` held by root, `pveproxy` verifies with `authkey.pub`):
+
+- **Key pairs held by hyperlite-daemon**: Ed25519, the private key in `/etc/hyperlite/priv/authkey.key` (root, 0600),
+  rotated every 24 hours. The public keys in `/etc/hyperlite/authkeys.json` (0644), the newest first, kept 8 days: a
+  session of "Stay signed in" (7 days) stays valid across rotations without being renewed.
+- **The API verifies only** (EdDSA, the key named by the token's `kid`); it never reads the private key.
+- **The daemon signs**, and in the end only after checking the credentials itself (Proxmox: the ticket is made by the
+  process that checked the password).
+
+In three pull requests, each released and checked on the test VM:
+
+| PR | Content | What a compromised API can still do |
+|---|---|---|
+| A | `app/core/auth_keys.py` (keys, rotation, signing, verification), the daemon makes and rotates the keys and signs (`auth.sign`); the API asks it for every session token and verifies EdDSA; HS256 still accepted, for the calls between members | ask the daemon to sign any session; sign HS256 with the shared key |
+| B | sign-in, second factor, SSO exchange and token renewal become daemon operations (`auth.login`, `auth.second_factor`, `auth.sso_session`, `auth.renew`) that check before they sign; `auth.sign` removed | sign HS256 with the shared key |
+| C | the calls between members stop carrying a session signed with the shared key (each member verifies the caller's own published public keys, as it already pins its TLS certificate, `/cluster/tls/<node>` → `/cluster/authkey/<node>`); `HYPERLITE_SECRET_KEY` retired once every member runs it | nothing: no key to sign with |
+
+Development and tests run without a daemon: `HYPERLITE_AUTH_SIGNING=local` makes the API sign in-process with keys under
+`HYPERLITE_ETC_DIR` (the test suite, the e2e backend); a node never sets it.
