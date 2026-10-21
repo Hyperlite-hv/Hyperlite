@@ -1,4 +1,4 @@
-"""Session tokens signed with Ed25519 key pairs held by hyperlite-daemon, as Proxmox VE signs its tickets with
+"""Session tickets (as Proxmox VE calls them): tokens signed with Ed25519 key pairs held by hyperlite-daemon, as Proxmox VE signs its tickets with
 authkey.key, which only root reads, and pveproxy verifies them with authkey.pub (docs/design/privilege-separation.md,
 section 12).
 

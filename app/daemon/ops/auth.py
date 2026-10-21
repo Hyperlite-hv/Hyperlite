@@ -1,5 +1,5 @@
 """Sessions (docs/design/privilege-separation.md, section 12): the daemon holds the key pairs that sign them and opens
-one only after checking a proof itself (app/core/sign_in.py); the API verifies (app/core/auth_keys.py)."""
+one only after checking a proof itself (app/core/sign_in.py); the API verifies (app/core/tickets.py)."""
 
 from typing import Any
 

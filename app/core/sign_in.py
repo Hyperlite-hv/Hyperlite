@@ -2,7 +2,7 @@
 PR B), as Proxmox VE's ticket is made by the process that checked the password.
 
 Each function checks a proof (a password, a second factor, the one-time code an SSO sign-in left, the current password
-for a change) and only then signs, with the key only the daemon reads (app/core/auth_keys.py). The API asks for them
+for a change) and only then signs, with the key only the daemon reads (app/core/tickets.py). The API asks for them
 by name (ask); it keeps what does not open a session: the lock after repeated failures, the audit log, its answers.
 
 Every function answers a dict: {"result": "session", "token", "user"}, {"result": "second_factor", "preauth_token",
@@ -13,7 +13,7 @@ import os
 import time
 from datetime import timedelta
 
-from app.core import auth_keys
+from app.core import tickets
 
 OPERATIONS = ("password", "totp", "webauthn", "sso", "change_password")
 PREAUTH_LIFETIME_S = 5 * 60  # enough to type a code
@@ -25,7 +25,7 @@ def ask(op, log_user=None, **args):
     not."""
     if op not in OPERATIONS:
         raise ValueError(op)
-    if os.environ.get(auth_keys.SIGNING_ENV) == "local":
+    if os.environ.get(tickets.SIGNING_ENV) == "local":
         return globals()[op](**args)
     from app.core import daemon_client
 
@@ -43,7 +43,7 @@ def _public(user, must_change=None):
 def _sign(claims, lifetime):
     from app.core import security
 
-    return auth_keys.sign_local(security._claims(claims, lifetime))
+    return tickets.sign_local(security._claims(claims, lifetime))
 
 
 def _session(user, remember, must_change=None):
@@ -67,7 +67,7 @@ def _second_factor_methods(user):
 def _preauth(user, remember, must_change=None):
     """Correct password (or SSO identity), a second factor set up: a 5-minute token that only proves that much, marked
     2fa_pending, which no endpoint takes as a session (security._session_user)."""
-    token = auth_keys.sign_local(
+    token = tickets.sign_local(
         {
             "sub": user["username"],
             "2fa_pending": True,
