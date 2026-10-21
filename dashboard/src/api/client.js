@@ -1122,8 +1122,10 @@ export async function deleteSnapshot(name, snapName) {
 export async function fetchTemplates() {
   return realList("/templates");
 }
-export async function createTemplateFromVM(vmName, templateName) {
-  return realFetch(`/templates/from-vm/${encodeURIComponent(vmName)}`, { method: "POST", ...jsonBody({ template_name: templateName || null }) });
+// keepVm: the template gets a copy of the VM's disk and the VM stays (vSphere's "Clone to Template"); without it the
+// VM becomes the template and leaves the list (Proxmox VE's "Convert to template").
+export async function createTemplateFromVM(vmName, templateName, keepVm = false) {
+  return realFetch(`/templates/from-vm/${encodeURIComponent(vmName)}`, { method: "POST", ...jsonBody({ template_name: templateName || null, keep_vm: !!keepVm }) });
 }
 export async function deployTemplate(templateName, newName, network) {
   return realFetch(`/templates/${encodeURIComponent(templateName)}/deploy`, { method: "POST", ...jsonBody({ new_name: newName, network: network || null }) });

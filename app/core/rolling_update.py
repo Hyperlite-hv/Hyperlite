@@ -24,7 +24,7 @@ import time
 
 from app.core import cluster, maintenance, self_node
 from app.core.audit import log_action
-from app.core.security import create_access_token
+from app.core.security import create_peer_token
 from app.core.tasks import finish_task, task_log, update_task_progress
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def _peer_api(node, username, method, path, body=None, timeout=60, connect_timeo
     Over HTTPS to the member, its certificate pinned (app/core/peer_https.py); over SSH when that cannot be done."""
     from app.core import peer_https
 
-    token = create_access_token({"sub": username, "role": "admin"})
+    token = create_peer_token({"sub": username, "role": "admin"})
     try:
         return peer_https.call(node, token, method, path, body=body, timeout=timeout, connect_timeout=connect_timeout)
     except peer_https.Unavailable as e:

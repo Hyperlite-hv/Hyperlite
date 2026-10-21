@@ -6,6 +6,7 @@ const stamp = Date.now().toString().slice(-6);
 const SRC = `${PREFIX}src-${stamp}`;
 const CLONE = `${PREFIX}clone-${stamp}`;
 const TEMPLATE = `${PREFIX}tpl-${stamp}`;
+const TEMPLATE_COPY = `${PREFIX}tplc-${stamp}`;
 const DEPLOYED = `${PREFIX}dep-${stamp}`;
 const RESTORED = `${PREFIX}rst-${stamp}`;
 const ALL = [SRC, CLONE, DEPLOYED, RESTORED];
@@ -40,7 +41,7 @@ test.afterAll(async ({ request }) => {
       await request.delete(`/vms/${name}?confirm=true`, { headers: auth() });
     }
   }
-  await request.delete(`/templates/${TEMPLATE}?confirm=true`, { headers: auth() });
+  for (const tpl of [TEMPLATE, TEMPLATE_COPY]) await request.delete(`/templates/${tpl}?confirm=true`, { headers: auth() });
   const exportsRes = await request.get("/vm-exports", { headers: auth() });
   if (exportsRes.ok()) for (const f of (await exportsRes.json()) as Array<{ name: string }>) if (f.name.startsWith(SRC)) await request.delete(`/vm-exports/${encodeURIComponent(f.name)}`, { headers: auth() });
   const backups = await request.get("/backups", { headers: auth() });
@@ -69,6 +70,18 @@ test.describe("Advanced VM operations (real backend)", () => {
     await page.waitForLoadState("networkidle");
     const vms = (await (await request.get("/vms", { headers: auth() })).json()) as Array<{ name: string }>;
     expect(vms.filter((v) => v.name.startsWith(`${PREFIX}clone-`)).map((v) => v.name)).toEqual([CLONE]);
+  });
+
+  test("a template copied from a VM keeps the VM", async ({ page, request }) => {
+    await uiLogin(page);
+    await selectVm(page, CLONE);
+    await vmAction(page, /^Create a template \(copy\)/);
+    const tplDialog = page.getByRole("dialog", { name: /template/ });
+    await tplDialog.getByRole("textbox", { name: "Template name" }).fill(TEMPLATE_COPY);
+    await tplDialog.getByRole("button", { name: "Create template" }).click();
+    await expect.poll(async () => ((await (await request.get("/templates", { headers: auth() })).json()) as Array<{ name: string }>).some((t) => t.name === TEMPLATE_COPY), { timeout: 120_000 }).toBe(true);
+    expect(await exists(request, CLONE), "the source VM stays").toBe(true);
+    expect(existsSync(`/var/lib/libvirt/images/${CLONE}.qcow2`), "with its own disk").toBe(true);
   });
 
   test("a VM converted to a template can be deployed as a new VM", async ({ page, request }) => {
