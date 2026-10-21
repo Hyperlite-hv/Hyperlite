@@ -1,6 +1,6 @@
 # Contributing to Hyperlite
 
-Thanks for your interest. Hyperlite is licensed under the PolyForm Noncommercial License 1.0.0 (see [LICENSE](LICENSE)). By submitting a contribution you agree that it may be distributed under that license and that the maintainer may relicense it as part of the project.
+Thanks for your interest. Hyperlite is licensed under the PolyForm Noncommercial License 1.0.0 (see [LICENSE](LICENSE)). By submitting a contribution you agree that it may be distributed under that license and that the maintainer may relicense it as part of the project. A contribution to `cli/` is distributed under the Mozilla Public License 2.0 (`cli/LICENSE`).
 
 ## Ground rules
 

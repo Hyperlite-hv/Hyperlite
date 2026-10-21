@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format is based on 
 
 - A Go library for API v1, `github.com/Hyperlite-hv/Hyperlite/cli/hyperlite`: the client `hyperlite-cli` is built on, and the base of the Terraform / OpenTofu provider (#330, `docs/design/terraform-provider.md`, step 1). It holds the requests, the TLS rule (the system's trust store, then a pinned certificate), the errors of v1 with their `code`, the check of `/health` (API version, Hyperlite version) and the wait for a task, which fails with the task's error and the end of its log, and asks a task that outlives the wait to stop. `hyperlite-cli` behaves as before.
 
+### Changed
+
+- The command-line client and its Go library (`cli/`) are under the Mozilla Public License 2.0 (`cli/LICENSE`), as the Terraform provider built on them will be; the rest of Hyperlite keeps the PolyForm Noncommercial License.
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
