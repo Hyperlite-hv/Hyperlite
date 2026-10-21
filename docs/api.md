@@ -82,6 +82,7 @@ Each endpoint requires a global role or a scoped privilege (for example `vm.hard
 | `GET`/`PUT /vms/{name}/cloud-init` | A cloud image VM's account: `user`, `ssh_keys`, `password` (write-only, never returned). Applied at the VM's next boot. |
 | `GET /vms/{name}/hardware-options` | Disk options, boot order, ballooning and machine type (`disks`, `interfaces`, `boot_order`, `ballooning`, `machine`, `newer_machines`, `running`). |
 | `PUT /vms/{name}/disks/{dev}/options` | `cache`, `discard`, `io`, `iothread` (virtio only), `iops`, `mbps` (limits apply live). Returns `needs_restart` when the rest waits for the next start. |
+| `PUT /vms/{name}/network?mac=` | Move an interface to another network (`network`, `vlan_tag`) in place, keeping its MAC address; `mac` names it, the first interface when absent. |
 | `PUT /vms/{name}/boot-order` | `position`: disk targets and `net:<mac>` in boot order. |
 | `PUT /vms/{name}/balloon` | `active`, `minimum_mb` (privilege `vm.resize`). |
 | `PUT /vms/{name}/machine` | `machine`: the current version of the same family, on a stopped VM. |

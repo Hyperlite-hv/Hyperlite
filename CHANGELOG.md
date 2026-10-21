@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `PUT /api/v1/vms/{name}/network` takes `?mac=`, the interface to move to another network: any interface moves in place and keeps its MAC address (a DHCP reservation and the guest's own configuration know it by it); only the first one could, the others had to be removed and added again. What the Terraform provider needs to change one of a VM's interfaces (#330).
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
