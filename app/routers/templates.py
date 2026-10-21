@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import disk_space, firmware, maintenance, templates_store, vm_locks
+from app.core import disk_space, firmware, maintenance, templates_store, vm_locks, vm_meta
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.listing import listing
@@ -79,10 +79,13 @@ def _convert_to_template(name, payload, user):
             log_action(user["username"], action, name, "failed", "disk not found")
             raise HTTPException(status_code=500, detail="Source disk not found")
 
+        # The account and the system of the VM go with its disk: a VM deployed from the template needs them for the
+        # web terminal (seen on a real node: an ISO-installed RHEL deployed from its template had no SSH user).
+        meta = {"ssh_user": vm_meta.get_vm_ssh_user(name), "os_label": vm_meta.get_vm_os_label(name)}
         if payload.keep_vm:
-            return _copy_to_template(name, tpl_name, xml_desc, vcpu, memory_mb, disk_source, user)
+            return _copy_to_template(name, tpl_name, xml_desc, vcpu, memory_mb, disk_source, user, meta)
 
-        target_disk = templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"])
+        target_disk = templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"], **meta)
 
         try:
             # A UEFI VM's NVRAM and TPM state go with it: each deployment gets fresh ones (see deploy below).
@@ -104,6 +107,9 @@ def _convert_to_template(name, payload, user):
             iso.unlink(missing_ok=True)
         # The disk left its pool behind libvirt's back: without a refresh the pool keeps listing a volume that is gone.
         refresh_pools_for_paths(conn, [disk_source, target_disk, *helper_isos])
+        # The VM is gone: its rows would name a VM that no longer exists (the template keeps them).
+        vm_meta.delete_vm_ssh_user(name)
+        vm_meta.delete_vm_os_label(name)
 
         log_action(user["username"], "convert_to_template", name, "success", f"template -> {tpl_name}")
         return {"template": tpl_name, "vm_source": name, "vm_kept": False}
@@ -111,7 +117,7 @@ def _convert_to_template(name, payload, user):
         conn.close()
 
 
-def _copy_to_template(name, tpl_name, xml_desc, vcpu, memory_mb, disk_source, user):
+def _copy_to_template(name, tpl_name, xml_desc, vcpu, memory_mb, disk_source, user, meta):
     """The template gets a copy of the VM's disk, the VM stays as it is. The VM is stopped, so the copy is consistent.
     The copy is written aside first and the template's description last: a template being copied never shows in the
     list, nor one whose copy failed."""
@@ -137,7 +143,7 @@ def _copy_to_template(name, tpl_name, xml_desc, vcpu, memory_mb, disk_source, us
         log_action(user["username"], "clone_to_template", name, "failed", f"disk copy: {detail}")
         raise HTTPException(status_code=500, detail="Disk copy failed") from exc
     try:
-        templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"])
+        templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"], **meta)
     except OSError:
         templates_store.delete_template(tpl_name)
         raise
@@ -249,6 +255,12 @@ def deploy_template(template_name: str, payload: DeployRequest, user: dict = Dep
             raise HTTPException(status_code=500, detail=f"Domain definition failed: {exc}") from exc
 
         refresh_pools_for_paths(conn, [new_disk_path, *([reseed_iso] if reseed_iso else [])])
+        # The source VM's account and system, which the copied disk holds (a template made before they were kept has
+        # none: set them on the VM).
+        if tpl.get("ssh_user"):
+            vm_meta.set_vm_ssh_user(payload.new_name, tpl["ssh_user"])
+        if tpl.get("os_label"):
+            vm_meta.set_vm_os_label(payload.new_name, tpl["os_label"])
         log_action(user["username"], "deploy_template", template_name, "success", f"-> {payload.new_name}")
         return {"template": template_name, "vm": new_domain.name(), "state": "stopped"}
     finally:

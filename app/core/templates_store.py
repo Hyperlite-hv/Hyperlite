@@ -54,7 +54,9 @@ def get_template(name):
     return meta
 
 
-def save_template(name, xml, vcpu, memory_mb, source_vm, created_by):
+def save_template(name, xml, vcpu, memory_mb, source_vm, created_by, ssh_user=None, os_label=None):
+    """`ssh_user`, `os_label`: the source VM's, which the VMs deployed from the template take (its disk holds the same
+    system and the same account)."""
     meta = {
         "name": name,
         "vm_source": source_vm,
@@ -63,6 +65,10 @@ def save_template(name, xml, vcpu, memory_mb, source_vm, created_by):
         "created_by": created_by,
         "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
+    if ssh_user:
+        meta["ssh_user"] = ssh_user
+    if os_label:
+        meta["os_label"] = os_label
     with open(_xml_path(name), "w") as f:
         f.write(xml)
     with open(_meta_path(name), "w") as f:
