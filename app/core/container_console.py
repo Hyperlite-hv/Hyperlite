@@ -16,12 +16,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from app.core.vm_builder import PROJDIR
+from app.core import paths
 
 logger = logging.getLogger(__name__)
 
 SOURCE = Path(__file__).resolve().parent / "native" / "hl-console.c"
-BIN_DIR = PROJDIR / "data" / "bin"
+BIN_DIR = paths.BIN
 IN_CONTAINER = "/.hyperlite"
 LAUNCHER = f"{IN_CONTAINER}/hl-console"
 LOG = f"{IN_CONTAINER}/console.log"

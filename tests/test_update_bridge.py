@@ -62,12 +62,13 @@ def test_the_updater_starts_a_staged_copy_told_the_version_and_the_package(tmp_p
     assert staged.read_bytes() == WATCHDOG.read_bytes()
     assert staged.stat().st_mode & 0o777 == 0o700 and staged.parent.stat().st_mode & 0o777 == 0o700
     argv = update._watchdog_argv("/b.tar.gz", "/u.log", "1:1.1.0", {"file": Path("/k/hyperlite_1.0.2_amd64.deb")})
-    assert argv[:3] == [
+    assert argv[:4] == [
         "env",
         "HYPERLITE_EXPECTED_VERSION=1.1.0",
+        "HYPERLITE_ARCHIVE_ROOT=/",
         "HYPERLITE_PREVIOUS_DEB=/k/hyperlite_1.0.2_amd64.deb",
     ]
-    assert argv[3:5] == ["bash", str(staged)]
+    assert argv[4:6] == ["bash", str(staged)]
     assert "HYPERLITE_PREVIOUS_DEB" not in " ".join(update._watchdog_argv("/b", "/u", "1.0.2", None))
 
 

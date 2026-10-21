@@ -153,6 +153,38 @@ uses. A version that moves the files cannot be installed safely by one that does
      same file system, instant whatever their size; on any failure it moves back what it moved and the start fails,
      which the 1.0.2 watchdog turns into a rollback;
    - the return to a version that does not know the new layout is never offered (as below 1.0, `update._previous`).
+     The return to 1.0.2 is offered: it moves the files back.
+
+**What else names a path** (found while writing 1.1):
+
+- **VMs with an ISO image inserted**: libvirt keeps the image's full path in the VM's definition. The move rewrites the
+  persistent definitions whose image did move (read with `--security-info`, or the console's password would be lost);
+  a running VM keeps the file it opened and reads the new path at its next start. Going back to 1.0.2, the package's
+  `postrm` points them back before 1.0.2's `postinst` moves the files (`postrm` lives in dpkg's database: the code
+  under `/usr/lib/hyperlite` may already be gone when it runs).
+- **certbot**: each domain's renewal configuration keeps the path of the hook that installs a renewed certificate;
+  rewritten both ways the same way.
+- **Rows written up to 1.0**: each backup schedule stored the default directory in full (`/root/hyperlite/data/backups`),
+  and these rows are replicated: rewriting them would send a node still on 1.0 (rolling update) to the directory of
+  1.1. They are left as they are and read at the new place (`paths.current`), with the backups catalogue; from 1.1 the
+  default directory is stored empty, which every version reads as its own.
+- **A node already moved**: a VM migrated from a node still on 1.0 brings its ISO image to the same path, under
+  `/root/hyperlite`. The move then only finishes what is left, never keeps the service from starting over an item
+  found in both places, and leaves such an image where the VM reads it.
+- **What 1.0 leaves**: the Python environment and the bytecode under `/root/hyperlite` are removed, then the empty
+  directories; anything else (a file of the administrator's) stays, named in the service's log.
+- **The return asked from the dashboard** ran apt from the service itself, still running: 1.0.2's package moved the
+  database back under it, and it recreated an empty one at the new place (seen on the test VM). From 1.1 the watchdog
+  does it, as for a failed update: service stopped, package installed again, service started.
+
+Checked on the test VM with the real package (2026-10-21): 1.0.3 to 1.1, the return to 1.0.3 from the dashboard, a 1.1
+that moves the files then fails to start installed over 1.0.3 and over 1.1 (back by itself in two minutes, by the kept
+package and by the archive), the refusal over 1.0.1, a fresh installation, a removal and a reinstallation over the
+kept data. Each time the secrets, keys, ISO image, backups, database rows and the VM's ISO path were the same.
+
+Known limit, during a rolling update only: a node still on 1.0 that writes into a directory of 1.1 (a VM with an ISO
+image migrated to it from a node already on 1.1) has, at its own update, the same item in both layouts; the move then
+refuses, the update rolls back by itself, and the log names both paths.
 
 ## 10. Secrets, the way Proxmox VE keeps them (Antho, 2026-10-21)
 

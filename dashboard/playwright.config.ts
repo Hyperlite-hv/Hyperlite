@@ -1,6 +1,12 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 const port = process.env.E2E_PORT ?? "8011";
+// The backend's data directory (HYPERLITE_VAR_DIR, app/core/paths.py), made once here: the backend started below and
+// the workers inherit it, so a test that writes files the backend reads (next-site-recovery.spec.ts) knows where.
+process.env.E2E_VAR_DIR ??= mkdtempSync(join(tmpdir(), "hyperlite-e2e-var-"));
 const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${port}`;
 
 export default defineConfig({

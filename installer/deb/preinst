@@ -1,0 +1,15 @@
+#!/bin/bash
+# Debian maintainer script (preinst), run by dpkg before it unpacks anything.
+#
+# From 1.1 the files live where Proxmox VE keeps its own (app/core/paths.py). An update to such a version is only safe
+# from 1.0.2 on (docs/design/privilege-separation.md, section 9): older versions start their update watchdog from a
+# file this package removes, and their rollback restores an archive of /root/hyperlite that this version no longer
+# reads. Over anything older the update stops here: nothing is unpacked, the node keeps running its version.
+set -e
+
+if [ "$1" = upgrade ] && [ -n "${2:-}" ] && dpkg --compare-versions "$2" lt 1:1.0.2; then
+    echo "hyperlite: version $2 is installed; this version can only be installed over 1.0.2 or later." >&2
+    echo "hyperlite: install 1.0.2 first (apt-get install hyperlite=1:1.0.2), then update again." >&2
+    exit 1
+fi
+exit 0

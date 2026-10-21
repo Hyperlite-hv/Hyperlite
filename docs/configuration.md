@@ -1,14 +1,14 @@
 # Configuration
 
-Hyperlite is configured through environment variables, normally set in `/root/hyperlite/.env` (read by systemd through `EnvironmentFile`). The package creates this file on first installation with fresh secrets and never overwrites it on upgrade.
+Hyperlite is configured through environment variables, normally set in `/etc/hyperlite/priv/env` (read by systemd through `EnvironmentFile`; `/root/hyperlite/.env` up to 1.0). The package creates this file on first installation with fresh secrets and never overwrites it on upgrade.
 
 | Variable | Purpose | Default |
 |---|---|---|
 | `HYPERLITE_SECRET_KEY` | Secret used to sign session tokens. Must be long and random: the service refuses to start when it is set to fewer than 32 characters (`openssl rand -hex 32`). | random per process (sessions are lost on restart) |
 | `HYPERLITE_INITIAL_ADMIN_PASSWORD` | Password of the `admin` account created on first start. Ignored if an admin already exists. | none |
-| `HYPERLITE_ENCRYPTION_KEY` | Fernet key used to encrypt secrets stored in the database. Generated automatically into `.env` when missing. | generated |
+| `HYPERLITE_ENCRYPTION_KEY` | Fernet key used to encrypt secrets stored in the database. Generated automatically into `/etc/hyperlite/priv/env` when missing. | generated |
 | `HYPERLITE_VM_MAX_VCPU`, `HYPERLITE_VM_MAX_MEMORY_MB`, `HYPERLITE_VM_MAX_DISK_GB`, `HYPERLITE_VM_MAX_DISKS` | Optional caps on a VM's vCPU, memory (MB), disk size (GB) and disk count, for example on a small test machine. Hyperlite sets no ceiling of its own otherwise, like Proxmox or vSphere. | none (technical ceilings only) |
-| `HYPERLITE_APP_DIR` | Application directory assumed by the preflight check. | `/root/hyperlite` |
+| `HYPERLITE_VAR_DIR`, `HYPERLITE_ETC_DIR` | Where the data and the node's secrets live (`app/core/paths.py`); changed only for development and tests. | `/var/lib/hyperlite`, `/etc/hyperlite` |
 | `HYPERLITE_ENV_LABEL` | Label of a non-production installation (for example `DEV` or `STAGING`, 24 characters at most), shown in the dashboard's top bar, on the sign-in page and in the tab title. Leave unset in production. | none |
 | `HYPERLITE_API_DOCS` | `1` serves the interactive API documentation (`/docs`, `/redoc`, `/openapi.json`). They answer without authentication, so leave it off outside development: the accounts an administrator chose open it from Administration › API instead. | off |
 | `HYPERLITE_HSTS_MAX_AGE` | When set (seconds), HTTPS responses carry `Strict-Transport-Security`. Only with a certificate browsers trust: with a self-signed one, browsers would then refuse to let users past the certificate warning. | off |
@@ -33,13 +33,21 @@ Profile and policy names are French wire values (see [api.md](api.md)).
 
 ## Files
 
-| Path | Content |
-|---|---|
-| `/root/hyperlite/.env` | Secrets and environment (mode 600). |
-| `/root/hyperlite/hyperlite.db` | SQLite database (WAL). |
-| `/root/hyperlite/data/tls/` | Self-signed certificate and key; replace them to use your own certificate. |
-| `/root/hyperlite/data/ssh/` | Automation key (VMs, containers) and cluster keys. |
-| `/root/hyperlite/data/isos`, `templates`, `vm-exports`, `imported-disks`, `tmp` | Uploaded and generated files. |
+From 1.1 the files live where Proxmox VE keeps its own (`app/core/paths.py`); up to 1.0 they were all under
+`/root/hyperlite`, and the first start of 1.1 moves them (`scripts/migrate_layout.sh`).
+
+| Path | Content | Proxmox VE |
+|---|---|---|
+| `/usr/lib/hyperlite` | The code and its Python environment (the package's). | `/usr/share/perl5/PVE` |
+| `/usr/share/hyperlite/www` | The web interface, built. | `/usr/share/pve-manager` |
+| `/etc/hyperlite/priv/env` | Secrets and environment (root only). | `/etc/pve/priv` |
+| `/etc/hyperlite/priv/ssh/` | Automation key (VMs, containers) and cluster keys. | `/etc/pve/priv`, `/root/.ssh` |
+| `/etc/hyperlite/local/` | The web interface's certificate and key; replace them to use your own (or Node › Certificate). | `/etc/pve/local/pve-ssl.*` |
+| `/var/lib/hyperlite/hyperlite.db` | SQLite database (WAL, root only). | `/var/lib/pve-cluster/config.db` |
+| `/var/lib/hyperlite/template/iso`, `template/vm` | ISO images, VM templates. | `/var/lib/vz/template/iso` |
+| `/var/lib/hyperlite/dump`, `dump/export`, `dump/container` | VM backups (the default directory), VM exports, container backups. | `/var/lib/vz/dump` |
+| `/var/lib/hyperlite/import` | Disks uploaded to be imported. | `/var/lib/vz/import` |
+| `/var/lib/hyperlite/tmp`, `k3s`, `bin`, `update-backups`, `previous` | Uploads in progress, Kubernetes files, tools, update archives, the package of the previous version. | |
 
 ## Ports
 

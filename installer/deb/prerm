@@ -1,0 +1,13 @@
+#!/bin/bash
+# Debian maintainer script (prerm). On removal, the services stop before their files go: they were left running on
+# deleted code (seen on a test node: after a purge, the removed version still answered, and the next installation's
+# "systemctl start" found it running). An upgrade or a return to the previous version leaves them alone: the update
+# restarts them itself (installer/deb/postinst, the update watchdog).
+set -e
+
+case "$1" in
+    remove|deconfigure)
+        systemctl disable --now hyperlite.service hyperlite-daemon.service hyperlite-cfs.service >/dev/null 2>&1 || true
+        ;;
+esac
+exit 0

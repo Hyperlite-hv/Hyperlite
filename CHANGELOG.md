@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Changed
+
+- Hyperlite's files live where Proxmox VE keeps its own (#511, `app/core/paths.py`, `docs/design/privilege-separation.md`, section 9): the code in `/usr/lib/hyperlite`, the web interface in `/usr/share/hyperlite/www`, the node's secrets in `/etc/hyperlite/priv` (no more `.env` next to the code), its certificate in `/etc/hyperlite/local`, the data in `/var/lib/hyperlite` (`template/iso`, `template/vm`, `dump`, `import`, the database). The first start moves the files of `/root/hyperlite` with the service stopped, all or nothing; a failure is rolled back by the 1.0.2 watchdog. The VMs with an ISO image inserted and certbot's renewal hook follow the move; the backup schedules and catalogue written before are read at the new place. What 1.0 leaves of `/root/hyperlite` is removed. The package refuses to install over a version older than 1.0.2, and the return to the previous version never goes below it.
+
+- The database is readable by root only, as are the update archives, which now hold the code and `/etc/hyperlite` instead of `/root/hyperlite`.
+
+- The return to the previous version (Node › Updates) installs it again through the update watchdog, with the service stopped, instead of from the running service: the previous version may move the files back while it runs (seen on a test node, from the new layout: a second, empty database).
+
+### Fixed
+
+- Removing the package stops and disables its services: they kept running on deleted code, and the next installation found them running. A purge also removes the systemd units it installed.
+
 ## [1.0.2] - 2026-10-21
 
 ### Added

@@ -29,6 +29,7 @@ from app.core import (
     image_env,
     maintenance,
     object_meta,
+    paths,
     pty_session,
     renaming,
 )
@@ -76,7 +77,7 @@ from app.services import backup_service
 
 logger = logging.getLogger(__name__)
 
-CONTAINER_BACKUP_DIR = Path("/root/hyperlite-container-backups")
+CONTAINER_BACKUP_DIR = paths.CONTAINER_BACKUPS
 
 router = APIRouter(prefix="/containers", tags=["containers"])
 

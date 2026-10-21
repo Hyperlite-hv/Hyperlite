@@ -24,10 +24,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import ExtensionOID, NameOID
 
-TLS_DIR = Path(os.environ.get("HYPERLITE_TLS_DIR", "/root/hyperlite/data/tls"))
-REPO_DIR = Path(__file__).resolve().parent.parent.parent
-SELF_SIGNED_SCRIPT = REPO_DIR / "scripts" / "ensure-tls-cert.sh"
-ACME_HOOK = REPO_DIR / "scripts" / "acme-deploy-hook.sh"
+from app.core import paths
+
+TLS_DIR = Path(os.environ.get("HYPERLITE_TLS_DIR") or paths.TLS_DIR)
+SELF_SIGNED_SCRIPT = paths.CODE / "scripts" / "ensure-tls-cert.sh"
+ACME_HOOK = paths.CODE / "scripts" / "acme-deploy-hook.sh"
 SOURCE_FILE = "source"  # "auto" (self-signed), "import" or "acme:<domain>"
 
 DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$")
