@@ -216,3 +216,27 @@ def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager
     assert r.status_code == 403 and "'fast'" in r.json()["detail"]
     grant(manager["role"], "storage", "fast")
     assert client.post("/vms/web/disks/vda/resize", json={"size_gb": 2}, headers=h).status_code == 200
+
+
+def test_a_disk_is_made_on_a_storage_pool_only_with_the_right_on_it(client, pipeline, monkeypatch):
+    """Creating a volume to attach is a step of making a VM: storage.allocate on that pool. Deleting one stays an
+    administrator's (it may hold another VM's data)."""
+    from app.routers import storage
+
+    monkeypatch.setattr(storage, "validate_vm_resources", lambda **k: [])
+    monkeypatch.setattr(storage.zfs_storage, "pool_exists", lambda name: False)
+
+    class NoPool:
+        def storagePoolLookupByName(self, name):
+            raise storage.libvirt.libvirtError("no pool")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(storage, "open_conn", lambda *a, **k: NoPool())
+    h = pipeline["headers"]
+    r = client.post("/storage/fast/volumes", json={"name": "data", "size_gb": 1}, headers=h)
+    assert r.status_code == 403 and "'fast'" in r.json()["detail"]
+    grant(pipeline["role"], "storage", "fast")
+    assert client.post("/storage/fast/volumes", json={"name": "data", "size_gb": 1}, headers=h).status_code == 404
+    assert client.delete("/storage/fast/volumes/data.qcow2?confirm=true", headers=h).status_code == 403

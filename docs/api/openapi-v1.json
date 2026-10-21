@@ -13409,6 +13409,7 @@
     ]
    },
    "post": {
+    "description": "An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one, as\nProxmox VE's Datastore.AllocateSpace (deleting a volume stays an administrator's: it may hold another VM's data).",
     "operationId": "create_volume_api_v1_storage__pool_name__volumes_post",
     "parameters": [
      {
