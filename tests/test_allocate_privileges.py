@@ -149,3 +149,70 @@ def test_an_older_database_takes_storage_and_network_assignments(database):
     database.init_db()
     perm.create_acl("user", "a", "drive", "network", "lan")
     assert [(a["resource_type"], a["resource_id"]) for a in perm.list_acl()] == [("vm", "web"), ("network", "lan")]
+
+
+@pytest.fixture()
+def manager(client, pipeline, monkeypatch):
+    """The account manages the VM `web` (the Manager role on its pool); no VM exists behind it, so a request that
+    passes every check ends in a 404."""
+    import libvirt
+
+    from app.routers.vms import clone, devices
+
+    class NoVm:
+        def lookupByName(self, name):
+            raise libvirt.libvirtError("no domain")
+
+        def close(self):
+            pass
+
+    for module in (devices, clone):
+        monkeypatch.setattr(module, "open_conn", lambda *a, **k: NoVm())
+    monkeypatch.setattr(clone.maintenance, "refuse_if_in_maintenance", lambda *a: None)
+    perm.add_pool_member(pipeline["pool"], "web")
+    perm.create_acl("user", "ci", "manager", "pool", str(pipeline["pool"]))
+    custom = perm.create_custom_role("clone", ["vm.clone"])
+    perm.create_acl("user", "ci", f"custom:{custom}", "pool", str(pipeline["pool"]))
+    return pipeline
+
+
+def test_an_existing_vm_gets_a_disk_or_an_interface_only_with_the_right_on_it(client, manager):
+    h, role = manager["headers"], manager["role"]
+    steps = [
+        ("post", "/vms/web/disks", {"volume_name": "data.qcow2", "pool": "fast"}, ("storage", "fast")),
+        ("post", "/vms/web/interfaces", {"network": "lan"}, ("network", "lan")),
+        ("put", "/vms/web/network", {"network": "lan"}, ("network", "lan")),
+        ("post", "/vms/web/clone", {"new_name": "copy"}, ("storage", "default")),
+    ]
+    for method, path, body, (_kind, name) in steps:
+        refused = getattr(client, method)(path, json=body, headers=h)
+        assert refused.status_code == 403 and f"'{name}'" in refused.json()["detail"], (path, refused.text)
+    grant(role, "storage", "fast")
+    grant(role, "storage", "default")
+    grant(role, "network", "lan")
+    for method, path, body, _ in steps:
+        assert getattr(client, method)(path, json=body, headers=h).status_code == 404, path
+
+
+def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager, monkeypatch):
+    from app.core import disk_resize
+    from app.routers.vms import devices
+
+    class OneVm:
+        def lookupByName(self, name):
+            return object()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(devices, "open_conn", lambda *a, **k: OneVm())
+    monkeypatch.setattr(disk_resize, "grow", lambda *a, **k: (1 << 30, 2 << 30, False))
+    h = manager["headers"]
+    monkeypatch.setattr(disk_resize, "storage_pool_name", lambda conn, domain, dev: None)
+    r = client.post("/vms/web/disks/vda/resize", json={"size_gb": 2}, headers=h)
+    assert r.status_code == 403 and "not known" in r.json()["detail"]
+    monkeypatch.setattr(disk_resize, "storage_pool_name", lambda conn, domain, dev: "fast")
+    r = client.post("/vms/web/disks/vda/resize", json={"size_gb": 2}, headers=h)
+    assert r.status_code == 403 and "'fast'" in r.json()["detail"]
+    grant(manager["role"], "storage", "fast")
+    assert client.post("/vms/web/disks/vda/resize", json={"size_gb": 2}, headers=h).status_code == 200

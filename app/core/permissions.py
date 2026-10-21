@@ -326,6 +326,16 @@ def has_scoped_privilege(user, resource_type, resource_id, privilege):
     return False
 
 
+def refuse_unless(user, resource_type, resource_id, privilege, what):
+    """403 unless `user` holds `privilege` on that storage pool or network (has_scoped_privilege); `what` names it in
+    the refusal ("storage pool 'fast'"). For the routes that put a disk or an interface on an existing VM, as Proxmox
+    VE checks Datastore.AllocateSpace and SDN.Use there too."""
+    from fastapi import HTTPException
+
+    if not has_scoped_privilege(user, resource_type, resource_id, privilege):
+        raise HTTPException(status_code=403, detail=f"Insufficient rights on {what} (required privilege: {privilege})")
+
+
 def allocation_refusal(user, resource_pool, storage_pools, networks):
     """Why `user` may not create a VM in the pool `resource_pool` (an id, or None), with disks on `storage_pools` and
     interfaces on `networks`; None when it may. An administrator may always; anyone else needs vm.allocate on the

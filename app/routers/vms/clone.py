@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core import disk_space, firmware, iscsi, maintenance, vm_locks
+from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
@@ -35,6 +36,11 @@ class CloneRequest(BaseModel):
 
 @router.post("/{name}/clone", status_code=201)
 def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone"))):
+    # A clone's disks are copied into the images directory, the "default" storage pool: space taken there, as Proxmox VE
+    # checks Datastore.AllocateSpace on a clone's target storage.
+    perm.refuse_unless(
+        user, "storage", "default", "storage.allocate", "storage pool 'default' (where a clone is copied)"
+    )
     maintenance.refuse_if_in_maintenance("local", "Cloning")
     # The source's disks are read: no restore, move or deletion may change them meanwhile.
     with vm_locks.claim_or_409(name, "a clone"):
