@@ -82,6 +82,7 @@ CFS_BUILT=1
 log "systemd service"
 cp "$APP_DIR/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
 cp "$APP_DIR/installer/hyperlite-cfs.service" /etc/systemd/system/hyperlite-cfs.service
+cp "$APP_DIR/installer/hyperlite-daemon.service" /etc/systemd/system/hyperlite-daemon.service
 systemctl daemon-reload
 # Corosync is a dependency (a cluster is created from the dashboard), but Debian's package starts it at once with its
 # own sample configuration: cluster "debian", no encryption. Until Hyperlite writes its own (cluster creation or join,
@@ -102,6 +103,12 @@ fi
 # Only a daemon an administrator started (a cluster) is restarted onto the new binary; a disabled one stays stopped.
 if [ "$CFS_BUILT" = "1" ] && ! systemctl try-restart hyperlite-cfs.service; then
     log "WARNING: hyperlite-cfs did not restart: systemctl status hyperlite-cfs"
+fi
+# hyperlite-daemon: the root side of the API (docs/design/privilege-separation.md). Restarting it never touches the
+# API process, so it is restarted even when the API defers its own restart.
+systemctl enable hyperlite-daemon.service
+if ! systemctl restart hyperlite-daemon.service; then
+    log "WARNING: hyperlite-daemon did not start: systemctl status hyperlite-daemon"
 fi
 systemctl enable hyperlite.service
 if [ "$FRESH_INSTALL" = "1" ]; then

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `hyperlite-daemon`, the root side of the API, behind a local socket (`/run/hyperlite/daemon.sock`, 0660): a fixed list of operations with checked arguments, the caller checked by its peer credentials, every call logged. The first step of the privilege separation (#511, `docs/design/privilege-separation.md`); the API does not use it yet.
+
 ## [1.0.1] - 2026-10-20
 
 ### Fixed
