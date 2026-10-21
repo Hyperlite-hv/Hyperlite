@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- An account that is not an administrator can create VMs, as vSphere and Proxmox VE allow it, with one privilege per step: `vm.allocate` on the pool the VM goes in (`resource_pool` of `POST /api/v1/vms`; the VM joins that pool, so the pool's rights apply to it), `storage.allocate` on the storage pool of its disks, `network.assign` on its network; `vm.allocate` also allows deleting the VMs of that pool. Roles are assigned on a storage pool or a network from **Permissions › Assignments**. What a Terraform pipeline's token needs, and nothing more (#330). Such an assignment waits until every node of a cluster is updated: an older node could not store it, and would stop taking the cluster's configuration.
+
 ## [1.1.1] - 2026-10-21
 
 ### Added

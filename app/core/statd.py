@@ -51,7 +51,15 @@ def summary():
     from app.core import cluster_v1
 
     # "api": the version of the API and of the names this node writes: the others know when every member runs 1.0.
-    return {"node": self_node.name(), "at": time.time(), "api": cluster_v1.API_VERSION, "vms": vms}
+    # "features": what this node's database accepts beyond that, so a change the others' could not store waits until
+    # every member runs a version that knows it (members_without).
+    return {
+        "node": self_node.name(),
+        "at": time.time(),
+        "api": cluster_v1.API_VERSION,
+        "features": list(FEATURES),
+        "vms": vms,
+    }
 
 
 def encode(data):
@@ -99,8 +107,31 @@ def table():
         except (ValueError, KeyError, TypeError, zlib.error):
             logger.warning("A status that could not be read (node id %s)", s.node)
             continue
-        out[name] = {"vms": vms, "age_s": round(age, 1), "stale": age > STALE_S, "api": data.get("api", 0)}
+        out[name] = {
+            "vms": vms,
+            "age_s": round(age, 1),
+            "stale": age > STALE_S,
+            "api": data.get("api", 0),
+            "features": data.get("features", []),
+        }
     return out
+
+
+# What this node's database accepts that a version of 1.0 did not: an assignment on a storage pool or a network
+# (app/core/permissions.py, RESOURCE_TYPES).
+FEATURES = ("acl_storage_network",)
+
+
+def members_without(feature):
+    """The other members of the cluster that do not say they know `feature`, by name; empty outside a cluster. A member
+    whose status is not read (down, or before this field) counts as not knowing it: a row it cannot store would stop
+    every change from reaching it (app/repositories/cfs/inbound.py refuses the whole apply)."""
+    from app.core import cluster_view
+
+    known = table()
+    return sorted(
+        m["name"] for m in cluster_view.members() if feature not in known.get(m["name"], {}).get("features", ())
+    )
 
 
 def _loop(stop):

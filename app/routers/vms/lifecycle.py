@@ -15,7 +15,7 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
-from app.core.security import require_role, require_vm_privilege
+from app.core.security import require_vm_privilege
 from app.core.tasks import create_task
 from app.core.vm_meta import (
     touch_vm_activity,
@@ -313,7 +313,10 @@ def _perform_vm_deletion(conn, domain, name, node=None):
 
 
 @router.delete("/{name}")
-def delete_vm(name: str, confirm: bool = False, node: str | None = None, user: dict = Depends(require_role("admin"))):
+def delete_vm(
+    name: str, confirm: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.allocate"))
+):
+    """An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there)."""
     with vm_locks.claim_or_409(name, "a deletion", node=node):
         return _delete_vm(name, confirm, node, user)
 

@@ -72,7 +72,9 @@ Operations that can take time (creation, snapshots, backups, migration, updates)
 
 ## Permissions
 
-Each endpoint requires a global role or a scoped privilege (for example `vm.hardware`, `vm.console`, `vm.clone`). See `app/core/permissions.py` for the catalogue. `vm.options` and `container.options` (part of the Manager role) cover start at boot, notes and tags, and a cloud image VM's account.
+Each endpoint requires a global role or a scoped privilege (for example `vm.hardware`, `vm.console`, `vm.clone`). See `app/core/permissions.py` for the catalogue. An assignment (`POST /acl`) is given on a VM, a pool of VMs, a container, a storage pool (`storage`, by name) or a network (`network`, by name).
+
+Creating a VM is open to an account that is not an administrator, step by step as vSphere and Proxmox VE allow it: `vm.allocate` on the pool the VM goes in (`resource_pool` in `POST /vms`, the pool's id, which such an account must give; the VM becomes a member of it), `storage.allocate` on the storage pool of its disks (`storage_pool`, `default` when absent) and `network.assign` on its network. `vm.allocate` on a VM, or on a pool holding it, also allows deleting it. An assignment on a storage pool or a network is refused (409) while a member of the cluster runs a version that does not know them. `vm.options` and `container.options` (part of the Manager role) cover start at boot, notes and tags, and a cloud image VM's account.
 
 ## Object settings
 
