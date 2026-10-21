@@ -104,6 +104,25 @@ else
         "$WORK/mirror"
 fi
 
+# 3b. The GitHub release of a stable semver version (v1.0.1): its French notes, then the CHANGELOG section. Made once:
+#     a version is published once (step 1 refuses a second publication of it).
+if [ "$DRY_RUN" != "1" ] && [ "$CHANNEL" = stable ] && [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    && ! gh release view "v$VERSION" >/dev/null 2>&1; then
+    {
+        echo "Installation ISO and offline update file: the appliance-iso-latest release." \
+            "Package: \`apt install hyperlite\` from the stable channel (\`$DEB_VERSION\`)."
+        if [ -f "installer/apt-repo/notes/$VERSION.fr.md" ]; then
+            printf '\n## Notes (français)\n\n'
+            cat "installer/apt-repo/notes/$VERSION.fr.md"
+        fi
+        printf '\n## Changes (English)\n\n'
+        cat "installer/apt-repo/notes/$VERSION.en.md"
+    } > "$WORK/release-notes.md"
+    gh release create "v$VERSION" --target "$SOURCE_COMMIT" --title "Hyperlite $VERSION" \
+        --notes-file "$WORK/release-notes.md" --latest=false
+    log "GitHub release v$VERSION created"
+fi
+
 # 4. ISO: build, checksum and signature, then the single moving release.
 if [ "${SKIP_ISO:-0}" != "1" ]; then
     ISO=installer/hyperlite-appliance-amd64.iso
