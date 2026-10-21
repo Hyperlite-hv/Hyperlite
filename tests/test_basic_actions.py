@@ -486,3 +486,18 @@ def test_starting_a_running_or_stopping_a_stopped_container_is_a_conflict(client
     assert r.status_code == 409 and "already stopped" in r.json()["detail"]
     assert client.post("/containers/nope/start", headers=admin).status_code == 404
     assert client.post("/containers/nope/stop", headers=admin).status_code == 404
+
+
+def test_the_registry_test_matches_the_former_expression_in_linear_time():
+    import re
+    import time
+
+    from app.core.image_env import _has_registry
+
+    former = re.compile(r"^[^/]+[.:][^/]*/|^localhost/")
+    for ref in ("ghcr.io/x", "registry:5000/a/b", "localhost/x", "library/postgres", "postgres", ".x/y", "a.b", "/x",
+                "a/b.c/d", "quay.io/", "x:/y", "localhostx/y"):  # fmt: skip
+        assert _has_registry(ref) is bool(former.match(ref)), ref
+    start = time.monotonic()
+    assert _has_registry("." * 200_000) is False
+    assert time.monotonic() - start < 0.5
