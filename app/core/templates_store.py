@@ -21,6 +21,15 @@ def _xml_path(name):
     return safe_child(TEMPLATES_DIR, f"{name}.xml")
 
 
+def disk_path(name):
+    return _disk_path(name)
+
+
+def partial_disk_path(name):
+    """Where a template's disk is written while it is copied: a hidden name, never listed nor taken for a template."""
+    return safe_child(TEMPLATES_DIR, f".{name}.qcow2.part")
+
+
 def exists(name):
     return _meta_path(name).exists()
 
