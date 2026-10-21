@@ -9,24 +9,18 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import cloudinit_edit, firmware, guest_agent, object_meta, vm_boot, vm_locks, zfs_storage
+from app.core import firmware, guest_agent, vm_locks, vm_records, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
-from app.core.network_alloc import release_static_ip
-from app.core.permissions import delete_acl_for_vm, remove_vm_from_all_pools
 from app.core.security import require_role, require_vm_privilege
 from app.core.tasks import create_task
 from app.core.vm_meta import (
-    delete_vm_auto_cleanup,
-    delete_vm_os_label,
-    delete_vm_ssh_user,
     touch_vm_activity,
 )
 from app.routers.vms._shared import _domain_summary, router
-from app.services import backup_service
 
 logger = logging.getLogger(__name__)
 
@@ -273,10 +267,7 @@ def _perform_vm_deletion(conn, domain, name, node=None):
                 disk_el.get("device") == "cdrom" and Path(source_file).name in OWN_GENERATED_ISO_NAMES
             ):
                 disk_paths_to_remove.append(Path(source_file))
-        for iface in root.findall(".//interface[@type='network']"):
-            mac_el, source_el = iface.find("mac"), iface.find("source")
-            if mac_el is not None and source_el is not None and source_el.get("network"):
-                ifaces_to_release.append((source_el.get("network"), mac_el.get("address")))
+        ifaces_to_release = vm_records.reservations(root)
     except (libvirt.libvirtError, ET.ParseError):
         logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
 
@@ -288,11 +279,7 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     # A UEFI VM also takes its NVRAM and TPM state with it (see app/core/firmware.py).
     domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA | extra_undefine_flags)
 
-    for iface_network, iface_mac in ifaces_to_release:
-        try:
-            release_static_ip(conn, iface_network, iface_mac)
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
+    vm_records.release_addresses(conn, ifaces_to_release)
 
     if node:
         from app.core.cluster import get_node, node_ssh_options
@@ -322,17 +309,7 @@ def _perform_vm_deletion(conn, domain, name, node=None):
                     zfs_storage.delete_zvol(parts[2], "/".join(parts[3:]))
                 except zfs_storage.ZfsError:
                     logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
-    delete_vm_ssh_user(name)
-    delete_vm_os_label(name)
-    delete_acl_for_vm(name)
-    remove_vm_from_all_pools(name)
-    delete_vm_auto_cleanup(name)
-    vm_boot.delete_setting(name, node)
-    object_meta.delete("vm", name, node)
-    if not node:
-        cloudinit_edit.delete_state(name)
-        # Its backups are kept (they may be all that is left of it), its schedule is not: it failed at every run.
-        backup_service.delete_schedule(name)
+    vm_records.forget(name, node)
 
 
 @router.delete("/{name}")
