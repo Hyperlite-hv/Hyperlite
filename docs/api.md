@@ -79,7 +79,7 @@ Each endpoint requires a global role or a scoped privilege (for example `vm.hard
 | Endpoint | What it does |
 |---|---|
 | `GET`/`PUT /vms/{name}/boot?node=` | Start at boot: `autostart`, `position` (sequence position, none last), `delay_s` (pause before the next VM). Run once per boot of the VM's node. |
-| `GET`/`PUT /vms/{name}/cloud-init` | A cloud image VM's account: `user`, `ssh_keys`, `password` (write-only, never returned). Applied at the VM's next boot. |
+| `GET`/`PUT /vms/{name}/cloud-init` | A cloud image VM's account: `user`, `ssh_keys`, `password` (write-only, never returned); and its customisation: `hostname` (the VM's name when empty), `domain`, `network` (static addresses by interface: `mac`, the first interface when absent, `addresses` with their prefix, `gateway`; the interfaces not listed keep DHCP), `dns`, `dns_search`, `user_data` (a cloud-config added to Hyperlite's own; the keys of the account and the host name are refused). A field left out of `PUT` keeps its value; an empty one clears it. Applied at the VM's next boot. `POST /vms` takes `ssh_keys` and `customize` (the same fields, `network` without `mac`) for a VM made from the cloud image, written before its first boot. |
 | `GET /vms/{name}/hardware-options` | Disk options, boot order, ballooning and machine type (`disks`, `interfaces`, `boot_order`, `ballooning`, `machine`, `newer_machines`, `running`). |
 | `PUT /vms/{name}/disks/{dev}/options` | `cache`, `discard`, `io`, `iothread` (virtio only), `iops`, `mbps` (limits apply live). Returns `needs_restart` when the rest waits for the next start. |
 | `PUT /vms/{name}/boot-order` | `position`: disk targets and `net:<mac>` in boot order. |

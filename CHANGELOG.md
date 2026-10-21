@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- A VM made from the cloud image is customised as vSphere's and Proxmox VE's guests are: its host name and domain, static addresses by interface (the others keep DHCP), resolvers and search domains, and a cloud-config of the user's (packages, commands, files) added to Hyperlite's own, on its cloud-init drive. At creation (`ssh_keys` and `customize` in `POST /api/v1/vms`, written before the first boot) or later (`PUT /api/v1/vms/{name}/cloud-init`, at the next boot); `GET` reads them back. What the Terraform provider's `customize` block writes (#330). Checked inside a real guest by the e2e suite: a VM created with a static address answers there once booted.
+
 ## [1.1.1] - 2026-10-21
 
 ### Added

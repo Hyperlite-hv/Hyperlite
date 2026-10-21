@@ -789,6 +789,17 @@ def init_db():
                 updated_at TEXT NOT NULL
             )
         """)
+        # What else Hyperlite wrote on a VM's cloud-init drive (app/core/cloudinit_edit.py, CUSTOM): host name, domain,
+        # static addresses, resolvers, a cloud-config of the user's, as JSON. A table of its own, not columns of
+        # vm_cloudinit: hyperlite-cfs copies a row with all its columns, and a member still on an older version would
+        # refuse a column it does not have, whereas it leaves a table it does not know alone.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_cloudinit_custom (
+                vm_name TEXT PRIMARY KEY,
+                data TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            )
+        """)
         # Notes and tags (app/core/object_meta.py). node is '' for a node itself, the VM's node otherwise.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS object_meta (

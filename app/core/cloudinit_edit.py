@@ -8,6 +8,7 @@ A password goes through `chpasswd` (applied to an existing account; the `users` 
 never stored by Hyperlite: the drive holds it until the next change, like at creation.
 """
 
+import ipaddress
 import json
 import os
 import re
@@ -20,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import libvirt
+import yaml
 
 from app.core.safe_paths import safe_child
 from app.core.vm_builder import IMAGES_DIR, get_or_create_automation_pubkey, hash_guest_password, protect_drive
@@ -36,6 +38,32 @@ KEY_RE = re.compile(
     r"^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/=]+( [^\r\n]{0,200})?$"
 )
 MAX_KEYS = 20
+
+# What a VM's drive may also carry (CUSTOM), as vSphere's guest customisation and Proxmox VE's cloud-init options: the
+# host name and domain, static addresses per interface (by MAC address, the others on DHCP), resolvers, and a
+# cloud-config of the user's added to Hyperlite's own.
+CUSTOM = ("hostname", "domain", "network", "dns", "dns_search", "user_data")
+LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
+MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+MAX_USER_DATA = 16 * 1024
+# The keys of the cloud-config Hyperlite writes itself (the account, the host name): a user's cloud-config that set them
+# would silently replace them, or be replaced, depending on the order cloud-init reads them.
+RESERVED_KEYS = frozenset(
+    {
+        "hostname",
+        "fqdn",
+        "prefer_fqdn_over_hostname",
+        "manage_etc_hosts",
+        "users",
+        "user",
+        "chpasswd",
+        "password",
+        "ssh_pwauth",
+        "ssh_authorized_keys",
+        "ssh_deletekeys",
+        "disable_root",
+    }
+)
 
 
 class CloudInitError(ValueError):
@@ -72,20 +100,34 @@ def reload_media(domain, vm_name):
     return True
 
 
+def empty_custom():
+    return {"hostname": None, "domain": None, "network": [], "dns": [], "dns_search": [], "user_data": None}
+
+
+def get_custom(vm_name):
+    """The customisation last written on the VM's drive (empty_custom() when none)."""
+    row = _store().cloudinit_custom(vm_name)
+    return {**empty_custom(), **(json.loads(row["data"]) if row else {})}
+
+
 def get_state(vm_name):
-    """What Hyperlite last wrote: {"user", "ssh_keys", "modified_at"} (no password: never stored)."""
+    """What Hyperlite last wrote: {"user", "ssh_keys", "modified_at"} and the customisation (CUSTOM); no password, never
+    stored."""
     row = _store().cloudinit(vm_name)
     if not row:
         return None
     return {
         "user": row["username"],
         "ssh_keys": json.loads(row["ssh_keys"] or "[]"),
+        **get_custom(vm_name),
         "modified_at": row["updated_at"],
     }
 
 
-def _save_state(vm_name, username, keys):
-    _store().save_cloudinit(vm_name, username, json.dumps(keys), datetime.now(UTC).isoformat())
+def _save_state(vm_name, username, keys, custom):
+    now = datetime.now(UTC).isoformat()
+    _store().save_cloudinit(vm_name, username, json.dumps(keys), now)
+    _store().save_cloudinit_custom(vm_name, json.dumps(custom or empty_custom()), now)
 
 
 def delete_state(vm_name):
@@ -117,16 +159,125 @@ def validate(username, password, keys):
     return cleaned
 
 
+def _ip_list(values, what):
+    out = []
+    for raw in values or []:
+        try:
+            out.append(str(ipaddress.ip_address(str(raw).strip())))
+        except ValueError:
+            raise CloudInitError(f"{what}: '{raw}' is not an IP address") from None
+    return out
+
+
+def _domain(value, what):
+    labels = str(value).strip().rstrip(".").split(".")
+    if len(".".join(labels)) > 253 or not all(LABEL_RE.match(label) for label in labels):
+        raise CloudInitError(f"{what}: '{value}' is not a domain name")
+    return ".".join(labels).lower()
+
+
+def validate_custom(custom, macs):
+    """The customisation, checked and in its stored form; raises CloudInitError. `macs`: the VM's interfaces, in order;
+    an entry of `network` without a MAC address is the first interface."""
+    out = empty_custom()
+    if custom.get("hostname"):
+        if not LABEL_RE.match(custom["hostname"]):
+            raise CloudInitError("hostname: letters, digits and '-', up to 63 characters, as a DNS label")
+        out["hostname"] = custom["hostname"].lower()
+    if custom.get("domain"):
+        out["domain"] = _domain(custom["domain"], "domain")
+    seen = set()
+    for i, entry in enumerate(custom.get("network") or []):
+        what = f"network[{i}]"
+        mac = (entry.get("mac") or (macs[0] if macs else "")).lower()
+        if not MAC_RE.match(mac) or mac not in [m.lower() for m in macs]:
+            raise CloudInitError(f"{what}: the VM has no interface with the MAC address '{mac or entry.get('mac')}'")
+        if mac in seen:
+            raise CloudInitError(f"{what}: the interface {mac} is configured twice")
+        seen.add(mac)
+        addresses = []
+        for raw in entry.get("addresses") or []:
+            try:
+                iface = ipaddress.ip_interface(str(raw).strip())
+            except ValueError:
+                raise CloudInitError(f"{what}: '{raw}' is not an address with its prefix (10.0.20.11/24)") from None
+            if "/" not in str(raw):
+                raise CloudInitError(f"{what}: '{raw}' needs its prefix length (10.0.20.11/24)")
+            addresses.append(iface)
+        if not addresses:
+            raise CloudInitError(f"{what}: give at least one address, or leave the interface out to keep DHCP")
+        gateway = None
+        if entry.get("gateway"):
+            [gateway] = _ip_list([entry["gateway"]], f"{what}.gateway")
+            gw = ipaddress.ip_address(gateway)
+            if not any(gw in a.network for a in addresses if a.version == gw.version):
+                raise CloudInitError(f"{what}: the gateway {gateway} is outside the interface's networks")
+        out["network"].append({"mac": mac, "addresses": [str(a) for a in addresses], "gateway": gateway})
+    out["dns"] = _ip_list(custom.get("dns"), "dns")
+    out["dns_search"] = [_domain(d, "dns_search") for d in custom.get("dns_search") or []]
+    if custom.get("user_data"):
+        text = custom["user_data"]
+        if len(text.encode()) > MAX_USER_DATA:
+            raise CloudInitError(f"user_data: at most {MAX_USER_DATA // 1024} KiB")
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as e:
+            raise CloudInitError(f"user_data is not valid YAML: {str(e).splitlines()[0]}") from None
+        if not isinstance(data, dict):
+            raise CloudInitError("user_data: a cloud-config mapping (packages:, runcmd:, write_files:...)")
+        reserved = sorted(RESERVED_KEYS & set(data))
+        if reserved:
+            raise CloudInitError(
+                f"user_data: {', '.join(reserved)} {'is' if len(reserved) == 1 else 'are'} written by Hyperlite "
+                "(the account, the keys, the host name): set them with the fields of their own"
+            )
+        out["user_data"] = text
+    return out
+
+
+def network_config(custom, macs):
+    """A network configuration (version 2) for the drive, or None when every interface stays on DHCP with its own
+    resolvers. Every interface is listed: cloud-init configures only those a given configuration names."""
+    if not custom["network"] and not custom["dns"] and not custom["dns_search"]:
+        return None
+    static = {entry["mac"]: entry for entry in custom["network"]}
+    ethernets = {}
+    for i, mac in enumerate(macs):
+        eth = {"match": {"macaddress": mac.lower()}}
+        entry = static.get(mac.lower())
+        if entry:
+            eth["addresses"] = entry["addresses"]
+            if entry["gateway"]:
+                eth["routes"] = [
+                    {
+                        # "default" is not read by every cloud-init: the routes in full.
+                        "to": "0.0.0.0/0" if ipaddress.ip_address(entry["gateway"]).version == 4 else "::/0",
+                        "via": entry["gateway"],
+                    }
+                ]
+        else:
+            eth["dhcp4"] = True
+        if custom["dns"] or custom["dns_search"]:
+            eth["nameservers"] = {"addresses": custom["dns"], "search": custom["dns_search"]}
+            if not entry:
+                eth["dhcp4-overrides"] = {"use-dns": False}
+        ethernets[f"nic{i}"] = eth
+    return {"version": 2, "ethernets": ethernets}
+
+
 def _yaml_str(value):
     """A single-quoted YAML scalar (quotes doubled): nothing typed by a user is interpreted as YAML."""
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def user_data(vm_name, username, password, keys, automation_key):
+def user_data(vm_name, username, password, keys, automation_key, custom=None):
+    custom = custom or empty_custom()
     all_keys = [*keys, *([automation_key] if automation_key and automation_key not in keys else [])]
+    hostname = custom["hostname"] or vm_name
     lines = [
         "#cloud-config",
-        f"hostname: {_yaml_str(vm_name)}",
+        f"hostname: {_yaml_str(hostname)}",
+        *([f"fqdn: {_yaml_str(hostname + '.' + custom['domain'])}"] if custom["domain"] else []),
         "manage_etc_hosts: true",
         # A new instance id makes cloud-init run again; the host keys must stay those clients already know.
         "ssh_deletekeys: false",
@@ -149,19 +300,38 @@ def user_data(vm_name, username, password, keys, automation_key):
             "      type: hash",  # never in clear on the drive (vm_builder.hash_guest_password); lower case: cloud-init ignores "HASH"
             "ssh_pwauth: true",
         ]
-    return "\n".join(lines) + "\n"
+    text = "\n".join(lines) + "\n"
+    if custom["user_data"]:
+        # The user's keys after Hyperlite's own, none of them the same (validate_custom): one cloud-config.
+        text += yaml.safe_dump(yaml.safe_load(custom["user_data"]), default_flow_style=False, sort_keys=False)
+    return text
 
 
-def rewrite_drive(vm_name, iso_path, username, password, keys):
-    """Write the new drive next to the old one, then swap them: a failure leaves the old drive in place."""
+def interface_macs(domain):
+    """The MAC addresses of the VM's interfaces, in order."""
+    root = ET.fromstring(domain.XMLDesc(0))
+    return [m.get("address").lower() for m in root.findall("./devices/interface/mac") if m.get("address")]
+
+
+def rewrite_drive(vm_name, iso_path, username, password, keys, custom=None, macs=()):
+    """Write the new drive next to the old one, then swap them: a failure leaves the old drive in place. `custom`: the
+    customisation, already through validate_custom (None: none); `macs`: the VM's interfaces, for its network
+    configuration."""
+    custom = custom or empty_custom()
     automation_key = get_or_create_automation_pubkey()
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-edit-"))
     try:
-        (workdir / "user-data").write_text(user_data(vm_name, username, password, keys, automation_key))
-        (workdir / "meta-data").write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
+        (workdir / "user-data").write_text(user_data(vm_name, username, password, keys, automation_key, custom))
+        hostname = custom["hostname"] or vm_name
+        (workdir / "meta-data").write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {hostname}\n")
+        command = ["cloud-localds"]
+        net = network_config(custom, list(macs))
+        if net is not None:
+            (workdir / "network-config").write_text(yaml.safe_dump(net, default_flow_style=False, sort_keys=False))
+            command.append(f"--network-config={workdir / 'network-config'}")
         tmp_iso = iso_path.with_name(f".{iso_path.name}.new")
         result = subprocess.run(
-            ["cloud-localds", str(tmp_iso), str(workdir / "user-data"), str(workdir / "meta-data")],
+            [*command, str(tmp_iso), str(workdir / "user-data"), str(workdir / "meta-data")],
             capture_output=True,
             text=True,
         )
@@ -175,4 +345,4 @@ def rewrite_drive(vm_name, iso_path, username, password, keys):
         tmp_iso.replace(iso_path)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-    _save_state(vm_name, username, keys)
+    _save_state(vm_name, username, keys, custom)

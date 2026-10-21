@@ -2988,6 +2988,7 @@ export default {
   "cfs.domainName.vm_ssh_users": "Utilisateurs SSH des VM",
   "cfs.domainName.vm_os_label": "Systèmes des VM",
   "cfs.domainName.vm_cloudinit": "Cloud-init",
+  "cfs.domainName.vm_cloudinit_custom": "Personnalisation des invités",
   "cfs.domainName.vm_auto_cleanup": "Nettoyage automatique",
   "cfs.domainName.container_ssh_users": "Utilisateurs SSH des conteneurs",
   "cfs.domainName.container_storage": "Stockage des conteneurs",

@@ -127,6 +127,17 @@ class SqliteObjectStore:
 
     def delete_cloudinit(self, vm_name):
         _write("DELETE FROM vm_cloudinit WHERE vm_name = ?", (vm_name,))
+        _write("DELETE FROM vm_cloudinit_custom WHERE vm_name = ?", (vm_name,))
+
+    def cloudinit_custom(self, vm_name):
+        return _one("SELECT data, updated_at FROM vm_cloudinit_custom WHERE vm_name = ?", (vm_name,))
+
+    def save_cloudinit_custom(self, vm_name, data, updated_at):
+        _write(
+            "INSERT INTO vm_cloudinit_custom (vm_name, data, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+            (vm_name, data, updated_at),
+        )
 
     # ---- VMs: start at boot ----
 

@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core import firmware, maintenance, zfs_storage
+from app.core import cloudinit_edit, firmware, maintenance, zfs_storage
 from app.core.audit import log_action
 from app.core.guest_hardware import guest_profile
 from app.core.libvirt_utils import (
@@ -45,6 +45,7 @@ from app.core.vm_meta import (
 from app.routers.isos import ISOS_DIR
 from app.routers.vm_disks import IMPORTED_DISKS_DIR
 from app.routers.vms._shared import _domain_summary, router
+from app.routers.vms.settings import CloudInitCustom
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,11 @@ class VMCreate(BaseModel):
     # STOPPED (see touch_vm_activity, called on every start): a VM that runs
     # continuously is never considered "inactive", whatever the threshold.
     auto_cleanup_days: int | None = Field(None, ge=1, le=365)
+    # A VM made from the cloud image only (no ISO, no imported disk): the account's SSH keys, and the rest of the
+    # guest's customisation (host name, domain, a static address, resolvers, a cloud-config of the user's), written on
+    # its cloud-init drive before its first boot, as PUT /vms/{name}/cloud-init writes them later.
+    ssh_keys: list[str] = Field(default_factory=list, max_length=50)
+    customize: CloudInitCustom | None = None
 
 
 def _resolve_luns(conn, pool, disks, erase_luns):
@@ -228,6 +234,23 @@ def _create_vm_after_copy(payload, user, pending):
     return JSONResponse(status_code=202, content={"name": payload.name, "copy_iso": tasks})
 
 
+# The MAC address of the one interface a VM is created with is chosen once its creation runs: the checks before use this
+# one in its place (an entry of customize.network names no MAC address at creation).
+PLACEHOLDER_MAC = "52:54:00:00:00:00"
+
+
+def _customisation(payload, mac):
+    """(SSH keys, customisation) of a VM made from the cloud image, checked (raises cloudinit_edit.CloudInitError)."""
+    custom = payload.customize.model_dump(exclude_none=True) if payload.customize else {}
+    if any(entry.get("mac") for entry in custom.get("network", [])):
+        raise cloudinit_edit.CloudInitError(
+            "customize.network: a VM is created with one interface, whose MAC address is not known yet: leave mac out"
+        )
+    # The account's name is checked with the other fields of the creation; any valid name stands in for it here.
+    keys = cloudinit_edit.validate("user", None, payload.ssh_keys)
+    return keys, cloudinit_edit.validate_custom(custom, [mac])
+
+
 def _create_vm(payload, user, pending=frozenset(), check_only=False):
     """pending: image names that are not here yet purpose are being brought (they pass the existence check).
     check_only: run every check, create nothing (no task either), return None."""
@@ -294,6 +317,17 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
             errors.append(username_error)
         if len(payload.password or "") < 4:
             errors.append("The password must contain at least 4 characters")
+    if payload.ssh_keys or payload.customize is not None:
+        if not needs_account:
+            errors.append(
+                "ssh_keys and customize apply to a VM made from the cloud image, not to an ISO installation or an "
+                "imported disk, which keep their own system's settings"
+            )
+        else:
+            try:
+                _customisation(payload, PLACEHOLDER_MAC)
+            except cloudinit_edit.CloudInitError as e:
+                errors.append(str(e))
 
     conn = open_conn()
     task_id = None if check_only else create_task("create_vm", payload.name, node=None, username=user["username"])
@@ -445,6 +479,13 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                     ssh_pubkey=ssh_pubkey,
                     target_dir=target_dir,
                 )
+                if payload.ssh_keys or payload.customize is not None:
+                    # The drive just made, rewritten with the rest before the VM ever boots (the same writer as PUT
+                    # /vms/{name}/cloud-init, so that route reads it back).
+                    keys, custom = _customisation(payload, mac)
+                    cloudinit_edit.rewrite_drive(
+                        payload.name, Path(cloudinit_path), payload.username, payload.password, keys, custom, [mac]
+                    )
         except subprocess.CalledProcessError as e:
             msg = f"Error while preparing the disk/cloud-init: {e.stderr or e}"
             log_action(user["username"], "create_vm", payload.name, "failed", msg, task_id=task_id)
