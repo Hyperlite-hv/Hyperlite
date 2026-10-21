@@ -1,30 +1,67 @@
-"""Sessions (docs/design/privilege-separation.md, section 12): the daemon holds the key pairs that sign them, the API
-only verifies (app/core/auth_keys.py)."""
+"""Sessions (docs/design/privilege-separation.md, section 12): the daemon holds the key pairs that sign them and opens
+one only after checking a proof itself (app/core/sign_in.py); the API verifies (app/core/tickets.py)."""
 
-import time
 from typing import Any
 
-from app.core import auth_keys
-from app.daemon.registry import Args, DaemonError, operation
+from pydantic import Field
 
-# The longest session the API opens ("Stay signed in", app/core/security.py), with a margin for clocks.
-MAX_LIFETIME_S = 7 * 24 * 3600 + 300
+from app.core import sign_in
+from app.daemon.registry import Args, operation
 
-
-class SignArgs(Args):
-    claims: dict[str, Any]
+SECRET = 4096  # a password, a token: long enough for any, short enough to refuse a flood
+CODE = 64
 
 
-@operation("auth.sign", SignArgs)
-def sign(args, ctx):
-    """A session token for the claims the API sends. Transitional (section 12, PR A): the API still checks the
-    credentials itself, so it is trusted with what it asks to sign; PR B moves the checks here and removes this
-    operation. Refused: a token without an account, or living longer than any session the API opens."""
-    claims = args.claims
-    now = time.time()
-    if not isinstance(claims.get("sub"), str) or not claims["sub"]:
-        raise DaemonError("invalid_arguments", "A session names its account (sub)")
-    exp = claims.get("exp")
-    if not isinstance(exp, int) or isinstance(exp, bool) or not now < exp <= now + MAX_LIFETIME_S:
-        raise DaemonError("invalid_arguments", "A session expires within 7 days (exp, whole seconds)")
-    return auth_keys.sign_local(claims)
+class PasswordArgs(Args):
+    username: str = Field(max_length=256)
+    password: str = Field(max_length=SECRET)
+    remember: bool = False
+
+
+class TotpArgs(Args):
+    preauth_token: str = Field(max_length=SECRET)
+    code: str = Field(max_length=CODE)
+
+
+class WebAuthnArgs(Args):
+    preauth_token: str = Field(max_length=SECRET)
+    origin: str | None = Field(None, max_length=512)
+    credential: dict[str, Any]
+
+
+class SsoArgs(Args):
+    handoff: str | None = Field(None, max_length=512)
+
+
+class ChangePasswordArgs(Args):
+    token: str = Field(max_length=SECRET)
+    current_password: str = Field(max_length=SECRET)
+    new_password: str = Field(max_length=SECRET)
+    code: str | None = Field(None, max_length=CODE)
+
+
+@operation("auth.password", PasswordArgs)
+def password(args, ctx):
+    """The sign-in form: the password checked here (local account, or the LDAP directory), then a session, or a
+    pre-authentication token when the account has a second factor."""
+    return sign_in.password(**args.model_dump())
+
+
+@operation("auth.totp", TotpArgs)
+def totp(args, ctx):
+    return sign_in.totp(**args.model_dump())
+
+
+@operation("auth.webauthn", WebAuthnArgs)
+def webauthn(args, ctx):
+    return sign_in.webauthn(**args.model_dump())
+
+
+@operation("auth.sso", SsoArgs)
+def sso(args, ctx):
+    return sign_in.sso(**args.model_dump())
+
+
+@operation("auth.change_password", ChangePasswordArgs)
+def change_password(args, ctx):
+    return sign_in.change_password(**args.model_dump())

@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -5,7 +6,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
-from app.core import login_guard, renaming, webauthn_keys
+from app.core import login_guard, renaming, sign_in, webauthn_keys
 from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.client_address import client_address
@@ -13,11 +14,7 @@ from app.core.listing import listing
 from app.core.password_policy import password_problem
 from app.core.permissions import delete_acl_for_user, get_user_groups, remove_group_member
 from app.core.security import (
-    authenticate_user,
-    create_access_token,
-    create_preauth_token,
     decode_token,
-    flag_weak_password,
     get_current_user,
     get_current_user_pending_ok,
     get_session_user,
@@ -27,12 +24,14 @@ from app.core.security import (
     oauth2_scheme,
     require_role,
     revoke_session,
-    session_remembered,
     set_password,
     verify_password,
 )
 from app.core.twofa import generate_secret, provisioning_uri, qr_code_svg, seal_secret, verify_code
+from app.daemon.registry import DaemonError
 from app.services import account_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -196,14 +195,28 @@ class PasswordChange(BaseModel):
 
 
 def _session_response(token, user):
-    """password_change_required: the dashboard shows the password change screen and nothing else."""
+    """password_change_required: the dashboard shows the password change screen and nothing else. `user`: as
+    sign_in answers it."""
     return {
         "access_token": token,
         "token_type": "bearer",
         "username": user["username"],
         "role": user["role"],
-        "password_change_required": bool(user.get("must_change_password")),
+        "password_change_required": user["password_change_required"],
     }
+
+
+def _sign_in(op, log_user=None, **args):
+    """hyperlite-daemon's answer to `op` (app/core/sign_in.py): it checks the proof and signs; this endpoint keeps the
+    locks, the audit log and the answer. Without the daemon nobody signs in, as Proxmox VE without pvedaemon."""
+    try:
+        return sign_in.ask(op, log_user=log_user, **args)
+    except DaemonError as e:
+        logger.error("Sign-in (%s) unavailable: %s", op, e.detail)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Signing in is unavailable: hyperlite-daemon does not answer (systemctl status hyperlite-daemon)",
+        ) from None
 
 
 def _record_login(username):
@@ -231,38 +244,30 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many failed attempts for this account, try again in {LOGIN_WINDOW_S // 60} minutes",
         )
-    user = authenticate_user(form_data.username, form_data.password)
-    if not user:
+    answer = _sign_in("password", username=form_data.username, password=form_data.password, remember=remember)
+    if answer["result"] != "session" and answer["result"] != "second_factor":
         _login_record_failure(form_data.username, ip)
         _login_ip_record_failure(ip)
         log_action(form_data.username, "login", "auth", "failed", "Invalid credentials")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    user = answer["user"]
     # The only moment the plain password is known: one that no longer meets the policy (set before the policy
     # existed) must be changed before anything else. Checked before the 2FA step so abandoning it changes nothing.
-    if user.get("auth_source", "local") == "local" and password_problem(form_data.password, user["username"]):
-        if not user.get("must_change_password"):
-            flag_weak_password(user["username"])
-            log_action(user["username"], "login", "auth", "success", "Weak password: a change is required")
-        user["must_change_password"] = 1
+    if answer.get("weak_flagged"):
+        log_action(user["username"], "login", "auth", "success", "Weak password: a change is required")
 
     # Correct password purpose a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
-    # intermediate token (see create_preauth_token) that the frontend exchanges for
-    # the real token through /auth/login/2fa after the TOTP code. The account's
-    # failures are cleared only once the code is right too: clearing them here would
-    # let whoever knows the password guess the code without limit.
-    methods = [
-        m for m, on in (("totp", user["totp_enabled"]), ("webauthn", webauthn_keys.has_keys(user["username"]))) if on
-    ]
-    if methods:
-        pre_auth = create_preauth_token(user["username"], remember)
+    # intermediate token that the frontend exchanges for the real token through /auth/login/2fa after the TOTP code.
+    # The account's failures are cleared only once the code is right too: clearing them here would let whoever knows
+    # the password guess the code without limit.
+    if answer["result"] == "second_factor":
         log_action(user["username"], "login", "auth", "success", "Password validated, second factor required")
-        return {"require_2fa": True, "preauth_token": pre_auth, "methods": methods}
+        return {"require_2fa": True, "preauth_token": answer["preauth_token"], "methods": answer["methods"]}
 
     _login_clear_failures(user["username"], ip)
-    token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=remember)
     _record_login(user["username"])
     log_action(user["username"], "login", "auth", "success")
-    return _session_response(token, user)
+    return _session_response(answer["token"], user)
 
 
 def _preauth_username(token):
@@ -299,25 +304,28 @@ def login_webauthn_options(request: Request, payload: LoginWebAuthnOptions):
 
 @router.post("/login/webauthn")
 def login_webauthn(request: Request, payload: LoginWebAuthn):
-    username, claims = _preauth_username(payload.preauth_token)
+    username, _claims = _preauth_username(payload.preauth_token)
     ip = _refuse_if_locked(request, username, "login")
-    user = get_user(username)
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    try:
-        ok = webauthn_keys.authenticate(username, request.headers.get("origin"), payload.credential)
-    except webauthn_keys.WebAuthnError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from None
-    if not ok:
+    answer = _sign_in(
+        "webauthn",
+        log_user=username,
+        preauth_token=payload.preauth_token,
+        origin=request.headers.get("origin"),
+        credential=payload.credential,
+    )
+    if answer["result"] == "expired":
+        raise HTTPException(status_code=401, detail="Login session expired, sign in again")
+    if answer["result"] == "refused":
+        raise HTTPException(status_code=answer["status"], detail=answer["detail"])
+    if answer["result"] != "session":
         _login_record_failure(username, ip)
         _login_ip_record_failure(ip)
         log_action(username, "login", "auth", "failed", "Security key refused")
         raise HTTPException(status_code=401, detail="Security key refused: try again, or use the code")
     _login_clear_failures(username, ip)
-    token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=bool(claims.get("remember")))
     _record_login(username)
     log_action(username, "login", "auth", "success", "Security key validated")
-    return _session_response(token, user)
+    return _session_response(answer["token"], answer["user"])
 
 
 @router.post("/login/2fa")
@@ -349,20 +357,19 @@ def login_2fa(request: Request, payload: Login2FA):
             detail=f"Too many failed attempts for this account, try again in {LOGIN_WINDOW_S // 60} minutes",
         )
 
-    user = get_user(username)
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    if not verify_code(username, user["totp_secret"], payload.code):
+    answer = _sign_in("totp", log_user=username, preauth_token=payload.preauth_token, code=payload.code)
+    if answer["result"] == "expired":
+        raise HTTPException(status_code=401, detail="Login session expired, sign in again")
+    if answer["result"] != "session":
         _login_record_failure(username, ip)
         _login_ip_record_failure(ip)
         log_action(username, "login", "auth", "failed", "Invalid 2FA code")
         raise HTTPException(status_code=401, detail="Invalid code (a code is accepted once: wait for the next one)")
 
     _login_clear_failures(username, ip)
-    token = create_access_token({"sub": user["username"], "role": user["role"]}, remember=bool(claims.get("remember")))
     _record_login(username)
     log_action(username, "login", "auth", "success", "2FA validated")
-    return _session_response(token, user)
+    return _session_response(answer["token"], answer["user"])
 
 
 @router.get("/me")
@@ -562,30 +569,38 @@ def change_my_password(
             status_code=400,
             detail="Directory account: the password is changed in the directory (LDAP / Active Directory)",
         )
+    # Checked by hyperlite-daemon (app/core/sign_in.py): the session, the current password, the code; it changes the
+    # password, revokes the account's API and workstation tokens (a password is changed when the account may be
+    # compromised: a stolen script token kept full, permanent access) and signs the fresh session.
+    answer = _sign_in(
+        "change_password",
+        log_user=username,
+        token=token,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+        code=payload.code,
+    )
+    result = answer["result"]
+    if result == "expired":
+        raise HTTPException(status_code=401, detail="Session expired, sign in again")
     # 400, not 401, for a wrong password or code: the session itself is valid (a 401 signs the dashboard out).
-    if not verify_password(payload.current_password, user["hashed_password"]):
+    if result == "invalid":
         _reauth_record_failure(username)
-        log_action(username, "change_password", username, "failed", "Incorrect current password")
-        raise HTTPException(status_code=400, detail="Incorrect current password")
-    if user["totp_enabled"] and not verify_code(username, user["totp_secret"], payload.code or ""):
-        _reauth_record_failure(username)
-        log_action(username, "change_password", username, "failed", "Invalid 2FA code")
-        raise HTTPException(status_code=400, detail="Invalid 2FA code (a code is accepted once: wait for the next one)")
-    if payload.new_password == payload.current_password:
+        reason = "Invalid 2FA code" if "2FA" in answer["detail"] else "Incorrect current password"
+        log_action(username, "change_password", username, "failed", reason)
+        raise HTTPException(status_code=400, detail=answer["detail"])
+    if result == "unchanged":
         raise HTTPException(status_code=422, detail="The new password must be different from the current one")
-    problem = password_problem(payload.new_password, username)
-    if problem:
-        raise HTTPException(status_code=422, detail=problem)
-    set_password(username, payload.new_password)
+    if result == "weak":
+        raise HTTPException(status_code=422, detail=answer["detail"])
+    if result != "session":
+        raise HTTPException(status_code=400, detail="This account's password is not managed by Hyperlite")
     _reauth_clear_failures(username)
-    # A password is changed when the account may be compromised: its API and workstation tokens go too, as on a
-    # reset by an administrator. Otherwise a stolen script token kept full, permanent access.
-    revoked = revoke_all_tokens(username)
+    revoked = answer["revoked_tokens"]
     log_action(
         username, "change_password", username, "success", f"Other sessions signed out, {revoked} token(s) revoked"
     )
-    fresh = create_access_token({"sub": username, "role": user["role"]}, remember=session_remembered(token))
-    return {"access_token": fresh, "token_type": "bearer", "role": user["role"], "revoked_tokens": revoked}
+    return {"access_token": answer["token"], "token_type": "bearer", "role": user["role"], "revoked_tokens": revoked}
 
 
 @router.post("/logout")

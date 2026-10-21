@@ -9,7 +9,7 @@ export HYPERLITE_DB_PATH="$WORK/hyperlite.db"
 # Its data and keys apart from the machine's own /var/lib/hyperlite and /etc/hyperlite (app/core/paths.py).
 export HYPERLITE_VAR_DIR="${E2E_VAR_DIR:-$WORK/var}" HYPERLITE_ETC_DIR="$WORK/etc"
 mkdir -p "$HYPERLITE_VAR_DIR" "$HYPERLITE_ETC_DIR"
-# No hyperlite-daemon: sessions are signed by the backend itself (app/core/auth_keys.py).
+# No hyperlite-daemon: sessions are signed by the backend itself (app/core/tickets.py).
 export HYPERLITE_AUTH_SIGNING=local
 export HYPERLITE_SECRET_KEY="e2e-$(openssl rand -hex 16)"
 export HYPERLITE_ENCRYPTION_KEY="$("${ROOT}/venv/bin/python" -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' 2>/dev/null || python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
