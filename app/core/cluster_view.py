@@ -15,7 +15,7 @@ import logging
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-from app.core import cluster_lead, self_node
+from app.core import cluster_lead, peer_auth, self_node
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def gather(username, path, params):
         return node["name"], body if status == 200 else None
 
     with ThreadPoolExecutor(max_workers=min(8, len(nodes))) as pool:
-        for name, body in pool.map(ask, nodes):
+        for name, body in pool.map(peer_auth.carry(ask), nodes):
             if body is None:
                 missing.append(name)
             else:

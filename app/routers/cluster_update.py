@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import cluster_lead, rolling_update, version
+from app.core import cluster_lead, peer_auth, rolling_update, version
 from app.core.audit import log_action
 from app.core.security import require_role
 from app.core.tasks import create_task
@@ -61,6 +61,11 @@ def start_rolling_update(payload: RollingRequest, user: dict = Depends(require_r
             raise HTTPException(status_code=409, detail="; ".join(plan["problems"]))
         if not plan["to_do"]:
             raise HTTPException(status_code=409, detail="Every node is up to date")
+        # The run outlives this request: it calls the members with a task ticket made from the admin's credential.
+        try:
+            ticket = peer_auth.task_ticket()
+        except peer_auth.NoTicket as e:
+            raise HTTPException(status_code=503, detail=f"The run cannot call the other members: {e}") from None
         task_id = create_task("cluster_update", "cluster", node=None, username=user["username"])
 
     def start_local(username):
@@ -71,7 +76,7 @@ def start_rolling_update(payload: RollingRequest, user: dict = Depends(require_r
 
     log_action(user["username"], "cluster_update", "cluster", "success", f"started on {len(plan['nodes'])} nodes")
     threading.Thread(
-        target=rolling_update.run,
+        target=peer_auth.carry(rolling_update.run, ticket),
         args=(task_id, user["username"], payload.stop_blocked, start_local, restarts, _local_check),
         name="rolling-update",
         daemon=True,

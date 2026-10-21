@@ -29,7 +29,7 @@ def _cluster_vms(username):
     not answer is named."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from app.core import self_node, statd
+    from app.core import peer_auth, self_node, statd
 
     table = statd.table()
     # This node's own VMs from its status too, as Proxmox does (Antho, 2026-10-18): a change made through Hyperlite
@@ -66,7 +66,7 @@ def _cluster_vms(username):
 
     if ask:
         with ThreadPoolExecutor(max_workers=min(16, len(ask))) as pool:
-            for name, vms in pool.map(asked, ask):
+            for name, vms in pool.map(peer_auth.carry(asked), ask):
                 if vms is None:
                     unreachable.append(name)
                 else:

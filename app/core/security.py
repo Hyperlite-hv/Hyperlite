@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import PyJWTError
 
-from app.core import tickets
+from app.core import peer_auth, tickets
 from app.core.passwords import bcrypt_hash, bcrypt_verify
 
 logger = logging.getLogger(__name__)
@@ -91,8 +91,8 @@ def create_access_token(data: dict, remember: bool = False):
 
 
 def create_peer_token(data: dict):
-    """The token of a call from this member to another member's API, signed with the key the members share: the other
-    member has no other way to verify it yet (docs/design/privilege-separation.md, section 12, PR C)."""
+    """The token of a call to a member that runs a version before peer tickets, signed with the key the members share:
+    it has no other way to verify it (app/core/peer_auth.py)."""
     return jwt.encode(_claims(data, timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)), SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -206,15 +206,21 @@ def _credentials_exception():
 
 
 def decode_token(token: str):
-    """The claims of a token signed by this node's daemon, or by a member with the shared key (a call between members,
-    or a session opened before 1.1.1); None for any other."""
+    """The claims of a session: a token this node's daemon signed, or a call another member signed for this node with
+    its own key (app/core/peer_auth.py); None for any other. An HS256 token signed with the key the members share only
+    while a member of an older version may still call with it, or for a session signed before this node's update."""
     claims = tickets.decode(token)
+    if claims is not None:
+        # A task ticket proves an account to this node's daemon only, and a peer ticket is for another member.
+        return None if claims.get("typ") else claims
+    claims = peer_auth.verify(token)
     if claims is not None:
         return claims
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        claims = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except PyJWTError:
         return None
+    return claims if peer_auth.legacy_peer_calls() or peer_auth.legacy_session(claims) else None
 
 
 _decode_session = decode_token
@@ -254,7 +260,9 @@ def _session_user(payload: dict, pending_ok: bool = False):
 def _current_user(token: str, pending_ok: bool):
     payload = _decode_session(token)
     if payload is not None:
-        return _session_user(payload, pending_ok)
+        user = _session_user(payload, pending_ok)
+        peer_auth.remember(token)  # a call to another member in this user's name shows it (app/core/peer_auth.py)
+        return user
 
     # Not a valid JWT: it may be an API token instead of a session token. Same
     # Authorization: Bearer header, different format ("hlt_" prefix), so no new
@@ -270,6 +278,7 @@ def _current_user(token: str, pending_ok: bool):
     # through a script's token.
     if user.get("must_change_password") and not pending_ok:
         raise _password_change_required()
+    peer_auth.remember(token)
     return user
 
 
