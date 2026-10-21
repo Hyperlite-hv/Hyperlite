@@ -1,5 +1,6 @@
 """The API's side of hyperlite-daemon (app/daemon): one call, one operation, its answer or a DaemonError."""
 
+import contextlib
 import json
 import os
 import socket
@@ -20,7 +21,9 @@ def call(op, args=None, user=None, timeout=TIMEOUT_S):
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
             sock.connect(path)
-            sock.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+            # The daemon may refuse this process before reading the request: its answer is still there to read.
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                sock.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
             line = sock.makefile("rb").readline()
     except (FileNotFoundError, ConnectionRefusedError) as e:
         raise DaemonError("unavailable", "hyperlite-daemon is not running") from e
