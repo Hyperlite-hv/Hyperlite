@@ -11,6 +11,13 @@ set -e
 log() { echo "[hyperlite-postinst] $*"; }
 
 APP_DIR=/root/hyperlite
+# From 1.1 the files live where Proxmox VE keeps its own (docs/design/privilege-separation.md, section 9). When a
+# 1.1 is rolled back to this version, its files come back first, before anything below looks for them: .env
+# decides a fresh installation, which would otherwise generate new secrets.
+if [ -f "$APP_DIR/scripts/migrate_layout.sh" ] && ! bash "$APP_DIR/scripts/migrate_layout.sh" back; then
+    log "ERROR: the files of a newer version could not be moved back: nothing changed, see the lines above"
+    exit 1
+fi
 FRESH_INSTALL=0
 [ ! -f "$APP_DIR/.env" ] && FRESH_INSTALL=1
 

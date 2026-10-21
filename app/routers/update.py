@@ -52,6 +52,27 @@ BACKUP_DIR = Path("/root/hyperlite-backups")
 # node, so the return works without the mirror too. One version only.
 PREVIOUS_DIR = Path("/var/lib/hyperlite/previous")
 WATCHDOG_SCRIPT = REPO_DIR / "scripts" / "update_watchdog.sh"
+# Where the updater keeps the copy of the watchdog it starts: out of the package, which may remove or move the
+# original while the update runs (docs/design/privilege-separation.md, section 9).
+WATCHDOG_STAGE = Path("/var/lib/hyperlite/update/update_watchdog.sh")
+
+
+def _stage_watchdog():
+    """A copy of the watchdog out of the package's files, made before apt runs: the copy is what gets started."""
+    WATCHDOG_STAGE.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(WATCHDOG_STAGE.parent, 0o700)
+    shutil.copy2(WATCHDOG_SCRIPT, WATCHDOG_STAGE)
+    os.chmod(WATCHDOG_STAGE, 0o700)
+    return WATCHDOG_STAGE
+
+
+def _watchdog_argv(tarball, log_file, expected, previous):
+    """The watchdog's command for a package update: the staged copy, told the version to wait for and the package to
+    reinstall if the new one does not answer."""
+    env = ["env", f"HYPERLITE_EXPECTED_VERSION={version.without_epoch(expected) or ''}"]
+    if previous:
+        env.append(f"HYPERLITE_PREVIOUS_DEB={previous['file']}")
+    return [*env, "bash", str(WATCHDOG_STAGE), str(tarball), str(REPO_DIR), str(log_file)]
 
 
 def _spawn_outside_service(unit_prefix, argv):
@@ -673,6 +694,7 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
     try:
         step(5, "Backing up the current state (code + config + database)")
         tarball = _backup(task_id)
+        _stage_watchdog()
 
         apt_opts, apt_env, package = [], [], None
         if offline:
@@ -754,10 +776,7 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
         # The same safety net as the Git path: a detached watchdog BEFORE the restart
         # (it survives the death of this process), which verifies that the new code starts
         # correctly and restores the tarball otherwise.
-        _spawn_outside_service(
-            "hyperlite-update-watchdog",
-            ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
-        )
+        _spawn_outside_service("hyperlite-update-watchdog", _watchdog_argv(tarball, log_file, new_version, _previous()))
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
         finish_task(task_id, "succeeded")
@@ -834,6 +853,7 @@ def _run_rollback_job(task_id, username, previous):
     try:
         update_task_progress(task_id, 5)
         tarball = _backup(task_id)
+        _stage_watchdog()
         update_task_progress(task_id, 30)
         task_log(task_id, f"Installing {previous['version']} again")
         env = {
@@ -854,7 +874,7 @@ def _run_rollback_job(task_id, username, previous):
         update_task_progress(task_id, 90)
         _spawn_outside_service(
             "hyperlite-update-watchdog",
-            ["bash", str(WATCHDOG_SCRIPT), str(tarball), str(REPO_DIR), str(log_file)],
+            _watchdog_argv(tarball, log_file, previous["version"], None),
         )
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
         finish_task(task_id, "succeeded")

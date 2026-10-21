@@ -112,12 +112,25 @@ step 4, so the move can be done domain by domain and released between them.
 
 ## 9. Step 1 in detail: moving out of /root/hyperlite
 
-| Today | After |
-|---|---|
-| `/root/hyperlite` (code, venv, scripts) | `/usr/lib/hyperlite` |
-| `/root/hyperlite/hyperlite.db`, `/root/hyperlite/data/*` | `/var/lib/hyperlite` |
-| `/root/hyperlite/.env` | gone: see section 10 |
-| `/root/hyperlite-backups`, `/root/hyperlite-container-backups` | `/var/lib/hyperlite/update-backups`, `/var/lib/hyperlite/container-backups` |
+Modelled on Proxmox VE's layout (Antho, 2026-10-21: "everything as Proxmox does it"):
+
+| What | Proxmox VE | Hyperlite from 1.1 | Up to 1.0 |
+|---|---|---|---|
+| code, interface | `/usr/share/perl5/PVE`, `/usr/share/pve-manager` | `/usr/lib/hyperlite`, `/usr/share/hyperlite/www` | `/root/hyperlite` |
+| cluster configuration | `/etc/pve` (pmxcfs) | `/etc/hyperlite` (hyperlite-cfs, mounted as files later: #525) | database + hyperlite-cfs |
+| cluster secrets | `/etc/pve/priv` | hyperlite-cfs `/priv` | `.env` |
+| node secrets, SSH keys | `/etc/pve/priv`, `/root/.ssh` | `/etc/hyperlite/priv` (`env`, `ssh/`) | `.env`, `data/ssh` |
+| node TLS | `/etc/pve/local/pve-ssl.*` | `/etc/hyperlite/local` | `data/tls` |
+| ISO images | `/var/lib/vz/template/iso` | `/var/lib/hyperlite/template/iso` | `data/isos` |
+| VM templates | (VMs) | `/var/lib/hyperlite/template/vm` | `data/templates` |
+| backups, exports | `/var/lib/vz/dump` | `/var/lib/hyperlite/dump`, `dump/export`, `dump/container` | `data/backups`, `data/vm-exports`, `/root/hyperlite-container-backups` |
+| disks to import | `/var/lib/vz/import` | `/var/lib/hyperlite/import` | `data/imported-disks` |
+| database, k3s, tools, update backups | `/var/lib/pve-cluster`, `/var/lib/pve-manager` | `/var/lib/hyperlite` (`hyperlite.db`, `k3s`, `bin`, `tmp`, `update-backups`, `config-copy-staging`) | `/root/hyperlite`, `/root/hyperlite-backups` |
+| logs | `/var/log/pve`, `/var/log/pveproxy` | `/var/log/hyperlite` | the same |
+| the API's account | `www-data` (pveproxy) | `www-data` | root |
+
+`/var/lib/hyperlite/config-copy`, where a node receives a controller's configuration, stays where it is in both
+layouts. `scripts/migrate_layout.sh` holds the exact list of moves.
 
 **The trap.** The update is run by the version already installed. Up to 1.0.1 it runs apt, then starts its watchdog
 from `/root/hyperlite/scripts/update_watchdog.sh`, which the new package would no longer ship, so dpkg removes it
@@ -165,3 +178,10 @@ logins and the use of stored credentials happen in `pvedaemon`, root. Hyperlite 
   terminates HTTPS.
 
 These move with the domains of step 3 (authentication first); step 1 only moves the files.
+
+## 11. Decisions (Antho, 2026-10-21, continued)
+
+5. **The layout as Proxmox VE's**, table of section 9.
+6. **The API runs as `www-data`**, as `pveproxy` does.
+7. **The cluster configuration as files in `/etc/hyperlite`**, as pmxcfs mounts `/etc/pve`: hyperlite-cfs gets a FUSE
+   mount, after the split (#525).
