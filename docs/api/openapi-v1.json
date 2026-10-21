@@ -828,6 +828,11 @@
    },
    "ConvertRequest": {
     "properties": {
+     "keep_vm": {
+      "default": false,
+      "title": "Keep Vm",
+      "type": "boolean"
+     },
      "template_name": {
       "anyOf": [
        {
