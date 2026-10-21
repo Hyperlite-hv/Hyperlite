@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format is based on 
 
 - `hyperlite-daemon` opens a session only after checking the proof itself: the password (local account or LDAP directory), the TOTP code, the security key, the one-time code an SSO sign-in leaves, and for a password change the session, the current password and the code (`app/core/sign_in.py`). The API keeps the locks after repeated failures and the audit log; it can no longer have a session signed for claims of its choosing (#511, section 12, PR B).
 
+## [1.1.0] - 2026-10-21
+
 ### Changed
 
 - Hyperlite's files live where Proxmox VE keeps its own (#511, `app/core/paths.py`, `docs/design/privilege-separation.md`, section 9): the code in `/usr/lib/hyperlite`, the web interface in `/usr/share/hyperlite/www`, the node's secrets in `/etc/hyperlite/priv` (no more `.env` next to the code), its certificate in `/etc/hyperlite/local`, the data in `/var/lib/hyperlite` (`template/iso`, `template/vm`, `dump`, `import`, the database). The first start moves the files of `/root/hyperlite` with the service stopped, all or nothing; a failure is rolled back by the 1.0.2 watchdog. The VMs with an ISO image inserted and certbot's renewal hook follow the move; the backup schedules and catalogue written before are read at the new place. What 1.0 leaves of `/root/hyperlite` is removed. The package refuses to install over a version older than 1.0.2, and the return to the previous version never goes below it.
