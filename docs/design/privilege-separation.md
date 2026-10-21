@@ -102,9 +102,66 @@ step 4, so the move can be done domain by domain and released between them.
 
 ## 8. Decisions (Antho, 2026-10-21)
 
-1. **Step 0 first**: the systemd hardening of the service as it is, then the split.
+1. ~~Step 0 first~~: dropped after its analysis (the service writes `/etc`, `/root/.ssh` and `/usr` for features of the
+   dashboard, so a sandbox would either break them or leave most open): the full split straight away.
 2. **libvirt read-only in the proxy**; every change goes through the daemon.
 3. **The host shell stays**, opened by the daemon, administrators only, audited.
 4. **The layout move, without a link**: `/root/hyperlite` moves to `/var/lib/hyperlite` (data) and `/usr/lib/hyperlite`
    (code) and is not left behind as a symlink; every script, unit and document that names the old path changes in the
    same step.
+
+## 9. Step 1 in detail: moving out of /root/hyperlite
+
+| Today | After |
+|---|---|
+| `/root/hyperlite` (code, venv, scripts) | `/usr/lib/hyperlite` |
+| `/root/hyperlite/hyperlite.db`, `/root/hyperlite/data/*` | `/var/lib/hyperlite` |
+| `/root/hyperlite/.env` | gone: see section 10 |
+| `/root/hyperlite-backups`, `/root/hyperlite-container-backups` | `/var/lib/hyperlite/update-backups`, `/var/lib/hyperlite/container-backups` |
+
+**The trap.** The update is run by the version already installed. Up to 1.0.1 it runs apt, then starts its watchdog
+from `/root/hyperlite/scripts/update_watchdog.sh`, which the new package would no longer ship, so dpkg removes it
+before it starts; and the watchdog's rollback restores an archive of `/root/hyperlite`, which the new unit no longer
+uses. A version that moves the files cannot be installed safely by one that does not know about the move.
+
+**Two releases, as 2026.10.19.0616 was the step to 1.0:**
+
+1. **1.0.2, the bridge** (moves nothing):
+   - the updater copies the watchdog to `/var/lib/hyperlite/update/` before apt and starts it from there;
+   - the watchdog's rollback reinstalls the kept package of the previous version (`apt-get install --allow-downgrades`),
+     instead of extracting an archive of `/root/hyperlite`: it works whatever the layout of either version;
+   - its unit moves the files back to `/root/hyperlite` at start (`migrate-layout --back`) when it finds them in the new
+     place, so a 1.1 that fails and is rolled back to 1.0.2 finds its data;
+   - between nodes, an ISO library is looked for in both places.
+2. **1.1.0, the move**:
+   - its `preinst` refuses to install over a version older than 1.0.2 (apt stops before unpacking anything, the node
+     keeps running, the message says to install 1.0.2 first);
+   - its unit's `ExecStartPre` (`migrate-layout`, idempotent) moves every item with the service stopped: renames on the
+     same file system, instant whatever their size; on any failure it moves back what it moved and the start fails,
+     which the 1.0.2 watchdog turns into a rollback;
+   - the return to a version that does not know the new layout is never offered (as below 1.0, `update._previous`).
+
+## 10. Secrets, the way Proxmox VE keeps them (Antho, 2026-10-21)
+
+Proxmox keeps no secret in environment variables: they are files in `/etc/pve/priv/`, inside the replicated cluster
+file system, readable by root only; the web proxy (`pveproxy`, `www-data`) verifies session tickets with the public
+half of a key pair (`authkey.pub`) while only root holds the private half (`priv/authkey.key`), rotated every 24 hours;
+logins and the use of stored credentials happen in `pvedaemon`, root. Hyperlite does the same:
+
+- **No `.env`.** Cluster secrets live in hyperlite-cfs under `/priv/` (refused to every client but root, already in its
+  design, section 6), node secrets in `/etc/hyperlite/priv/` (root, 0600). The two keys of `.env` move there at the
+  update: `HYPERLITE_SECRET_KEY` is retired by the change below, `HYPERLITE_ENCRYPTION_KEY` becomes
+  `/priv/encryption.key`.
+- **Session tickets signed by the daemon** with an Ed25519 key pair in `/priv/authkey.key`, rotated every 24 hours (the
+  previous public key kept one more day, so no session ends at a rotation); the proxy holds `/authkey.pub` only and
+  verifies. A compromised proxy cannot forge a session. Sign-in, token issuance and two-factor checks are daemon
+  operations.
+- **Stored credentials stay in the daemon.** LDAP bind, SMTP, OIDC client secret, TOTP secrets, fencing credentials are
+  decrypted and used by daemon operations (`auth.ldap_bind`, `notify.send_mail`, `auth.oidc_exchange`, `auth.totp_check`,
+  `fence.*`); the proxy never reads them.
+- **Encrypted at rest**, beyond Proxmox: the values under `/priv/` stay encrypted with the encryption key, so a copy of
+  the database (an update backup, a disk image) does not expose them.
+- **The TLS key** of the web interface stays readable by the proxy's group, as `pve-ssl.key` is by `www-data`: the proxy
+  terminates HTTPS.
+
+These move with the domains of step 3 (authentication first); step 1 only moves the files.
