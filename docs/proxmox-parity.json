@@ -1,0 +1,97 @@
+{
+  "about": "Hyperlite compared with Proxmox VE 9.2, feature by feature. docs/proxmox-parity.html shows it, with the live state of each issue (a closed issue shows as done). Update a row in the PR that changes it. status: ahead, parity, partial, missing.",
+  "proxmox_version": "9.2",
+  "checked": "2026-10-20",
+  "categories": [
+    {
+      "id": "cluster",
+      "fr": "Cluster et haute disponibilité",
+      "en": "Cluster and high availability",
+      "rows": [
+        {"fr": "Configuration répliquée et quorum", "en": "Replicated configuration and quorum", "status": "parity", "pve": "pmxcfs on Corosync, read-only without quorum", "hl": "hyperlite-cfs on Corosync, read-only without quorum, primary node for two-node clusters"},
+        {"fr": "Gérer depuis n'importe quel nœud", "en": "Manage from any node", "status": "parity", "pve": "Any node serves the API and the GUI", "hl": "Any node serves the dashboard and API v1, same accounts and sessions"},
+        {"fr": "Statut des invités diffusé", "en": "Guest status broadcast", "status": "parity", "pve": "pvestatd", "hl": "Every node sends its VMs' summary every 10 s and at once after a change"},
+        {"fr": "Configuration répliquée, seule source de vérité", "en": "Replicated configuration as the only source of truth", "status": "partial", "issue": 416, "pve": "Everything in /etc/pve", "hl": "Most configuration in hyperlite-cfs; hosts driven over SSH still depend on one controller"},
+        {"fr": "HA automatique (redémarrage ailleurs)", "en": "Automatic HA (restart elsewhere)", "status": "partial", "issue": 333, "pve": "ha-manager restarts guests on another node", "hl": "Dry run only: shows what it would do, recovery is manual"},
+        {"fr": "Fencing", "en": "Fencing", "status": "partial", "issue": 333, "pve": "Watchdog self-fencing", "hl": "Watchdog self-fencing of a node cut off; IPMI/Redfish/AMT tested read-only"},
+        {"fr": "Répartition de charge (DRS)", "en": "Load balancing (DRS)", "status": "missing", "issue": 334, "pve": "Dynamic balancer for HA guests (9.2)", "hl": "None"},
+        {"fr": "Mode maintenance", "en": "Maintenance mode", "status": "parity", "pve": "Node maintenance with migration", "hl": "Drain by live migration, the VMs that stay listed with their reason"},
+        {"fr": "Mise à jour d'un cluster", "en": "Cluster update", "status": "ahead", "pve": "Node by node, by hand", "hl": "Rolling update: plan, maintenance, migration, update, reboot, one node after the other"},
+        {"fr": "Deux sites", "en": "Two sites", "status": "ahead", "pve": "Storage replication (ZFS)", "hl": "Incremental replication to the other site every few minutes, guided recovery"}
+      ]
+    },
+    {
+      "id": "storage",
+      "fr": "Stockage",
+      "en": "Storage",
+      "rows": [
+        {"fr": "Répertoire, NFS, iSCSI", "en": "Directory, NFS, iSCSI", "status": "parity", "pve": "Yes", "hl": "Yes, shared pools created on every node"},
+        {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "missing", "issue": 417, "pve": "Yes", "hl": "None"},
+        {"fr": "ZFS sur de vrais disques", "en": "ZFS on real disks", "status": "partial", "issue": 419, "pve": "Mirror, RAIDZ, from the GUI", "hl": "Loopback files only, one node, not live-migratable"},
+        {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "missing", "issue": 418, "pve": "Yes", "hl": "None"},
+        {"fr": "Ceph", "en": "Ceph", "status": "missing", "issue": 338, "pve": "Hyperconverged, from the GUI", "hl": "None"},
+        {"fr": "Clones liés", "en": "Linked clones", "status": "missing", "issue": 423, "pve": "From templates", "hl": "Full clones only"},
+        {"fr": "Déplacer ou agrandir un disque à chaud", "en": "Move or grow a disk live", "status": "parity", "pve": "Yes", "hl": "Yes (block copy and pivot)"}
+      ]
+    },
+    {
+      "id": "network",
+      "fr": "Réseau",
+      "en": "Network",
+      "rows": [
+        {"fr": "Réseaux NAT, isolés, bridge, DHCP", "en": "NAT, isolated, bridged networks, DHCP", "status": "parity", "pve": "Bridges and SDN", "hl": "libvirt networks, DHCP ranges and reservations"},
+        {"fr": "VLAN sur bridges Linux", "en": "VLAN-aware Linux bridges", "status": "partial", "issue": 345, "pve": "Yes", "hl": "VLAN tags on Open vSwitch or SR-IOV only"},
+        {"fr": "Interfaces de l'hôte (bridges, bonds)", "en": "Host interfaces (bridges, bonds)", "status": "missing", "issue": 512, "pve": "Edited and applied live", "hl": "Listed only"},
+        {"fr": "Pare-feu du cluster et de l'hôte", "en": "Cluster and host firewall", "status": "partial", "issue": 422, "pve": "Datacenter, node and guest levels, security groups, IP sets", "hl": "Per VM (nwfilter) and per network only"},
+        {"fr": "SDN (VXLAN, EVPN, IPAM)", "en": "SDN (VXLAN, EVPN, IPAM)", "status": "missing", "issue": 421, "pve": "Yes", "hl": "None"}
+      ]
+    },
+    {
+      "id": "guests",
+      "fr": "Machines virtuelles et conteneurs",
+      "en": "Virtual machines and containers",
+      "rows": [
+        {"fr": "Cycle de vie, snapshots, modèles", "en": "Lifecycle, snapshots, templates", "status": "parity", "pve": "Yes", "hl": "Yes, native ZFS snapshots on ZFS pools"},
+        {"fr": "Cloud-init", "en": "Cloud-init", "status": "parity", "pve": "Yes", "hl": "Yes, editable after creation, ready Debian image"},
+        {"fr": "UEFI, Secure Boot, TPM 2.0", "en": "UEFI, Secure Boot, TPM 2.0", "status": "parity", "pve": "Yes", "hl": "Yes, Windows 11 / Server 2025 profile"},
+        {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
+        {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
+        {"fr": "Consoles", "en": "Consoles", "status": "partial", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC and terminals; no SPICE"},
+        {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "missing", "issue": 425, "pve": "xterm.js", "hl": "None"},
+        {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
+        {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
+        {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
+        {"fr": "Conteneurs LXC", "en": "LXC containers", "status": "partial", "issue": 424, "pve": "With snapshots", "hl": "Yes, without snapshots"},
+        {"fr": "Images OCI / Docker", "en": "OCI / Docker images", "status": "ahead", "pve": "Application containers (9.x, preview)", "hl": "Any OCI image, no Docker daemon"},
+        {"fr": "Kubernetes", "en": "Kubernetes", "status": "ahead", "pve": "None", "hl": "k3s clusters on VMs, offline, encrypted kubeconfig"}
+      ]
+    },
+    {
+      "id": "backups",
+      "fr": "Sauvegardes",
+      "en": "Backups",
+      "rows": [
+        {"fr": "Planification, rétention, vérification", "en": "Schedules, retention, verification", "status": "parity", "pve": "vzdump and PBS", "hl": "Per VM, tag or pool; GFS retention; weekly verification"},
+        {"fr": "Restauration de fichiers", "en": "File restore", "status": "ahead", "pve": "Needs Proxmox Backup Server", "hl": "Built in, no backup server"},
+        {"fr": "Sauvegardes incrémentales", "en": "Incremental backups", "status": "missing", "issue": 337, "pve": "With PBS (dirty bitmaps)", "hl": "Full backups; ZFS and iSCSI disks refused"},
+        {"fr": "Déduplication et chiffrement", "en": "Deduplication and encryption", "status": "missing", "issue": 420, "pve": "Proxmox Backup Server", "hl": "None"},
+        {"fr": "Restauration à chaud", "en": "Live restore", "status": "missing", "issue": 513, "pve": "Yes", "hl": "None"}
+      ]
+    },
+    {
+      "id": "operations",
+      "fr": "Sécurité et exploitation",
+      "en": "Security and operations",
+      "rows": [
+        {"fr": "Séparation des privilèges", "en": "Privilege separation", "status": "missing", "issue": 511, "pve": "pveproxy unprivileged, pvedaemon root", "hl": "One root process serves the API"},
+        {"fr": "Authentification et droits", "en": "Authentication and permissions", "status": "parity", "pve": "LDAP, AD, OIDC, TOTP, WebAuthn, roles, pools, ACL", "hl": "The same"},
+        {"fr": "Certificats ACME", "en": "ACME certificates", "status": "parity", "pve": "Yes", "hl": "Yes"},
+        {"fr": "Métriques et notifications", "en": "Metrics and notifications", "status": "parity", "pve": "InfluxDB, Graphite; notification targets", "hl": "Prometheus, InfluxDB, Graphite; webhook, SMTP"},
+        {"fr": "API versionnée", "en": "Versioned API", "status": "parity", "pve": "API v2", "hl": "API v1, its contract checked in CI"},
+        {"fr": "CLI d'administration", "en": "Administration CLI", "status": "missing", "issue": 516, "pve": "qm, pct, pvesh", "hl": "Workstation client only"},
+        {"fr": "Mises à jour", "en": "Updates", "status": "ahead", "pve": "apt from the GUI", "hl": "Release notes, rollback, channels, offline signed file, nightly security updates"},
+        {"fr": "Accès depuis le poste", "en": "Workstation access", "status": "ahead", "pve": "None", "hl": "SSH and remote desktop through an HTTPS tunnel, SSO and 2FA"}
+      ]
+    }
+  ]
+}

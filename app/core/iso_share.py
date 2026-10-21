@@ -23,6 +23,7 @@ from pathlib import Path
 from app.core.audit import log_action
 from app.core.cluster import get_node, list_nodes, node_ssh_options
 from app.core.error_messages import describe_exception
+from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,30 @@ def _iso_path(name):
     a name such as "../x" would leave the library, here and over SSH on the other nodes."""
     if not valid_iso_name(name):
         raise ValueError(f"Invalid ISO name '{name}'")
-    return isos_dir() / name
+    return safe_child(isos_dir(), name)
+
+
+# Where a node keeps its ISO library: up to 1.0 under /root/hyperlite, from 1.1 where Proxmox VE keeps its own
+# (docs/design/privilege-separation.md, section 9). During a rolling update the nodes do not all run the same
+# version, so another node's library is looked for in both places.
+LIBRARY_DIRS = ("/var/lib/hyperlite/template/iso", "/root/hyperlite/data/isos")
+_PROBE = 'for d in "$@"; do if [ -d "$d" ]; then echo "$d"; exit 0; fi; done; exit 1'
+
+
+def _library(node):
+    """The ISO directory of `node` (None: this host). A node that has neither yet gets this host's convention."""
+    if node is None:
+        return isos_dir()
+    r = _ssh(node, ["sh", "-c", _PROBE, "sh", *LIBRARY_DIRS], LIST_TIMEOUT_S)
+    found = r.stdout.strip()
+    return Path(found) if r.returncode == 0 and found in LIBRARY_DIRS else isos_dir()
+
+
+def _remote_path(node, name):
+    """The path of an image in another node's library, for a name checked here."""
+    if not valid_iso_name(name):
+        raise ValueError(f"Invalid ISO name '{name}'")
+    return safe_child(_library(node), name)
 
 
 def _target(node):
@@ -101,16 +125,26 @@ def local_isos():
     return [_entry(p.name, p.stat().st_size, p.stat().st_mtime, LOCAL) for p in sorted(isos_dir().glob("*.iso"))]
 
 
+# What a library that could not be read says to the dashboard: fixed sentences, the node's own error (an SSH or shell
+# message) stays in the service log.
+NO_LIBRARY = "no Hyperlite ISO library on this node"
+UNREADABLE = "the node's library could not be read (details in the service log)"
+
+
+class NoLibrary(Exception):
+    pass
+
+
 def remote_isos(node):
     r = _ssh(
         node,
-        ["find", str(isos_dir()), "-maxdepth", "1", "-type", "f", "-name", "*.iso", "-printf", "%f\\t%s\\t%T@\\n"],
+        ["find", str(_library(node)), "-maxdepth", "1", "-type", "f", "-name", "*.iso", "-printf", "%f\\t%s\\t%T@\\n"],
         LIST_TIMEOUT_S,
     )
     if r.returncode != 0:
         detail = r.stderr.strip()
         if "No such file" in detail:
-            raise RuntimeError("no Hyperlite ISO library on this node")
+            raise NoLibrary()
         raise RuntimeError(detail[:200] or "unreachable")
     out = []
     for line in r.stdout.splitlines():
@@ -136,8 +170,11 @@ def cluster_isos():
         for name, fut in futures.items():
             try:
                 isos.extend(fut.result())
+            except NoLibrary:
+                unreachable.append({"node": name, "error": NO_LIBRARY})
             except Exception as e:  # one node's failure must not hide the others
-                unreachable.append({"node": name, "error": describe_exception(e)})
+                logger.warning("ISO library of %s not read: %s", name, e)
+                unreachable.append({"node": name, "error": UNREADABLE})
     return {"isos": isos, "unreachable": unreachable}
 
 
@@ -158,7 +195,7 @@ def iso_size(node, name):
     if node is None:
         p = _iso_path(name)
         return p.stat().st_size if p.is_file() else None
-    r = _ssh(node, ["stat", "-c", "%s", str(_iso_path(name))], LIST_TIMEOUT_S)
+    r = _ssh(node, ["stat", "-c", "%s", str(_remote_path(node, name))], LIST_TIMEOUT_S)
     if r.returncode != 0:
         return None
     try:
@@ -181,8 +218,11 @@ def _watch_progress(task_id, node, part_path, total, done):
 
 
 def _copy(name, source, target, task_id, total):
-    final = _iso_path(name)
-    part = isos_dir() / f".{name}{PART_SUFFIX}"
+    final = _iso_path(name)  # on this host
+    source_file = final if source is None else _remote_path(source, name)
+    target_dir = isos_dir() if target is None else _library(target)
+    target_file = safe_child(target_dir, name)
+    part = target_dir / f".{name}{PART_SUFFIX}"
     relay = None
     done = threading.Event()
     watcher = threading.Thread(target=_watch_progress, args=(task_id, target, part, total, done), daemon=True)
@@ -195,18 +235,18 @@ def _copy(name, source, target, task_id, total):
         else:
             # Remote to remote: relay through the local host, since the nodes do not trust each other.
             relay = isos_dir() / f".{name}.relay{PART_SUFFIX}"
-            _scp(["-P", str(source["ssh_port"]), f"{_target(source)}:{final}", str(relay)])
+            _scp(["-P", str(source["ssh_port"]), f"{_target(source)}:{source_file}", str(relay)])
             src = str(relay)
 
         if target is None:
-            _scp(["-P", str(source["ssh_port"]), f"{_target(source)}:{final}", str(part)])
+            _scp(["-P", str(source["ssh_port"]), f"{_target(source)}:{source_file}", str(part)])
             os.replace(part, final)
         else:
-            r = _ssh(target, ["mkdir", "-p", str(isos_dir())], LIST_TIMEOUT_S)
+            r = _ssh(target, ["mkdir", "-p", str(target_dir)], LIST_TIMEOUT_S)
             if r.returncode != 0:
                 raise RuntimeError(r.stderr.strip()[:300] or "cannot prepare the ISO directory")
             _scp(["-P", str(target["ssh_port"]), src, f"{_target(target)}:{part}"])
-            r = _ssh(target, ["mv", "-f", str(part), str(final)], LIST_TIMEOUT_S)
+            r = _ssh(target, ["mv", "-f", str(part), str(target_file)], LIST_TIMEOUT_S)
             if r.returncode != 0:
                 raise RuntimeError(r.stderr.strip()[:300] or "cannot finish the copy")
     except BaseException:
@@ -282,6 +322,6 @@ def start_copy(name, source_id, target_ids, username, after=None):
 
 
 def delete_remote(node, name):
-    r = _ssh(node, ["rm", "-f", "--", str(_iso_path(name))], LIST_TIMEOUT_S)
+    r = _ssh(node, ["rm", "-f", "--", str(_remote_path(node, name))], LIST_TIMEOUT_S)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip()[:300] or "deletion failed")

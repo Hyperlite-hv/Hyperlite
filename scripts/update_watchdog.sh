@@ -15,15 +15,35 @@
 # a consistent copy taken before the update sits next to the archive (<archive>.db) for a manual restore.
 #
 # Usage: update_watchdog.sh <backup_tarball_path> <repo_directory> <log_file> [<previous git commit>]
+#
+# From 1.0.2 (docs/design/privilege-separation.md, section 9) the updater starts a copy of this script kept out of
+# the package (dpkg may remove the original while it runs) and hands it, in the environment:
+#   HYPERLITE_EXPECTED_VERSION  the version the new code must report (the new package may not ship
+#                               <repo_directory>/VERSION, when it moves the files);
+#   HYPERLITE_PREVIOUS_DEB      the kept package of the version replaced: the rollback reinstalls it instead of
+#                               extracting the archive, which works whatever the layout of either version.
 set -u
 BACKUP_TARBALL="$1"
 REPO_DIR="$2"
 LOG_FILE="$3"
 PREVIOUS_COMMIT="${4:-}"
 ATTEMPTS=40   # 3 s apart: about two minutes for the old process to stop and the new one to start
-EXPECTED="$(tr -d '[:space:]' < "$REPO_DIR/VERSION" 2>/dev/null || true)"
+EXPECTED="${HYPERLITE_EXPECTED_VERSION:-$(tr -d '[:space:]' < "$REPO_DIR/VERSION" 2>/dev/null || true)}"
+PREVIOUS_DEB="${HYPERLITE_PREVIOUS_DEB:-}"
 
-log() { echo "[$(date -u +%FT%TZ)] $*" >> "$LOG_FILE"; }
+# The log must never stop a rollback: a version that moves the files can take the log's directory with it (seen on a
+# test node: the rollback's apt-get, redirected to a log in a directory just moved, never ran). Without its
+# directory, the log goes next to this script, and a write that still fails is ignored.
+if [ ! -d "$(dirname -- "$LOG_FILE")" ]; then
+    LOG_FILE="$(dirname -- "$(readlink -f -- "$0")")/watchdog.log"
+fi
+log() { echo "[$(date -u +%FT%TZ)] $*" >> "$LOG_FILE" 2>/dev/null || true; }
+run_logged() { # a command whose output goes to the log when it can: the command runs whatever happens to the log
+    local out rc
+    out="$("$@" 2>&1)"; rc=$?
+    printf '%s\n' "$out" >> "$LOG_FILE" 2>/dev/null || true
+    return "$rc"
+}
 
 log "Watchdog started, waiting for the service to restart${EXPECTED:+ on $EXPECTED}..."
 sleep 4
@@ -46,7 +66,19 @@ done
 
 if [ "$OK" -eq 0 ]; then
     log "FAILURE: the new code still does not answer after $ATTEMPTS attempts: automatic ROLLBACK."
-    if [ -f "$BACKUP_TARBALL" ]; then
+    if [ -n "$PREVIOUS_DEB" ] && [ -f "$PREVIOUS_DEB" ]; then
+        # The package of the version replaced, installed again: its own postinst puts its files and units back
+        # (and, from 1.0.2, the files a newer version moved: scripts/migrate_layout.sh back).
+        systemctl stop hyperlite
+        if run_logged env HYPERLITE_SKIP_RESTART=1 DEBIAN_FRONTEND=noninteractive \
+            apt-get install -y --allow-downgrades "$PREVIOUS_DEB"; then
+            log "Previous version reinstalled from $PREVIOUS_DEB"
+        else
+            log "CRITICAL ERROR: reinstalling $PREVIOUS_DEB failed. Manual intervention required."
+        fi
+        systemctl start hyperlite
+        log "Service started on the previous version."
+    elif [ -f "$BACKUP_TARBALL" ]; then
         # Nothing may run on the files being put back.
         systemctl stop hyperlite
         if [ -n "$PREVIOUS_COMMIT" ] && [ -d "$REPO_DIR/.git" ]; then
