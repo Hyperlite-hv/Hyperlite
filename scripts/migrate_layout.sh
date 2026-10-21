@@ -123,6 +123,13 @@ for i in "${!FROM[@]}"; do
     log "moved ${FROM[$i]} to ${TO[$i]}"
 done
 
+# Back: the directories of the new layout that the moves left empty go too (seen on a test node: template/ and
+# priv/ stayed, empty). /var/lib/hyperlite itself stays: previous/, update/ and config-copy/ live there in both.
+if [ "$1" = back ]; then
+    for d in "$N/template" "$N/dump" "$E/priv" "$E/local" "$E"; do
+        empty_dir "$d" && rmdir -- "$d"
+    done
+fi
 # Root's only, whichever way the files went, as /etc/pve/priv.
 for d in "$E/priv" "$E/priv/ssh" "$E/local"; do
     [ -d "$d" ] && chmod 700 "$d"

@@ -106,3 +106,12 @@ def test_the_configuration_a_node_receives_is_never_touched(old_layout):
     assert run(old_layout, "back").returncode == 0
     assert received.read_text() == "received"
     assert (old_layout / "root/hyperlite/data/config-copy").is_dir()
+
+
+def test_going_back_leaves_no_empty_directory_of_the_new_layout(old_layout):
+    assert run(old_layout, "forward").returncode == 0
+    (old_layout / "var/lib/hyperlite/previous").mkdir()  # lives there in both layouts: stays
+    assert run(old_layout, "back").returncode == 0
+    for d in ("var/lib/hyperlite/template", "var/lib/hyperlite/dump", "etc/hyperlite"):
+        assert not (old_layout / d).exists(), d
+    assert (old_layout / "var/lib/hyperlite/previous").is_dir()

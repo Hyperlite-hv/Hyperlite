@@ -72,7 +72,8 @@ def _watchdog_argv(tarball, log_file, expected, previous):
     env = ["env", f"HYPERLITE_EXPECTED_VERSION={version.without_epoch(expected) or ''}"]
     if previous:
         env.append(f"HYPERLITE_PREVIOUS_DEB={previous['file']}")
-    return [*env, "bash", str(WATCHDOG_STAGE), str(tarball), str(REPO_DIR), str(log_file)]
+    # Its log next to it, out of every directory a version may move (docs/design/privilege-separation.md).
+    return [*env, "bash", str(WATCHDOG_STAGE), str(tarball), str(REPO_DIR), str(WATCHDOG_STAGE.parent / "update.log")]
 
 
 def _spawn_outside_service(unit_prefix, argv):
