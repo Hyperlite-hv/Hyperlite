@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- **Create a template (copy)** in a VM's Actions menu, first of the two: the template gets a copy of the VM's disk and the VM stays, as vSphere's "Clone to Template" (`POST /api/v1/templates/from-vm/{name}` with `keep_vm: true`, an addition to API v1). The copy is refused before it starts when it would not fit, and a template being copied never shows in the list. "Convert to template" stays (the VM becomes the template, as on Proxmox VE), its warning now naming the VM that leaves the list: an administrator converted a VM expecting a copy.
+
+### Fixed
+
+- A VM deployed from a template takes the SSH user and the system of the VM the template was made from: an ISO-installed VM deployed from its template had none, and the web terminal could not reach it. Converting a VM to a template no longer leaves its SSH user and system recorded under the name of a VM that is gone.
+
 ### Security
 
 - Sessions are signed by `hyperlite-daemon` with an Ed25519 key pair only root reads (`/etc/hyperlite/priv/authkey.key`), renewed every day; the API verifies them with the public keys (`/etc/hyperlite/authkeys.json`), as Proxmox VE's `pveproxy` does with `authkey.pub`. The first part of moving the sign-in out of the API (#511, `docs/design/privilege-separation.md`, section 12). Sessions opened before the update stay valid; the calls between the members of a cluster still use the key they share. Without the daemon, signing in answers that it is unavailable.

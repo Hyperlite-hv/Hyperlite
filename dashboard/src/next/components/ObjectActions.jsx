@@ -127,8 +127,17 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       onRenamed?.(vmKey({ ...vm, name: name.trim() }));
     } catch (e) { fail(t("vx.renameFailed"), e); }
   }
+  // A copy keeps the VM (vSphere's "Clone to Template"); a conversion makes the VM the template, and the VM leaves the
+  // list (Proxmox VE's "Convert to template"): seen on a real node, converted by someone who expected a copy.
+  async function copyToTemplate() {
+    const name = await promptText({ title: t("vx.tplCopyTitle", { name: vm.name }), message: t("vx.tplCopyMsg", { name: vm.name }), label: t("vx.tplName"), defaultValue: `${vm.name}-tpl`, confirmLabel: t("vx.tplCopy"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
+    if (!name) return;
+    pushToast({ kind: "info", title: t("vx.tplCopying"), message: vm.name });
+    try { await createTemplateFromVM(vm.name, name.trim(), true); pushToast({ kind: "success", title: t("vx.tplDone"), message: t("vx.tplCopyDone", { name: vm.name, tpl: name.trim() }) }); refreshAll?.(); }
+    catch (e) { fail(t("vx.tplCopyFailed"), e); }
+  }
   async function toTemplate() {
-    const name = await promptText({ title: t("vx.tplTitle", { name: vm.name }), message: t("vx.tplMsg"), label: t("vx.tplName"), defaultValue: vm.name, confirmLabel: t("vx.tpl"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
+    const name = await promptText({ title: t("vx.tplTitle", { name: vm.name }), message: t("vx.tplMsg", { name: vm.name }), label: t("vx.tplName"), defaultValue: vm.name, confirmLabel: t("vx.tpl"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
     if (!name) return;
     try { await createTemplateFromVM(vm.name, name.trim()); pushToast({ kind: "success", title: t("vx.tplDone"), message: name.trim() }); refreshAll?.(); useInfraStore.getState().navigateTo("datacenter", null, "templates"); }
     catch (e) { fail(t("vx.tplFailed"), e); }
@@ -189,6 +198,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       {item("rename", PencilLine, t("vx.renameMenu"), admin(stopped), rename)}
       {item("clone", CopyPlus, t("vx.cloneMenu"), localOnly(admin(stopped)), clone)}
       {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
+      {item("template-copy", LayoutTemplate, t("vx.tplCopyMenu"), localOnly(admin(stopped)), copyToTemplate)}
       {item("template", LayoutTemplate, t("vx.tplMenu"), localOnly(admin(stopped)), toTemplate)}
       {item("export", Share, t("vx.exportMenu"), localOnly(admin()), doExport)}
       {item("cleanup", Eraser, cleanup?.active ? t("vx.cleanupOn", { n: cleanup.inactive_days }) : t("vx.cleanupMenu"), localOnly(caps.admin ? known(cleanup) : admin()), () => setCleanupOpen(true))}
