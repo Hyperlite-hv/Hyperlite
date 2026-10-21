@@ -219,6 +219,18 @@ def _fresh_inventory():
     guest_agent.forget()
 
 
+@pytest.fixture(autouse=True)
+def _no_vm_claim_left():
+    """The claims on VMs (app/core/vm_locks.py) never carry over from one test: a test that replaced the thread which
+    releases one (a snapshot's, a backup's) left the VM busy for every later test of its worker, which then answered
+    409 where it expected its own refusal."""
+    from app.core import vm_locks
+
+    yield
+    with vm_locks._registry_lock:
+        vm_locks._held.clear()
+
+
 def agent_answer(addresses):
     """What qemu-guest-agent answers to guest-network-get-interfaces, from {interface: [(type, address)]}."""
     import json
