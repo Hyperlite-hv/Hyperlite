@@ -36,7 +36,7 @@ def test_valid_session_token_authenticates_the_user(admin_user):
 
 def test_session_token_carries_an_expiry():
     token = security.create_access_token({"sub": "alice"})
-    claims = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+    claims = security.decode_token(token)
     assert claims["exp"] > datetime.now(UTC).timestamp()
 
 
@@ -88,7 +88,7 @@ def test_pre_auth_token_is_never_accepted_as_a_session_token(admin_user):
 
 def test_pre_auth_token_is_short_lived():
     token = security.create_preauth_token("alice")
-    claims = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+    claims = security.decode_token(token)
     remaining = claims["exp"] - datetime.now(UTC).timestamp()
     assert claims["2fa_pending"] is True
     assert 0 < remaining <= 5 * 60
