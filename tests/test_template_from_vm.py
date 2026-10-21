@@ -20,7 +20,7 @@ class _Domain:
     def isActive(self):
         return self.active
 
-    def XMLDesc(self, flags):
+    def XMLDesc(self, flags=0):
         return (
             "<domain type='kvm'><name>web</name><vcpu>2</vcpu><memory>2097152</memory><os><type>hvm</type></os>"
             f"<devices><disk type='file' device='disk'><source file='{self.disk}'/></disk></devices></domain>"
@@ -144,3 +144,79 @@ def test_a_vm_without_account_or_system_makes_a_template_without_them(node, clie
     assert _make(client, auth_headers("root"), keep_vm=True).status_code == 201
     tpl = templates_store.get_template("base")
     assert "ssh_user" not in tpl and "os_label" not in tpl
+
+
+class _Network:
+    def __init__(self):
+        self.updates = []
+
+    def XMLDesc(self, *a):
+        return "<network><ip><dhcp><host mac='52:54:00:aa:bb:cc' ip='192.168.122.50'/></dhcp></ip></network>"
+
+    def update(self, *args):
+        self.updates.append(args[3])
+
+
+def _with_interface(node, monkeypatch):
+    network = _Network()
+    xml = (
+        node["domain"]
+        .XMLDesc(0)
+        .replace(
+            "</devices>",
+            "<interface type='network'><mac address='52:54:00:aa:bb:cc'/><source network='default'/></interface></devices>",
+        )
+    )
+    monkeypatch.setattr(node["domain"], "XMLDesc", lambda flags: xml)
+    monkeypatch.setattr(_Conn, "networkLookupByName", lambda self, name: network, raising=False)
+    return network
+
+
+def _records_of_web():
+    from app.core import vm_meta
+    from app.services import backup_service
+
+    vm_meta.set_vm_ssh_user("web", "ansible")
+    vm_meta.set_vm_auto_cleanup("web", 30)
+    backup_service.set_schedule("web", "daily", "02:00", "/srv/b", 7, None, None, None, "2030-01-01T02:00:00")
+
+
+def test_a_conversion_forgets_the_vm_as_a_deletion_does(node, client, auth_headers, monkeypatch):
+    """The VM is gone: its backup schedule failed at every run, its rights, pools, automatic deletion and DHCP
+    reservation stayed under its name."""
+    from app.core import vm_meta
+    from app.services import backup_service
+
+    network = _with_interface(node, monkeypatch)
+    _records_of_web()
+    r = client.post("/templates/from-vm/web", json={"template_name": "conv"}, headers=auth_headers("root"))
+    assert r.status_code == 201, r.text
+    assert backup_service.schedule_of("web") is None
+    assert vm_meta.get_vm_auto_cleanup("web") is None and vm_meta.get_vm_ssh_user("web") is None
+    assert network.updates == ["<host mac='52:54:00:aa:bb:cc' ip='192.168.122.50'/>"]
+    assert templates_store.get_template("conv")["ssh_user"] == "ansible"  # the template keeps what a deployment needs
+
+
+def test_a_copy_forgets_nothing(node, client, auth_headers, monkeypatch):
+    from app.core import vm_meta
+    from app.services import backup_service
+
+    network = _with_interface(node, monkeypatch)
+    _records_of_web()
+    assert _make(client, auth_headers("root"), keep_vm=True).status_code == 201
+    assert backup_service.schedule_of("web") is not None and vm_meta.get_vm_auto_cleanup("web") is not None
+    assert network.updates == []
+
+
+def test_a_conversion_and_a_deletion_forget_through_the_same_list(node, client, auth_headers, monkeypatch):
+    from app.core import vm_records
+    from app.routers.vms import lifecycle
+
+    forgotten = []
+    monkeypatch.setattr(vm_records, "forget", lambda name, node=None: forgotten.append(name))
+    assert (
+        client.post("/templates/from-vm/web", json={"template_name": "conv"}, headers=auth_headers("root")).status_code
+        == 201
+    )
+    lifecycle._perform_vm_deletion(None, _Domain("/nonexistent/db.qcow2"), "db")
+    assert forgotten == ["web", "db"]
