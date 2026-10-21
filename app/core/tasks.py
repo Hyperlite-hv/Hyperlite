@@ -166,8 +166,18 @@ def update_task_progress(task_id, progress):
     _store().update_progress(task_id, progress)
 
 
+# The tasks run by answer_later, each with the end its work asked for (None until then): applied once the work let go
+# of everything it held, so a client that sees the task end can at once act on the same VM.
+_held = {}
+_held_lock = threading.Lock()
+
+
 def finish_task(task_id, status, error_message=None):
     """Close a task: 'succeeded' or 'failed'. A task someone asked to stop ends as cancelled by them."""
+    with _held_lock:
+        if task_id in _held:
+            _held[task_id] = (status, error_message)
+            return
     with _cancel_lock:
         cancelled_by = _requested.get(task_id) if status == "failed" else None
         _live.discard(task_id)
@@ -184,8 +194,10 @@ def answer_later(task_id, work, **answer):
     other long operation does. A client then follows GET /tasks/{id} instead of holding a request for the whole copy,
     which a proxy cuts long before a large disk is copied.
 
-    A task `work` leaves open (an error raised without being recorded on the task) is closed here, with the error:
-    a task never stays "running" with nothing behind it."""
+    The task ends once `work` returned, so after the claims it releases on its way out (vm_locks.released_after): a
+    client that saw the task end and starts the VM at once was refused as busy. A task `work` leaves open (an error
+    raised without being recorded on the task) is closed here, with the error: a task never stays "running" with
+    nothing behind it."""
     from fastapi import HTTPException
     from fastapi.responses import JSONResponse
 
@@ -200,8 +212,15 @@ def answer_later(task_id, work, **answer):
         except Exception as e:
             logger.exception("Task %s failed", task_id)
             error = describe_exception(e)
-        if task_status(task_id) == "running":
+        finally:
+            with _held_lock:
+                asked = _held.pop(task_id, None)
+        if asked is not None:
+            finish_task(task_id, *asked)
+        elif task_status(task_id) == "running":
             finish_task(task_id, "failed" if error else "succeeded", error)
 
+    with _held_lock:
+        _held[task_id] = None
     threading.Thread(target=body, daemon=True).start()
     return JSONResponse(status_code=202, content={"task_id": task_id, "status": "running", **answer})

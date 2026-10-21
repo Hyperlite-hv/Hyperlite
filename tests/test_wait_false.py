@@ -177,3 +177,23 @@ def test_a_task_its_work_left_open_is_closed_with_the_error(database):
     assert tasks.answer_later(task_id, work, name="copy").status_code == 202
     task = _task(database, task_id)
     assert task["status"] == "failed" and task["error"] == "Source disk path not found"
+
+
+def test_a_task_ends_only_once_its_work_released_the_vm(database):
+    """A client that sees the task end acts on the VM at once: it must not find it still busy."""
+    task_id = tasks.create_task("clone_vm", "web", username="root")
+    claim = vm_locks.claim("copy", "a clone")
+    recorded, letting_go = threading.Event(), threading.Event()
+
+    def work():
+        with claim:
+            audit.log_action("root", "clone_vm", "web", "success", task_id=task_id)
+            recorded.set()
+            letting_go.wait(5)
+
+    tasks.answer_later(task_id, work, name="copy")
+    assert recorded.wait(5)
+    assert tasks.task_status(task_id) == "running"  # the work still holds the VM
+    letting_go.set()
+    assert _task(database, task_id)["status"] == "succeeded"
+    assert vm_locks.running("copy") is None
