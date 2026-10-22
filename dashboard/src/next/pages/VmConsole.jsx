@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { termOptions } from "../lib/prefs";
-import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Info, Keyboard, Laptop, Maximize, TriangleAlert, X } from "lucide-react";
-import { createConsoleTicket, createSerialTicket, createTerminalTicket } from "../../api/client";
+import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Info, Keyboard, Laptop, Maximize, MonitorDown, TriangleAlert, X } from "lucide-react";
+import { addSpiceDisplay, createConsoleTicket, createSerialTicket, createTerminalTicket, downloadSpiceFile } from "../../api/client";
 import { ensureXtermLoaded, keepFitted, loadTerminalFont, wsUrl } from "../../utils/loadXterm";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useInfraStore } from "../../store/useInfraStore";
+import { confirmAction } from "../../store/useConfirmStore";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
@@ -36,6 +38,9 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   const [error, setError] = useState(null);
   const [gaveUp, setGaveUp] = useState(false); // automatic retries stopped: only the Retry button reconnects
   const [keysOpen, setKeysOpen] = useState(false);
+  const [spiceOpen, setSpiceOpen] = useState(false);
+  const spiceBtn = useRef(null);
+  const pushToast = useInfraStore((s) => s.pushToast);
   const keysBtn = useRef(null);
   const [typing, setTyping] = useState(false);
   const [typed, setTyped] = useState("");
@@ -146,6 +151,20 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
     } finally { setBusyTyping(false); }
   }
   const retryNow = () => { cleanup(); attempts.current = 0; setError(null); setGaveUp(false); };
+  // SPICE opens outside the browser, in virt-viewer: the page only hands out the .vv file (docs/design/spice-console.md).
+  async function openSpice() {
+    setSpiceOpen(false);
+    try { await downloadSpiceFile(name, node); pushToast({ kind: "success", title: t("vc.spiceReady"), message: t("vc.spiceReadyMsg") }); }
+    catch (e) { pushToast({ kind: "error", title: t("vc.spiceFailed"), message: errorMessage(e) }); }
+  }
+  async function addSpice() {
+    setSpiceOpen(false);
+    if (!(await confirmAction({ title: t("vc.spiceAddTitle", { name }), message: t("vc.spiceAddMsg"), confirmLabel: t("vc.spiceAdd"), danger: false }))) return;
+    try {
+      const r = await addSpiceDisplay(name, node);
+      pushToast({ kind: "success", title: t("vc.spiceAdded"), message: t(r?.effective === "next_start" ? "vc.spiceAddedNext" : "vc.spiceAddedNow") });
+    } catch (e) { pushToast({ kind: "error", title: t("vc.spiceFailed"), message: errorMessage(e) }); }
+  }
 
   if (!vm) return null;
   const openWindow = () => window.open(consoleUrl(vm, mode), `hyperlite-console-${vmKey(vm)}-${mode}`, "width=1100,height=750,noopener");
@@ -177,6 +196,13 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
           )}
           {!text && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} aria-expanded={typing} onClick={() => setTyping((v) => !v)}><ClipboardPaste size={14} aria-hidden="true" />{t("vc.typeText")}</button>}
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => frame.current?.requestFullscreen?.()}><Maximize size={14} aria-hidden="true" />{t("vc.fullscreen")}</button>
+          <span className="nx-relative">
+            <button ref={spiceBtn} type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-haspopup="menu" aria-expanded={spiceOpen} onClick={() => setSpiceOpen((o) => !o)}><MonitorDown size={14} aria-hidden="true" />{t("vc.spice")}<ChevronDown size={14} aria-hidden="true" /></button>
+            <Menu open={spiceOpen} onClose={() => setSpiceOpen(false)} label={t("vc.spice")} returnFocusRef={spiceBtn} style={{ top: "calc(100% + 4px)", right: 0 }}>
+              <MenuItem disabled={!running} reason={t("menu.reason.notRunning")} onSelect={openSpice}>{t("vc.spiceDownload")}</MenuItem>
+              <MenuItem disabled={!caps.admin} reason={t("menu.reason.admin")} onSelect={addSpice}>{t("vc.spiceAdd")}</MenuItem>
+            </Menu>
+          </span>
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setWsOpen(true)}><Laptop size={14} aria-hidden="true" />{t("ws.button")}</button>
           {standalone
             ? <button type="button" className="nx-btn nx-btn--sm" onClick={() => window.close()}><X size={14} aria-hidden="true" />{t("vc.closeWindow")}</button>
