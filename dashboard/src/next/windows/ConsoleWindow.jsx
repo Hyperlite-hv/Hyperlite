@@ -13,7 +13,7 @@ import StandaloneWindow from "./StandaloneWindow";
 export default function ConsoleWindow() {
   const { name } = useParams();
   const [params] = useSearchParams();
-  const initialMode = params.get("mode") === "terminal" ? "terminal" : "vnc";
+  const initialMode = ["terminal", "serial"].includes(params.get("mode")) ? params.get("mode") : "vnc";
   const node = params.get("node") || null;
   const status = useAuthStore((s) => s.status);
   const [vm, setVm] = useState(null);
