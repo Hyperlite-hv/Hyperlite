@@ -14,6 +14,7 @@ would be overwritten at the next lease: that case is refused with the reason rat
 """
 
 import ipaddress
+import logging
 import os
 import re
 import shutil
@@ -21,6 +22,8 @@ import socket
 import subprocess
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 ETC_HOSTS = Path("/etc/hosts")
 ETC_HOSTNAME = Path("/etc/hostname")
@@ -564,13 +567,16 @@ POWER_DELAY_S = 5
 
 def running_guests():
     """Running VMs and containers of this node, as (kind, name)."""
-    from app.core.libvirt_utils import open_conn, open_lxc_conn
+    from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
 
     found = []
-    for kind, opener in (("vm", open_conn), ("container", open_lxc_conn)):
+    for kind, opener in (("vm", open_conn), ("container", open_lxc_conn_if_any)):
         try:
             conn = opener()
-        except Exception:  # noqa: S112 -- no LXC driver on this node: it simply has no containers
+        except Exception as e:  # libvirt unreachable: no guest of this kind can be listed, none is waited for
+            logger.warning("Cannot list the running %ss: %s", kind, e)
+            continue
+        if conn is None:
             continue
         try:
             found += [(kind, d.name()) for d in conn.listAllDomains(1)]  # VIR_CONNECT_LIST_DOMAINS_ACTIVE
@@ -581,14 +587,11 @@ def running_guests():
 
 def stop_guests(guests, log, timeout_s=180, poll_s=3):
     """Ask each running guest to shut down, then wait. Returns the names still running at the end."""
-    from app.core.libvirt_utils import open_conn, open_lxc_conn
+    from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
 
     conns = {"vm": open_conn(), "container": None}
     try:
-        try:
-            conns["container"] = open_lxc_conn()
-        except Exception:
-            conns["container"] = None
+        conns["container"] = open_lxc_conn_if_any()
         for kind, name in guests:
             try:
                 conns[kind].lookupByName(name).shutdown()
