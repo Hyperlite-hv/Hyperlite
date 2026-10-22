@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hyperlite face à Proxmox VE</title>
 <!-- Hyperlite compared with Proxmox VE: rows from proxmox-parity.json (next to this page), the state of each issue read
-     live from GitHub (a closed issue shows as done), and the roadmap by milestone. No dependency, nothing to build. -->
+     live from GitHub (a closed issue shows as done), the roadmap by milestone, and who works on what (the claims of
+     .github/scripts/claim.py, read from the issues labelled in-progress). No dependency, nothing to build. -->
 <style>
 :root { --bg: #f6f4f2; --surface: #fff; --raised: #efebe8; --ink: #24202a; --muted: #6b6470; --line: #e2ddd9;
   --accent: #7b3f6e; --ahead: #1f6f8b; --parity: #2e7d4f; --partial: #a86400; --missing: #b3261e; --done: #2e7d4f; }
@@ -37,6 +38,10 @@ a { color: var(--accent) } .issue { font-size: 12.5px; white-space: nowrap }
 .milestones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px }
 .ms { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px }
 .ms h3 { margin: 0; font-size: 16px } .ms ul { margin: 0; padding-left: 18px; font-size: 13.5px } .ms li.closed { color: var(--muted); text-decoration: line-through }
+.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px }
+.claim { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px }
+.claim.stale { border-left-color: var(--partial) } .claim b { font-size: 14.5px } .claim code, .how code { font-size: 12.5px; background: var(--raised); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere }
+.who { color: var(--accent); font-weight: 600 } .stale .who { color: var(--partial) } .how { font-size: 13.5px; margin-top: 10px }
 .wrap { overflow-x: auto } .note { font-size: 13px; color: var(--muted) }
 @media (max-width: 640px) { th.pve, td.pve { display: none } }
 </style>
@@ -49,6 +54,7 @@ a { color: var(--accent) } .issue { font-size: 12.5px; white-space: nowrap }
     <p id="intro"></p>
   </header>
   <section><div class="kpis" id="kpis"></div><div class="meter" id="meter" style="margin-top:12px" role="img"></div></section>
+  <section><h2 id="h-board"></h2><div class="board" id="board"></div><p class="how muted" id="how"></p></section>
   <section><h2 id="h-roadmap"></h2><div class="milestones" id="milestones"></div></section>
   <section>
     <h2 id="h-matrix"></h2>
@@ -68,7 +74,10 @@ const T = {
     feat: "Fonction", pve: "Proxmox VE", hl: "Hyperlite", st: "État", is: "Issue",
     offline: "GitHub n'a pas répondu : les états affichés sont ceux du fichier.", open: "ouverte", closed: "fermée",
     foot: "Données : docs/proxmox-parity.json, la référence du projet, mise à jour dans chaque PR qui change une fonction. Issues : étiquette proxmox-parity.", progress: "{c} sur {t} fermées",
-    work: "en cours : {n} PR fusionnée(s), la dernière le {d}" },
+    work: "en cours : {n} PR fusionnée(s), la dernière le {d}",
+    board: "Qui travaille sur quoi", held: "pris par {s} ({o})", none: "Personne n'a réservé d'issue : tout est libre.", by: "Claude de {o} · session {s}", since: "depuis le {d}",
+    files: "Fichiers :", nofiles: "fichiers non indiqués", stale: "sans activité depuis {n} j : on peut demander à la reprendre",
+    how: "Avant de commencer une tâche, réservez son issue : <code>python3 .github/scripts/claim.py take &lt;issue&gt; --owner antho|nico --session &lt;nom&gt; --files &lt;fichiers&gt;</code>. Le script refuse une issue ou des fichiers déjà pris. Libérez-la une fois la PR fusionnée : <code>claim.py release &lt;issue&gt;</code>. Détails : docs/onboarding.md." },
   en: { title: "Hyperlite and <em>Proxmox VE</em>", intro: "Feature by feature, from the code and the Proxmox VE {pve} documentation. Each gap's state comes live from its GitHub issue: a closed issue shows as done.",
     stamp: "Reviewed {d} · issues read live", roadmap: "Roadmap to parity", matrix: "Feature by feature",
     all: "All", ahead: "Ahead", parity: "Parity", done: "Done", partial: "Partial", missing: "Missing",
@@ -76,7 +85,10 @@ const T = {
     feat: "Feature", pve: "Proxmox VE", hl: "Hyperlite", st: "State", is: "Issue",
     offline: "GitHub did not answer: the states shown are the file's.", open: "open", closed: "closed",
     foot: "Data: docs/proxmox-parity.json, the project's reference, updated in every PR that changes a feature. Issues: label proxmox-parity.", progress: "{c} of {t} closed",
-    work: "in progress: {n} merged PR(s), the last on {d}" } }[lang];
+    work: "in progress: {n} merged PR(s), the last on {d}",
+    board: "Who works on what", held: "held by {s} ({o})", none: "No issue is claimed: everything is free.", by: "{o}'s Claude · session {s}", since: "since {d}",
+    files: "Files:", nofiles: "files not given", stale: "no activity for {n} days: you may ask to take it over",
+    how: "Before starting a task, claim its issue: <code>python3 .github/scripts/claim.py take &lt;issue&gt; --owner antho|nico --session &lt;name&gt; --files &lt;files&gt;</code>. The script refuses an issue or files already held. Release it once the PR is merged: <code>claim.py release &lt;issue&gt;</code>. Details: docs/onboarding.md." } }[lang];
 const SHAPE = { ahead: "▲", parity: "●", done: "✓", partial: "◐", missing: "○" };
 const fmt = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -87,6 +99,28 @@ async function issues() {
     const r = await fetch(`https://api.github.com/repos/${REPO}/issues?labels=proxmox-parity&state=all&per_page=100`);
     if (!r.ok) throw new Error(r.status);
     return new Map((await r.json()).map((i) => [i.number, { state: i.state, title: i.title, url: i.html_url, milestone: i.milestone?.title || null }]));
+  } catch { return null; }
+}
+
+// Who works on what: the claims .github/scripts/claim.py writes at the top of an issue's description, on any issue
+// labelled in-progress (not only the parity ones). A claim with no activity for STALE_DAYS shows as stale.
+const STALE_DAYS = 3;
+async function claims() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/issues?labels=in-progress&state=open&per_page=100`);
+    if (!r.ok) throw new Error(r.status);
+    const out = [];
+    for (const i of await r.json()) {
+      const m = /<!-- claim (\{.*?\}) -->[\s\S]*?<!-- \/claim -->/.exec(i.body || "");
+      if (!m) continue;
+      let c;
+      try { c = JSON.parse(m[1]); } catch { continue; }
+      if (!c || !c.owner || !c.session) continue;
+      const idle = Math.floor((Date.now() - new Date(i.updated_at)) / 864e5);
+      out.push({ num: i.number, title: i.title, url: i.html_url, owner: String(c.owner), session: String(c.session), since: String(c.since || ""),
+        files: Array.isArray(c.files) ? c.files.filter((f) => typeof f === "string") : [], idle, stale: idle >= STALE_DAYS });
+    }
+    return out.sort((a, b) => a.num - b.num);
   } catch { return null; }
 }
 
@@ -114,12 +148,21 @@ async function merged() {
 async function main() {
   document.documentElement.lang = lang;
   document.getElementById("langs").innerHTML = `<a href="?lang=fr">FR</a><a href="?lang=en">EN</a>`;
-  const [data, live, work] = await Promise.all([fetch("proxmox-parity.json").then((r) => r.json()), issues(), merged()]);
+  const [data, live, work, held] = await Promise.all([fetch("proxmox-parity.json").then((r) => r.json()), issues(), merged(), claims()]);
+  const holder = new Map((held || []).map((c) => [c.num, c]));
+  const tag = (num) => { const c = holder.get(num); return c ? ` <span class="${c.stale ? "s-partial" : "who"}" title="${esc(fmt(T.since, { d: c.since }))}">· ${esc(fmt(T.held, { s: c.session, o: c.owner }))}</span>` : ""; };
   const day = (iso) => new Date(iso).toLocaleDateString(lang === "fr" ? "fr-FR" : "en-GB", { day: "numeric", month: "short" });
   const worked = (num) => { const w = work?.get(num); return w ? fmt(T.work, { n: w.count, d: day(w.last) }) : ""; };
   document.getElementById("title").innerHTML = T.title;
   document.getElementById("intro").textContent = fmt(T.intro, { pve: data.proxmox_version });
   document.getElementById("stamp").textContent = fmt(T.stamp, { d: data.checked }) + (live ? "" : " · " + T.offline);
+  document.getElementById("h-board").textContent = T.board;
+  document.getElementById("how").innerHTML = T.how;
+  document.getElementById("board").innerHTML = !held ? `<p class="muted">${T.offline}</p>` : !held.length ? `<p class="muted">${T.none}</p>` :
+    held.map((c) => `<div class="claim${c.stale ? " stale" : ""}"><b><a href="${esc(c.url)}">#${c.num}</a> ${esc(c.title)}</b>
+      <span class="who">${esc(fmt(T.by, { o: c.owner, s: c.session }))}</span>
+      <span class="muted">${esc(fmt(T.since, { d: c.since }))}${c.stale ? " · " + esc(fmt(T.stale, { n: c.idle })) : ""}</span>
+      <span>${T.files} ${c.files.length ? c.files.map((f) => `<code>${esc(f)}</code>`).join(" ") : `<span class="muted">${T.nofiles}</span>`}</span></div>`).join("");
   document.getElementById("h-roadmap").textContent = T.roadmap;
   document.getElementById("h-matrix").textContent = T.matrix;
   document.getElementById("foot").textContent = T.foot;
@@ -146,7 +189,7 @@ async function main() {
     const closed = list.filter((i) => i.state === "closed").length;
     return `<div class="ms"><h3>${esc(m)}</h3><div class="meter"><i class="s-done" style="width:${(closed / list.length) * 100}%;background:currentColor"></i></div>
       <span class="muted" style="font-size:13px">${fmt(T.progress, { c: closed, t: list.length })}</span>
-      <ul>${list.map((i) => `<li class="${i.state}"><a href="${i.url}">#${i.num}</a> ${esc(i.title)}${i.state === "open" && worked(i.num) ? ` <span class="muted">· ${esc(worked(i.num))}</span>` : ""}</li>`).join("")}</ul></div>`;
+      <ul>${list.map((i) => `<li class="${i.state}"><a href="${i.url}">#${i.num}</a> ${esc(i.title)}${i.state === "open" ? tag(i.num) : ""}${i.state === "open" && worked(i.num) ? ` <span class="muted">· ${esc(worked(i.num))}</span>` : ""}</li>`).join("")}</ul></div>`;
   }).join("") || `<p class="muted">${T.offline}</p>`;
 
   // The matrix, filterable by state.
@@ -158,7 +201,7 @@ async function main() {
       const shown = rows.filter((r) => r.cat === c && (filter === "all" || r.state === filter));
       if (!shown.length) return "";
       return `<div><h3 style="margin:0 0 8px;font-size:16px">${esc(c[lang])}</h3><div class="wrap"><table><thead><tr><th>${T.feat}</th><th class="pve">${T.pve}</th><th>${T.hl}</th><th>${T.st}</th><th>${T.is}</th></tr></thead><tbody>${
-        shown.map((r) => `<tr><td class="feat">${esc(r[lang])}</td><td class="pve">${esc(r.pve)}</td><td>${esc(r.hl)}</td><td>${chip(r.state)}</td><td class="issue">${r.issue ? `<a href="https://github.com/${REPO}/issues/${r.issue}">#${r.issue}</a>${r.live ? ` · ${r.live.milestone ? esc(r.live.milestone) + " · " : ""}${r.live.state === "closed" ? T.closed : T.open}` : ""}${r.work && r.live?.state !== "closed" ? `<br><span class="muted">${esc(r.work)}</span>` : ""}` : ""}</td></tr>`).join("")
+        shown.map((r) => `<tr><td class="feat">${esc(r[lang])}</td><td class="pve">${esc(r.pve)}</td><td>${esc(r.hl)}</td><td>${chip(r.state)}</td><td class="issue">${r.issue ? `<a href="https://github.com/${REPO}/issues/${r.issue}">#${r.issue}</a>${r.live ? ` · ${r.live.milestone ? esc(r.live.milestone) + " · " : ""}${r.live.state === "closed" ? T.closed : T.open + tag(r.issue)}` : ""}${r.work && r.live?.state !== "closed" ? `<br><span class="muted">${esc(r.work)}</span>` : ""}` : ""}</td></tr>`).join("")
       }</tbody></table></div></div>`;
     }).join("");
   };
