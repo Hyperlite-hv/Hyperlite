@@ -265,6 +265,39 @@ def protect_existing_drives(roots=None):
     return changed
 
 
+# The drives Hyperlite generates for a VM, named after it: its cloud-init seed, and the unattended installation media
+# of VMs created before 1.0.
+GENERATED_ISO_SUFFIXES = ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso")
+
+
+def generated_drives(root, vm_name):
+    """The CD-ROM drives Hyperlite generated for this VM, as (disk element, path), from its parsed definition: named
+    after the VM, in IMAGES_DIR or next to one of the VM's own disks, which is where they are written (create_vm puts
+    the drive on the pool of the disks). Rebuilding the path from IMAGES_DIR alone missed every VM made on another
+    pool; the name alone would also take an image of the ISO library that happens to carry it, which the service
+    (root) would then rewrite or delete."""
+    names = {f"{vm_name}{suffix}" for suffix in GENERATED_ISO_SUFFIXES}
+    homes = {IMAGES_DIR}
+    for disk in root.findall("./devices/disk[@device='disk']"):
+        source = disk.find("source")
+        if source is not None and source.get("file"):
+            homes.add(Path(source.get("file")).parent)
+    found = []
+    for disk in root.findall("./devices/disk[@device='cdrom']"):
+        source = disk.find("source")
+        path = Path(source.get("file")) if source is not None and source.get("file") else None
+        if path and path.name in names and path.parent in homes:
+            found.append((disk, path))
+    return found
+
+
+def cloudinit_drive(root, vm_name):
+    """The VM's cloud-init drive (path), or None: a VM installed from an ISO has none."""
+    return next(
+        (path for _disk, path in generated_drives(root, vm_name) if path.name == f"{vm_name}-cloudinit.iso"), None
+    )
+
+
 def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_dir=None):
     # Temporary directory with restricted permissions (0700, created by mkdtemp), always cleaned up afterwards.
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-"))

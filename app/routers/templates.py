@@ -16,7 +16,7 @@ from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import answer_later, create_task
-from app.core.vm_builder import IMAGES_DIR, create_cloudinit_reseed_iso, validate_name
+from app.core.vm_builder import IMAGES_DIR, create_cloudinit_reseed_iso, generated_drives, validate_name
 
 logger = logging.getLogger(__name__)
 
@@ -125,10 +125,7 @@ def _convert_to_template(name, payload, user, check_only=False, task_id=None):
         # Deploying from a template drops the CD-ROM devices, so the helper ISOs of the source VM
         # (cloud-init seed, and the unattended installation media of VMs created before 1.0) would stay behind
         # as orphans.
-        helper_isos = [
-            safe_child(IMAGES_DIR, f"{name}{suffix}")
-            for suffix in ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso")
-        ]
+        helper_isos = [path for _disk, path in generated_drives(root, name)]
         for iso in helper_isos:
             iso.unlink(missing_ok=True)
         # The disk left its pool behind libvirt's back: without a refresh the pool keeps listing a volume that is gone.
