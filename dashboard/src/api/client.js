@@ -1100,6 +1100,10 @@ export async function createConsoleTicket(name, node = null) {
 export async function createTerminalTicket(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket${nodeQuery(node)}`, { method: "POST" });
 }
+// The VM's serial console (`virsh console` on its node): what the guest prints on its serial port.
+export async function createSerialTicket(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/serial-ticket${nodeQuery(node)}`, { method: "POST" });
+}
 
 // ---- Interactive shell on the physical host (admin only, see app/routers/host.py) ----
 export async function createHostTerminalTicket() {

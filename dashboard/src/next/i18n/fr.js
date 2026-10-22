@@ -1077,6 +1077,8 @@ export default {
   "vc.mode": "Type de connexion",
   "vc.vnc": "Console graphique (VNC)",
   "vc.ssh": "Terminal SSH",
+  "vc.serial": "Console série",
+  "vc.serialHelp": "Ce que la VM affiche sur son port série, et l’invite de connexion que son système y propose : utile quand son réseau ou son affichage ne fonctionne plus. Linux l’affiche s’il démarre avec console=ttyS0 (c’est le cas des images cloud). Ctrl+] termine la session.",
   "vc.adminOnlyTitle": "Le terminal SSH est réservé aux administrateurs",
   "vc.adminOnlyHelp": "Il ouvre un shell avec tous les droits sudo dans la VM. La console graphique reste disponible.",
   "vc.vncHelp": "La console graphique se connecte d’elle-même quand la VM tourne.",

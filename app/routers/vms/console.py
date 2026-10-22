@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import secrets
 import time
 import xml.etree.ElementTree as ET
@@ -10,9 +11,11 @@ import asyncssh
 import libvirt
 from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
 
+from app.core import pty_session
 from app.core.audit import log_action
-from app.core.cluster import get_cluster_private_key_path, get_node
+from app.core.cluster import get_cluster_private_key_path, get_node, libvirt_uri_from_here
 from app.core.libvirt_utils import (
+    LIBVIRT_URI,
     ensure_vnc_graphics,
     open_conn,
 )
@@ -319,3 +322,101 @@ async def vm_terminal(websocket: WebSocket, name: str):
         await websocket.close()
     except (RuntimeError, WebSocketDisconnect):
         logger.debug("Ignored exception in vm_terminal()", exc_info=True)
+
+
+# --- Serial console (xterm.js + `virsh console`) ---
+# What the guest prints on its first serial port, and the login prompt its system offers there: the way in when the
+# guest's network or display is broken, as Proxmox VE's xterm.js console. It reaches the same login prompt as the
+# graphical console, so it takes the same privilege, not the administrator role the SSH terminal needs.
+
+SERIAL_TICKETS = {}
+SERIAL_TICKET_TTL = 30
+
+
+def _has_serial(xml):
+    devices_el = ET.fromstring(xml).find("devices")
+    return devices_el is not None and (devices_el.find("serial") is not None or devices_el.find("console") is not None)
+
+
+def add_serial_port(conn, domain):
+    """Give a VM without a serial port one, in its configuration: a serial port cannot be plugged into a running
+    VM, so a running one gets it at its next start."""
+    root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+    devices_el = root.find("devices")
+    serial = ET.SubElement(devices_el, "serial", type="pty")
+    ET.SubElement(serial, "target", port="0")
+    console = ET.SubElement(devices_el, "console", type="pty")
+    ET.SubElement(console, "target", type="serial", port="0")
+    conn.defineXML(ET.tostring(root, encoding="unicode"))
+
+
+@router.post("/{name}/serial-ticket")
+def create_serial_ticket(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.console"))):
+    """node: as for the console ticket. A VM with no serial port gets one, effective at its next start."""
+    node = _remote(node)
+    conn = open_conn(node)
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "create_serial_ticket", name, "failed", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+
+        if not _has_serial(domain.XMLDesc(0)):
+            if _has_serial(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)):
+                detail = "The serial port added to this VM takes effect at its next start: shut it down, then start it."
+            else:
+                add_serial_port(conn, domain)
+                detail = (
+                    "This VM had no serial port: one is added, effective at its next start. Shut it down, then start it."
+                    if domain.isActive()
+                    else "This VM had no serial port: one is added. Start the VM, then open the serial console."
+                )
+            log_action(user["username"], "create_serial_ticket", name, "failed", "no serial port")
+            raise HTTPException(status_code=409, detail=detail)
+
+        if not domain.isActive():
+            log_action(user["username"], "create_serial_ticket", name, "failed", "VM stopped")
+            raise HTTPException(status_code=409, detail="The VM must be started to open its serial console")
+
+        now = time.time()
+        for old_ticket, entry in list(SERIAL_TICKETS.items()):
+            if entry[1] < now:
+                SERIAL_TICKETS.pop(old_ticket, None)
+
+        ticket = secrets.token_urlsafe(24)
+        SERIAL_TICKETS[ticket] = (name, now + SERIAL_TICKET_TTL, node)
+        log_action(user["username"], "create_serial_ticket", name, "success")
+        return {"ticket": ticket, "expires_in_s": SERIAL_TICKET_TTL}
+    finally:
+        conn.close()
+
+
+def serial_command(name, node):
+    """`virsh console` on the VM's node: through the same libvirt address as every call to that node."""
+    uri = libvirt_uri_from_here(get_node(node)) if node else LIBVIRT_URI
+    return ["virsh", "--quiet", "--connect", uri, "console", name]
+
+
+@router.websocket("/{name}/serial")
+async def vm_serial(websocket: WebSocket, name: str):
+    ticket = websocket.query_params.get("ticket")
+    entry = SERIAL_TICKETS.pop(ticket, None) if ticket else None
+    if entry is None:
+        await websocket.close(code=4401)
+        return
+
+    vm_name, expiry, node = entry
+    if vm_name != name or time.time() > expiry:
+        await websocket.close(code=4401)
+        return
+
+    await websocket.accept()
+    # virsh prints its own messages in the user's language: C.UTF-8 keeps them English and the guest's UTF-8 intact.
+    await pty_session.run(
+        websocket, serial_command(name, node), {**os.environ, "TERM": "xterm-256color", "LC_ALL": "C.UTF-8"}
+    )
+    try:
+        await websocket.close()
+    except (RuntimeError, WebSocketDisconnect):
+        logger.debug("Ignored exception in vm_serial()", exc_info=True)
