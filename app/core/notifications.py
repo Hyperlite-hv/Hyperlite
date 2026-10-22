@@ -48,6 +48,8 @@ NOTIFY_EVENTS = {
     # A change made by background work on this node (a task, a scheduler) that the cluster overrode with another
     # node's (app/repositories/cfs/shadow.py). A request's own conflict answers 409 instead, never notified.
     "cfs_conflict": "Configuration change overridden by the cluster",
+    # The node's own database found damaged, and sound again (app/core/db_health.py).
+    "database_check": "Database check",
 }
 
 

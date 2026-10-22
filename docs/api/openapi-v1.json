@@ -8836,6 +8836,81 @@
     ]
    }
   },
+  "/api/v1/host/database": {
+   "get": {
+    "description": "This node's database: sound, damaged (and which repair fits), or a background loop that keeps failing on it\n(app/core/db_health.py). The node's summary carries the same, for the dashboard's banner.",
+    "operationId": "host_database_api_v1_host_database_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Host Database",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/database/check": {
+   "post": {
+    "description": "The full check, now: every page, and every index against its table. It reads the whole file.",
+    "operationId": "check_host_database_api_v1_host_database_check_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Check Host Database",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/database/repair": {
+   "post": {
+    "description": "Rebuild the indexes whose entries disagree with their tables, with the service running. Any other damage\nanswers 409: the summary's `repair` says what fits (\"rebuild\" with the service stopped, or \"restore\").",
+    "operationId": "repair_host_database_api_v1_host_database_repair_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Repair Host Database",
+    "tags": [
+     "host"
+    ]
+   }
+  },
   "/api/v1/host/devices": {
    "get": {
     "description": "PCI and USB devices of this host that could be given to a VM, with the IOMMU state, which VM has each one,\nand why the host needs the ones it cannot give (see app/core/passthrough.py).",
