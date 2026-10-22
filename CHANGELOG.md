@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format is based on 
 
 - On a new node, creating a volume in the `default` storage pool, attaching a disk from it or creating a container there failed with "Storage pool 'default' not found" until someone had opened the storage page, the only place that made the pool: it is now made when it is first used (`lookup_pool`), and when a VM is created on it. Found by the Terraform provider's acceptance tests on a fresh node (#330).
 
+## [1.1.2] - 2026-10-22
+
+### Fixed
+
+- A node that is down no longer holds the pages that list the cluster: as Proxmox VE and vSphere, Hyperlite never waits for a host that is gone (`app/core/node_health.py`). A node the cluster sees down (the node poller found it offline, and it sends no status) is named at once and never asked: the ISO list, the VM list, a node's storage, the metrics. A connection to a node switched off seconds ago, not seen down yet, gives up after 8 seconds instead of the system's two minutes, libvirt's included (`scripts/node-ssh`). A node that does not answer is said unreachable (502) where a node's storage list failed with an internal error. The VM creation wizard shows this server's ISO images at once and adds the other nodes' when they come: with a node switched off the list stayed empty about 16 seconds. As in Proxmox VE, a node that is offline can no longer be chosen as the new VM's node.
+
+### Security
+
+- The calls between the members of a cluster no longer carry a session signed with the key the members share. Each member's `hyperlite-daemon` signs them with its own key, for one member and 5 minutes, and only for an account whose session, API token or rolling-update task it checked itself; the member called verifies them with the public keys each member publishes in the cluster's configuration (`/cluster/authkey/<node>`), as it already pins their certificates (#511, `docs/design/privilege-separation.md`, section 12.1, PR C). During a rolling update from an older version the shared key is still used with the members that published no keys yet, and accepted only while one remains; the sessions opened before the update stay valid 7 days at most.
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
@@ -16,7 +26,6 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
-- A node that is down no longer holds the pages that list the cluster: as Proxmox VE and vSphere, Hyperlite never waits for a host that is gone (`app/core/node_health.py`). A node the cluster sees down (the node poller found it offline, and it sends no status) is named at once and never asked: the ISO list, the VM list, a node's storage, the metrics. A connection to a node switched off seconds ago, not seen down yet, gives up after 8 seconds instead of the system's two minutes, libvirt's included (`scripts/node-ssh`). A node that does not answer is said unreachable (502) where a node's storage list failed with an internal error. The VM creation wizard shows this server's ISO images at once and adds the other nodes' when they come: with a node switched off the list stayed empty about 16 seconds. As in Proxmox VE, a node that is offline can no longer be chosen as the new VM's node.
 - A VM deployed from a template takes the SSH user and the system of the VM the template was made from: an ISO-installed VM deployed from its template had none, and the web terminal could not reach it. Converting a VM to a template no longer leaves its SSH user and system recorded under the name of a VM that is gone.
 
 - Converting a VM to a template forgets it as a deletion does: its backup schedule (which then failed at every run), its rights, pools, automatic deletion, start-at-boot setting, tags and DHCP reservation stayed under the name of a VM that is gone. Both now go through one list (`app/core/vm_records.py`).
