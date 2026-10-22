@@ -243,3 +243,104 @@ In three pull requests, each released and checked on the test VM:
 
 Development and tests run without a daemon: `HYPERLITE_AUTH_SIGNING=local` makes the API sign in-process with keys under
 `HYPERLITE_ETC_DIR` (the test suite, the e2e backend); a node never sets it.
+
+### 12.1 PR C in detail: calls between members (2026-10-21)
+
+**Where it starts.** A member calls another member's API in a user's name in three places:
+- the cluster views (`cluster_view.gather`, `forward`, `forward_to`: tasks, audit, backups, VMs of a member without a
+  status, a request about a guest another member holds);
+- the rolling update (`rolling_update.peer_api`), from the admin's request and then for the length of the run in a
+  background thread;
+- the plan shown before the run.
+
+Each call carries an HS256 token that `security.create_peer_token` signs with `HYPERLITE_SECRET_KEY`. Every member
+holds that key and accepts the token as a session of the user it names, for 4 hours. Whoever reads the key can act as
+any account on every member.
+
+**How Proxmox VE does it.** Its ticket is valid on every node because `authkey.key` is shared through pmxcfs (under
+`priv/`, root only). pveproxy forwards a request to the node it names (`proxyto`) with the user's own ticket: no node
+signs a ticket for a user it has not checked. Hyperlite keeps one key pair per node (no private key travels). The same
+property comes from two rules: a member signs a call only for a user it has just checked, and the receiving member
+checks the signature with the keys of the member that signed it.
+
+**Target.**
+
+1. **Each member publishes its public keys**, the content of `/etc/hyperlite/authkeys.json` (newest first, 8 days), in
+   the replicated configuration under `/cluster/authkey/<node>`. This mirrors `/cluster/tls/<node>`. It is published:
+   - by hyperlite-daemon, the only process that makes the keys;
+   - at its start and every 10 minutes;
+   - before it signs with a key made since, so a member never receives a call signed with a key it cannot find yet.
+
+   Removing a node from the cluster removes its entry.
+2. **A peer ticket**: an EdDSA JWT signed by the calling member's daemon with its current key. Its claims:
+
+   | Claim | Value |
+   |---|---|
+   | `typ` | `"peer"` |
+   | `iss` | the calling member |
+   | `aud` | the member called (one ticket per member) |
+   | `sub`, `uid` | the user |
+   | `iat`, `exp` | 5 minutes |
+   | `jti` | unique |
+
+   The receiving member accepts it as a session of that user only when all of these hold:
+   - its `kid` is among the keys `iss` published;
+   - `iss` is a current member;
+   - `aud` is itself;
+   - its lifetime is at most 5 minutes (60 s of clock difference allowed).
+
+   Then the usual checks apply (account, `uid`, a password changed since `iat`, revocation, rights). A peer ticket is
+   never a session on the member that signed it.
+3. **The daemon signs a peer ticket only for a credential it checks**, never for a name it is handed:
+   - `auth.peer {credential, targets}` takes the bearer credential of the request in progress: a session, an API
+     token, or a task ticket below;
+   - it checks that credential as the API checks a request: signature, expiry, revocation, account, `uid`, password
+     changed since, password to change;
+   - it then signs one peer ticket per target member for that same account;
+   - it refuses a peer ticket as a credential: no chain from member to member.
+4. **A task ticket for the rolling update**: the run outlives the admin's request and may outlive their session.
+   - When the run starts, the API asks `auth.delegate {credential}` with the admin's credential. It receives a task
+     ticket: `typ: "task"`, the same account, 12 hours, this node's key.
+   - The run's thread presents that ticket to `auth.peer`.
+   - A task ticket is never accepted as a session by any API.
+5. **The API holds no signing key for these calls.** It remembers the credential of the request it is serving
+   (`peer_auth.CREDENTIAL`, set where the session is checked). It passes the credential to the threads that call
+   members. It asks its daemon for the tickets. Outside a node (tests, e2e) `HYPERLITE_AUTH_SIGNING=local` runs the same
+   functions in-process, as for sessions.
+
+**Mixed versions during a rolling update.** A member that has published `/cluster/authkey/<node>` runs PR C.
+- **Calling:** a member gets a peer ticket for a member that published its keys. It keeps the HS256 token for one that
+  has not: that member could not verify anything else.
+- **Receiving:** a member accepts an HS256 token while a current member of the cluster has not published its keys,
+  since that older member still calls with it. Once every member has published, HS256 is refused for calls between
+  members.
+- **Sessions opened before the update:** the HS256 sessions a 1.1.0 node signed, up to 7 days for "Stay signed in"
+  (PR A promised they stay valid). They are accepted when issued before this node first ran PR C, and for 7 days at
+  most after it. That moment is recorded once, in `/var/lib/hyperlite/auth-hs256-cutoff`.
+- **Outside a cluster:** no member is older, so only those sessions remain, and for 7 days at most.
+- **The key itself:** `HYPERLITE_SECRET_KEY` stays in `/etc/hyperlite/priv/env` for that transition only. Nothing signs
+  with it once every member runs PR C, except an older member's calls. The release after 1.1.1 removes it from the
+  file and from the configuration copy (`config_copy.KEY_NAMES`).
+
+**What a compromised API can still do after PR C.** It cannot sign: no key it can use, and a ticket names its member
+and its audience. It can act on other members only in the name of a user whose credential it holds at that moment:
+- a request in progress;
+- a rolling update that an admin started.
+
+This is the limit Proxmox VE has too: pveproxy sees the tickets it forwards. While the API runs as root (until step 4),
+it can still read `authkey.key`. PR C removes the shared key that any member's API could use against all the others.
+Step 4 removes the rest.
+
+**Tests and lab.**
+- Unit tests:
+  - publishing and finding the keys;
+  - a ticket refused for another audience, another member, an unpublished key, too long a life, `typ` other than
+    `peer`;
+  - a ticket refused on the member that signed it;
+  - a task ticket refused as a session;
+  - `auth.peer` refused without a credential or with a peer ticket;
+  - the HS256 rules for mixed versions and for sessions from before the update.
+- Lab, on a two-node cluster of test VMs:
+  - one node on the previous build and one on this one: the cluster views and a forwarded request both ways;
+  - both on this build: the same calls, HS256 refused, `/cluster/authkey/*` present;
+  - a rolling update between the two.
