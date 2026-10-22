@@ -320,7 +320,9 @@ function mapPool(p, nodeId) {
   // GET /storage never returned a real `type` field (all existing pools really were
   // "dir"), but it would have silently masked the new real field once NFS pools
   // existed on the backend.
-  return { name: p.name, node: nodeId, type: p.type, state: p.state, capacity_gb: p.capacity_gb, available_gb: p.available_gb, path: p.path ?? null };
+  // protocol: "nfs" or "smb" for a netfs pool (null otherwise), with the version its mount is fixed to.
+  return { name: p.name, node: nodeId, type: p.type, state: p.state, capacity_gb: p.capacity_gb, available_gb: p.available_gb, path: p.path ?? null,
+    protocol: p.protocol ?? null, nfs_version: p.nfs_version ?? null, smb_version: p.smb_version ?? null };
 }
 
 export async function fetchStoragePools() {

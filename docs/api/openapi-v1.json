@@ -3526,8 +3526,76 @@
       ],
       "title": "Size Gb"
      },
+     "smb_domain": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Domain"
+     },
+     "smb_host": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Host"
+     },
+     "smb_password": {
+      "anyOf": [
+       {
+        "maxLength": 255,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Password"
+     },
+     "smb_share": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Share"
+     },
+     "smb_user": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb User"
+     },
+     "smb_version": {
+      "default": "default",
+      "enum": [
+       "default",
+       "3.1.1",
+       "3.0",
+       "2.1",
+       "2.0"
+      ],
+      "title": "Smb Version",
+      "type": "string"
+     },
      "type": {
-      "pattern": "^(dir|netfs|zfs|iscsi)$",
+      "pattern": "^(dir|netfs|smb|zfs|iscsi)$",
       "title": "Type",
       "type": "string"
      }

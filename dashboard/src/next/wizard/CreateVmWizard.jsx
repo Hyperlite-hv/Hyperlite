@@ -327,7 +327,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <label>{t("stor.pool")}
                   <select className="nx-input" aria-label={t("a11y.storage_pool")} value={form.storagePool} onChange={(e) => patch({ storagePool: e.target.value })}>
                     <option value="">{t("wz.r.defaultPool")}</option>
-                    {selectable.map((p) => <option key={p.name} value={p.name}>{p.name} ({p.type === "netfs" ? "NFS" : p.type === "iscsi" ? "iSCSI" : p.type}{p.type === "iscsi" ? "" : `, ${p.available_gb} GB ${t("stor.free").toLowerCase()}`})</option>)}
+                    {selectable.map((p) => <option key={p.name} value={p.name}>{p.name} ({p.type === "netfs" ? (p.protocol === "smb" ? "SMB" : "NFS") : p.type === "iscsi" ? "iSCSI" : p.type}{p.type === "iscsi" ? "" : `, ${p.available_gb} GB ${t("stor.free").toLowerCase()}`})</option>)}
                   </select>
                   <span className="nx-hint">{t("wz.poolHelp")}</span>
                 </label>
