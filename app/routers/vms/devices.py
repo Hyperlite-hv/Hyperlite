@@ -399,7 +399,11 @@ class NetworkUpdate(BaseModel):
 
 
 @router.put("/{name}/network")
-def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+def set_vm_network(
+    name: str, payload: NetworkUpdate, mac: str | None = None, user: dict = Depends(require_vm_privilege("vm.hardware"))
+):
+    """mac: the interface to move, by its MAC address; absent, the first one. Moving it in place keeps its MAC address
+    (what a DHCP reservation and the guest's own configuration know it by), where removing and adding it would not."""
     perm.refuse_unless(user, "network", payload.network, "network.assign", f"network '{payload.network}'")
     conn = open_conn()
     try:
@@ -413,10 +417,23 @@ def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(requi
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
-        iface = root.find(".//devices/interface")
+        interfaces = root.findall(".//devices/interface")
+        if mac is not None:
+            wanted = mac.strip().lower()
+            interfaces = [
+                i
+                for i in interfaces
+                if (i.find("mac") is not None and i.find("mac").get("address", "").lower() == wanted)
+            ]
+        iface = interfaces[0] if interfaces else None
         if iface is None:
             log_action(user["username"], "set_vm_network", name, "failed", "No interface")
-            raise HTTPException(status_code=404, detail="No network interface found on this VM")
+            detail = (
+                f"No network interface with the MAC address {mac} on this VM"
+                if mac
+                else "No network interface found on this VM"
+            )
+            raise HTTPException(status_code=404, detail=detail)
 
         source = iface.find("source")
         if source is None:

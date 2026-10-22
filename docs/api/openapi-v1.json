@@ -18260,6 +18260,7 @@
     ]
    },
    "put": {
+    "description": "mac: the interface to move, by its MAC address; absent, the first one. Moving it in place keeps its MAC address\n(what a DHCP reservation and the guest's own configuration know it by), where removing and adding it would not.",
     "operationId": "set_vm_network_api_v1_vms__name__network_put",
     "parameters": [
      {
@@ -18269,6 +18270,22 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "mac",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Mac"
       }
      }
     ],
