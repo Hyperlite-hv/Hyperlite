@@ -147,7 +147,10 @@ def log_action(
     log_action(..., "success") or (..., "failed") call already marks the end of
     the task for every current synchronous endpoint."""
     if task_id:
-        finish_task(task_id, "succeeded" if result == "success" else "failed", error_message)
+        # A task's error is its failure only: the details of a success ("clone -> copy") are the audit entry's, and
+        # a task that succeeded with an "error" misleads whoever reads it (the API's clients test it).
+        failed = result != "success"
+        finish_task(task_id, "failed" if failed else "succeeded", error_message if failed else None)
 
     if result == "success" and action.startswith(READ_ACTION_PREFIXES):
         return
