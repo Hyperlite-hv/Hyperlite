@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
-from app.core.listing import listing
+from app.core.listing import item, listing
 from app.core.security import require_role
 from app.services import account_service
 
@@ -60,24 +60,44 @@ def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_r
     return {"id": role_id, "key": f"custom:{role_id}", "name": name, "privileges": payload.privileges}
 
 
+@router.get("/custom-roles/{role_id}")
+def get_custom_role(role_id: int, user: dict = Depends(require_role("admin"))):
+    """One custom role, as GET /acl/custom-roles lists it."""
+    return item(perm.list_custom_roles(), "id", role_id, f"Role {role_id}")
+
+
 class CustomRoleRename(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str | None = Field(None, min_length=1, max_length=100)
+    privileges: list[str] | None = None
 
 
 @router.patch("/custom-roles/{role_id}")
 def rename_custom_role(role_id: int, payload: CustomRoleRename, user: dict = Depends(require_role("admin"))):
-    """Only its name changes: the role (custom:<id> in the assignments) is known by its id everywhere else."""
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="Name required")
-    try:
-        old = renaming.rename_label("custom_role", role_id, name)
-    except renaming.LabelTaken as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    if old is None:
-        raise HTTPException(status_code=404, detail="Not found")
-    log_action(user["username"], "rename_custom_role", old, "success", f"-> {name}")
-    return {"id": role_id, "name": name}
+    """Its name, its privileges, or both. The role (custom:<id> in the assignments) is known by its id everywhere
+    else, so its assignments stay: a role changed by deleting and creating it again lost every one of them."""
+    if payload.privileges is not None:
+        try:
+            found = perm.set_custom_role_privileges(role_id, payload.privileges)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        if not found:
+            raise HTTPException(status_code=404, detail="Not found")
+        log_action(user["username"], "update_custom_role", str(role_id), "success", ",".join(payload.privileges))
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Name required")
+        try:
+            old = renaming.rename_label("custom_role", role_id, name)
+        except renaming.LabelTaken as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        if old is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        log_action(user["username"], "rename_custom_role", old, "success", f"-> {name}")
+    elif payload.privileges is None:
+        raise HTTPException(status_code=422, detail="Nothing to change: give a name or privileges")
+    role = item(perm.list_custom_roles(), "id", role_id, f"Role {role_id}")
+    return {"id": role_id, "name": role["label"], "privileges": sorted(role["privileges"])}
 
 
 @router.delete("/custom-roles/{role_id}")
@@ -137,3 +157,10 @@ def delete_acl(acl_id: int, user: dict = Depends(require_role("admin"))):
     perm.delete_acl(acl_id)
     log_action(user["username"], "delete_acl", str(acl_id), "success")
     return {"message": "Assignment deleted"}
+
+
+# Registered last so that the fixed paths above (/roles, /privileges, /custom-roles) keep their routes.
+@router.get("/{acl_id}")
+def get_acl(acl_id: int, user: dict = Depends(require_role("admin"))):
+    """One assignment, as GET /acl lists it."""
+    return item(perm.list_acl(), "id", acl_id, f"Assignment {acl_id}")
