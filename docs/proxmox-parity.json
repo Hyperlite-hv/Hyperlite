@@ -56,7 +56,7 @@
         {"fr": "UEFI, Secure Boot, TPM 2.0", "en": "UEFI, Secure Boot, TPM 2.0", "status": "parity", "pve": "Yes", "hl": "Yes, Windows 11 / Server 2025 profile"},
         {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
-        {"fr": "Consoles", "en": "Consoles", "status": "partial", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC and terminals; no SPICE"},
+        {"fr": "Consoles", "en": "Consoles", "status": "parity", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC, serial console, terminals, and SPICE in virt-viewer through a proxy (TLS, a ticket valid 30 s); no SPICE audio or USB redirection yet"},
         {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
         {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
         {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},

@@ -1106,6 +1106,28 @@ export async function createTerminalTicket(name, node = null) {
 export async function createSerialTicket(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/serial-ticket${nodeQuery(node)}`, { method: "POST" });
 }
+// SPICE (docs/design/spice-console.md): the .vv file virt-viewer opens, through Hyperlite's SPICE proxy. It holds a
+// password valid a few seconds: saved straight to a file, never kept in the page.
+export async function downloadSpiceFile(name, node = null) {
+  let res;
+  try {
+    res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/spice-ticket${nodeQuery(node)}`), { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch {
+    throw new Error("Cannot reach the server. Check your network connection and try again.");
+  }
+  if (!res.ok) {
+    let detail = null;
+    try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+    throw Object.assign(new Error(normalizeDetail(detail) || `HTTP ${res.status}`), { status: res.status });
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = `${name}.vv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+export async function addSpiceDisplay(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/spice-display${nodeQuery(node)}`, { method: "POST" });
+}
 
 // ---- Interactive shell on the physical host (admin only, see app/routers/host.py) ----
 export async function createHostTerminalTicket() {

@@ -147,6 +147,10 @@ another node: open that node's own Hyperlite for them.
   when the guest sends its clipboard (with an agent), it shows with a **Copy** button. **Full screen** and **Open in a
   new window** are there too.
 - **SSH terminal** (administrators): a terminal on the VM through Hyperlite's key.
+- **SPICE**: the VM in virt-viewer (`remote-viewer`) on your computer, as Proxmox VE's SPICE console. **Add a SPICE
+  display** (administrators) gives the VM one next to its VNC console, effective at its next start; **Open in
+  virt-viewer** then downloads a `.vv` file to open within 30 seconds. virt-viewer reaches the VM through port 3128 of
+  the node you are connected to, in TLS, and deletes the file once read.
 - **From your workstation**: SSH or remote desktop from your own tools ([section 17](#17-access-from-your-workstation)).
 
 ### Rename, clone, template, export, migrate

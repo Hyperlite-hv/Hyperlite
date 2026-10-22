@@ -21,6 +21,7 @@ python3-venv
 
 # Virtualisation
 qemu-kvm
+qemu-system-modules-spice
 qemu-utils
 libvirt-daemon-system
 libvirt-daemon-driver-lxc  # the Containers tab: libvirt-daemon-system does not pull it in
