@@ -140,3 +140,13 @@ def test_every_route_of_these_objects_documents_node():
             if names.count("node") != 1:
                 missing.append(f"{method.upper()} {path}: {names.count('node')}")
     assert not missing, missing
+
+
+def test_a_session_whose_password_must_change_sends_nothing(client, auth_headers, peers):  # noqa: F811
+    """As everywhere else: such a session only changes its password, here or through another member."""
+    from app.core.security import flag_weak_password
+
+    headers = auth_headers("newbie")
+    flag_weak_password("newbie")
+    assert client.delete("/vms/web?confirm=true&node=pve-a", headers=headers).status_code == 403
+    assert peers.calls == []

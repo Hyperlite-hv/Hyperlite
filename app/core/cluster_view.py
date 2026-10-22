@@ -224,10 +224,9 @@ async def on_node(connection: HTTPConnection, node: str | None = Query(None, des
         ) from None
     if member is None:
         return None
-    from app.core.security import get_current_user, oauth2_scheme
+    from app.core.security import required_user
 
-    user = await get_current_user(await oauth2_scheme(connection))
-    await _send(connection, "node", member, user)
+    await _send(connection, "node", member, required_user(connection))
 
 
 def _takes_node(endpoint):
