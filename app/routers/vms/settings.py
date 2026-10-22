@@ -311,11 +311,37 @@ def set_vm_boot(
         conn.close()
 
 
-class CloudInitUpdate(BaseModel):
+class StaticInterface(BaseModel):
+    # The interface, by its MAC address; absent: the VM's first interface.
+    mac: str | None = Field(default=None, max_length=17)
+    addresses: list[str] = Field(min_length=1, max_length=16)  # with their prefix: "10.0.20.11/24", "2001:db8::5/64"
+    gateway: str | None = Field(default=None, max_length=45)
+
+
+class CloudInitCustom(BaseModel):
+    """The rest of a guest's customisation, as vSphere's and Proxmox VE's (cloudinit_edit.CUSTOM). A field left out
+    keeps what the drive holds; an empty value ("" or []) clears it."""
+
+    hostname: str | None = Field(default=None, max_length=63)  # the VM's name when empty
+    domain: str | None = Field(default=None, max_length=253)
+    network: list[StaticInterface] | None = Field(default=None, max_length=16)  # the interfaces not listed use DHCP
+    dns: list[str] | None = Field(default=None, max_length=8)
+    dns_search: list[str] | None = Field(default=None, max_length=8)
+    user_data: str | None = Field(default=None, max_length=16 * 1024)  # a cloud-config added to Hyperlite's own
+
+
+class CloudInitUpdate(CloudInitCustom):
     user: str = Field(min_length=1, max_length=32)
     # None: the password is left as it is (Hyperlite never stores it, so it cannot be shown or kept otherwise).
     password: str | None = Field(default=None, max_length=256)
     ssh_keys: list[str] = Field(default_factory=list, max_length=50)
+
+
+def merged_custom(name, payload):
+    """The customisation to write: the payload's fields, the drive's current values for those it leaves out."""
+    current = cloudinit_edit.get_custom(name)
+    given = payload.model_dump(include=set(cloudinit_edit.CUSTOM), exclude_none=True)
+    return {**current, **given}
 
 
 def _cloudinit_view(name, domain):
@@ -348,7 +374,9 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
             )
         try:
             keys = cloudinit_edit.validate(payload.user, payload.password, payload.ssh_keys)
-            cloudinit_edit.rewrite_drive(name, drive, payload.user, payload.password, keys)
+            macs = cloudinit_edit.interface_macs(domain)
+            custom = cloudinit_edit.validate_custom(merged_custom(name, payload), macs)
+            cloudinit_edit.rewrite_drive(name, drive, payload.user, payload.password, keys, custom, macs)
         except cloudinit_edit.CloudInitError as e:
             log_action(user["username"], "update_vm_cloudinit", name, "failed", str(e))
             raise HTTPException(status_code=422, detail=str(e)) from e

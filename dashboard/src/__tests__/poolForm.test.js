@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { poolFormErrors } from "../next/pages/StoragePage";
 
-const base = { name: "pool-1", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
+const base = { name: "pool-1", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default" };
 
 describe("pool form: the same rules as the API, for the fields each kind uses", () => {
   it("a directory pool needs a name only; its path, when given, is absolute", () => {
@@ -32,5 +32,16 @@ describe("pool form: the same rules as the API, for the fields each kind uses", 
     expect(poolFormErrors({ ...ok, chap_password: "x" })).toEqual({ chap_user: "stor.e.chapBoth" });
     expect(poolFormErrors({ ...ok, chap_user: "a b", chap_password: "x" })).toEqual({ chap_user: "stor.e.chapUser" });
     expect(poolFormErrors({ ...ok, chap_user: "hyper", chap_password: "x" })).toEqual({});
+  });
+  it("SMB: a server, a share without slashes, a user and a one-line password; the domain is optional", () => {
+    const smb = { ...base, type: "smb" };
+    expect(poolFormErrors(smb)).toEqual({ smb_host: "stor.e.required", smb_share: "stor.e.required", smb_user: "stor.e.required", smb_password: "stor.e.required" });
+    const ok = { ...smb, smb_host: "192.168.1.30", smb_share: "VM Disks", smb_user: "vmstore", smb_password: "S3cr&t, p@ss!" };
+    expect(poolFormErrors(ok)).toEqual({});
+    expect(poolFormErrors({ ...ok, smb_share: "vms/sub" })).toEqual({ smb_share: "stor.e.smbShare" });
+    expect(poolFormErrors({ ...ok, smb_password: "two\nlines" })).toEqual({ smb_password: "stor.e.smbPassword" });
+    expect(poolFormErrors({ ...ok, smb_domain: "LAB" })).toEqual({});
+    expect(poolFormErrors({ ...ok, smb_domain: "L A B" })).toEqual({ smb_domain: "stor.e.smbDomain" });
+    expect(poolFormErrors({ ...ok, scope: "choix", chosen: [] })).toEqual({ chosen: "stor.e.nodes" });
   });
 });

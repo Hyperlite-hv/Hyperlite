@@ -89,6 +89,21 @@ def plan(disk_el):
     return None, (NOT_GROWABLE_UNSUPPORTED, f"Disks of type '{kind or 'unknown'}' cannot be resized here")
 
 
+def storage_pool_name(conn, domain, target_dev):
+    """The storage pool that holds disk `target_dev` (a ZFS pool for a zvol, the libvirt pool of a file), or None when
+    it is not known: what a resize takes space from."""
+    from app.core.libvirt_utils import pool_for_path
+
+    disk_el = find_disk(domain, target_dev)
+    how, _refusal = plan(disk_el) if disk_el is not None else (None, None)
+    if how is None:
+        return None
+    if how["kind"] == "zvol":
+        return how["pool"]
+    pool = pool_for_path(conn, how["path"])
+    return pool.name() if pool is not None else None
+
+
 def not_growable_code(disk_el):
     """None when the disk can be grown, else the code of the reason (for the disk list)."""
     _plan, refusal = plan(disk_el)

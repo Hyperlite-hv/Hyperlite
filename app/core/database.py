@@ -403,17 +403,17 @@ def init_db():
                 subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                 subject_id TEXT NOT NULL,
                 role TEXT NOT NULL,
-                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container')),
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
                 resource_id TEXT NOT NULL
             )
         """)
-        # Migration: existing databases were created with the old CHECK
-        # (resource_type IN ('vm','pool')). CREATE TABLE IF NOT EXISTS above is a no-op on
+        # Migration: existing databases were created with an older CHECK
+        # (resource_type IN ('vm','pool'), then ('vm','pool','container')). CREATE TABLE IF NOT EXISTS above is a no-op on
         # a table that already exists, and SQLite cannot modify an existing CHECK through
         # ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
         # migrated).
         existing_acl_sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'").fetchone()
-        if existing_acl_sql and "'container'" not in existing_acl_sql["sql"]:
+        if existing_acl_sql and "'network'" not in existing_acl_sql["sql"]:
             conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
             conn.execute("""
                 CREATE TABLE acl (
@@ -421,7 +421,7 @@ def init_db():
                     subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                     subject_id TEXT NOT NULL,
                     role TEXT NOT NULL,
-                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container')),
+                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
                     resource_id TEXT NOT NULL
                 )
             """)
@@ -786,6 +786,17 @@ def init_db():
                 vm_name TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
                 ssh_keys TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        # What else Hyperlite wrote on a VM's cloud-init drive (app/core/cloudinit_edit.py, CUSTOM): host name, domain,
+        # static addresses, resolvers, a cloud-config of the user's, as JSON. A table of its own, not columns of
+        # vm_cloudinit: hyperlite-cfs copies a row with all its columns, and a member still on an older version would
+        # refuse a column it does not have, whereas it leaves a table it does not know alone.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_cloudinit_custom (
+                vm_name TEXT PRIMARY KEY,
+                data TEXT NOT NULL DEFAULT '{}',
                 updated_at TEXT NOT NULL
             )
         """)

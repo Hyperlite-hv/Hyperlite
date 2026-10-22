@@ -120,7 +120,7 @@ def enable_protection(vm_name, node, username):
         # A netfs pool, period", without needing a second candidate node.
         if not uses_shared_storage(conn, conn, domain):
             raise RuntimeError(
-                "HA protection impossible: at least one disk of this VM is not on a shared storage pool"
+                "HA protection impossible: at least one disk of this VM is not on a shared storage pool "
                 "(NFS). Move its disk to a shared pool first."
             )
 

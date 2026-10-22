@@ -213,7 +213,7 @@ function MoveDiskDrawer({ disk, onClose, vm, onDone }) {
           <Field label={t("vh.moveTo")}>
             {(p) => <select {...p} className="nx-inp" aria-label={t("a11y.move_destination_pool")} value={pool} onChange={(e) => setPool(e.target.value)}>
               <option value="">{t("vh.moveChoose")}</option>
-              {targets.map((x) => <option key={x.name} value={x.name}>{x.name} ({x.type === "netfs" ? "NFS" : t("vh.moveDir")}{x.available_gb != null ? ` · ${formatSizeGb(x.available_gb, lang())} ${t("stor.free").toLowerCase()}` : ""})</option>)}
+              {targets.map((x) => <option key={x.name} value={x.name}>{x.name} ({x.type === "netfs" ? (x.protocol === "smb" ? "SMB" : "NFS") : t("vh.moveDir")}{x.available_gb != null ? ` · ${formatSizeGb(x.available_gb, lang())} ${t("stor.free").toLowerCase()}` : ""})</option>)}
             </select>}
           </Field>
         )}

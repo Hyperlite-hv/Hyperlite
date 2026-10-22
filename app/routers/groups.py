@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
-from app.core.listing import listing
+from app.core.listing import item, listing
 from app.core.security import require_role
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -36,6 +36,12 @@ def create_group(payload: GroupCreate, user: dict = Depends(require_role("admin"
         raise HTTPException(status_code=422, detail=f"A group named '{name}' already exists") from None
     log_action(user["username"], "create_group", name, "success")
     return {"id": group_id, "name": name, "members": []}
+
+
+@router.get("/{group_id}")
+def get_group(group_id: int, user: dict = Depends(require_role("admin"))):
+    """One group, as GET /groups lists it."""
+    return item(perm.list_groups(), "id", group_id, f"Group {group_id}")
 
 
 class GroupRename(BaseModel):
