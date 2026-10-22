@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- A damaged database is detected and said, no longer only written to the log at every round of a background loop (#440). Each node checks its SQLite file at start and once a day (`PRAGMA quick_check`), and fully (`PRAGMA integrity_check`, every index against its table) when the metrics, the node poller, the backup scheduler or the configuration copy fail 3 times in a row on a damaged file. A damaged database shows a banner above every page, with the repair that fits, and sends the new **Database check** notification. Index entries that disagree with their tables are repaired from the banner, with the service running (`REINDEX`, `POST /api/v1/host/database/repair`). Damaged index pages, which SQLite cannot free, need the file rebuilt from its tables with the service stopped: `python -m app.core.db_health rebuild`, which keeps the damaged file next to the new one and can empty a damaged history table (`--drop-history`). `GET /api/v1/host/database` and `POST /api/v1/host/database/check` are additions to API v1. See `docs/database-health.md`.
+
+### Fixed
+
+- `.github/scripts/claim.py` sends its JSON bodies with `Content-Type: application/json`: a proxy that requires it refused `take` and `release`.
+
 ### Security
 
 - This node's HTTPS certificate is handled by `hyperlite-daemon` (#511, step 3, host domain part 3): importing a pair, going back to the previous one, making a self-signed one, getting one from Let's Encrypt with certbot, and restarting the API afterwards (`app/daemon/ops/tls.py`). The private key is written to `/etc/hyperlite/local` by the daemon; the API checks who asks and answers as before.
