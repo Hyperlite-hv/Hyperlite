@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Security
+
+- This node's HTTPS certificate is handled by `hyperlite-daemon` (#511, step 3, host domain part 3): importing a pair, going back to the previous one, making a self-signed one, getting one from Let's Encrypt with certbot, and restarting the API afterwards (`app/daemon/ops/tls.py`). The private key is written to `/etc/hyperlite/local` by the daemon; the API checks who asks and answers as before.
+
 ## [1.1.3] - 2026-10-22
 
 ### Security
