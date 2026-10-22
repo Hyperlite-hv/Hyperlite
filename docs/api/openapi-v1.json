@@ -19047,6 +19047,130 @@
     ]
    }
   },
+  "/api/v1/vms/{name}/spice-display": {
+   "post": {
+    "description": "Give the VM a SPICE display next to its VNC one, effective at its next start. Refused on a node not set up for\nSPICE in TLS: the VM would no longer start there.",
+    "operationId": "add_spice_display_api_v1_vms__name__spice_display_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Add Spice Display",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/spice-ticket": {
+   "post": {
+    "description": "The .vv file of a running VM's SPICE display: a password valid a few seconds, and a ticket for the proxy at the\naddress the browser used. virt-viewer deletes the file once read.",
+    "operationId": "create_spice_ticket_api_v1_vms__name__spice_ticket_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Spice Ticket",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
   "/api/v1/vms/{name}/start": {
    "post": {
     "operationId": "start_vm_api_v1_vms__name__start_post",

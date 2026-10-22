@@ -107,7 +107,11 @@ if not _app_log.handlers:
 @asynccontextmanager
 async def lifespan(_app):
     on_startup()
+    from app.core import spice_proxy
+
+    await spice_proxy.start()  # virt-viewer's way to a VM's SPICE display (docs/design/spice-console.md)
     yield
+    await spice_proxy.stop()
     # A normal stop (an update, a restart) disarms the HA watchdog: the node must not be reset for it.
     ha_selffence.stop()
 

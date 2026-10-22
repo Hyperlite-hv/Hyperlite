@@ -53,4 +53,4 @@ From 1.1 the files live where Proxmox VE keeps its own (`app/core/paths.py`); up
 
 ## Ports
 
-The service listens on TCP 8000 (HTTPS). Live migration uses libvirt's default migration ports between hosts. NFS pools require the NFS ports between the host and the server.
+The service listens on TCP 8000 (HTTPS), and on TCP 3128 for SPICE consoles: virt-viewer's proxy, which admits only a ticket handed out by the dashboard and relays SPICE in TLS to the VM (`HYPERLITE_SPICE_PROXY_PORT`, 0 turns it off; [design](design/spice-console.md)). Live migration uses libvirt's default migration ports between hosts. NFS pools require the NFS ports between the host and the server.

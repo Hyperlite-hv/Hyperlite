@@ -80,6 +80,12 @@ log "hyperlite-cfs (replicated configuration)"
 ln -sfn "$CODE/hyperlite-cfs" /usr/local/sbin/hyperlite-cfs
 rm -rf "$OLD/data/cfs-build" "$OLD/data/cfs-build.log"
 
+# SPICE consoles (docs/design/spice-console.md): this node's SPICE certificates and QEMU's TLS setting. A failure
+# leaves SPICE unavailable on this node, never the installation.
+if ! bash "$CODE/scripts/ensure-spice-tls.sh"; then
+    log "WARNING: SPICE consoles could not be set up on this node: bash $CODE/scripts/ensure-spice-tls.sh"
+fi
+
 log "systemd service"
 cp "$CODE/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
 cp "$CODE/installer/hyperlite-cfs.service" /etc/systemd/system/hyperlite-cfs.service
