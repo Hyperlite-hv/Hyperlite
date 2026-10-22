@@ -3,7 +3,7 @@
 
 Several assistants work on this repository at once, some of them under the same GitHub account, so an assignee
 cannot say which one holds a task. A claim says it in the issue itself: the label `in-progress`, the label of the
-owner's assistant (`claude-antho`, `claude-nico`, `claude-joachim`), and a block at the top of the issue's description naming the
+owner's assistant (`claude-antho`, `claude-nico`, `claude-terraform`), and a block at the top of the issue's description naming the
 owner, the session and the files it will touch. The comparison page (docs/proxmox-parity.html, /parity/) reads the
 same block to show the board, and `check` finds who already holds the files a new task needs.
 
@@ -28,7 +28,7 @@ REPO = "Hyperlite-hv/Hyperlite"
 API = f"https://api.github.com/repos/{REPO}"
 LABEL = "in-progress"
 # The people whose assistants work on the repository: each has a label, `claude-<owner>`.
-OWNERS = ("antho", "nico", "joachim")
+OWNERS = ("antho", "nico", "terraform")
 # The page parses this same marker: keep both in step (tests/test_claim.py checks it).
 MARKER = "<!-- claim "
 BLOCK = re.compile(r"<!-- claim (\{.*?\}) -->.*?<!-- /claim -->\n*", re.S)
