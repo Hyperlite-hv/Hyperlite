@@ -41,6 +41,10 @@ class SqliteAccessStore:
     def create_custom_role(self, name, privileges):
         return _write("INSERT INTO custom_roles (name, privileges) VALUES (?, ?)", (name, privileges)).lastrowid
 
+    def set_custom_role_privileges(self, role_id, privileges):
+        """False when there is no such role."""
+        return _write("UPDATE custom_roles SET privileges = ? WHERE id = ?", (privileges, role_id)).rowcount > 0
+
     def delete_custom_role(self, role_key, role_id):
         _write_all(
             ("DELETE FROM acl WHERE role = ?", (role_key,)),
@@ -92,6 +96,10 @@ class SqliteAccessStore:
 
     def create_pool(self, name, description):
         return _write("INSERT INTO pools (name, description) VALUES (?, ?)", (name, description)).lastrowid
+
+    def set_pool_description(self, pool_id, description):
+        """False when there is no such pool."""
+        return _write("UPDATE pools SET description = ? WHERE id = ?", (description, pool_id)).rowcount > 0
 
     def delete_pool(self, pool_id):
         _write_all(

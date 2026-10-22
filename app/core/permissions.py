@@ -114,13 +114,24 @@ def list_custom_roles():
     ]
 
 
-def create_custom_role(name, privileges):
+def _check_privileges(privileges):
     invalid = set(privileges) - set(ALL_PRIVILEGES)
     if invalid:
         raise ValueError(f"Unknown privileges: {', '.join(sorted(invalid))}")
     if not privileges:
         raise ValueError("Choose at least one privilege")
+
+
+def create_custom_role(name, privileges):
+    _check_privileges(privileges)
     return _store().create_custom_role(name, ",".join(privileges))
+
+
+def set_custom_role_privileges(role_id, privileges):
+    """Change what a role allows, keeping its assignments (deleting and creating it again would drop them). False
+    when there is no such role."""
+    _check_privileges(privileges)
+    return _store().set_custom_role_privileges(role_id, ",".join(privileges))
 
 
 def delete_custom_role(role_id):
@@ -190,6 +201,10 @@ def list_pools():
 
 def create_pool(name, description=""):
     return _store().create_pool(name, description)
+
+
+def set_pool_description(pool_id, description):
+    return _store().set_pool_description(pool_id, description)
 
 
 def delete_pool(pool_id):
