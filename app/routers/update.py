@@ -385,7 +385,7 @@ def _source_problem(policy_stdout):
     return None
 
 
-def _refresh_lists(attempts, delay_s, timeout):
+def _refresh_lists(attempts, delay_s, timeout, user=None):
     """apt-get update by hyperlite-daemon (root): an object with returncode and stderr, or None (timed out). Without
     the daemon, said as an apt error, which the check shows as such."""
     from types import SimpleNamespace
@@ -396,6 +396,7 @@ def _refresh_lists(attempts, delay_s, timeout):
     try:
         r = privileged.run(
             "hyperlite.refresh_lists",
+            user=user,
             timeout=attempts * (timeout + delay_s) + 30,
             attempts=attempts,
             delay_s=delay_s,
@@ -406,12 +407,12 @@ def _refresh_lists(attempts, delay_s, timeout):
     return SimpleNamespace(**r) if r is not None else None
 
 
-def _check_update_apt():
+def _check_update_apt(user=None):
     installed = _dpkg_installed_version()
     # For /update/check (an interactive call, the user is waiting in front of the
     # UI): few attempts and a short delay. A real network outage must come up quickly
     # rather than make the user wait needlessly after a simple click.
-    upd = _refresh_lists(attempts=4, delay_s=8, timeout=25)
+    upd = _refresh_lists(attempts=4, delay_s=8, timeout=25, user=user)
     if upd is None or upd.returncode != 0:
         detail = _explain_apt_error(upd.stderr) if upd is not None else "timed out"
         return {
@@ -507,7 +508,7 @@ def _release_notes(installed, candidate, lang):
 @router.get("/check")
 def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
     if _install_method() == "apt":
-        result = _check_update_apt()
+        result = _check_update_apt((user or {}).get("username"))
         if result.get("verifiable") and not result.get("up_to_date"):
             result["notes"] = _release_notes(result.get("commit_local"), result.get("remote_commit"), lang)
         if result.get("verifiable"):
