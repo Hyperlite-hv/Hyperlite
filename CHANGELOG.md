@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Security
+
+- The node's own settings are done by `hyperlite-daemon`, as root, instead of the API (#511, step 3, first domain): the Debian package updates and their nightly schedule, DNS, host name, time and NTP, remote syslog, and the scheduling of a reboot or shutdown (`app/daemon/ops/host.py`). The API keeps who may ask, the audit log and the tasks; the daemon checks every argument again (`app/core/privileged.py`). Without the daemon these settings answer that it is unavailable.
+
+### Fixed
+
+- On a node whose DNS is managed by systemd-resolved, the DNS form showed the local stub (`127.0.0.53`, search domain `.`) instead of the servers it forwards to, and refused to save it back. It now shows systemd-resolved's own servers, ignores the `.`, and refuses a loopback address, which would make the node's resolver ask itself.
+
 ## [1.1.2] - 2026-10-22
 
 ### Fixed
