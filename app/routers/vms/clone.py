@@ -18,6 +18,7 @@ from app.core.security import require_vm_privilege
 from app.core.tasks import answer_later, create_task
 from app.core.vm_builder import (
     IMAGES_DIR,
+    cloudinit_drive,
     create_cloudinit_reseed_iso,
     validate_name,
 )
@@ -98,7 +99,7 @@ def _clone_vm(name, payload, user, task_id=None):
     # 3. LEAK BETWEEN ORIGINAL AND CLONE: the cloned disk is a bit-for-bit copy of the
     #    source disk, with the same hostname, machine-id and SSH HOST KEYS as the
     #    original as long as nothing forces a reconfiguration. For VMs created through
-    #    the default cloud-init path (verifiable: a <name>-cloudinit.iso file exists),
+    #    the default cloud-init path (verifiable: its definition has a <name>-cloudinit.iso drive),
     #    a new minimal cloud-init ISO (a new hostname + a new instance-id, NOT the
     #    password, which Hyperlite never keeps anywhere and could not reinject) is
     #    given to the clone: cloud-init detects a "new instance" at first boot and
@@ -115,6 +116,8 @@ def _clone_vm(name, payload, user, task_id=None):
     defined = False
     try:
         root, disk_els = _check_clone(conn, name, payload, user, task_id)
+        # Read before the CD-ROM drives are dropped from the copy's definition below.
+        source_has_cloudinit = cloudinit_drive(root, name) is not None
 
         # Clone ALL the disks (not only the first one, see the note above).
         for i, disk_el in enumerate(disk_els):
@@ -203,7 +206,7 @@ def _clone_vm(name, payload, user, task_id=None):
         # Guest customization (hostname + SSH host keys): only for the default cloud-init
         # path, detectable by the presence of its ISO. See the design note above the
         # function.
-        if (safe_child(IMAGES_DIR, f"{name}-cloudinit.iso")).exists():
+        if source_has_cloudinit:
             try:
                 reseed_iso = create_cloudinit_reseed_iso(payload.new_name)
                 cdrom_el = ET.SubElement(devices_el, "disk", {"type": "file", "device": "cdrom"})

@@ -21,8 +21,12 @@ from pathlib import Path
 
 import libvirt
 
-from app.core.safe_paths import safe_child
-from app.core.vm_builder import IMAGES_DIR, get_or_create_automation_pubkey, hash_guest_password, protect_drive
+from app.core.vm_builder import (
+    generated_drives,
+    get_or_create_automation_pubkey,
+    hash_guest_password,
+    protect_drive,
+)
 
 
 def _store():
@@ -43,12 +47,10 @@ class CloudInitError(ValueError):
 
 
 def _drive(domain, vm_name):
-    expected = safe_child(IMAGES_DIR, f"{vm_name}-cloudinit.iso")
     root = ET.fromstring(domain.XMLDesc(0))
-    for disk in root.findall("./devices/disk[@device='cdrom']"):
-        source = disk.find("source")
-        if source is not None and source.get("file") == str(expected):
-            return expected, disk
+    for disk, path in generated_drives(root, vm_name):
+        if path.name == f"{vm_name}-cloudinit.iso":
+            return path, disk
     return None, None
 
 
