@@ -7,8 +7,8 @@ session JWT (from `POST /api/v1/auth/login`, or the two-step `POST /api/v1/auth/
 the accounts an administrator chose.
 
 What a browser opens rather than calls stays at the root: `GET /health` (answers everyone with `{"status",
-"environment", "api"}`, `api` being the version of the API, 1; the host name and software versions only to a signed-in
-caller), the SSO sign-in
+"environment", "api"}`, `api` being the version of the API, 1; the host name, `node` (this node's name in its
+cluster, which lists of the cluster call `local`) and software versions only to a signed-in caller), the SSO sign-in
 `/auth/sso/login` and the callback an identity provider is given (`/auth/sso/callback`), the client download
 `/downloads/hyperlite/{platform}`, and the documentation pages.
 

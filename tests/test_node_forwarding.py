@@ -140,3 +140,11 @@ def test_every_route_of_these_objects_documents_node():
             if names.count("node") != 1:
                 missing.append(f"{method.upper()} {path}: {names.count('node')}")
     assert not missing, missing
+
+
+def test_a_signed_in_client_learns_this_nodes_name(client, auth_headers):
+    """Lists call this node's objects `local` and other members' by name: a client tells them apart by it."""
+    from app.core import self_node
+
+    assert client.get("/health", headers=auth_headers("ana")).json()["node"] == self_node.name()
+    assert "node" not in client.get("/health").json()
