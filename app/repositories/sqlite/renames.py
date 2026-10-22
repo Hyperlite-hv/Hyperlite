@@ -18,6 +18,7 @@ _VM_COLUMNS = (
     ("vm_os_label", "vm_name"),
     ("vm_auto_cleanup", "vm_name"),
     ("vm_cloudinit", "vm_name"),
+    ("vm_cloudinit_custom", "vm_name"),
     ("backup_jobs", "vm_name"),
     ("backups", "vm_name"),
     ("pool_members", "vm_name"),

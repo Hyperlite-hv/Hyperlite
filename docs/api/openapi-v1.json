@@ -575,8 +575,165 @@
     "title": "CloneRequest",
     "type": "object"
    },
+   "CloudInitCustom": {
+    "description": "The rest of a guest's customisation, as vSphere's and Proxmox VE's (cloudinit_edit.CUSTOM). A field left out\nkeeps what the drive holds; an empty value (\"\" or []) clears it.",
+    "properties": {
+     "dns": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 8,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dns"
+     },
+     "dns_search": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 8,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dns Search"
+     },
+     "domain": {
+      "anyOf": [
+       {
+        "maxLength": 253,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain"
+     },
+     "hostname": {
+      "anyOf": [
+       {
+        "maxLength": 63,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Hostname"
+     },
+     "network": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/StaticInterface"
+        },
+        "maxItems": 16,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
+     "user_data": {
+      "anyOf": [
+       {
+        "maxLength": 16384,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "User Data"
+     }
+    },
+    "title": "CloudInitCustom",
+    "type": "object"
+   },
    "CloudInitUpdate": {
     "properties": {
+     "dns": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 8,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dns"
+     },
+     "dns_search": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 8,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Dns Search"
+     },
+     "domain": {
+      "anyOf": [
+       {
+        "maxLength": 253,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Domain"
+     },
+     "hostname": {
+      "anyOf": [
+       {
+        "maxLength": 63,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Hostname"
+     },
+     "network": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/StaticInterface"
+        },
+        "maxItems": 16,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
      "password": {
       "anyOf": [
        {
@@ -602,6 +759,18 @@
       "minLength": 1,
       "title": "User",
       "type": "string"
+     },
+     "user_data": {
+      "anyOf": [
+       {
+        "maxLength": 16384,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "User Data"
      }
     },
     "required": [
@@ -2851,6 +3020,48 @@
     "title": "SnapshotCreate",
     "type": "object"
    },
+   "StaticInterface": {
+    "properties": {
+     "addresses": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Addresses",
+      "type": "array"
+     },
+     "gateway": {
+      "anyOf": [
+       {
+        "maxLength": 45,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Gateway"
+     },
+     "mac": {
+      "anyOf": [
+       {
+        "maxLength": 17,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mac"
+     }
+    },
+    "required": [
+     "addresses"
+    ],
+    "title": "StaticInterface",
+    "type": "object"
+   },
    "SyslogSettings": {
     "properties": {
      "host": {
@@ -3079,6 +3290,16 @@
       ],
       "title": "Auto Cleanup Days"
      },
+     "customize": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CloudInitCustom"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
      "disk_controller": {
       "default": "auto",
       "enum": [
@@ -3213,6 +3434,14 @@
        }
       ],
       "title": "Resource Pool"
+     },
+     "ssh_keys": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Ssh Keys",
+      "type": "array"
      },
      "storage_pool": {
       "anyOf": [
