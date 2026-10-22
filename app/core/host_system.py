@@ -29,6 +29,9 @@ ETC_HOSTS = Path("/etc/hosts")
 ETC_HOSTNAME = Path("/etc/hostname")
 RESOLV_CONF = Path("/etc/resolv.conf")
 RESOLVED_DROPIN = Path("/etc/systemd/resolved.conf.d/hyperlite.conf")
+# With systemd-resolved, /etc/resolv.conf names only its local stub (127.0.0.53, "search ."); the servers it forwards to
+# are in this one.
+RESOLVED_UPLINK = Path("/run/systemd/resolve/resolv.conf")
 TIMESYNCD_DROPIN = Path("/etc/systemd/timesyncd.conf.d/hyperlite.conf")
 RSYSLOG_DROPIN = Path("/etc/rsyslog.d/90-hyperlite-remote.conf")
 REBOOT_REQUIRED = Path("/var/run/reboot-required")
@@ -216,7 +219,16 @@ def set_channel(name):
     return channel()
 
 
-def updates(refresh=False):
+def refresh_lists():
+    """apt-get update, as root: hyperlite-daemon's host.refresh_package_lists."""
+    r = _run(["apt-get", "update"], timeout=180)
+    if r.returncode != 0:
+        raise SettingError(f"apt-get update failed: {(r.stderr or r.stdout).strip()[-400:]}")
+
+
+def updates(refresh=False, user=None):
+    """The upgradable packages, read as any user may (apt list); refresh: the lists fetched again first, by
+    hyperlite-daemon (apt-get update needs root)."""
     if shutil.which("apt-get") is None:
         return {
             "available": False,
@@ -226,9 +238,13 @@ def updates(refresh=False):
             "refreshed_at": None,
         }
     if refresh:
-        r = _run(["apt-get", "update"], timeout=180)
-        if r.returncode != 0:
-            raise SettingError(f"apt-get update failed: {(r.stderr or r.stdout).strip()[-400:]}")
+        from app.core import privileged
+        from app.daemon.registry import DaemonError
+
+        try:
+            privileged.run("host.refresh_package_lists", user=user, timeout=240)
+        except DaemonError as e:
+            raise SettingError(e.detail) from e
     listed = _run(["apt", "list", "--upgradable"], timeout=60, env={**os.environ, "LC_ALL": "C"})
     reboot_pkgs = []
     if REBOOT_PKGS.exists():
@@ -314,7 +330,7 @@ def _parse_resolv(text):
         if len(parts) >= 2 and parts[0] == "nameserver":
             servers.append(parts[1])
         elif len(parts) >= 2 and parts[0] in ("search", "domain"):
-            search = parts[1:]
+            search = [d for d in parts[1:] if d != "."]  # "search ." (systemd-resolved): no search domain
     return servers, search
 
 
@@ -328,8 +344,11 @@ def dns():
             elif line.startswith("Domains="):
                 search = line[8:].split()
     else:
+        # Before Hyperlite set them, systemd-resolved's own servers (its uplink file), not the stub it answers on: the
+        # form showed 127.0.0.53, which written back would make the node's resolver ask itself.
+        source = RESOLVED_UPLINK if manager == "systemd-resolved" and RESOLVED_UPLINK.exists() else RESOLV_CONF
         try:
-            servers, search = _parse_resolv(RESOLV_CONF.read_text())
+            servers, search = _parse_resolv(source.read_text())
         except OSError:
             servers, search = [], []
     return {
@@ -352,6 +371,11 @@ def set_dns(servers, search):
         raise SettingError(f"Invalid search domain: {', '.join(bad)}")
     manager = _resolv_manager()
     if manager == "systemd-resolved":
+        own = [s for s in servers if s.startswith("127.") or s == "::1"]
+        if own:
+            raise SettingError(
+                f"{', '.join(own)} is this node's own resolver (systemd-resolved): give the DNS servers it should ask"
+            )
         text = "# Written by Hyperlite (node DNS settings).\n[Resolve]\n" + f"DNS={' '.join(servers)}\n"
         if search:
             text += f"Domains={' '.join(search)}\n"

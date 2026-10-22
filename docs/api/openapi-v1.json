@@ -3526,8 +3526,76 @@
       ],
       "title": "Size Gb"
      },
+     "smb_domain": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Domain"
+     },
+     "smb_host": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Host"
+     },
+     "smb_password": {
+      "anyOf": [
+       {
+        "maxLength": 255,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Password"
+     },
+     "smb_share": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb Share"
+     },
+     "smb_user": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Smb User"
+     },
+     "smb_version": {
+      "default": "default",
+      "enum": [
+       "default",
+       "3.1.1",
+       "3.0",
+       "2.1",
+       "2.0"
+      ],
+      "title": "Smb Version",
+      "type": "string"
+     },
      "type": {
-      "pattern": "^(dir|netfs|zfs|iscsi)$",
+      "pattern": "^(dir|netfs|smb|zfs|iscsi)$",
       "title": "Type",
       "type": "string"
      }
@@ -8831,6 +8899,81 @@
      }
     ],
     "summary": "Self Signed Certificate",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/database": {
+   "get": {
+    "description": "This node's database: sound, damaged (and which repair fits), or a background loop that keeps failing on it\n(app/core/db_health.py). The node's summary carries the same, for the dashboard's banner.",
+    "operationId": "host_database_api_v1_host_database_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Host Database",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/database/check": {
+   "post": {
+    "description": "The full check, now: every page, and every index against its table. It reads the whole file.",
+    "operationId": "check_host_database_api_v1_host_database_check_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Check Host Database",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/database/repair": {
+   "post": {
+    "description": "Rebuild the indexes whose entries disagree with their tables, with the service running. Any other damage\nanswers 409: the summary's `repair` says what fits (\"rebuild\" with the service stopped, or \"restore\").",
+    "operationId": "repair_host_database_api_v1_host_database_repair_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Repair Host Database",
     "tags": [
      "host"
     ]
@@ -17855,6 +17998,68 @@
      }
     ],
     "summary": "Restart Vm",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/serial-ticket": {
+   "post": {
+    "description": "node: as for the console ticket. A VM with no serial port gets one, effective at its next start.",
+    "operationId": "create_serial_ticket_api_v1_vms__name__serial_ticket_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Serial Ticket",
     "tags": [
      "vms"
     ]
