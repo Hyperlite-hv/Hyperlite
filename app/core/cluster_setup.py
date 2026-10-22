@@ -717,6 +717,9 @@ def remove_member(name, confirmation, username):
         client.put(CONF_PATH, json.dumps(conf).encode())
         with contextlib.suppress(NotFound):
             client.delete(f"{SSH_DIR}/{shadow.component(name)}")
+        from app.core import peer_auth
+
+        peer_auth.forget(name)
         sync()
     SqliteNodeStore().delete(name)
     log_action(username, "cluster_remove_member", name, "success", conf["cluster"])

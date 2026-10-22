@@ -155,6 +155,18 @@ def build_libvirt_uri(node):
     )
 
 
+# libvirt passes no ssh option: the connections this node opens go through scripts/node-ssh, which bounds the time to
+# connect (app/core/node_health.py). A URI handed to another node's libvirtd, a migration's destination, keeps plain
+# ssh: that node may run a version without the script.
+NODE_SSH = paths.CODE / "scripts" / "node-ssh"
+
+
+def libvirt_uri_from_here(node):
+    """build_libvirt_uri, for a connection this node opens itself."""
+    uri = build_libvirt_uri(node)
+    return f"{uri}&command={NODE_SSH}" if NODE_SSH.is_file() else uri
+
+
 def _nodes():
     # The node repository's synchronous bridge: this module runs in threads (poller, libvirt helpers).
     from app.repositories import registry
@@ -175,7 +187,7 @@ def test_node_connection(hostname, ssh_user, ssh_port):
     """Try a real remote libvirt connection and check that it is a QEMU/KVM
     host: not just "the SSH port answers"."""
     fake_node = {"hostname": hostname, "ssh_user": ssh_user, "ssh_port": ssh_port}
-    uri = build_libvirt_uri(fake_node)
+    uri = libvirt_uri_from_here(fake_node)
     try:
         conn = libvirt.openReadOnly(uri)
     except libvirt.libvirtError as e:
