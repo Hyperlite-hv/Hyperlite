@@ -25,8 +25,8 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 
 @router.get("")
 def list_templates(user: dict = Depends(get_current_user)):
-    """Each template with `linked_clones`: the VMs whose disk reads through its disk (app/core/linked_disks.py), or
-    None when libvirt does not answer: the templates are still listed. `linkable`: its disk is a qcow2 image, which a
+    """Each template with `linked_clones`, the VMs whose disk reads through the template's disk (null when libvirt
+    does not answer: the templates are still listed), and `linkable`, true when its disk is a qcow2 image, which a
     linked clone needs as its backing file."""
     templates = templates_store.list_templates()
     try:
