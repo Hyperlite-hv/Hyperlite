@@ -7,7 +7,7 @@ import subprocess
 import libvirt
 import pytest
 
-from app.core import cloudinit_edit
+from app.core import cloudinit_edit, vm_builder
 
 KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj0bXkPZ1d5bDx2eH1+ ana@laptop"
 AUTOMATION = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAutomationKeyOfHyperlite hyperlite-automation"
@@ -36,7 +36,7 @@ def _xml(iso):
 
 @pytest.fixture()
 def images(monkeypatch, tmp_path):
-    monkeypatch.setattr(cloudinit_edit, "IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(vm_builder, "IMAGES_DIR", tmp_path)
     monkeypatch.setattr(cloudinit_edit, "get_or_create_automation_pubkey", lambda: AUTOMATION)
     return tmp_path
 
