@@ -17,9 +17,9 @@ from app.core.audit import log_action
 from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_pool, lookup_volume, open_conn
-from app.core.listing import listing
+from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
-from app.core.vm_builder import validate_name
+from app.core.vm_builder import POOL_BASE_NAME, validate_name
 from app.core.vm_limits import validate_vm_resources
 
 logger = logging.getLogger(__name__)
@@ -176,6 +176,12 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
     calls on THIS server, no remote management over SSH; see
     app/core/zfs_storage.py). A ZFS pool of a registered remote node is
     therefore not visible here for now."""
+    result = _pools(node)
+    log_action(user["username"], "list_storage_pools", "storage", "success")
+    return listing(result)
+
+
+def _pools(node):
     conn = open_conn(node)
     try:
         ensure_default_pool(conn)
@@ -193,8 +199,7 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
         for p in result:
             p["node"] = node or "local"
             p.setdefault("path", None)
-        log_action(user["username"], "list_storage_pools", "storage", "success")
-        return listing(result)
+        return result
     finally:
         conn.close()
 
@@ -886,6 +891,11 @@ def _delete_single(pool_name, node, detach, user):
         pool.refresh(0)
         volumes = pool.listAllVolumes()
         pool_root = ET.fromstring(pool.XMLDesc(0))
+        # The base image Hyperlite copied into the pool for the VMs built on it (vm_builder.ensure_pool_base_image)
+        # is its own copy, not a file of the user's: it does not keep the pool from being removed. A pool where it
+        # is the last file therefore said "still contains 1 file" for a pool the user had emptied.
+        base_images = [v for v in volumes if v.name() == POOL_BASE_NAME]
+        volumes = [v for v in volumes if v.name() != POOL_BASE_NAME]
         if pool_root.get("type") == "iscsi":
             # Removing an iSCSI pool only logs out of the target: the LUNs and their data stay on the storage
             # side. Refused while a VM still uses one of them.
@@ -919,6 +929,18 @@ def _delete_single(pool_name, node, detach, user):
                     detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
                 )
 
+        # Removed with a pool of this node; kept on a shared one (NFS, SMB), where the VMs of the other nodes using
+        # the same share may still be built on it.
+        if pool_root.get("type") == "dir" and not detach:
+            in_use = _vms_using_path(conn, pool_root.findtext("target/path")) if base_images else []
+            if in_use:
+                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool used by VMs")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
+                )
+            for volume in base_images:
+                volume.delete(0)
         try:
             if pool.isActive():
                 # netfs: unmounts the export. dir: does not touch the content of the directory
@@ -943,6 +965,12 @@ def _delete_single(pool_name, node, detach, user):
 
 @router.get("/{pool_name}/volumes")
 def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
+    result = _volumes(pool_name)
+    log_action(user["username"], "list_volumes", pool_name, "success")
+    return listing(result)
+
+
+def _volumes(pool_name):
     conn = open_conn()
     try:
         if zfs_storage.pool_exists(pool_name):
@@ -950,8 +978,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
             result = zfs_storage.list_zvols(pool_name)
             for vol in result:
                 vol["used"] = vol["path"] in in_use
-            log_action(user["username"], "list_volumes", pool_name, "success")
-            return listing(result)
+            return result
 
         try:
             pool = lookup_pool(conn, pool_name)
@@ -971,8 +998,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
                     "used": vol.path() in in_use,
                 }
             )
-        log_action(user["username"], "list_volumes", pool_name, "success")
-        return listing(result)
+        return result
     finally:
         conn.close()
 
@@ -1117,3 +1143,16 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         return {"message": f"Volume '{volume_name}' deleted"}
     finally:
         conn.close()
+
+
+# Reading one object, registered last so that the fixed paths above (/support, /shared...) keep their routes.
+@router.get("/{pool_name}/volumes/{volume_name}")
+def get_volume(pool_name: str, volume_name: str, user: dict = Depends(get_current_user)):
+    """One volume, as GET /storage/{pool}/volumes lists it."""
+    return item(_volumes(pool_name), "name", volume_name, f"Volume '{volume_name}'")
+
+
+@router.get("/{pool_name}")
+def get_pool(pool_name: str, node: str | None = None, user: dict = Depends(get_current_user)):
+    """One storage pool, as GET /storage lists it (node: the same convention)."""
+    return item(_pools(node), "name", pool_name, f"Storage pool '{pool_name}'")

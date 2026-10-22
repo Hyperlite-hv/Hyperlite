@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core import firmware, maintenance, zfs_storage
+from app.core import firmware, maintenance, vm_locks, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
@@ -24,7 +24,7 @@ from app.core.libvirt_utils import (
 from app.core.network_alloc import allocate_static_ip, generate_mac
 from app.core.safe_paths import safe_child
 from app.core.security import require_role
-from app.core.tasks import create_task
+from app.core.tasks import answer_later, create_task
 from app.core.vm_builder import (
     BASE_IMAGE,
     build_domain_xml,
@@ -168,12 +168,25 @@ def _pending_remote_isos(payload):
 
 
 @router.post("", status_code=201)
-def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin"))):
+def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin")), wait: bool = True):
+    """wait=false: every check is made, then the creation runs as a task and the answer is 202 with its id."""
     maintenance.refuse_if_in_maintenance("local", "VM creation")
     pending = _pending_remote_isos(payload)
-    if not pending:
-        return _create_vm(payload, user)
-    return _create_vm_after_copy(payload, user, pending)
+    if pending:
+        return _create_vm_after_copy(payload, user, pending)
+    # Two creations under the same name would write the same disk files, as two clones would.
+    claim = vm_locks.claim_or_409(payload.name, "a creation")
+    if wait:
+        with claim:
+            return _create_vm(payload, user)
+    try:
+        _create_vm(payload, user, check_only=True)
+        task_id = create_task("create_vm", payload.name, node=None, username=user["username"])
+    except BaseException:
+        claim.release()
+        raise
+    work = vm_locks.released_after(claim, lambda: _create_vm(payload, user, task_id=task_id))
+    return answer_later(task_id, work, name=payload.name)
 
 
 def _create_vm_after_copy(payload, user, pending):
@@ -230,9 +243,10 @@ def _create_vm_after_copy(payload, user, pending):
     return JSONResponse(status_code=202, content={"name": payload.name, "copy_iso": tasks})
 
 
-def _create_vm(payload, user, pending=frozenset(), check_only=False):
+def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=None):
     """pending: image names that are not here yet purpose are being brought (they pass the existence check).
-    check_only: run every check, create nothing (no task either), return None."""
+    check_only: run every check, create nothing (no task either), return None.
+    task_id: the task already made for this creation (wait=false); one is made otherwise."""
     errors = []
     name_error = validate_name(payload.name)
     if name_error:
@@ -298,7 +312,8 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
             errors.append("The password must contain at least 4 characters")
 
     conn = open_conn()
-    task_id = None if check_only else create_task("create_vm", payload.name, node=None, username=user["username"])
+    if not check_only and task_id is None:
+        task_id = create_task("create_vm", payload.name, node=None, username=user["username"])
     try:
         try:
             conn.lookupByName(payload.name)
@@ -343,7 +358,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                 pool = None
             if pool is not None:
                 if not pool.isActive():
-                    errors.append(f"Pool de storage '{payload.storage_pool}' inactive")
+                    errors.append(f"Storage pool '{payload.storage_pool}' is not active")
                 else:
                     pool_type, pool_path = pool_type_and_target_path(pool)
                     if pool_type == "iscsi":
@@ -353,7 +368,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False):
                             f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi only)"
                         )
                     elif not pool_path:
-                        errors.append(f"Pool de storage '{payload.storage_pool}' : path unreadable")
+                        errors.append(f"Storage pool '{payload.storage_pool}': its path cannot be read")
                     else:
                         target_dir = Path(pool_path)
 
