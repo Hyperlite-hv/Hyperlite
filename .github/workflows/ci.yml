@@ -184,11 +184,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # What apt and pip downloaded in the containers last time (installer/build-cache.sh): both check every kept file
+      # against what they trust (the signed Debian index, the hashes of requirements.txt), so a pull request reads it
+      # safely; only pushes write it. A new key each month lets Debian's updates in without keeping old files forever.
+      - id: key
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - id: downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.package-downloads
+          key: package-${{ steps.key.outputs.month }}-${{ hashFiles('installer/build-runtime.sh', 'installer/test-package-inside.sh', 'installer/deb/control.template', 'requirements.txt') }}
+          restore-keys: package-${{ steps.key.outputs.month }}-
       - name: Build the runtime in debian:13
         run: |
-          docker run --rm -v "$PWD:/src" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" debian:13 \
-            bash /src/installer/build-runtime.sh /src /src/installer/runtime
-      - run: bash installer/test-package.sh debian:13 installer/runtime
+          mkdir -p ~/.package-downloads
+          docker run --rm -v "$PWD:/src" -v "$HOME/.package-downloads:/cache" -e HYPERLITE_BUILD_CACHE=/cache \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" debian:13 bash /src/installer/build-runtime.sh /src /src/installer/runtime
+      - run: HYPERLITE_BUILD_CACHE="$HOME/.package-downloads" bash installer/test-package.sh debian:13 installer/runtime
+      - if: steps.downloads.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        run: sudo chown -R "$(id -u):$(id -g)" ~/.package-downloads
+      - if: steps.downloads.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.package-downloads
+          key: ${{ steps.downloads.outputs.cache-primary-key }}
 
   cfs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
