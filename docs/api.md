@@ -37,6 +37,12 @@ figures are older than 30 s.
 Inside v1 a change is only ever an addition (a route, an optional field, a documented new value); anything else waits
 for a v2, served next to v1.
 
+Every object a list gives can also be read alone, with the same fields: `GET /storage/{pool}?node=`,
+`GET /storage/{pool}/volumes/{volume}`, `GET /pools/{id}`, `GET /groups/{id}`, `GET /acl/{id}`,
+`GET /acl/custom-roles/{id}`, `GET /auth/users/{username}`, `GET /backup-groups/{id}`, `GET /ha/{vm}` (404 when there
+is none). `PATCH /acl/custom-roles/{id}` takes `name`, `privileges` or both, and keeps the role's assignments;
+`PATCH /pools/{id}` takes `name`, `description` or both.
+
 ## Errors
 
 Errors are returned as JSON `{"detail": "...", "code": "..."}` with an appropriate HTTP status. `detail` is for a
