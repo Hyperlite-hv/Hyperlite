@@ -1,0 +1,1 @@
+- Three error messages had two words glued together (the HA protection refused on local storage, a container image without a package manager, an update refused on a modified tree).
