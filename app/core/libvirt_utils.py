@@ -101,6 +101,15 @@ def ensure_default_pool(conn):
     return pool
 
 
+def lookup_pool(conn, name):
+    """conn.storagePoolLookupByName() for a pool a user names, with the 'default' pool made and started when it is not
+    there yet: a fresh node defines it at its first listing only, so creating a volume or attaching a disk there
+    failed with "not found" until someone had opened the storage page. Raises libvirt.libvirtError as the lookup."""
+    if name == "default":
+        return ensure_default_pool(conn)
+    return conn.storagePoolLookupByName(name)
+
+
 def pool_type_and_target_path(pool):
     """(type, target path) of a storage pool, or (None, None) if unreadable. Shared
     between migration and HA, both needing to know whether a disk lives on

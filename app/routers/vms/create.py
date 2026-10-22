@@ -12,8 +12,10 @@ from pydantic import BaseModel, Field
 
 from app.core import firmware, maintenance, vm_locks, zfs_storage
 from app.core.audit import log_action
+from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
 from app.core.libvirt_utils import (
+    ensure_default_pool,
     get_disk_paths_in_use,
     open_conn,
     pool_type_and_target_path,
@@ -328,9 +330,8 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         if firmware_error:
             errors.append(firmware_error)
 
-        # Resolution of the chosen storage pool: None/absent = the 'default' pool,
-        # already guaranteed present and active by ensure_default_pool() at service
-        # start-up, so no need to look it up again here. Restricted to the 'dir'/'netfs'
+        # Resolution of the chosen storage pool: None/absent = the 'default' pool, made here when a fresh node has
+        # not defined it yet (the disks go to its directory, and are read back as its volumes). Restricted to the 'dir'/'netfs'
         # types: they are the only pool types created by this project
         # (app/routers/storage.py) that expose a classic FILE path as expected by
         # qemu-img. A 'logical' (LVM) or other pool would need a different volume
@@ -342,9 +343,14 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         # same limit as list_pools/delete_pool in app/routers/storage.py).
         zfs_pool_name = None
         iscsi_pool = None
-        if payload.storage_pool and payload.storage_pool != "default" and zfs_storage.pool_exists(payload.storage_pool):
+        if not payload.storage_pool or payload.storage_pool == "default":
+            try:
+                ensure_default_pool(conn)
+            except libvirt.libvirtError as e:
+                errors.append(f"The 'default' storage pool cannot be made: {describe_exception(e)}")
+        elif zfs_storage.pool_exists(payload.storage_pool):
             zfs_pool_name = payload.storage_pool
-        elif payload.storage_pool and payload.storage_pool != "default":
+        else:
             try:
                 pool = conn.storagePoolLookupByName(payload.storage_pool)
             except libvirt.libvirtError:
