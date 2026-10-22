@@ -21,6 +21,7 @@ journalctl -u hyperlite -n 100 --no-pager                 # service logs (instal
 - Do not commit secrets or private hostnames/IP addresses. `hyperlite.db` and `.env` are not tracked.
 - Comments explain *why*; no ticket numbers, dates or people in comments.
 - Bind SQL parameters; validate user-supplied URLs with `app/core/http_safety.py`; never swallow exceptions silently.
+- Changelog: add a fragment `changelog.d/<issue>-<slug>.<type>.md`, never edit `CHANGELOG.md` (only the release PR does, through `scripts/changelog.py release`). See `changelog.d/README.md`.
 
 ## Working alongside other people and assistants
 
