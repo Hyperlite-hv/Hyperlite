@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 
 import libvirt
 
+from app.core import db_health
 from app.core.libvirt_utils import open_conn
 
 logger = logging.getLogger(__name__)
@@ -390,8 +391,10 @@ def _collector_loop():
             if time.time() - last_rollup >= 3600:
                 _rollup_and_prune()
                 last_rollup = time.time()
+            db_health.succeeded("metrics")
         except Exception as e:  # never let the thread die because of a failed tick
             print(f"[metrics] tick failed: {e!r}", flush=True)
+            db_health.failed("metrics", e)
         _stop_event.wait(COLLECT_INTERVAL_S)
 
 

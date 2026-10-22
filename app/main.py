@@ -383,8 +383,9 @@ async def confirm_writes(request: Request, call_next):
 
 
 # Requests that change nothing in the cluster's configuration, or must work to see why it is read-only: signing in and
-# out. Everything else that changes something is refused on a node that lost the quorum (cluster_lead.read_only_reason).
-_READ_ONLY_EXEMPT = (f"{API}/auth/login", f"{API}/auth/logout")
+# out, and the check and repair of this node's own database. Everything else that changes something is refused on a
+# node that lost the quorum (cluster_lead.read_only_reason).
+_READ_ONLY_EXEMPT = (f"{API}/auth/login", f"{API}/auth/logout", f"{API}/host/database/")
 
 
 @app.middleware("http")
@@ -486,6 +487,9 @@ def on_startup():
     from app.core import peer_auth
 
     peer_auth.record_cutoff()  # the HS256 sessions signed before this version: valid for a transition only
+    from app.core import db_health
+
+    db_health.start()  # PRAGMA quick_check now and once a day: a damaged file is said, not only logged by the loops
     from app.core import statd
 
     statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)

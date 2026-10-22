@@ -14,6 +14,7 @@ Thanks for your interest. Hyperlite is licensed under the PolyForm Noncommercial
   - Urgent production fixes use a `hotfix/...` branch from `master`, and are merged back into `test` afterwards.
 - New here, or bringing an AI assistant? Read [docs/onboarding.md](docs/onboarding.md) for the access checklist and the working rules.
 - Keep pull requests small and focused. Explain *why* in the description.
+- A change people notice gets a changelog entry as a **fragment of its own**, `changelog.d/<issue>-<slug>.<type>.md` (type `added`, `changed`, `deprecated`, `removed`, `fixed` or `security`), never an edit of `CHANGELOG.md`: two pull requests then never conflict over the changelog. The release pull request runs `python3 scripts/changelog.py release <version>`, which writes the version's section and removes the fragments. See [changelog.d/README.md](changelog.d/README.md).
 - Do not commit secrets, real hostnames or IP addresses of private infrastructure.
 
 ## Development setup

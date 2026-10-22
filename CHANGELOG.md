@@ -4,9 +4,39 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-10-22
+
 ### Added
 
-- Each object a list of API v1 gives can be read alone, with the same fields: a storage pool, a volume, a pool, a group, an assignment, a custom role, an account, a grouped backup job, a VM's HA protection (additions to API v1, `docs/api.md`). A custom role's privileges and a pool's description change in place (`PATCH`): a role changed by deleting and creating it again lost all its assignments. What the Terraform provider reads after each change (#330).
+- A damaged database is detected and said, no longer only written to the log at every round of a background loop (#440). Each node checks its SQLite file at start and once a day (`PRAGMA quick_check`), and fully (`PRAGMA integrity_check`, every index against its table) when the metrics, the node poller, the backup scheduler or the configuration copy fail 3 times in a row on a damaged file. A damaged database shows a banner above every page, with the repair that fits, and sends the new **Database check** notification. Index entries that disagree with their tables are repaired from the banner, with the service running (`REINDEX`, `POST /api/v1/host/database/repair`). Damaged index pages, which SQLite cannot free, need the file rebuilt from its tables with the service stopped: `python -m app.core.db_health rebuild`, which keeps the damaged file next to the new one and can empty a damaged history table (`--drop-history`). `GET /api/v1/host/database` and `POST /api/v1/host/database/check` are additions to API v1. See `docs/database-health.md`.
+
+### Fixed
+
+- **A backup asked while another runs shows up.** One backup runs at a time on a node: one asked meanwhile waits for its turn before its row exists, and a VM's Backups tab read the list once, 1.5 s after the click, so it never appeared until the page was reloaded. The tab now follows it until it shows and says it waits for its turn; a container's Backups tab follows its backup's task and a running backup until it ends (it read the list once too). This was also the end-to-end test that failed first in 14 of the last 25 CI runs (#569).
+- `.github/scripts/claim.py` sends its JSON bodies with `Content-Type: application/json`: a proxy that requires it refused `take` and `release`.
+
+### Changed
+
+- **The CI runs what a pull request needs** (#569): the end-to-end suite only for `app/` and the dashboard, hyperlite-cfs only for `cfs/` and its client, the workstation client only for `cli/`, the package for the code and the installer (`scripts/ci-scope.sh`); pushes to test and master still run everything. The end-to-end suite runs in four even parts (`next-audit.spec.ts` in parallel), hyperlite-cfs's clusters on runners of their own and its two fuzzers side by side. The required `e2e` check now also covers cfs, its clusters, the package and the client: a red one blocked nothing. CodeQL runs only when Python or JavaScript changes, and every Monday.
+
+
+### Security
+
+- This node's HTTPS certificate is handled by `hyperlite-daemon` (#511, step 3, host domain part 3): importing a pair, going back to the previous one, making a self-signed one, getting one from Let's Encrypt with certbot, and restarting the API afterwards (`app/daemon/ops/tls.py`). The private key is written to `/etc/hyperlite/local` by the daemon; the API checks who asks and answers as before.
+
+## [1.1.3] - 2026-10-22
+
+### Security
+
+- Hyperlite's own update is done by `hyperlite-daemon` (#511, step 3, host domain part 2): it checks the request again (an update from the mirror or from a received file, the return to the previous version) and starts the job in a unit of its own, which outlives the restarts of the API and of the daemon that the package being installed causes (`app/daemon/ops/hyperlite.py`). The check for a new version fetches the package lists through the daemon, and the update channel is written by it. The API only asks; without the daemon, the update answers that it is unavailable.
+
+### Security
+
+- The node's own settings are done by `hyperlite-daemon`, as root, instead of the API (#511, step 3, first domain): the Debian package updates and their nightly schedule, DNS, host name, time and NTP, remote syslog, and the scheduling of a reboot or shutdown (`app/daemon/ops/host.py`). The API keeps who may ask, the audit log and the tasks; the daemon checks every argument again (`app/core/privileged.py`). Without the daemon these settings answer that it is unavailable.
+
+### Fixed
+
+- On a node whose DNS is managed by systemd-resolved, the DNS form showed the local stub (`127.0.0.53`, search domain `.`) instead of the servers it forwards to, and refused to save it back. It now shows systemd-resolved's own servers, ignores the `.`, and refuses a loopback address, which would make the node's resolver ask itself.
 
 ## [1.1.2] - 2026-10-22
 

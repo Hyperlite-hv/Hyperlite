@@ -3,6 +3,7 @@ import logging
 import re
 import shutil
 import socket
+import subprocess
 import xml.etree.ElementTree as ET
 from typing import Literal
 from xml.sax import saxutils
@@ -11,7 +12,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import iscsi, nfs_permissions, renaming, shared_pools, zfs_storage
+from app.core import iscsi, nfs_permissions, renaming, shared_pools, smb_storage, zfs_storage
 from app.core.audit import log_action
 from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
@@ -124,6 +125,13 @@ def _nfs_version(pool):
     return None
 
 
+def _pool_root(pool):
+    try:
+        return ET.fromstring(pool.XMLDesc(0))
+    except (libvirt.libvirtError, ET.ParseError):
+        return None
+
+
 def _pool_summary(pool):
     state, capacity, allocation, available = pool.info()
     if _pool_type(pool) == "iscsi":
@@ -138,8 +146,13 @@ def _pool_summary(pool):
             available = capacity - allocation
         except libvirt.libvirtError:
             pass
+    root = _pool_root(pool)
+    smb = root is not None and smb_storage.is_smb(root)
     return {
-        "nfs_version": _nfs_version(pool) if _pool_type(pool) == "netfs" else None,
+        # A netfs pool mounts an NFS export or an SMB share: the same shared storage, said apart here.
+        "protocol": ("smb" if smb else "nfs") if _pool_type(pool) == "netfs" else None,
+        "smb_version": smb_storage.version_of(root) if smb else None,
+        "nfs_version": _nfs_version(pool) if _pool_type(pool) == "netfs" and not smb else None,
         "path": _pool_path(pool),
         "name": pool.name(),
         "uuid": pool.UUIDString(),
@@ -203,7 +216,9 @@ class PoolCreate(BaseModel):
     # mechanism can be validated without touching a node's existing LVM.
     # "iscsi": a target on a NAS or storage array (see app/core/iscsi.py); its LUNs, created on the storage side,
     # become VM disks.
-    type: str = Field(pattern="^(dir|netfs|zfs|iscsi)$")
+    # "smb": an SMB/CIFS share of a Windows server or a NAS, mounted by libvirt as a netfs pool (app/core/smb_storage.py):
+    # shared storage as an NFS pool is, and listed as one ("netfs", with protocol "smb").
+    type: str = Field(pattern="^(dir|netfs|smb|zfs|iscsi)$")
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
     nfs_host: str | None = None  # "netfs" pool: NFS server host
     nfs_export_path: str | None = None  # pool "netfs" : path exporte cote server
@@ -216,18 +231,24 @@ class PoolCreate(BaseModel):
     iscsi_target: str | None = None  # "iscsi" pool: target name (IQN)
     chap_user: str | None = None  # "iscsi" pool: CHAP credentials, when the target requires them
     chap_password: str | None = Field(None, max_length=255)
+    smb_host: str | None = None  # "smb" pool: the server's address
+    smb_share: str | None = None  # "smb" pool: the share's name
+    smb_user: str | None = None
+    smb_password: str | None = Field(None, max_length=255)  # kept in a root-only file on each node, never returned
+    smb_domain: str | None = None  # "smb" pool: the Windows domain or workgroup, when the server needs it
+    smb_version: Literal["default", "3.1.1", "3.0", "2.1", "2.0"] = "default"  # "default": negotiated
     # Shared storage (NFS, iSCSI) declared for several nodes at once, as on Proxmox: every node, including the ones
     # registered later (all_nodes), or the nodes listed ("local" is this host). See app/core/shared_pools.py.
     all_nodes: bool = False
     nodes: list[str] | None = Field(None, max_length=64)
 
 
-def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
+def _build_pool_xml(payload: PoolCreate, target_path: str, cred_path: str | None = None) -> str:
     """Build the libvirt XML with ElementTree (automatic escaping) rather than by
     string concatenation: the security audit had found an XML injection in
     bridge-mode network creation for exactly that reason, and the mistake must
     not be repeated here."""
-    pool_el = ET.Element("pool", type=payload.type)
+    pool_el = ET.Element("pool", type="netfs" if payload.type == "smb" else payload.type)
     ET.SubElement(pool_el, "name").text = payload.name
     if payload.type == "iscsi":
         source_el = ET.SubElement(pool_el, "source")
@@ -239,7 +260,21 @@ def _build_pool_xml(payload: PoolCreate, target_path: str) -> str:
         target_el = ET.SubElement(pool_el, "target")
         ET.SubElement(target_el, "path").text = iscsi.BY_PATH
         return ET.tostring(pool_el, encoding="unicode")
-    if payload.type == "netfs":
+    if payload.type == "smb":
+        source_el = ET.SubElement(pool_el, "source")
+        ET.SubElement(source_el, "host", name=payload.smb_host)
+        ET.SubElement(source_el, "dir", path=payload.smb_share)
+        ET.SubElement(source_el, "format", type="cifs")
+        # The same local-namespace form as the NFS options below (the only one libvirt honours), every value quoted.
+        mount_opts_xml = (
+            '<mount_opts xmlns="http://libvirt.org/schemas/storagepool/fs/1.0">'
+            + "".join(
+                f"<option name={saxutils.quoteattr(o)}/>"
+                for o in smb_storage.mount_options(cred_path, payload.smb_version)
+            )
+            + "</mount_opts>"
+        )
+    elif payload.type == "netfs":
         source_el = ET.SubElement(pool_el, "source")
         ET.SubElement(source_el, "host", name=payload.nfs_host)
         ET.SubElement(source_el, "dir", path=payload.nfs_export_path)
@@ -300,6 +335,7 @@ def storage_support(user: dict = Depends(get_current_user)):
         "nfs": "ok" if shutil.which("mount.nfs") else "no_client",
         "zfs": zfs_storage.status(),
         "iscsi": "ok" if iscsi.initiator_available() else "no_initiator",
+        "smb": "ok" if shutil.which("mount.cifs") else "no_client",
         # The storage side must allow this name (ACL) before it shows any LUN.
         "iscsi_initiator": iscsi.initiator_name(),
     }
@@ -379,6 +415,23 @@ def _create_single(payload, node, user):
                 status_code=422, detail="The iSCSI initiator is not installed on this host (open-iscsi package)"
             )
         target_path = iscsi.BY_PATH
+    elif payload.type == "smb":
+        error = smb_storage.validation_error(
+            bool(payload.smb_host and NFS_HOST_RE.match(payload.smb_host)),
+            payload.smb_share,
+            payload.smb_user,
+            payload.smb_password,
+            payload.smb_domain,
+            payload.smb_version,
+        )
+        if error:
+            raise HTTPException(status_code=422, detail=error)
+        # libvirt mounts the share with mount.cifs: without it its error hides the real cause (this host only).
+        if not node and shutil.which("mount.cifs") is None:
+            raise HTTPException(
+                status_code=422, detail="The SMB client is not installed on this host (cifs-utils package)"
+            )
+        target_path = str(nfs_permissions.POOLS_ROOT / payload.name)
     else:
         if not payload.nfs_host or not payload.nfs_export_path:
             raise HTTPException(status_code=422, detail="nfs_host and nfs_export_path are required for an NFS pool")
@@ -411,8 +464,19 @@ def _create_on(payload, node, target_path, user):
         except libvirt.libvirtError:
             pass
 
-        pool_xml = _build_pool_xml(payload, target_path)
+        cred_path = smb_storage.credentials_path(payload.name, node) if payload.type == "smb" else None
+        pool_xml = _build_pool_xml(payload, target_path, cred_path)
         try:
+            if cred_path:
+                try:
+                    smb_storage.write_credentials(
+                        cred_path,
+                        smb_storage.credentials_text(payload.smb_user, payload.smb_password, payload.smb_domain),
+                        node,
+                    )
+                except (OSError, subprocess.SubprocessError) as e:
+                    log_action(user["username"], "create_storage_pool", payload.name, "failed", str(e))
+                    raise HTTPException(status_code=502, detail=f"The SMB credentials could not be written: {e}") from e
             if payload.type == "iscsi" and payload.chap_user:
                 # The CHAP password lives in a libvirt secret (private: never read back through the API), not in
                 # the pool XML nor in Hyperlite's database.
@@ -435,6 +499,15 @@ def _create_on(payload, node, target_path, user):
             # and would block a new attempt with the same name.
             with contextlib.suppress(libvirt.libvirtError):
                 conn.storagePoolLookupByName(payload.name).undefine()
+            if cred_path:
+                smb_storage.remove_credentials(cred_path, node)
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Could not mount the SMB share: check the server address, the share name, the user and "
+                        f"password, and the SMB version. Detail: {msg}"
+                    ),
+                ) from e
             if payload.type == "iscsi":
                 _delete_chap_secret(conn, payload.name)
                 # libvirt only relays iscsiadm's command line: say what to check first.
@@ -454,6 +527,8 @@ def _create_on(payload, node, target_path, user):
             # Mounted fine is not enough: QEMU must be able to own its disk files there (root_squash).
             perm = nfs_permissions.check(target_path, export=payload.nfs_export_path)
             summary["warning"] = perm["message"]
+        elif payload.type == "smb" and not node:
+            summary["warning"] = smb_storage.check(target_path)["message"]
         return summary
     finally:
         conn.close()
@@ -508,7 +583,7 @@ def _create_shared(payload, user):
     if payload.type not in shared_pools.SHARED_TYPES:
         raise HTTPException(
             status_code=422,
-            detail="Only shared storage (NFS or iSCSI) can be created on several nodes: a local directory or a "
+            detail="Only shared storage (NFS, SMB or iSCSI) can be created on several nodes: a local directory or a "
             "ZFS pool belongs to one host",
         )
     name_error = validate_name(payload.name, "storage pool")
@@ -601,13 +676,17 @@ def check_pool_permissions(pool_name: str, user: dict = Depends(require_role("ad
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         if _pool_type(pool) != "netfs":
-            raise HTTPException(status_code=422, detail="Only NFS pools need this check")
+            raise HTTPException(status_code=422, detail="Only NFS and SMB pools need this check")
         if not pool.isActive():
             raise HTTPException(status_code=409, detail="Start the pool first: the share must be mounted")
-        export = ET.fromstring(pool.XMLDesc(0)).find("source/dir")
-        result = nfs_permissions.check(
-            _pool_path(pool), export=export.get("path") if export is not None else "/srv/share"
-        )
+        root = ET.fromstring(pool.XMLDesc(0))
+        if smb_storage.is_smb(root):
+            result = smb_storage.check(_pool_path(pool))
+        else:
+            export = root.find("source/dir")
+            result = nfs_permissions.check(
+                _pool_path(pool), export=export.get("path") if export is not None else "/srv/share"
+            )
         log_action(
             user["username"],
             "check_pool_permissions",
@@ -853,6 +932,9 @@ def _delete_single(pool_name, node, detach, user):
             pool.undefine()
             if pool_root.get("type") == "iscsi":
                 _delete_chap_secret(conn, pool_name, _chap_usage(pool_root))
+            cred_path = smb_storage.credentials_of(pool_root) if smb_storage.is_smb(pool_root) else None
+            if cred_path:
+                smb_storage.remove_credentials(cred_path, None if not node or node == "local" else node)
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_storage_pool", pool_name, "failed", msg)
