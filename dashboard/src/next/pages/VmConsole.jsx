@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { termOptions } from "../lib/prefs";
-import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Keyboard, Laptop, Maximize, TriangleAlert, X } from "lucide-react";
-import { createConsoleTicket, createTerminalTicket } from "../../api/client";
+import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Info, Keyboard, Laptop, Maximize, TriangleAlert, X } from "lucide-react";
+import { createConsoleTicket, createSerialTicket, createTerminalTicket } from "../../api/client";
 import { ensureXtermLoaded, keepFitted, loadTerminalFont, wsUrl } from "../../utils/loadXterm";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
@@ -20,8 +20,8 @@ const RETRY_S = 5;
 // audits: an endless loop filled the audit log for as long as the tab stayed open.
 const MAX_ATTEMPTS = 12;
 
-// Console of a VM: the graphical console (VNC through noVNC) or the SSH terminal (xterm, administrators only, like
-// the backend), over the ticket + WebSocket relay. There is no Connect button: it connects by itself as soon as
+// Console of a VM: the graphical console (VNC through noVNC), the serial console or the SSH terminal (both xterm; the
+// SSH terminal for administrators only, like the backend), over the ticket + WebSocket relay. There is no Connect button: it connects by itself as soon as
 // the VM runs, and reconnects every few seconds after an error or a dropped connection (a VM whose IP address is
 // not known yet, a reboot...), up to MAX_ATTEMPTS. Used in the VM page and, with `standalone`, as the separate
 // console window. The VM's node goes with every ticket: a remote VM's console is relayed through its node.
@@ -53,6 +53,8 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   // A refusal will not change by asking again every few seconds.
   const failed = (e) => { setError(errorMessage(e)); setStatus("error"); if (e?.status >= 400 && e.status < 500) setGaveUp(true); };
   const terminal = mode === "terminal";
+  // The serial console and the SSH terminal are both text in xterm; only the SSH terminal is for administrators.
+  const text = terminal || mode === "serial";
 
   const cleanup = useCallback(() => {
     try { rfb.current?.disconnect(); } catch { /* already closed */ }
@@ -87,7 +89,8 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
     setStatus("connecting"); setError(null);
     try {
       await ensureXtermLoaded();
-      const ticket = await createTerminalTicket(name, node);
+      const serial = mode === "serial";
+      const ticket = await (serial ? createSerialTicket : createTerminalTicket)(name, node);
       screen.current.innerHTML = "";
       const options = termOptions();
       await loadTerminalFont(options);
@@ -97,7 +100,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       // eslint-disable-next-line no-undef
       const fit = new FitAddon.FitAddon();
       tm.loadAddon(fit); tm.open(screen.current); fit.fit(); term.current = tm;
-      const sock = new WebSocket(wsUrl(`/vms/${encodeURIComponent(name)}/terminal?ticket=${encodeURIComponent(ticket.ticket)}`));
+      const sock = new WebSocket(wsUrl(`/vms/${encodeURIComponent(name)}/${serial ? "serial" : "terminal"}?ticket=${encodeURIComponent(ticket.ticket)}`));
       ws.current = sock;
       sock.onopen = () => { attempts.current = 0; setStatus("connected"); fit.fit(); sock.send("\x00" + JSON.stringify({ cols: tm.cols, rows: tm.rows })); };
       sock.onmessage = (ev) => tm.write(ev.data);
@@ -122,7 +125,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
     setRetryIn(delay || null);
     let left = delay;
     const tick = delay ? setInterval(() => { left -= 1; setRetryIn(left > 0 ? left : null); }, 1000) : null;
-    const go = setTimeout(() => { if (tick) clearInterval(tick); setRetryIn(null); if (terminal) connectTerminal(); else connectVnc(); }, delay * 1000);
+    const go = setTimeout(() => { if (tick) clearInterval(tick); setRetryIn(null); if (text) connectTerminal(); else connectVnc(); }, delay * 1000);
     return () => { clearTimeout(go); if (tick) clearInterval(tick); };
   }, [allowed, gaveUp, status, mode, name, node]); // eslint-disable-line react-hooks/exhaustive-deps
   // Types the text as key presses (works at a login prompt, no agent needed), a few milliseconds apart so that a
@@ -153,16 +156,18 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   return (
     <>
       {terminal && caps.admin && <div className="nx-bn" data-tone="warning" role="note"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vc.sshWarn")}</span></div>}
+      {mode === "serial" && <div className="nx-bn" data-tone="info" role="note"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vc.serialHelp")}</span></div>}
       <div className={standalone ? "nx-console-standalone" : undefined}>
         <div className="nx-termbar">
           <div className="nx-seg2" role="group" aria-label={t("vc.mode")}>
-            <button type="button" aria-pressed={!terminal} onClick={() => switchMode("vnc")}>{t("vc.vnc")}</button>
+            <button type="button" aria-pressed={mode === "vnc"} onClick={() => switchMode("vnc")}>{t("vc.vnc")}</button>
+            <button type="button" aria-pressed={mode === "serial"} onClick={() => switchMode("serial")}>{t("vc.serial")}</button>
             <button type="button" aria-pressed={terminal} onClick={() => switchMode("terminal")}>{t("vc.ssh")}</button>
           </div>
           <span className="nx-st" data-tone={connected ? undefined : "offline"} style={{ fontSize: "var(--fs-125)" }}><span className="nx-dot" data-tone={connected ? "success" : error ? "warning" : "offline"} aria-hidden="true" /><span role="status">{stateLabel}</span></span>
           <span className="nx-sp" />
-          {!terminal && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => rfb.current?.sendCtrlAltDel()}><Keyboard size={14} aria-hidden="true" />{t("vc.ctrlAltDel")}</button>}
-          {!terminal && (
+          {!text && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => rfb.current?.sendCtrlAltDel()}><Keyboard size={14} aria-hidden="true" />{t("vc.ctrlAltDel")}</button>}
+          {!text && (
             <span className="nx-relative">
               <button ref={keysBtn} type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} aria-haspopup="menu" aria-expanded={keysOpen} onClick={() => setKeysOpen((o) => !o)}>{t("vc.keys")}<ChevronDown size={14} aria-hidden="true" /></button>
               <Menu open={keysOpen} onClose={() => setKeysOpen(false)} label={t("vc.keys")} returnFocusRef={keysBtn} style={{ top: "calc(100% + 4px)", right: 0 }}>
@@ -170,14 +175,14 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
               </Menu>
             </span>
           )}
-          {!terminal && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} aria-expanded={typing} onClick={() => setTyping((v) => !v)}><ClipboardPaste size={14} aria-hidden="true" />{t("vc.typeText")}</button>}
+          {!text && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} aria-expanded={typing} onClick={() => setTyping((v) => !v)}><ClipboardPaste size={14} aria-hidden="true" />{t("vc.typeText")}</button>}
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!connected} onClick={() => frame.current?.requestFullscreen?.()}><Maximize size={14} aria-hidden="true" />{t("vc.fullscreen")}</button>
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setWsOpen(true)}><Laptop size={14} aria-hidden="true" />{t("ws.button")}</button>
           {standalone
             ? <button type="button" className="nx-btn nx-btn--sm" onClick={() => window.close()}><X size={14} aria-hidden="true" />{t("vc.closeWindow")}</button>
             : <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!running || (terminal && !caps.admin)} onClick={openWindow}><ExternalLink size={14} aria-hidden="true" />{t("nn.openWindow")}</button>}
         </div>
-        {!terminal && typing && connected && (
+        {!text && typing && connected && (
           <div className="nx-typebar" role="group" aria-label={t("vc.typeText")}>
             <textarea className="nx-inp nx-mono" rows={2} maxLength={MAX_TYPED} autoComplete="off" spellCheck={false} aria-label={t("vc.typeLabel")} placeholder={t("vc.typePh")} value={typed} onChange={(e) => setTyped(e.target.value)} />
             <div className="nx-inline">
@@ -187,7 +192,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
             </div>
           </div>
         )}
-        {!terminal && guestClip && (
+        {!text && guestClip && (
           <div className="nx-typebar" role="status">
             <span className="nx-f-h">{t("vc.guestClip")}</span>
             <code className="nx-mono nx-clip">{guestClip.slice(0, 300)}</code>
@@ -201,7 +206,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
           <div className="nx-card2" style={{ borderRadius: "0 0 10px 10px" }}><Empty title={t("vc.adminOnlyTitle")} text={t("vc.adminOnlyHelp")} /></div>
         ) : (
           <div className="nx-termwrap nx-screen" ref={frame}>
-            <div className="nx-term nx-term--screen" ref={screen} role="region" aria-label={terminal ? t("vc.ssh") : t("vc.vnc")} />
+            <div className="nx-term nx-term--screen" ref={screen} role="region" aria-label={t(terminal ? "vc.ssh" : mode === "serial" ? "vc.serial" : "vc.vnc")} />
             {!connected && status !== "connecting" && !retryIn && !error && <p className="nx-term-hint">{running ? t("nn.connecting") : t("vc.mustRun")}</p>}
           </div>
         )}

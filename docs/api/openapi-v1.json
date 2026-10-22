@@ -17935,6 +17935,68 @@
     ]
    }
   },
+  "/api/v1/vms/{name}/serial-ticket": {
+   "post": {
+    "description": "node: as for the console ticket. A VM with no serial port gets one, effective at its next start.",
+    "operationId": "create_serial_ticket_api_v1_vms__name__serial_ticket_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Serial Ticket",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
   "/api/v1/vms/{name}/snapshots": {
    "get": {
     "operationId": "list_snapshots_api_v1_vms__name__snapshots_get",

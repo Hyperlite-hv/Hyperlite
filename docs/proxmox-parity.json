@@ -57,7 +57,7 @@
         {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
         {"fr": "Consoles", "en": "Consoles", "status": "partial", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC and terminals; no SPICE"},
-        {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "missing", "issue": 425, "pve": "xterm.js", "hl": "None"},
+        {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
         {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
         {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
         {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
