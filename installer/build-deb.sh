@@ -48,11 +48,12 @@ log "copying the files tracked by Git"
         cfs/tests/*|installer/deb/*|installer/preseed.cfg|installer/partman-auto.sh|installer/postinstall.sh) continue ;;
         installer/packages.list|installer/preseed-*.cfg|installer/hyperlite-questions.sh|installer/hyperlite.templates) continue ;;
         docs/*|lab/*|dashboard/*|cli/*) continue ;;
-        README.md|CHANGELOG.md|CONTRIBUTING.md|CODE_OF_CONDUCT.md|SECURITY.md|*/README.md) continue ;;
+        README.md|CHANGELOG.md|CONTRIBUTING.md|CODE_OF_CONDUCT.md|SECURITY.md|*/README.md|changelog.d/*) continue ;;
         cfs/*|scripts/build-cfs.sh) continue ;;  # built in CI (installer/build-runtime.sh): no sources to build on a node
         installer/build-*.sh|installer/test-package.sh|installer/iso-release-notes.tmpl) continue ;;
         installer/hyperlite-apt-repo.nginx.conf) continue ;;
         scripts/ci-publish.sh|scripts/publish-gh-pages.sh|scripts/release.sh|scripts/release-notes.sh|scripts/sign-iso.sh) continue ;;
+        scripts/changelog.py) continue ;;
         scripts/verify-apt-mirror.sh) continue ;;
     esac
     mkdir -p "$CODE/$(dirname "$f")"
