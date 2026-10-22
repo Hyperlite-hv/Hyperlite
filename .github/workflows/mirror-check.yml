@@ -3,10 +3,11 @@ name: Mirror check
 # The public APT mirror, as apt sees it (scripts/verify-apt-mirror.sh): the signed Release and the index files it
 # announces must match, or clients fail with "File has unexpected size". It ran as a systemd timer on the dev VM, which
 # was removed: a failed run is reported by GitHub to the repository's watchers, and HYPERLITE_ALERT_WEBHOOK (an
-# optional repository secret) also gets it.
+# optional repository secret) also gets it. Every publication checks the mirror it has just written
+# (scripts/ci-publish.sh): this watches for a later drift (the CDN, the mirror repository), every six hours.
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:

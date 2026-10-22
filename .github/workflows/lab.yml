@@ -2,7 +2,8 @@ name: VM lab
 
 # Three Debian VMs under KVM on the runner (lab/vm.sh): what the namespaces of the CI's cfs job cannot show, real
 # kernels and real network stacks between the nodes, and later the HA tests (each VM has a watchdog device). It runs on
-# changes to cfs/ or the lab, every night, and on demand.
+# changes to cfs/ or the lab, on demand, and at night on test when cfs/ or the lab changed there during the day: the
+# night run tested master, which changes at releases only, so it ran the same code for ten runner-hours most nights.
 on:
   pull_request:
     paths: ["cfs/**", "lab/**", ".github/workflows/lab.yml", ".github/actions/**"]
@@ -25,12 +26,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # At night: did cfs/ or the lab change on test since the previous night? Any error answers yes.
+  changes:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: test
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changes
+        run: |
+          if recent=$(git log --since="25 hours ago" --format=%h -- cfs lab .github/workflows/lab.yml .github/actions); then
+            [ -n "$recent" ] && changed=true || changed=false
+          else
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "[lab] cfs/ or the lab changed on test since the previous night: $changed"
+
   cfs-on-vms:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changes.outputs.changed != 'false') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # At night, test: the code the next release takes.
+          ref: ${{ github.event_name == 'schedule' && 'test' || '' }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -66,10 +94,11 @@ jobs:
   # rounds, every answered write checked after each. A round takes about 15 s, mostly Corosync noticing a lost node
   # (token and consensus timeouts, kept at their real values), so the thousand rounds run as ten shards of a hundred
   # in parallel, each on its own runner and its own random seed: about 30 minutes instead of four hours. Namespaces,
-  # not VMs: a round takes seconds instead of a minute. Every night and on demand only; the pull requests run five
-  # rounds in ci.yml.
+  # not VMs: a round takes seconds instead of a minute. At night when cfs/ changed on test (job changes), and on
+  # demand; the pull requests run five rounds in ci.yml.
   cfs-soak:
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && (github.event_name != 'schedule' || needs.changes.outputs.changed != 'false') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -80,6 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'schedule' && 'test' || '' }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
