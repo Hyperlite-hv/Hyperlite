@@ -34,3 +34,19 @@ func TestAnOldServerIsNamedAsSuch(t *testing.T) {
 		t.Fatalf("err = %v, want the server's own sentence", err)
 	}
 }
+
+// A token the server no longer accepts is the workstation's session to renew, said with the command that does it.
+func TestAnExpiredSessionNamesTheCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("User-Agent") != "hyperlite-cli/"+version {
+			t.Errorf("User-Agent %q", r.Header.Get("User-Agent"))
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"detail": "Not authenticated", "code": "unauthorized"}`))
+	}))
+	defer srv.Close()
+	err := call(&server{URL: srv.URL, Token: "hlt_x"}, "GET", "/vms", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "hyperlite login "+srv.URL) {
+		t.Fatalf("err = %v, want the sign-in command", err)
+	}
+}
