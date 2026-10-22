@@ -24,6 +24,9 @@ class Domain:
     def isActive(self):
         return self.active
 
+    def UUIDString(self):
+        return "6f1c2d3e-0000-4000-8000-000000000001"
+
 
 class Conn:
     def __init__(self, domain):
@@ -74,8 +77,8 @@ def test_a_running_vm_with_a_serial_port_gets_a_ticket_on_its_node(client, auth_
     answer = client.post("/vms/web/serial-ticket?node=node-b", headers=auth_headers("root"))
     assert answer.status_code == 200
     assert libvirt_vm["nodes"] == ["node-b"]
-    name, _expiry, node = console.SERIAL_TICKETS[answer.json()["ticket"]]
-    assert (name, node) == ("web", "node-b")
+    name, _expiry, node, uuid = console.SERIAL_TICKETS[answer.json()["ticket"]]
+    assert (name, node, uuid) == ("web", "node-b", "6f1c2d3e-0000-4000-8000-000000000001")
 
 
 def test_a_vm_without_a_serial_port_gets_one_for_its_next_start(client, auth_headers, libvirt_vm):
@@ -118,22 +121,32 @@ def test_it_takes_the_graphical_console_privilege_not_the_administrator_role(cli
     assert client.post("/vms/web/terminal-ticket", headers=auth_headers("bob", role="viewer")).status_code == 403
 
 
-def test_virsh_console_runs_against_the_vm_node(monkeypatch):
-    assert console.serial_command("web", None) == ["virsh", "--quiet", "--connect", "qemu:///system", "console", "web"]
+def test_virsh_console_runs_against_the_vm_node_by_its_uuid(monkeypatch):
+    """The UUID libvirt gave the VM, never the name the request carried: no name can pass for an option of virsh."""
+    uuid = "6f1c2d3e-0000-4000-8000-000000000001"
+    assert console.serial_command(uuid, None) == [
+        "virsh",
+        "--quiet",
+        "--connect",
+        "qemu:///system",
+        "console",
+        "--domain",
+        uuid,
+    ]
     monkeypatch.setattr(console, "get_node", lambda name: {"name": name, "hostname": "10.0.0.2"})
     monkeypatch.setattr(console, "libvirt_uri_from_here", lambda node: f"qemu+ssh://root@{node['hostname']}/system")
-    assert console.serial_command("web", "node-b")[3] == "qemu+ssh://root@10.0.0.2/system"
+    assert console.serial_command(uuid, "node-b")[3] == "qemu+ssh://root@10.0.0.2/system"
 
 
 def test_the_serial_console_relays_both_ways(client, monkeypatch):
     seen = []
 
-    def command(name, node):
-        seen.append((name, node))
+    def command(uuid, node):
+        seen.append((uuid, node))
         return ["sh", "-c", "printf 'login: '; read who; echo \"hello $who\""]
 
     monkeypatch.setattr(console, "serial_command", command)
-    console.SERIAL_TICKETS["s1"] = ("web", 10**12, "node-b")
+    console.SERIAL_TICKETS["s1"] = ("web", 10**12, "node-b", "uuid-1")
     with client.websocket_connect("/api/v1/vms/web/serial?ticket=s1") as ws:
         out = ""
         while "login: " not in out:
@@ -141,11 +154,11 @@ def test_the_serial_console_relays_both_ways(client, monkeypatch):
         ws.send_text("alice\r")
         while "hello alice" not in out:
             out += ws.receive_text()
-    assert seen == [("web", "node-b")]
+    assert seen == [("uuid-1", "node-b")]
     assert "s1" not in console.SERIAL_TICKETS, "a ticket is used once"
 
 
-@pytest.mark.parametrize("ticket", [("other", 10**12, None), ("web", 0, None)])
+@pytest.mark.parametrize("ticket", [("other", 10**12, None, "uuid-1"), ("web", 0, None, "uuid-1")])
 def test_a_ticket_is_bound_to_its_vm_and_expires(client, ticket):
     console.SERIAL_TICKETS["s2"] = ticket
     with (

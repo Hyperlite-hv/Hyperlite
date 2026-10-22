@@ -385,17 +385,18 @@ def create_serial_ticket(name: str, node: str | None = None, user: dict = Depend
                 SERIAL_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        SERIAL_TICKETS[ticket] = (name, now + SERIAL_TICKET_TTL, node)
+        # The VM by the UUID libvirt gave it: the command line never carries what the request named.
+        SERIAL_TICKETS[ticket] = (name, now + SERIAL_TICKET_TTL, node, domain.UUIDString())
         log_action(user["username"], "create_serial_ticket", name, "success")
         return {"ticket": ticket, "expires_in_s": SERIAL_TICKET_TTL}
     finally:
         conn.close()
 
 
-def serial_command(name, node):
+def serial_command(uuid, node):
     """`virsh console` on the VM's node: through the same libvirt address as every call to that node."""
     uri = libvirt_uri_from_here(get_node(node)) if node else LIBVIRT_URI
-    return ["virsh", "--quiet", "--connect", uri, "console", name]
+    return ["virsh", "--quiet", "--connect", uri, "console", "--domain", uuid]
 
 
 @router.websocket("/{name}/serial")
@@ -406,7 +407,7 @@ async def vm_serial(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    vm_name, expiry, node = entry
+    vm_name, expiry, node, uuid = entry
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
@@ -414,7 +415,7 @@ async def vm_serial(websocket: WebSocket, name: str):
     await websocket.accept()
     # virsh prints its own messages in the user's language: C.UTF-8 keeps them English and the guest's UTF-8 intact.
     await pty_session.run(
-        websocket, serial_command(name, node), {**os.environ, "TERM": "xterm-256color", "LC_ALL": "C.UTF-8"}
+        websocket, serial_command(uuid, node), {**os.environ, "TERM": "xterm-256color", "LC_ALL": "C.UTF-8"}
     )
     try:
         await websocket.close()
