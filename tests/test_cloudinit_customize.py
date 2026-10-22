@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from app.core import cloudinit_edit as ce
+from app.core import vm_builder
 from app.routers.vms import create, settings
 
 MACS = ["52:54:00:aa:00:01", "52:54:00:aa:00:02"]
@@ -104,7 +105,10 @@ def drive(database, tmp_path, monkeypatch):
     conn = Mock()
     conn.lookupByName.return_value = domain
     monkeypatch.setattr(settings, "open_conn", lambda *a, **k: conn)
-    monkeypatch.setattr(ce, "IMAGES_DIR", tmp_path)
+    # The drive's directory: vm_builder's, which finds a VM's own drives (and cloudinit_edit's copy of it while the
+    # module still imports one), so the test holds whichever lands first.
+    monkeypatch.setattr(vm_builder, "IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(ce, "IMAGES_DIR", tmp_path, raising=False)
     monkeypatch.setattr(ce, "get_or_create_automation_pubkey", lambda: None)
     monkeypatch.setattr(ce, "protect_drive", lambda path: None)
     monkeypatch.setattr(ce.os, "chown", lambda *a: None)
