@@ -11,6 +11,8 @@ export HYPERLITE_VAR_DIR="${E2E_VAR_DIR:-$WORK/var}" HYPERLITE_ETC_DIR="$WORK/et
 mkdir -p "$HYPERLITE_VAR_DIR" "$HYPERLITE_ETC_DIR"
 # No hyperlite-daemon: sessions are signed by the backend itself (app/core/tickets.py).
 export HYPERLITE_AUTH_SIGNING=local
+# Nor the root operations: run by the backend itself, through the daemon's registry (app/core/privileged.py).
+export HYPERLITE_DAEMON_INPROCESS=1
 export HYPERLITE_SECRET_KEY="e2e-$(openssl rand -hex 16)"
 export HYPERLITE_ENCRYPTION_KEY="$("${ROOT}/venv/bin/python" -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' 2>/dev/null || python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
 export HYPERLITE_INITIAL_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-E2e-Quartz-Harbor-2026}"

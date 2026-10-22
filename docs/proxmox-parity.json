@@ -83,7 +83,7 @@
       "fr": "Sécurité et exploitation",
       "en": "Security and operations",
       "rows": [
-        {"fr": "Séparation des privilèges", "en": "Privilege separation", "status": "partial", "issue": 511, "pve": "pveproxy unprivileged, pvedaemon root", "hl": "hyperlite-daemon (root, local socket) opens every session after checking the credentials, signs with keys only root reads, and signs the calls between nodes with each node's own key; the API itself still runs as root until step 4"},
+        {"fr": "Séparation des privilèges", "en": "Privilege separation", "status": "partial", "issue": 511, "pve": "pveproxy unprivileged, pvedaemon root", "hl": "hyperlite-daemon (root, local socket) opens every session after checking the credentials, signs with keys only root reads, signs the calls between nodes with each node's own key, and does the node's own settings (packages, DNS, host name, time, syslog, power); the other domains and the API's own account (step 4) follow"},
         {"fr": "Emplacement des fichiers", "en": "File layout", "status": "partial", "issue": 525, "pve": "/etc/pve (pmxcfs), /var/lib/vz, /usr/share/perl5/PVE", "hl": "The same layout from 1.1: /etc/hyperlite (priv, local), /var/lib/hyperlite (template/iso, dump, import), /usr/lib/hyperlite; the cluster configuration as files in /etc/hyperlite comes with #525"},
         {"fr": "Authentification et droits", "en": "Authentication and permissions", "status": "parity", "pve": "LDAP, AD, OIDC, TOTP, WebAuthn, roles, pools, ACL", "hl": "The same"},
         {"fr": "Certificats ACME", "en": "ACME certificates", "status": "parity", "pve": "Yes", "hl": "Yes"},
