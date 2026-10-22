@@ -42,6 +42,7 @@ from app.core import (
     backup_use,
     checkpoints,
     cluster_lead,
+    db_health,
     disk_space,
     firmware,
     guest_agent,
@@ -900,8 +901,10 @@ def _scheduler_loop():
 
             backup_groups.run_due(now)
             _verify_due_backup()
-        except Exception:
+            db_health.succeeded("backup-scheduler")
+        except Exception as e:
             logger.exception("Backup scheduler tick failed")
+            db_health.failed("backup-scheduler", e)
         time.sleep(SCHEDULER_INTERVAL_S)
 
 
