@@ -2,8 +2,8 @@
 
 An NFS export or an iSCSI target reachable from every node is the same storage for all of them: it is created on
 each chosen node under the same name and mount point, which live migration and HA need. The definition is kept here
-so that a pool declared for every node ("all") is also created on the nodes registered later. A CHAP password is
-kept encrypted (app/core/secrets_crypto.py), never returned by the API.
+so that a pool declared for every node ("all") is also created on the nodes registered later. A CHAP or SMB password
+is kept encrypted (app/core/secrets_crypto.py), never returned by the API.
 """
 
 import json
@@ -18,7 +18,7 @@ def _store():
     return registry.settings().sync
 
 
-SHARED_TYPES = ("netfs", "iscsi")
+SHARED_TYPES = ("netfs", "smb", "iscsi")
 # The fields of a pool definition kept for later nodes (PoolCreate, app/routers/storage.py).
 FIELDS = (
     "name",
@@ -30,14 +30,22 @@ FIELDS = (
     "iscsi_port",
     "iscsi_target",
     "chap_user",
+    "smb_host",
+    "smb_share",
+    "smb_user",
+    "smb_domain",
+    "smb_version",
 )
+# Kept encrypted, and only handed back to create the pool on a new node.
+SECRETS = ("chap_password", "smb_password")
 
 
 def save(definition, all_nodes, nodes, username):
-    """definition: the PoolCreate fields (chap_password included, encrypted here)."""
+    """definition: the PoolCreate fields (their passwords included, encrypted here)."""
     stored = {k: definition.get(k) for k in FIELDS}
-    if definition.get("chap_password"):
-        stored["chap_password"] = secrets_crypto.encrypt(definition["chap_password"])
+    for key in SECRETS:
+        if definition.get(key):
+            stored[key] = secrets_crypto.encrypt(definition[key])
     _store().save_shared_pool(
         stored["name"],
         json.dumps(stored),
@@ -50,9 +58,10 @@ def save(definition, all_nodes, nodes, username):
 
 def _row(row, with_secret=False):
     definition = json.loads(row["definition"])
-    secret = definition.pop("chap_password", None)
-    if with_secret and secret:
-        definition["chap_password"] = secrets_crypto.decrypt(secret)
+    for key in SECRETS:
+        secret = definition.pop(key, None)
+        if with_secret and secret:
+            definition[key] = secrets_crypto.decrypt(secret)
     return {
         "name": row["name"],
         "type": definition.get("type"),
