@@ -370,7 +370,10 @@ def test_the_proxy_can_be_turned_off(monkeypatch):
 )
 def test_the_setup_script_makes_certificates_and_enables_tls_once(tmp_path):
     conf = tmp_path / "qemu.conf"
-    conf.write_text('#spice_tls = 1\n#spice_tls_x509_cert_dir = "/etc/pki/libvirt-spice"\n')
+    conf.write_text(
+        '#spice_tls = 1\n#spice_tls_x509_cert_dir = "/etc/pki/libvirt-spice"\n#spice_password = "XYZ12345"\n'
+    )
+    conf.chmod(0o600)
     pki = tmp_path / "pki"
     # A systemctl of its own: the node's real libvirt is never restarted by a test. libvirtd "runs", virtqemud does not.
     bin_dir, calls = tmp_path / "bin", tmp_path / "systemctl.calls"
@@ -395,6 +398,10 @@ def test_the_setup_script_makes_certificates_and_enables_tls_once(tmp_path):
     ], "only the running daemon is restarted"
     text = conf.read_text()
     assert text.count("\nspice_tls = 1\n") == 1 and f'spice_tls_x509_cert_dir = "{pki}"' in text
+    # The password of a display that lost its own (a configuration rewritten from libvirt's ordinary XML).
+    default = [line for line in text.splitlines() if line.startswith("spice_password = ")]
+    assert len(default) == 1 and len(default[0].split('"')[1]) == 48
+    assert oct(conf.stat().st_mode & 0o777) == "0o600", "qemu.conf stays root-only: it holds that secret"
     subprocess.run(
         ["openssl", "verify", "-CAfile", pki / "ca-cert.pem", pki / "server-cert.pem"], check=True, capture_output=True
     )
@@ -408,6 +415,13 @@ def test_the_setup_script_makes_certificates_and_enables_tls_once(tmp_path):
     assert second.stdout == "" and {p: p.read_bytes() for p in files} == files, "idempotent: nothing changed"
     assert len(calls.read_text().splitlines()) == 3, "and libvirt is not restarted again"
 
-    conf.write_text("spice_tls = 0\n")
+    conf.write_text('spice_tls = 0\nspice_password = "theirs"\n')
     subprocess.run(["bash", script], env=env, capture_output=True, text=True, check=True)
-    assert conf.read_text() == "spice_tls = 0\n", "an administrator's own setting is theirs"
+    assert conf.read_text() == 'spice_tls = 0\nspice_password = "theirs"\n', (
+        "an administrator's own settings are theirs"
+    )
+    conf.write_text("spice_tls = 1\n")
+    subprocess.run(["bash", script], env=env, capture_output=True, text=True, check=True)
+    added = conf.read_text().splitlines()
+    assert added[0] == "spice_tls = 1" and "spice_tls = 1" not in added[1:], "only what is missing is added"
+    assert sum(line.startswith("spice_password = ") for line in added) == 1

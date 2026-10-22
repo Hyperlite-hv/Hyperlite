@@ -4,10 +4,15 @@
 # carries this node's CA and certificate subject and the client checks it is talking to this node's QEMU.
 #   - A CA and a server certificate in libvirt's own SPICE directory (Debian's AppArmor profile lets QEMU read it).
 #     The CA's key is deleted once the server certificate is signed: nothing else is ever signed with it.
-#   - spice_tls in /etc/libvirt/qemu.conf (libvirt 10 reads no drop-in directory for it); libvirt is restarted only
-#     when this changed the file. Running VMs keep running across that restart; the setting applies to VMs started
-#     afterwards.
-# An administrator's own spice_tls setting, or certificates already in the directory, are left as they are.
+#   - spice_tls in /etc/libvirt/qemu.conf (libvirt 10 reads no drop-in directory for it), and spice_password: a random
+#     secret nobody is told, the password of any SPICE display that has none of its own. A display's own password is
+#     lost whenever its configuration is rewritten from libvirt's ordinary XML (it is only in the secure XML), and a
+#     SPICE display without a password admits anyone who reaches its port; with this default it admits nobody until a
+#     ticket sets a password (checked on QEMU 8.2). qemu.conf is root-only.
+#   - libvirt is restarted only when this changed the file. Running VMs keep running across that restart; the setting
+#     applies to VMs started afterwards.
+# An administrator's own spice_tls or spice_password setting, or certificates already in the directory, are left as
+# they are.
 set -e
 
 log() { echo "[ensure-spice-tls] $*"; }
@@ -39,15 +44,19 @@ if [ ! -f "$DIR/ca-cert.pem" ] || [ ! -f "$DIR/server-cert.pem" ] || [ ! -f "$DI
     install -m 400 -o "$qemu_user" "$work/server-key.pem" "$DIR/server-key.pem"
 fi
 
-if grep -Eq '^[[:space:]]*spice_tls[[:space:]]*=' "$QEMU_CONF" 2>/dev/null; then
-    exit 0  # set before, by this script or by an administrator: theirs to keep
-fi
 if [ ! -f "$QEMU_CONF" ]; then
     log "WARNING: $QEMU_CONF not found: SPICE consoles stay unavailable on this node"
     exit 0
 fi
-log "SPICE in TLS in $QEMU_CONF"
-printf '\n%s\nspice_tls = 1\nspice_tls_x509_cert_dir = "%s"\n' "$MARK" "$DIR" >> "$QEMU_CONF"
+lines=""
+# Each setting only where it is not set already, by this script or by an administrator: theirs to keep.
+grep -Eq '^[[:space:]]*spice_tls[[:space:]]*=' "$QEMU_CONF" ||
+    lines+=$(printf 'spice_tls = 1\nspice_tls_x509_cert_dir = "%s"\n' "$DIR")$'\n'
+grep -Eq '^[[:space:]]*spice_password[[:space:]]*=' "$QEMU_CONF" ||
+    lines+=$(printf 'spice_password = "%s"' "$(openssl rand -hex 24)")$'\n'
+[ -n "$lines" ] || exit 0
+log "SPICE in TLS, and a default SPICE password, in $QEMU_CONF"
+printf '\n%s\n%s' "$MARK" "$lines" >> "$QEMU_CONF"
 # Whichever runs the QEMU driver: the monolithic libvirtd (Debian's default) or virtqemud. Only a running one is
 # restarted: a stopped daemon (an installation in a chroot, from the ISO) reads the file when it starts, and a unit
 # this node does not have is not an error.
