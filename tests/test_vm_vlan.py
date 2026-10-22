@@ -122,3 +122,22 @@ def test_a_tag_on_open_vswitch_is_written_and_no_tag_is_fine_anywhere(client, au
 def test_a_missing_network_is_still_a_404(client, auth_headers, domain):
     r = client.post("/vms/web/interfaces", json={"network": "nope", "vlan_tag": 20}, headers=auth_headers("admin"))
     assert r.status_code == 404
+
+
+def test_an_interface_is_moved_by_its_mac_address_and_keeps_it(client, auth_headers, domain):
+    """?mac= names the interface to move: the second one moves, keeping its MAC address; an unknown one is a 404."""
+    admin = auth_headers("admin")
+    domain.xml = domain.xml.replace(
+        "</devices>",
+        "<interface type='network'><mac address='52:54:00:00:00:02'/><source network='nat'/></interface></devices>",
+    )
+    r = client.put("/vms/web/network?mac=52:54:00:00:00:02", json={"network": "ovs", "vlan_tag": 30}, headers=admin)
+    assert r.status_code == 200, r.text
+    moved = ET.fromstring(domain.updated[-1])
+    assert moved.find("mac").get("address") == "52:54:00:00:00:02"
+    assert moved.find("source").get("network") == "ovs" and moved.find("vlan/tag").get("id") == "30"
+    r = client.put("/vms/web/network?mac=52:54:00:00:00:09", json={"network": "nat"}, headers=admin)
+    assert r.status_code == 404 and "52:54:00:00:00:09" in r.json()["detail"]
+    # Without it, the first interface, as before.
+    assert client.put("/vms/web/network", json={"network": "nat"}, headers=admin).status_code == 200
+    assert ET.fromstring(domain.updated[-1]).find("mac").get("address") == "52:54:00:00:00:01"

@@ -17,19 +17,26 @@ import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
 import { askNewName } from "../lib/rename";
 
-const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "" };
+const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
 // The same rules as the API (app/routers/storage.py, app/core/iscsi.py), checked before the request.
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 const HOST_RE = /^[A-Za-z0-9][A-Za-z0-9.:_-]{0,253}$/;
 const ABS_PATH_RE = /^\/[A-Za-z0-9/_.-]{0,255}$/;
 const CHAP_USER_RE = /^[A-Za-z0-9._@:-]{1,64}$/;
-const typeLabel = (type) => ({ netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI" }[type] || type);
+// The same rules as app/core/smb_storage.py.
+const SMB_SHARE_RE = /^[A-Za-z0-9$][A-Za-z0-9 ._$-]{0,79}$/;
+const SMB_USER_RE = /^[A-Za-z0-9][A-Za-z0-9 ._@-]{0,63}$/;
+const SMB_DOMAIN_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// A netfs pool mounts an NFS export or an SMB share (its `protocol`).
+export const typeLabel = (type, protocol) => (type === "netfs" && protocol === "smb" ? "SMB" : { netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI" }[type] || type);
+// "default": negotiated by the client (SMB 2.1 or later, 3.1.1 when the server offers it).
+const SMB_VERSIONS = ["default", "3.1.1", "3.0", "2.1", "2.0"];
 // Versions the mount is forced to (never negotiated, see app/routers/storage.py::_build_pool_xml).
 const NFS_VERSIONS = ["4.2", "4.1", "4.0", "4", "3"];
 // An example name per kind of pool (shown as "e.g. …": an empty field must never look filled in).
-const SHARED = ["netfs", "iscsi"];
-const NAME_EXAMPLE = { dir: "local-ssd", netfs: "nas-vms", zfs: "zfs-fast", iscsi: "san-vms" };
+const SHARED = ["netfs", "smb", "iscsi"];
+const NAME_EXAMPLE = { dir: "local-ssd", netfs: "nas-vms", smb: "nas-smb", zfs: "zfs-fast", iscsi: "san-vms" };
 
 // Error key per field for the chosen kind of pool, or none: only the fields that kind uses are checked.
 export function poolFormErrors(form) {
@@ -41,7 +48,14 @@ export function poolFormErrors(form) {
     if (req(form.nfs_host)) e.nfs_host = "stor.e.required"; else if (!HOST_RE.test(form.nfs_host.trim())) e.nfs_host = "stor.e.host";
     if (req(form.nfs_export_path)) e.nfs_export_path = "stor.e.required"; else if (!ABS_PATH_RE.test(form.nfs_export_path.trim())) e.nfs_export_path = "stor.e.absPath";
   }
-  // Shared storage (NFS, iSCSI) can go on several nodes, as on Proxmox: every node, or the ones chosen.
+  if (form.type === "smb") {
+    if (req(form.smb_host)) e.smb_host = "stor.e.required"; else if (!HOST_RE.test(form.smb_host.trim())) e.smb_host = "stor.e.host";
+    if (req(form.smb_share)) e.smb_share = "stor.e.required"; else if (!SMB_SHARE_RE.test(form.smb_share.trim())) e.smb_share = "stor.e.smbShare";
+    if (req(form.smb_user)) e.smb_user = "stor.e.required"; else if (!SMB_USER_RE.test(form.smb_user.trim())) e.smb_user = "stor.e.smbUser";
+    if (!form.smb_password) e.smb_password = "stor.e.required"; else if (/[\r\n]/.test(form.smb_password)) e.smb_password = "stor.e.smbPassword";
+    if (form.smb_domain.trim() && !SMB_DOMAIN_RE.test(form.smb_domain.trim())) e.smb_domain = "stor.e.smbDomain";
+  }
+  // Shared storage (NFS, SMB, iSCSI) can go on several nodes, as on Proxmox: every node, or the ones chosen.
   if (SHARED.includes(form.type) && form.scope === "choix" && !form.chosen.length) e.chosen = "stor.e.nodes";
   if (form.type === "zfs") {
     if (form.node !== "local") e.type = "stor.e.zfsLocal";
@@ -80,8 +94,9 @@ function CreatePoolDrawer({ open, onClose }) {
     : form.type === "netfs" && support.nfs !== "ok" ? t("stor.nfsNoClient")
     : form.type === "zfs" && support.zfs !== "ok" ? t(`stor.zfs.${support.zfs}`)
     : form.type === "iscsi" && support.iscsi !== "ok" ? t("stor.iscsiNoInitiator")
+    : form.type === "smb" && support.smb !== "ok" ? t("stor.smbNoClient")
     : null;
-  const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["zfs", "ZFS"], ["iscsi", "iSCSI"]];
+  const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["smb", "SMB/CIFS"], ["zfs", "ZFS"], ["iscsi", "iSCSI"]];
   const errors = poolFormErrors(form);
   // Shown after a first attempt; a value already typed in the wrong format is flagged at once.
   const err = (k) => (errors[k] && (attempted || (errors[k] !== "stor.e.required" && errors[k] !== "stor.e.chapBoth" && String(form[k] ?? "").trim())) ? t(errors[k]) : null);
@@ -94,6 +109,7 @@ function CreatePoolDrawer({ open, onClose }) {
     try {
       const payload = form.type === "dir" ? { name: form.name, type: "dir", path: form.path.trim() || null }
         : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host.trim(), nfs_export_path: form.nfs_export_path.trim(), nfs_version: form.nfs_version }
+        : form.type === "smb" ? { name: form.name, type: "smb", smb_host: form.smb_host.trim(), smb_share: form.smb_share.trim(), smb_user: form.smb_user.trim(), smb_password: form.smb_password, smb_domain: form.smb_domain.trim() || null, smb_version: form.smb_version }
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host.trim(), iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user.trim() || null, chap_password: form.chap_user.trim() ? form.chap_password : null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       const where = scope === "all" ? { all_nodes: true } : scope === "choix" ? { nodes: form.chosen } : {};
@@ -161,6 +177,25 @@ function CreatePoolDrawer({ open, onClose }) {
             {NFS_VERSIONS.map((v) => <option key={v} value={v}>{`NFSv${v}`}{v === "4.2" ? ` (${t("stor.nfsDefault")})` : ""}</option>)}
           </select>
         )}</Field>
+      </>}
+      {form.type === "smb" && <>
+        <div className="nx-formgrid">
+          <Field label={t("stor.smbHost")} error={err("smb_host")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.smb_host} onChange={set("smb_host")} placeholder={ex("192.168.1.30")} />}</Field>
+          <Field label={t("stor.smbShare")} hint={t("stor.smbShareHelp")} error={err("smb_share")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.smb_share} onChange={set("smb_share")} placeholder={ex("vms")} />}</Field>
+        </div>
+        <div className="nx-formgrid">
+          <Field label={t("stor.chapUser")} error={err("smb_user")}>{(p) => <input {...p} className="nx-inp nx-mono" autoComplete="off" value={form.smb_user} onChange={set("smb_user")} />}</Field>
+          <Field label={t("stor.chapPassword")} error={err("smb_password")}>{(p) => <input {...p} className="nx-inp" type="password" autoComplete="new-password" value={form.smb_password} onChange={set("smb_password")} />}</Field>
+        </div>
+        <div className="nx-formgrid">
+          <Field label={t("stor.smbDomain")} hint={t("stor.smbDomainHelp")} error={err("smb_domain")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.smb_domain} onChange={set("smb_domain")} placeholder={ex("WORKGROUP")} />}</Field>
+          <Field label={t("stor.smbVersion")} hint={t("stor.smbVersionHelp")}>{(p) => (
+            <select {...p} className="nx-inp" value={form.smb_version} onChange={set("smb_version")}>
+              {SMB_VERSIONS.map((v) => <option key={v} value={v}>{v === "default" ? t("stor.smbNegotiated") : `SMB ${v}`}</option>)}
+            </select>
+          )}</Field>
+        </div>
+        <p className="nx-hint">{t("stor.smbHelp")}</p>
       </>}
       {form.type === "iscsi" && <>
         {local && support?.iscsi_initiator && (
@@ -234,7 +269,7 @@ export default function StoragePage() {
   async function checkPerm(p) {
     try {
       const r = await checkPoolPermissions(p.name);
-      if (r.ok) pushToast({ kind: "success", title: t("stor.nfsPermOk"), message: p.name });
+      if (r.ok) pushToast({ kind: "success", title: t(p.protocol === "smb" ? "stor.smbPermOk" : "stor.nfsPermOk"), message: p.name });
       else pushToast({ kind: "error", title: t("stor.nfsPermTitle"), message: r.message, duration: Infinity });
     } catch (e) { pushToast({ kind: "error", title: t("stor.nfsPermFailed"), message: errorMessage(e) }); }
   }
@@ -287,7 +322,7 @@ export default function StoragePage() {
                         <td><StatusIndicator kind="pool" wire={p.state} /></td>
                         <th scope="row" className="nx-nm">{p.name}{p.path && <small className="nx-mono">{p.path}</small>}</th>
                         <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.name || p.node}</td>
-                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type)}{p.type === "netfs" && p.nfs_version ? ` v${p.nfs_version}` : ""}</Chip>
+                        <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type, p.protocol)}{p.protocol === "smb" && p.smb_version && p.smb_version !== "default" ? ` ${p.smb_version}` : ""}{p.type === "netfs" && p.nfs_version ? ` v${p.nfs_version}` : ""}</Chip>
                           {shared[p.name] && <> <Chip tone="info" title={shared[p.name].all_nodes ? t("stor.sharedAllHelp") : t("stor.sharedSomeHelp", { nodes: shared[p.name].nodes.map((id) => nodes.find((n) => n.id === id)?.name || id).join(", ") })}>{shared[p.name].all_nodes ? t("stor.sharedAll") : t("stor.shared")}</Chip></>}</td>
                         <td><Meter value={r} label={`${p.name} ${t("stor.usage")}`} /></td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.capacity_gb, lang) ?? "—"}</td>
@@ -325,7 +360,7 @@ export default function StoragePage() {
       <ActionsContextMenu ctx={ctx} label={(p) => t("ctx.menuOf", { name: p.name })} entries={(p) => [
         { key: "volumes", icon: "volumes", label: t("stor.volumes"), run: () => toggleVolumes(p) },
         p.path && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.path) },
-        p.type === "netfs" && { key: "perm", icon: "admin", label: t("stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.state !== "active", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
+        p.type === "netfs" && { key: "perm", icon: "admin", label: t(p.protocol === "smb" ? "stor.smbPermCheck" : "stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.state !== "active", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
         "-",
         { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => renamePool(p), disabled: !caps.admin || p.name === "default" || p.type === "zfs",
           reason: !caps.admin ? t("menu.reason.admin") : p.type === "zfs" ? t("rn.zfsNo") : t("rn.defaultNo") },

@@ -87,4 +87,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Hyperlite is distributed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, study, modify and share it for noncommercial purposes (personal use, hobby projects, research, education, nonprofit organizations, and testing). Commercial use, including offering it as a paid or hosted service, requires a separate permission from the author. If you want to evaluate Hyperlite for a business purpose, please ask first by opening an issue or contacting the maintainer through the repository. This is not legal advice; read the license text.
 
+The command-line client and its Go library (`cli/`, which the Terraform / OpenTofu provider is built on) are under the [Mozilla Public License 2.0](cli/LICENSE), as most Terraform providers are (`hashicorp/vsphere` among them): a company may use them in its automation.
+
 Third-party components keep their own licenses, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

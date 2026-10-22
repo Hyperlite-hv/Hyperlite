@@ -150,7 +150,7 @@ export function NodeDiskPage({ resource: node }) {
           const r = p.capacity_gb ? ((p.capacity_gb - (p.available_gb ?? p.capacity_gb)) / p.capacity_gb) * 100 : null;
           return (
             <div key={p.name} className="nx-cap nx-cap--3">
-              <div className="nx-cap-nm"><b>{p.name}</b><small>{[p.type === "netfs" ? "NFS" : p.type, p.path, formatSizeGb(p.capacity_gb, lang)].filter(Boolean).join(" · ")}</small></div>
+              <div className="nx-cap-nm"><b>{p.name}</b><small>{[p.type === "netfs" ? (p.protocol === "smb" ? "SMB" : "NFS") : p.type, p.path, formatSizeGb(p.capacity_gb, lang)].filter(Boolean).join(" · ")}</small></div>
               <span className="nx-track nx-track--wide" role="meter" aria-label={`${p.name} ${t("stor.usage")}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r == null ? undefined : Math.round(r)}><span data-tone={r >= 90 ? "danger" : r >= 80 ? "warning" : "info"} style={{ width: `${Math.round(r || 0)}%` }} /></span>
               <span className="nx-cap-pct">{r == null ? "—" : `${Math.round(r)} %`}</span>
             </div>

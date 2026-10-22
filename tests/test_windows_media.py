@@ -104,6 +104,6 @@ def test_invalid_driver_media_is_rejected_before_allocation(database, monkeypatc
         name="win", vcpu=2, memory_mb=4096, disks=[{"size_gb": 64}], iso="windows.iso", drivers_iso=drivers_iso
     )
     with pytest.raises(HTTPException) as error:
-        creation.create_vm(payload, {"username": "admin"})
+        creation.create_vm(payload, {"username": "admin", "role": "admin"})
     assert error.value.status_code == 422
     connection.assert_not_called()

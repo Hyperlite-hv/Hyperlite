@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core import object_meta
 from app.core.audit import log_action
-from app.core.libvirt_utils import open_conn, open_lxc_conn
+from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.permissions import has_container_privilege, has_privilege
 from app.core.security import get_current_user
@@ -42,11 +42,14 @@ def _require_exists(kind, name, node):
         if name != "local" and not get_node(name):
             raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
         return
-    conn = open_conn(node) if kind == "vm" else open_lxc_conn()
+    label = "VM" if kind == "vm" else "Container"
+    # A node without the LXC driver has no containers: the name is not found, it is no server error.
+    conn = open_conn(node) if kind == "vm" else open_lxc_conn_if_any()
+    if conn is None:
+        raise HTTPException(status_code=404, detail=f"{label} '{name}' not found")
     try:
         conn.lookupByName(name)
     except libvirt.libvirtError:
-        label = "VM" if kind == "vm" else "Container"
         raise HTTPException(status_code=404, detail=f"{label} '{name}' not found") from None
     finally:
         conn.close()

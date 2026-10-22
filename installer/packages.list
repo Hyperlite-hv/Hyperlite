@@ -42,6 +42,8 @@ xorriso
 # Storage: NFS pools are the base of live migration. The server stays disabled until /etc/exports is configured.
 nfs-common
 nfs-kernel-server
+# SMB/CIFS pools: libvirt mounts the share with mount.cifs.
+cifs-utils
 
 # Cluster: creating or joining a cluster from the dashboard needs Corosync
 corosync

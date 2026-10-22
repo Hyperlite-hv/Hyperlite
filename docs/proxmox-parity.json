@@ -28,9 +28,9 @@
         {"fr": "Répertoire, NFS, iSCSI", "en": "Directory, NFS, iSCSI", "status": "parity", "pve": "Yes", "hl": "Yes, shared pools created on every node"},
         {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "missing", "issue": 417, "pve": "Yes", "hl": "None"},
         {"fr": "ZFS sur de vrais disques", "en": "ZFS on real disks", "status": "partial", "issue": 419, "pve": "Mirror, RAIDZ, from the GUI", "hl": "Loopback files only, one node, not live-migratable"},
-        {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "missing", "issue": 418, "pve": "Yes", "hl": "None"},
+        {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "parity", "issue": 418, "pve": "Yes", "hl": "Yes, shared like NFS (migration, HA, every node); credentials root-only on each node, SMB version negotiated or fixed"},
         {"fr": "Ceph", "en": "Ceph", "status": "missing", "issue": 338, "pve": "Hyperconverged, from the GUI", "hl": "None"},
-        {"fr": "Clones liés", "en": "Linked clones", "status": "missing", "issue": 423, "pve": "From templates", "hl": "Full clones only"},
+        {"fr": "Clones liés", "en": "Linked clones", "status": "parity", "issue": 423, "pve": "From templates", "hl": "From templates whose disk is qcow2, on the template's node; the template cannot be deleted or renamed while clones read it"},
         {"fr": "Déplacer ou agrandir un disque à chaud", "en": "Move or grow a disk live", "status": "parity", "pve": "Yes", "hl": "Yes (block copy and pivot)"}
       ]
     },
@@ -52,12 +52,12 @@
       "en": "Virtual machines and containers",
       "rows": [
         {"fr": "Cycle de vie, snapshots, modèles", "en": "Lifecycle, snapshots, templates", "status": "parity", "pve": "Yes", "hl": "Yes, native ZFS snapshots on ZFS pools; a template made as a copy (the VM kept, as vSphere's Clone to Template) or by conversion"},
-        {"fr": "Cloud-init", "en": "Cloud-init", "status": "parity", "pve": "Yes", "hl": "Yes, editable after creation, ready Debian image"},
+        {"fr": "Cloud-init", "en": "Cloud-init", "status": "parity", "pve": "Account, SSH keys, host name, addresses per interface, resolvers, custom user-data (cicustom)", "hl": "The same, editable after creation, ready Debian image"},
         {"fr": "UEFI, Secure Boot, TPM 2.0", "en": "UEFI, Secure Boot, TPM 2.0", "status": "parity", "pve": "Yes", "hl": "Yes, Windows 11 / Server 2025 profile"},
         {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
         {"fr": "Consoles", "en": "Consoles", "status": "partial", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC and terminals; no SPICE"},
-        {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "missing", "issue": 425, "pve": "xterm.js", "hl": "None"},
+        {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
         {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
         {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
         {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
@@ -89,7 +89,7 @@
         {"fr": "Certificats ACME", "en": "ACME certificates", "status": "parity", "pve": "Yes", "hl": "Yes"},
         {"fr": "Métriques et notifications", "en": "Metrics and notifications", "status": "parity", "pve": "InfluxDB, Graphite; notification targets", "hl": "Prometheus, InfluxDB, Graphite; webhook, SMTP"},
         {"fr": "API versionnée", "en": "Versioned API", "status": "parity", "pve": "API v2", "hl": "API v1, its contract checked in CI"},
-        {"fr": "Infrastructure as code (Terraform / OpenTofu)", "en": "Infrastructure as code (Terraform / OpenTofu)", "status": "missing", "issue": 330, "pve": "Community providers only (bpg/proxmox, Telmate/proxmox)", "hl": "Official provider in progress: design accepted, API additions under review (vSphere has an official one)"},
+        {"fr": "Infrastructure as code (Terraform / OpenTofu)", "en": "Infrastructure as code (Terraform / OpenTofu)", "status": "partial", "issue": 330, "pve": "Community providers only (bpg/proxmox, Telmate/proxmox)", "hl": "Official provider built and tested on a real Hyperlite (VMs, templates, networks, storage, ISO images, snapshots, backups, HA, rights), not published yet (vSphere has an official one)"},
         {"fr": "CLI d'administration", "en": "Administration CLI", "status": "missing", "issue": 516, "pve": "qm, pct, pvesh", "hl": "Workstation client only"},
         {"fr": "Mises à jour", "en": "Updates", "status": "ahead", "pve": "apt from the GUI", "hl": "Release notes, channels, offline signed file, nightly security updates; a failed update rolls back by itself, by reinstalling the previous package"},
         {"fr": "Accès depuis le poste", "en": "Workstation access", "status": "ahead", "pve": "None", "hl": "SSH and remote desktop through an HTTPS tunnel, SSO and 2FA"}

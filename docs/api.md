@@ -37,6 +37,12 @@ figures are older than 30 s.
 Inside v1 a change is only ever an addition (a route, an optional field, a documented new value); anything else waits
 for a v2, served next to v1.
 
+Every object a list gives can also be read alone, with the same fields: `GET /storage/{pool}?node=`,
+`GET /storage/{pool}/volumes/{volume}`, `GET /pools/{id}`, `GET /groups/{id}`, `GET /acl/{id}`,
+`GET /acl/custom-roles/{id}`, `GET /auth/users/{username}`, `GET /backup-groups/{id}`, `GET /ha/{vm}` (404 when there
+is none). `PATCH /acl/custom-roles/{id}` takes `name`, `privileges` or both, and keeps the role's assignments;
+`PATCH /pools/{id}` takes `name`, `description` or both.
+
 ## Errors
 
 Errors are returned as JSON `{"detail": "...", "code": "..."}` with an appropriate HTTP status. `detail` is for a
@@ -68,20 +74,23 @@ person: in English and, for infrastructure failures, categorized into an actiona
 
 ## Long operations
 
-Operations that can take time (creation, snapshots, backups, migration, updates) return a task id; poll `GET /tasks/{id}` for progress. `GET /tasks/{id}/log` returns the task's own log, line by line. `POST /tasks/{id}/cancel` asks a running task to stop (`{"result": "requested"}`), or closes one that no process runs any more (`"abandoned"`); a task that cannot stop midway answers 409, and an administrator may close its record anyway with `?force=true`. In the task list, `clean_shutdown`, `orphaned` and `cancellable` say which applies; `GET /tasks?object=<name>&family=vm|container` is one object's history.
+Operations that can take time (creation, snapshots, backups, migration, updates) return a task id; poll `GET /tasks/{id}` for progress. VM creation (`POST /vms`), clone (`POST /vms/{name}/clone`), template deployment (`POST /templates/{name}/deploy`) and template creation (`POST /templates/from-vm/{name}`) hold the request until done by default, as before; with `?wait=false` they make every check first (a refusal is the usual 4xx), then answer `202 {"task_id", "status": "running", "name"}` at once, `name` being the object the task makes. A client that copies large disks uses it: a proxy cuts a request held for the whole copy. `GET /tasks/{id}/log` returns the task's own log, line by line. `POST /tasks/{id}/cancel` asks a running task to stop (`{"result": "requested"}`), or closes one that no process runs any more (`"abandoned"`); a task that cannot stop midway answers 409, and an administrator may close its record anyway with `?force=true`. In the task list, `clean_shutdown`, `orphaned` and `cancellable` say which applies; `GET /tasks?object=<name>&family=vm|container` is one object's history.
 
 ## Permissions
 
-Each endpoint requires a global role or a scoped privilege (for example `vm.hardware`, `vm.console`, `vm.clone`). See `app/core/permissions.py` for the catalogue. `vm.options` and `container.options` (part of the Manager role) cover start at boot, notes and tags, and a cloud image VM's account.
+Each endpoint requires a global role or a scoped privilege (for example `vm.hardware`, `vm.console`, `vm.clone`). See `app/core/permissions.py` for the catalogue. An assignment (`POST /acl`) is given on a VM, a pool of VMs, a container, a storage pool (`storage`, by name) or a network (`network`, by name).
+
+Creating a VM is open to an account that is not an administrator, step by step as vSphere and Proxmox VE allow it: `vm.allocate` on the pool the VM goes in (`resource_pool` in `POST /vms`, the pool's id, which such an account must give; the VM becomes a member of it), `storage.allocate` on the storage pool of its disks (`storage_pool`, `default` when absent) and `network.assign` on its network. `vm.allocate` on a VM, or on a pool holding it, also allows deleting it. The same rights apply to an existing VM, as Proxmox VE checks them there too: attaching or growing a disk needs `storage.allocate` on its storage pool, attaching an interface or changing its network `network.assign` on that network, and a clone (whose disks are copied into the `default` storage pool) `storage.allocate` on `default`. Creating a volume (`POST /storage/{pool}/volumes`, a disk to attach) needs `storage.allocate` on that pool; deleting one stays an administrator's. An assignment on a storage pool or a network is refused (409) while a member of the cluster runs a version that does not know them. `vm.options` and `container.options` (part of the Manager role) cover start at boot, notes and tags, and a cloud image VM's account.
 
 ## Object settings
 
 | Endpoint | What it does |
 |---|---|
 | `GET`/`PUT /vms/{name}/boot?node=` | Start at boot: `autostart`, `position` (sequence position, none last), `delay_s` (pause before the next VM). Run once per boot of the VM's node. |
-| `GET`/`PUT /vms/{name}/cloud-init` | A cloud image VM's account: `user`, `ssh_keys`, `password` (write-only, never returned). Applied at the VM's next boot. |
+| `GET`/`PUT /vms/{name}/cloud-init` | A cloud image VM's account: `user`, `ssh_keys`, `password` (write-only, never returned); and its customisation: `hostname` (the VM's name when empty), `domain`, `network` (static addresses by interface: `mac`, the first interface when absent, `addresses` with their prefix, `gateway`; the interfaces not listed keep DHCP), `dns`, `dns_search`, `user_data` (a cloud-config added to Hyperlite's own; the keys of the account and the host name are refused). A field left out of `PUT` keeps its value; an empty one clears it. Applied at the VM's next boot. `POST /vms` takes `ssh_keys` and `customize` (the same fields, `network` without `mac`) for a VM made from the cloud image, written before its first boot. |
 | `GET /vms/{name}/hardware-options` | Disk options, boot order, ballooning and machine type (`disks`, `interfaces`, `boot_order`, `ballooning`, `machine`, `newer_machines`, `running`). |
 | `PUT /vms/{name}/disks/{dev}/options` | `cache`, `discard`, `io`, `iothread` (virtio only), `iops`, `mbps` (limits apply live). Returns `needs_restart` when the rest waits for the next start. |
+| `PUT /vms/{name}/network?mac=` | Move an interface to another network (`network`, `vlan_tag`) in place, keeping its MAC address; `mac` names it, the first interface when absent. |
 | `PUT /vms/{name}/boot-order` | `position`: disk targets and `net:<mac>` in boot order. |
 | `PUT /vms/{name}/balloon` | `active`, `minimum_mb` (privilege `vm.resize`). |
 | `PUT /vms/{name}/machine` | `machine`: the current version of the same family, on a stopped VM. |
