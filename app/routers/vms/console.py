@@ -9,9 +9,9 @@ from pathlib import Path
 
 import asyncssh
 import libvirt
-from fastapi import Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 
-from app.core import pty_session
+from app.core import pty_session, spice, spice_proxy
 from app.core.audit import log_action
 from app.core.cluster import get_cluster_private_key_path, get_node, libvirt_uri_from_here
 from app.core.libvirt_utils import (
@@ -421,3 +421,86 @@ async def vm_serial(websocket: WebSocket, name: str):
         await websocket.close()
     except (RuntimeError, WebSocketDisconnect):
         logger.debug("Ignored exception in vm_serial()", exc_info=True)
+
+
+# --- SPICE console (docs/design/spice-console.md): a .vv file for virt-viewer, through Hyperlite's SPICE proxy ---
+
+
+@router.post("/{name}/spice-display")
+def add_spice_display(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    """Give the VM a SPICE display next to its VNC one, effective at its next start. Refused on a node not set up for
+    SPICE in TLS: the VM would no longer start there."""
+    node = _remote(node)
+    conn = open_conn(node)
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "add_spice_display", name, "failed", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        if spice.spice_graphics(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)) is not None:
+            log_action(user["username"], "add_spice_display", name, "failed", "already has one")
+            raise HTTPException(status_code=409, detail="This VM already has a SPICE display")
+        try:
+            spice.node_tls(node)
+        except spice.SpiceUnavailable as e:
+            log_action(user["username"], "add_spice_display", name, "failed", str(e))
+            raise HTTPException(
+                status_code=409, detail=f"{e}: the package sets it up (scripts/ensure-spice-tls.sh)"
+            ) from None
+        spice.add_display(conn, domain)
+        running = domain.isActive()
+        log_action(user["username"], "add_spice_display", name, "success")
+        return {"spice": True, "effective": "next_start" if running else "now"}
+    finally:
+        conn.close()
+
+
+@router.post("/{name}/spice-ticket")
+def create_spice_ticket(
+    name: str, request: Request, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.console"))
+):
+    """The .vv file of a running VM's SPICE display: a password valid a few seconds, and a ticket for the proxy at the
+    address the browser used. virt-viewer deletes the file once read."""
+    node = _remote(node)
+    proxy = spice.proxy_host(request.headers.get("host"))
+    if proxy is None:
+        raise HTTPException(status_code=400, detail="The address this request was sent to is not a host name or an IP")
+    conn = open_conn(node)
+    try:
+        try:
+            domain = conn.lookupByName(name)
+        except libvirt.libvirtError:
+            log_action(user["username"], "create_spice_ticket", name, "failed", "VM not found")
+            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        if not domain.isActive():
+            log_action(user["username"], "create_spice_ticket", name, "failed", "VM stopped")
+            raise HTTPException(status_code=409, detail="The VM must be started to open its SPICE console")
+        port = spice.tls_port(domain.XMLDesc(0))
+        if port is None:
+            stored = spice.spice_graphics(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)) is not None
+            log_action(user["username"], "create_spice_ticket", name, "failed", "no SPICE display")
+            raise HTTPException(
+                status_code=409,
+                detail="The SPICE display added to this VM takes effect at its next start: shut it down, then start it."
+                if stored
+                else "This VM has no SPICE display: add one (it takes effect at the VM's next start).",
+            )
+        try:
+            ca_pem, subject = spice.node_tls(node)
+        except spice.SpiceUnavailable as e:
+            log_action(user["username"], "create_spice_ticket", name, "failed", str(e))
+            raise HTTPException(status_code=409, detail=str(e)) from None
+        password = spice.set_ticket_password(domain)
+        ticket = spice_proxy.issue(name, node, port)
+        log_action(user["username"], "create_spice_ticket", name, "success")
+        body = spice.vv_file(
+            title=name, ticket=ticket, port=port, password=password, proxy=proxy, ca_pem=ca_pem, subject=subject
+        )
+        return Response(
+            body,
+            media_type="application/x-virt-viewer",
+            headers={"Content-Disposition": f'attachment; filename="{name}.vv"', "Cache-Control": "no-store"},
+        )
+    finally:
+        conn.close()
