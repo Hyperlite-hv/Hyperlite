@@ -5,11 +5,12 @@ from typing import Any
 
 from pydantic import Field
 
-from app.core import sign_in
-from app.daemon.registry import Args, operation
+from app.core import peer_auth, sign_in
+from app.daemon.registry import Args, DaemonError, operation
 
 SECRET = 4096  # a password, a token: long enough for any, short enough to refuse a flood
 CODE = 64
+NAME = 64
 
 
 class PasswordArgs(Args):
@@ -65,3 +66,33 @@ def sso(args, ctx):
 @operation("auth.change_password", ChangePasswordArgs)
 def change_password(args, ctx):
     return sign_in.change_password(**args.model_dump())
+
+
+class PeerArgs(Args):
+    credential: str = Field(max_length=SECRET)
+    targets: list[str] = Field(min_length=1, max_length=64)
+
+
+class DelegateArgs(Args):
+    credential: str = Field(max_length=SECRET)
+
+
+@operation("auth.peer", PeerArgs)
+def peer(args, ctx):
+    """The tickets of calls to other members, for the account the credential of the request in progress proves
+    (app/core/peer_auth.py): never for a name the API hands over."""
+    if any(len(t) > NAME for t in args.targets):
+        raise DaemonError("invalid_arguments", "A member's name is too long")
+    try:
+        return peer_auth.peer(args.credential, args.targets)
+    except PermissionError as e:
+        raise DaemonError("forbidden", str(e)) from None
+
+
+@operation("auth.delegate", DelegateArgs)
+def delegate(args, ctx):
+    """A task ticket, for a run across the cluster that outlives the administrator's request (the rolling update)."""
+    try:
+        return peer_auth.delegate(args.credential)
+    except PermissionError as e:
+        raise DaemonError("forbidden", str(e)) from None

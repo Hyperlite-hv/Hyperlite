@@ -73,13 +73,6 @@ def test_a_token_signed_with_another_key_is_refused(keys):
     assert tickets.decode("not a token") is None
 
 
-def test_a_call_between_members_still_carries_the_shared_key(database):
-    """Until each member verifies the others' own keys (section 12, PR C)."""
-    token = security.create_peer_token({"sub": "admin", "role": "admin"})
-    assert jwt.get_unverified_header(token)["alg"] == "HS256"
-    assert security.decode_token(token)["sub"] == "admin"
-
-
 def test_no_session_without_the_daemon(client, make_user, monkeypatch, tmp_path):
     make_user("alice", "admin", "correct horse battery")
     monkeypatch.delenv(tickets.SIGNING_ENV)
