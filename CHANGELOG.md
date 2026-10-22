@@ -57,6 +57,10 @@ All notable changes to this project are documented here. The format is based on 
 
 - Deploying a template and making a template from a VM now show in Tasks while their disk is copied; they had no task at all. Two creations or two deployments of a VM under the same name at the same time could write the same disk file: the second is now refused (409), as two clones already were.
 
+### Security
+
+- The SMB credentials files, written and removed as root, are checked by `app/core/smb_storage.py` itself with the path rule every other root-written file follows (`safe_child`): only a `.cred` file right in a credentials directory, never through `..` or a symbolic link. The API already validated the pool's name; the module no longer relies on its callers for it (#418).
+
 ## [1.1.4] - 2026-10-22
 
 ### Added
