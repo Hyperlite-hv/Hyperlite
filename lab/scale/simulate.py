@@ -30,6 +30,7 @@ os.environ.update(
     HYPERLITE_VAR_DIR=f"{WORK}/var",
     HYPERLITE_ETC_DIR=f"{WORK}/etc",
     HYPERLITE_AUTH_SIGNING="local",
+    HYPERLITE_DAEMON_INPROCESS="1",
     HYPERLITE_NODE_NAME="node000",
     HYPERLITE_CFS_SOCKET="/nonexistent/scale-simulation/socket",
     HYPERLITE_WATCHDOG_DEVICE="/nonexistent/scale-simulation/watchdog",
