@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-10-22
+
 ### Added
 
 - A damaged database is detected and said, no longer only written to the log at every round of a background loop (#440). Each node checks its SQLite file at start and once a day (`PRAGMA quick_check`), and fully (`PRAGMA integrity_check`, every index against its table) when the metrics, the node poller, the backup scheduler or the configuration copy fail 3 times in a row on a damaged file. A damaged database shows a banner above every page, with the repair that fits, and sends the new **Database check** notification. Index entries that disagree with their tables are repaired from the banner, with the service running (`REINDEX`, `POST /api/v1/host/database/repair`). Damaged index pages, which SQLite cannot free, need the file rebuilt from its tables with the service stopped: `python -m app.core.db_health rebuild`, which keeps the damaged file next to the new one and can empty a damaged history table (`--drop-history`). `GET /api/v1/host/database` and `POST /api/v1/host/database/check` are additions to API v1. See `docs/database-health.md`.
