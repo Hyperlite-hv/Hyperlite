@@ -118,8 +118,12 @@ test.describe("Advanced VM operations (real backend)", () => {
     await restoreDialog.getByRole("button", { name: "Restore" }).click();
     await expect.poll(() => exists(request, RESTORED), { timeout: 180_000 }).toBe(true);
     expect(existsSync(`/var/lib/libvirt/images/${RESTORED}.qcow2`)).toBe(true);
-    const start = await request.post(`/vms/${RESTORED}/start`, { headers: auth() });
-    expect(start.ok(), "the restored VM can be started: " + (await start.text())).toBe(true);
+    // The VM is listed as soon as it is defined; the restore holds it a moment longer for its last steps, and a start
+    // meanwhile is refused as busy (seen on CI): it is started once the restore lets it go.
+    await expect.poll(async () => {
+      const start = await request.post(`/vms/${RESTORED}/start`, { headers: auth() });
+      return start.ok() ? "started" : await start.text();
+    }, { message: "the restored VM can be started", timeout: 120_000, intervals: [2_000] }).toBe("started");
     await expect.poll(async () => ((await (await request.get(`/vms/${RESTORED}`, { headers: auth() })).json()) as { state: string }).state, { timeout: 60_000 }).toBe("active");
   });
 
