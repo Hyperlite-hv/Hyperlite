@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from app.core import network_edit, renaming
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn
+from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 from app.core.security import get_current_user, require_role
@@ -617,7 +617,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
     if new == name:
         raise HTTPException(status_code=422, detail="The new name is the current one")
     conn = open_conn()
-    lxc = open_lxc_conn()
+    lxc = open_lxc_conn_if_any()
     try:
         net = _lookup(conn, name)
         try:
@@ -625,7 +625,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
             raise HTTPException(status_code=409, detail=f"A network named '{new}' already exists")
         except libvirt.libvirtError:
             pass
-        running, stopped = _guests_on([conn, lxc], name)
+        running, stopped = _guests_on([c for c in (conn, lxc) if c is not None], name)
         if running:
             raise HTTPException(
                 status_code=409,
@@ -674,7 +674,8 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
         return {**_network_summary(renamed), "guests_updated": sorted(d.name() for _c, d, _r in stopped)}
     finally:
         conn.close()
-        lxc.close()
+        if lxc is not None:
+            lxc.close()
 
 
 @router.delete("/{name}")

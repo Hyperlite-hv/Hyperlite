@@ -1,0 +1,1 @@
+- Renaming a network failed with a server error on a node whose libvirt has no LXC driver (a VM-only host): such a node simply has no containers. The notes and tags of a container on it answer "not found" instead of a server error.

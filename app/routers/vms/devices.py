@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core import checkpoints, disk_move, disk_resize, network_edit, passthrough, vm_locks
+from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import lookup_pool, lookup_volume, open_conn, pool_for_path
@@ -32,6 +33,7 @@ DEV_BUS_PREFIXES = {"sd": "scsi", "vd": "virtio", "hd": "ide"}
 
 @router.post("/{name}/disks", status_code=201)
 def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    perm.refuse_unless(user, "storage", payload.pool, "storage.allocate", f"storage pool '{payload.pool}'")
     if not TARGET_DEV_RE.match(payload.target_dev):
         log_action(user["username"], "attach_disk", name, "failed", "Invalid target_dev")
         raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
@@ -153,6 +155,15 @@ def _resize_disk(name, target_dev, payload, user):
         except libvirt.libvirtError:
             log_action(user["username"], "resize_disk", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+        # Growing a disk takes space from its storage pool, as creating one does.
+        if user["role"] != "admin":
+            pool = disk_resize.storage_pool_name(conn, domain, target_dev)
+            if pool is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"The storage pool of '{target_dev}' is not known: an administrator grows it",
+                )
+            perm.refuse_unless(user, "storage", pool, "storage.allocate", f"storage pool '{pool}'")
         try:
             # qemu-img and libvirt refuse to resize a disk that carries a replication bitmap: dropped once the request
             # is accepted, so a refused one (a smaller size, a busy disk) keeps the replication chain.
@@ -389,6 +400,7 @@ class NetworkUpdate(BaseModel):
 
 @router.put("/{name}/network")
 def set_vm_network(name: str, payload: NetworkUpdate, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    perm.refuse_unless(user, "network", payload.network, "network.assign", f"network '{payload.network}'")
     conn = open_conn()
     try:
         try:
@@ -447,6 +459,7 @@ class InterfaceAttach(BaseModel):
 
 @router.post("/{name}/interfaces", status_code=201)
 def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(require_vm_privilege("vm.hardware"))):
+    perm.refuse_unless(user, "network", payload.network, "network.assign", f"network '{payload.network}'")
     conn = open_conn()
     try:
         try:
