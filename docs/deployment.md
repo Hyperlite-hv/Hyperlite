@@ -21,7 +21,7 @@ gpg --import hyperlite-archive-keyring.asc && gpg --verify hyperlite-appliance-a
 
 An installed system records the build that installed it in `/etc/hyperlite-build-info` (package version, source commit, build date).
 
-Two kinds of releases exist: the moving `appliance-iso-latest` release, refreshed by the publishing hook at every change on `master`, and immutable versioned releases (`vX.Y.Z`) created on demand with `scripts/release.sh vX.Y.Z`, which tags the commit and attaches the ISO, checksum and signature, with notes taken from the `[Unreleased]` section of `CHANGELOG.md`.
+Two kinds of releases exist: the moving `appliance-iso-latest` release, refreshed by the publishing hook at every change on `master`, and immutable versioned releases (`vX.Y.Z`) created on demand with `scripts/release.sh vX.Y.Z`, which tags the commit and attaches the ISO, checksum and signature, with notes taken from the unreleased changes (`python3 scripts/changelog.py unreleased`: the `[Unreleased]` section of `CHANGELOG.md` and the fragments of `changelog.d/`).
 
 ## Installing the package
 

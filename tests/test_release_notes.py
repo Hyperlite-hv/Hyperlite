@@ -9,10 +9,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _repo(tmp_path, changelog, fr=None):
+def _repo(tmp_path, changelog, fr=None, fragments=None):
     (tmp_path / "scripts").mkdir(parents=True)
     shutil.copy(ROOT / "scripts" / "release-notes.sh", tmp_path / "scripts")
+    shutil.copy(ROOT / "scripts" / "changelog.py", tmp_path / "scripts")
     (tmp_path / "CHANGELOG.md").write_text(changelog)
+    (tmp_path / "changelog.d").mkdir()
+    for name, text in (fragments or {}).items():
+        (tmp_path / "changelog.d" / name).write_text(text)
     if fr:
         (tmp_path / "docs" / "release-notes" / "fr").mkdir(parents=True)
         for version, text in fr.items():
@@ -47,6 +51,13 @@ def test_a_test_build_shows_the_unreleased_section(tmp_path):
     out = tmp_path / "notes"
     assert _run(_repo(tmp_path / "r", CHANGELOG), "1.1.0~test.20261021.0900", out).returncode == 0
     assert (out / "1.1.0~test.20261021.0900.en.md").read_text().strip() == "- coming"
+
+
+def test_a_test_build_shows_the_fragments_too(tmp_path):
+    out = tmp_path / "notes"
+    repo = _repo(tmp_path / "r", CHANGELOG, fragments={"440-db.fixed.md": "- the database\n"})
+    assert _run(repo, "1.1.0~test.20261021.0900", out).returncode == 0
+    assert (out / "1.1.0~test.20261021.0900.en.md").read_text().strip() == "- coming\n\n### Fixed\n\n- the database"
 
 
 def test_a_dated_version_has_none_and_a_release_without_its_section_stops(tmp_path):
