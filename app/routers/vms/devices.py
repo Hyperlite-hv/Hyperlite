@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from app.core import checkpoints, disk_move, disk_resize, network_edit, passthrough, vm_locks
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import lookup_volume, open_conn, pool_for_path
+from app.core.libvirt_utils import lookup_pool, lookup_volume, open_conn, pool_for_path
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
@@ -52,7 +52,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
                     raise HTTPException(status_code=409, detail="Shut down the VM before adding a SATA disk")
 
         try:
-            pool = conn.storagePoolLookupByName(payload.pool)
+            pool = lookup_pool(conn, payload.pool)
             vol = lookup_volume(pool, payload.volume_name)
         except libvirt.libvirtError:
             log_action(user["username"], "attach_disk", name, "failed", "Volume not found")

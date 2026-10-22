@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- On a new node, creating a volume in the `default` storage pool, attaching a disk from it or creating a container there failed with "Storage pool 'default' not found" until someone had opened the storage page, the only place that made the pool: it is now made when it is first used (`lookup_pool`), and when a VM is created on it. Found by the Terraform provider's acceptance tests on a fresh node (#330).
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
