@@ -33,6 +33,13 @@ ALL_PRIVILEGES = {
     "vm.hardware": "Hardware (disks, network interfaces, CD drive)",
     "vm.clone": "Clone the VM (creates a new VM and consumes disk space)",
     "vm.options": "Options (start at boot, notes and tags)",
+    # The steps of a VM's creation, each on what it uses, as vSphere (VirtualMachine.Inventory.Create,
+    # Datastore.AllocateSpace, Network.Assign) and Proxmox VE (VM.Allocate, Datastore.AllocateSpace, SDN.Use): an
+    # account that is not an administrator (a Terraform pipeline's token) creates VMs only in its pool, on its
+    # storage and its networks.
+    "vm.allocate": "Create and delete VMs (assigned on a pool: the VMs go in that pool)",
+    "storage.allocate": "Put VM disks on a storage pool (assigned on that storage pool)",
+    "network.assign": "Connect VMs to a network (assigned on that network)",
     # LXC containers: a catalog distinct from vm.* (a different resource, even
     # though `has_container_privilege` reuses the SAME predefined roles below).
     "container.view": "View (state, IP)",
@@ -229,6 +236,9 @@ def remove_vm_from_all_pools(vm_name):
 
 # ---- ACL ----
 
+# What an assignment can be given on: a VM, a pool of VMs, a container, a storage pool, a network.
+RESOURCE_TYPES = ("vm", "pool", "container", "storage", "network")
+
 
 def list_acl():
     acl = _store().acl()
@@ -314,6 +324,50 @@ def has_privilege(user, vm_name, privilege):
         if privilege in get_role_privileges(row["role"]):
             return True
     return False
+
+
+def has_scoped_privilege(user, resource_type, resource_id, privilege):
+    """True if `user` holds `privilege` through an assignment on that one object (a pool by its id, a storage pool or
+    a network by its name), directly or through a group. An administrator holds every privilege."""
+    if user["role"] == "admin":
+        return True
+    group_ids = set(get_user_groups(user["username"]))
+    for row in _store().acl(resource_type):
+        subject_ok = (row["subject_type"] == "user" and row["subject_id"] == user["username"]) or (
+            row["subject_type"] == "group" and row["subject_id"].isdigit() and int(row["subject_id"]) in group_ids
+        )
+        if subject_ok and row["resource_id"] == str(resource_id) and privilege in get_role_privileges(row["role"]):
+            return True
+    return False
+
+
+def refuse_unless(user, resource_type, resource_id, privilege, what):
+    """403 unless `user` holds `privilege` on that storage pool or network (has_scoped_privilege); `what` names it in
+    the refusal ("storage pool 'fast'"). For the routes that put a disk or an interface on an existing VM, as Proxmox
+    VE checks Datastore.AllocateSpace and SDN.Use there too."""
+    from fastapi import HTTPException
+
+    if not has_scoped_privilege(user, resource_type, resource_id, privilege):
+        raise HTTPException(status_code=403, detail=f"Insufficient rights on {what} (required privilege: {privilege})")
+
+
+def allocation_refusal(user, resource_pool, storage_pools, networks):
+    """Why `user` may not create a VM in the pool `resource_pool` (an id, or None), with disks on `storage_pools` and
+    interfaces on `networks`; None when it may. An administrator may always; anyone else needs vm.allocate on the
+    pool, storage.allocate on each storage pool and network.assign on each network."""
+    if user["role"] == "admin":
+        return None
+    if resource_pool is None:
+        return "Choose the pool the VM goes in (resource_pool): only an administrator creates VMs outside a pool"
+    if not has_scoped_privilege(user, "pool", resource_pool, "vm.allocate"):
+        return f"Insufficient rights on pool {resource_pool} (required privilege: vm.allocate)"
+    for name in sorted(set(storage_pools)):
+        if not has_scoped_privilege(user, "storage", name, "storage.allocate"):
+            return f"Insufficient rights on storage pool '{name}' (required privilege: storage.allocate)"
+    for name in sorted(set(networks)):
+        if not has_scoped_privilege(user, "network", name, "network.assign"):
+            return f"Insufficient rights on network '{name}' (required privilege: network.assign)"
+    return None
 
 
 def has_container_privilege(user, container_name, privilege):

@@ -3203,6 +3203,17 @@
       ],
       "title": "Password"
      },
+     "resource_pool": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resource Pool"
+     },
      "storage_pool": {
       "anyOf": [
        {
@@ -13943,6 +13954,7 @@
     ]
    },
    "post": {
+    "description": "An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one, as\nProxmox VE's Datastore.AllocateSpace (deleting a volume stays an administrator's: it may hold another VM's data).",
     "operationId": "create_volume_api_v1_storage__pool_name__volumes_post",
     "parameters": [
      {
@@ -15669,6 +15681,7 @@
   },
   "/api/v1/vms/{name}": {
    "delete": {
+    "description": "An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there).",
     "operationId": "delete_vm_api_v1_vms__name__delete",
     "parameters": [
      {
