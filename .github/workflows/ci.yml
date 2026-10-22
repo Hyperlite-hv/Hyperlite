@@ -20,16 +20,22 @@ jobs:
   # How much of this workflow the commit needs (scripts/ci-reuse.sh): `exact` when a push to test or master already
   # passed every check on exactly these files (a release: the test -> master PR and the master push), `docs` when only
   # release files differ from such files (the release PR: the long jobs are not run again), `full` otherwise. A job it
-  # skips reports as passed to the branch protection; the e2e gate below accepts a skip only from it.
+  # skips reports as passed to the branch protection; the e2e gate below accepts a skip only from it. Then which of the
+  # long jobs a pull request needs, from the files it changes (scripts/ci-scope.sh): a push needs them all.
   reuse:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       actions: read # the earlier runs and their jobs
+      pull-requests: read # the files a pull request changes
     outputs:
       mode: ${{ steps.reuse.outputs.mode }}
       from: ${{ steps.reuse.outputs.from }}
+      e2e: ${{ steps.scope.outputs.e2e }}
+      cfs: ${{ steps.scope.outputs.cfs }}
+      cli: ${{ steps.scope.outputs.cli }}
+      package: ${{ steps.scope.outputs.package }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,6 +45,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: bash scripts/ci-reuse.sh
+      - id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: bash scripts/ci-scope.sh
 
   backend:
     needs: reuse
@@ -104,7 +117,7 @@ jobs:
     # The workstation client (cli/): vet, tests, vulnerability check, and a build for
     # every platform the server offers for download.
     needs: reuse
-    if: needs.reuse.outputs.mode == 'full'
+    if: needs.reuse.outputs.mode == 'full' && needs.reuse.outputs.cli == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -153,7 +166,7 @@ jobs:
     # the Python environment and its wheels), then checked on Debian 13: dependencies, the daemon, the environment, and
     # its rebuild from the wheels without network (installer/test-package-inside.sh).
     needs: reuse
-    if: needs.reuse.outputs.mode == 'full'
+    if: needs.reuse.outputs.mode == 'full' && needs.reuse.outputs.package == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -169,11 +182,10 @@ jobs:
   cfs:
     # hyperlite-cfs (cfs/), the replicated configuration daemon in C: built with GCC and clang under AddressSanitizer
     # and UndefinedBehaviorSanitizer, its C tests (a simulated cluster included), the Python client against the real
-    # daemon, a three-node cluster on a real Corosync in network namespaces (its fault tests and five soak rounds
-    # included; the thousand rounds run every night in lab.yml), two-node clusters with and without a QDevice, and
-    # fuzzing of the requests and of the messages between nodes.
+    # daemon, and fuzzing of the requests and of the messages between nodes (the two fuzzers side by side). Its
+    # clusters on a real Corosync run in cfs-cluster below.
     needs: reuse
-    if: needs.reuse.outputs.mode == 'full'
+    if: needs.reuse.outputs.mode == 'full' && needs.reuse.outputs.cfs == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -200,18 +212,7 @@ jobs:
         run: |
           pip install pytest==9.1.1
           HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs python -m pytest -q cfs/tests/python
-      - name: Three nodes on a real Corosync
-        run: |
-          sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs "$(which python)" -m pytest -q \
-            -p no:cacheprovider cfs/tests/cluster
-      - name: Two nodes, without then with a QDevice
-        run: |
-          for qdevice in 0 1; do
-            sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs HYPERLITE_LAB_NODES=2 \
-              HYPERLITE_LAB_QDEVICE=$qdevice "$(which python)" -m pytest -q -p no:cacheprovider \
-              cfs/tests/cluster/test_two_nodes.py
-          done
-      - name: Fuzz the request handler and the peer messages (clang, libFuzzer, 2 x 45 s)
+      - name: Fuzz the request handler and the peer messages (clang, libFuzzer, 45 s each, side by side)
         env:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1  # undefined behaviour stops the run, as a crash does
         run: |
@@ -219,21 +220,75 @@ jobs:
           ninja -C build-fuzz  # meson test builds only the tests, not the fuzz target
           meson test -C build-fuzz --print-errorlogs
           mkdir -p fuzz-work fuzz-work-message
-          build-fuzz/fuzz_request -max_total_time=45 -max_len=4096 fuzz-work cfs/fuzz/corpus
-          build-fuzz/fuzz_message -max_total_time=45 -max_len=4096 fuzz-work-message cfs/fuzz/corpus-message
+          build-fuzz/fuzz_request -max_total_time=45 -max_len=4096 fuzz-work cfs/fuzz/corpus > fuzz-request.log 2>&1 &
+          request=$!
+          build-fuzz/fuzz_message -max_total_time=45 -max_len=4096 fuzz-work-message cfs/fuzz/corpus-message \
+            > fuzz-message.log 2>&1 &
+          message=$!
+          status=0
+          wait "$request" || { status=1; echo "::error::fuzz_request found a crash"; }
+          wait "$message" || { status=1; echo "::error::fuzz_message found a crash"; }
+          tail -n 40 fuzz-request.log fuzz-message.log
+          exit "$status"
+
+  cfs-cluster:
+    # hyperlite-cfs on a real Corosync in network namespaces: three nodes (its fault tests and five soak rounds
+    # included; the thousand rounds run every night in lab.yml), and two nodes without then with a QDevice. On two
+    # runners: together they took three of the six minutes of the cfs job.
+    name: cfs-cluster (${{ matrix.part }})
+    needs: reuse
+    if: needs.reuse.outputs.mode == 'full' && needs.reuse.outputs.cfs == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [three nodes, two nodes]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev \
+            corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2 corosync-qnetd corosync-qdevice
+          # The packages start daemons of their own; the cluster tests run their own, in namespaces.
+          sudo systemctl stop corosync corosync-qnetd corosync-qdevice || true
+      - name: Build (GCC, sanitizers)
+        run: |
+          meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
+          ninja -C build-gcc hyperlite-cfs
+          pip install pytest==9.1.1
+      - name: Three nodes on a real Corosync
+        if: matrix.part == 'three nodes'
+        run: |
+          sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs "$(which python)" -m pytest -q \
+            -p no:cacheprovider cfs/tests/cluster --ignore=cfs/tests/cluster/test_two_nodes.py
+      - name: Two nodes, without then with a QDevice
+        if: matrix.part == 'two nodes'
+        run: |
+          for qdevice in 0 1; do
+            sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build-gcc/hyperlite-cfs HYPERLITE_LAB_NODES=2 \
+              HYPERLITE_LAB_QDEVICE=$qdevice "$(which python)" -m pytest -q -p no:cacheprovider \
+              cfs/tests/cluster/test_two_nodes.py
+          done
 
   e2e-shard:
-    # End-to-end suite against a real backend and a real libvirt/QEMU, in three parts on three runners (each with its
+    # End-to-end suite against a real backend and a real libvirt/QEMU, in four parts on four runners (each with its
     # own backend): the suite took ten minutes on one, the longest job of the CI by far.
-    name: e2e (${{ matrix.shard }}/3)
+    name: e2e (${{ matrix.shard }}/4)
     needs: reuse
-    if: needs.reuse.outputs.mode == 'full'
+    if: needs.reuse.outputs.mode == 'full' && needs.reuse.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -288,7 +343,7 @@ jobs:
         working-directory: dashboard
         env:
           SHARD: ${{ matrix.shard }}
-        run: sudo -E env "PATH=$PATH" npx playwright test --shard="$SHARD/3"
+        run: sudo -E env "PATH=$PATH" npx playwright test --shard="$SHARD/4"
       - name: Upload the report on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -298,30 +353,55 @@ jobs:
           retention-days: 7
 
   e2e:
-    # The check the branch protection requires: the three parts all passed, or were skipped by the reuse because these
-    # files, or files that differ from them only in release files, already passed them. Anything else fails it: a part
-    # cancelled, or skipped for another reason (the reuse job itself failed).
-    needs: [reuse, e2e-shard]
+    # The check the branch protection requires for the long jobs: the end-to-end parts, hyperlite-cfs, its clusters,
+    # the package and the client all passed, or were skipped either by the reuse (these files, or files that differ
+    # from them only in release files, already passed them) or because this pull request changes none of their files
+    # (scripts/ci-scope.sh). Anything else fails it: a job failed, cancelled, or skipped for another reason (the reuse
+    # job itself failed). Named e2e as the branch protection knows it; it covers the other long jobs too, which no
+    # required check covered (a red cfs or package did not block a merge).
+    needs: [reuse, e2e-shard, cfs, cfs-cluster, package, cli]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - env:
-          RESULT: ${{ needs.e2e-shard.result }}
           REUSE: ${{ needs.reuse.result }}
           MODE: ${{ needs.reuse.outputs.mode }}
           FROM: ${{ needs.reuse.outputs.from }}
+          E2E: ${{ needs.e2e-shard.result }} ${{ needs.reuse.outputs.e2e }}
+          CFS: ${{ needs.cfs.result }} ${{ needs.reuse.outputs.cfs }}
+          CFS_CLUSTER: ${{ needs.cfs-cluster.result }} ${{ needs.reuse.outputs.cfs }}
+          PACKAGE: ${{ needs.package.result }} ${{ needs.reuse.outputs.package }}
+          CLI: ${{ needs.cli.result }} ${{ needs.reuse.outputs.cli }}
         run: |
-          if [ "$RESULT" = skipped ] && [ "$REUSE" = success ] && { [ "$MODE" = exact ] || [ "$MODE" = docs ]; }; then
-            echo "::notice::end-to-end suite not run again ($MODE): passed on ${FROM:0:12}"
-            exit 0
-          fi
-          test "$RESULT" = success || { echo "::error::the end-to-end suite: $RESULT"; exit 1; }
+          status=0
+          check() { # <job> <result> <needed by this pull request's files>
+            [ "$2" = success ] && return 0
+            if [ "$2" = skipped ] && [ "$REUSE" = success ]; then
+              if [ "$MODE" = exact ] || [ "$MODE" = docs ]; then
+                echo "::notice::$1 not run again ($MODE): passed on ${FROM:0:12}"
+                return 0
+              fi
+              if [ "${3:-}" = false ]; then
+                echo "::notice::$1 not needed: this pull request changes none of its files"
+                return 0
+              fi
+            fi
+            echo "::error::$1: $2"
+            status=1
+          }
+          # Word splitting on purpose: each variable is "<result> <needed>".
+          check "the end-to-end suite" $E2E
+          check cfs $CFS
+          check cfs-cluster $CFS_CLUSTER
+          check package $PACKAGE
+          check cli $CLI
+          exit "$status"
 
   publish:
     # Every push to master or test is published once all of the above passed on that very commit, or on its very files
     # (reuse: the e2e gate accepted the skip). A failed or cancelled job stops it.
-    needs: [reuse, backend, frontend, cli, shell, package, cfs, e2e]
+    needs: [reuse, backend, frontend, cli, shell, package, cfs, cfs-cluster, e2e]
     if: >-
       always() && github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/test')
       && needs.reuse.result == 'success' && needs.e2e.result == 'success'

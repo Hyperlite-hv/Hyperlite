@@ -28,9 +28,9 @@ awk -v v="$BASE" '
 ' "$REPO_DIR/CHANGELOG.md" > "$OUT/$VERSION.en.md"
 if ! grep -q '[^[:space:]]' "$OUT/$VERSION.en.md"; then
     if [ "$BASE" != "$VERSION" ]; then
-        # Between two releases the coming one has no section yet: the test channel shows what is unreleased.
-        awk '/^## \[/ { if (found) exit; if (index($0, "## [Unreleased]") == 1) { found = 1; next } } found { print }' \
-            "$REPO_DIR/CHANGELOG.md" > "$OUT/$VERSION.en.md"
+        # Between two releases the coming one has no section yet: the test channel shows what is unreleased, the
+        # fragments of changelog.d/ included (scripts/changelog.py).
+        python3 "$REPO_DIR/scripts/changelog.py" unreleased > "$OUT/$VERSION.en.md"
     else
         echo "[release-notes] CHANGELOG.md has no section for $BASE: write it in the release PR" >&2
         rm -f "$OUT/$VERSION.en.md"

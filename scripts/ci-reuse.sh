@@ -22,7 +22,7 @@ set -u
 
 MAX_AGE_DAYS=${MAX_AGE_DAYS:-14}
 CANDIDATES=${CANDIDATES:-15}
-CHECK_JOBS="backend frontend cli shell package cfs e2e"
+CHECK_JOBS="backend frontend cli shell package cfs cfs-cluster e2e"
 # The files a release PR changes: anything else is code, tests or packaging, and takes the full suite.
 release_file() {
     case "$1" in
@@ -52,14 +52,23 @@ validated() { # <run id>: every check job passed, or was skipped by a reuse
     local states
     states=$(gh api "repos/$REPO/actions/runs/$1/jobs?per_page=50" \
         --jq '.jobs[] | "\(.name)=\(.conclusion)"' 2>/dev/null) || return 1
-    local job state skipped=0
+    local job name state seen skipped=0
     for job in $CHECK_JOBS; do
-        state=$(printf '%s\n' "$states" | sed -n "s/^$job=//p" | head -n 1)
-        case "$state" in
-            success) ;;
-            skipped) skipped=1 ;;
-            *) return 1 ;;
-        esac
+        # The parts of a matrix report as "<job> (<part>)": each counts, and a job no part of which ran is missing.
+        seen=0
+        while IFS='=' read -r name state; do
+            case "$name" in
+                "$job" | "$job ("*) ;;
+                *) continue ;;
+            esac
+            seen=1
+            case "$state" in
+                success) ;;
+                skipped) skipped=1 ;;
+                *) return 1 ;;
+            esac
+        done <<< "$states"
+        [ "$seen" = 1 ] || return 1
     done
     # The gate itself never skips (if: always()); a job skipped only by a reuse of that run.
     [ "$(printf '%s\n' "$states" | sed -n 's/^e2e=//p' | head -n 1)" = success ] || return 1

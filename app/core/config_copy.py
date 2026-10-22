@@ -35,7 +35,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core import database, paths, schema_v1
+from app.core import database, db_health, paths, schema_v1
 
 
 def _store():
@@ -257,8 +257,10 @@ def _loop():
         try:
             if not cluster_lead.in_cluster():  # in a cluster, hyperlite-cfs gives every node the configuration
                 copy_now()
+            db_health.succeeded("config-copy")
         except Exception as e:  # never let one round stop the copies
             print(f"[config-copy] round failed: {e!r}", flush=True)
+            db_health.failed("config-copy", e)
         time.sleep(COPY_CHECK_S)
 
 

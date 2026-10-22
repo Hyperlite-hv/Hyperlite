@@ -98,6 +98,8 @@ class GitHub:
             data=None if data is None else json.dumps(data).encode(),
             headers={"Accept": "application/vnd.github+json", "User-Agent": "hyperlite-claim"},
         )
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
         if self.token:
             req.add_header("Authorization", f"token {self.token}")
         try:

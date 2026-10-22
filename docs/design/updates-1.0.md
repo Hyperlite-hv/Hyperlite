@@ -44,7 +44,9 @@ Non-goals: updating a node's Debian major release (12 → 13), automatic reboots
 
 ## 4. Release notes
 
-- `CHANGELOG.md` already has an `[Unreleased]` section. The release PR renames it to `[1.0.1] - date`.
+- A pull request adds its changelog entry as a fragment, `changelog.d/<issue>-<slug>.<type>.md`, so that pull requests
+  never conflict over `CHANGELOG.md`. The release PR runs `python3 scripts/changelog.py release 1.0.1`, which writes
+  the `[1.0.1] - date` section from the fragments (and from anything left under `[Unreleased]`) and removes them.
 - The changelog is written in English for the repository; the notes shown in the dashboard need French too:
   each version's section gets a French twin in `docs/release-notes/fr/1.0.1.md`, written in the release PR.
 - `ci-publish.sh` publishes the notes next to the APT repository (`notes/1.0.1.en.md`, `notes/1.0.1.fr.md`) and

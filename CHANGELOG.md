@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-10-22
+
+### Added
+
+- A damaged database is detected and said, no longer only written to the log at every round of a background loop (#440). Each node checks its SQLite file at start and once a day (`PRAGMA quick_check`), and fully (`PRAGMA integrity_check`, every index against its table) when the metrics, the node poller, the backup scheduler or the configuration copy fail 3 times in a row on a damaged file. A damaged database shows a banner above every page, with the repair that fits, and sends the new **Database check** notification. Index entries that disagree with their tables are repaired from the banner, with the service running (`REINDEX`, `POST /api/v1/host/database/repair`). Damaged index pages, which SQLite cannot free, need the file rebuilt from its tables with the service stopped: `python -m app.core.db_health rebuild`, which keeps the damaged file next to the new one and can empty a damaged history table (`--drop-history`). `GET /api/v1/host/database` and `POST /api/v1/host/database/check` are additions to API v1. See `docs/database-health.md`.
+
+### Fixed
+
+- **A backup asked while another runs shows up.** One backup runs at a time on a node: one asked meanwhile waits for its turn before its row exists, and a VM's Backups tab read the list once, 1.5 s after the click, so it never appeared until the page was reloaded. The tab now follows it until it shows and says it waits for its turn; a container's Backups tab follows its backup's task and a running backup until it ends (it read the list once too). This was also the end-to-end test that failed first in 14 of the last 25 CI runs (#569).
+- `.github/scripts/claim.py` sends its JSON bodies with `Content-Type: application/json`: a proxy that requires it refused `take` and `release`.
+
+### Changed
+
+- **The CI runs what a pull request needs** (#569): the end-to-end suite only for `app/` and the dashboard, hyperlite-cfs only for `cfs/` and its client, the workstation client only for `cli/`, the package for the code and the installer (`scripts/ci-scope.sh`); pushes to test and master still run everything. The end-to-end suite runs in four even parts (`next-audit.spec.ts` in parallel), hyperlite-cfs's clusters on runners of their own and its two fuzzers side by side. The required `e2e` check now also covers cfs, its clusters, the package and the client: a red one blocked nothing. CodeQL runs only when Python or JavaScript changes, and every Monday.
+
+
+### Security
+
+- This node's HTTPS certificate is handled by `hyperlite-daemon` (#511, step 3, host domain part 3): importing a pair, going back to the previous one, making a self-signed one, getting one from Let's Encrypt with certbot, and restarting the API afterwards (`app/daemon/ops/tls.py`). The private key is written to `/etc/hyperlite/local` by the daemon; the API checks who asks and answers as before.
+
 ## [1.1.3] - 2026-10-22
 
 ### Security

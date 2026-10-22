@@ -1,9 +1,33 @@
 name: CodeQL
 
+# On the code it reads (Python and JavaScript): a change to the documentation, to hyperlite-cfs (C, checked by its
+# sanitizers and fuzzers in ci.yml) or to the client (Go, govulncheck) does not run it. Every Monday on everything.
 on:
   push:
     branches: [master, test]
+    paths:
+      - "**.py"
+      - "**.js"
+      - "**.jsx"
+      - "**.ts"
+      - "**.tsx"
+      - "**.mjs"
+      - "**.cjs"
+      - "dashboard/package-lock.json"
+      - "requirements*.txt"
+      - ".github/workflows/codeql.yml"
   pull_request:
+    paths:
+      - "**.py"
+      - "**.js"
+      - "**.jsx"
+      - "**.ts"
+      - "**.tsx"
+      - "**.mjs"
+      - "**.cjs"
+      - "dashboard/package-lock.json"
+      - "requirements*.txt"
+      - ".github/workflows/codeql.yml"
   schedule:
     - cron: "23 4 * * 1"
 

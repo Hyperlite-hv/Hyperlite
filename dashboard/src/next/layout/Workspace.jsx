@@ -18,6 +18,7 @@ import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions"
 import { ContainerHeaderActions } from "../pages/ContainerPages";
 import { formatSizeMb } from "../lib/format";
 import PendingChanges from "../components/PendingChanges";
+import DatabaseBanner from "../components/DatabaseBanner";
 
 
 
@@ -162,6 +163,8 @@ export default function Workspace({ children }) {
   const readOnlyText = localNode?.read_only_cause === "update_to_1_0"
     ? t("ro.update", { nodes: (localNode.read_only_waiting_for || []).join(", ") })
     : localNode?.read_only_cause === "no_daemon" ? t("ro.noDaemon") : t("ro.banner");
+  const database = localNode?.database;
+  const databaseBad = database?.status === "damaged" || database?.status === "failing";
   const { containers, containersLoaded } = useFreshness(useShallow((s) => ({ containers: s.containers, containersLoaded: s.containersLoaded })));
 
   const resource = selection.type === "vm" ? findVm(vms, selection.id)
@@ -201,6 +204,7 @@ export default function Workspace({ children }) {
     <main className="nx-main" id="nx-main" tabIndex={-1}>
       {failing && <div className="nx-banner" role="status">▲ {t("inv.stale")}</div>}
       {readOnly && <div className="nx-banner nx-banner--danger" role="alert">{readOnlyText}</div>}
+      {databaseBad && <DatabaseBanner db={database} admin={caps.admin} />}
       {remote && <div className="nx-banner nx-banner--info" role="status">{t("res.remoteBanner")}</div>}
       <div className="nx-content" data-legacy="true">
         {children}

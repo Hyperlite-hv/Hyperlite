@@ -2,16 +2,17 @@
 back to the previous or a self-signed one. Administrators only: the key protects every session and API token.
 
 The service reads the certificate at start-up, so every change ends with a restart of hyperlite.service a couple of
-seconds after the answer (the dashboard reconnects on its own)."""
-
-import subprocess
+seconds after the answer (the dashboard reconnects on its own). What needs root (the key in /etc/hyperlite/local,
+certbot, the restart) is done by hyperlite-daemon (app/daemon/ops/tls.py, docs/design/privilege-separation.md,
+section 13); these routes keep who may ask, the audit log and the answers."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import tls_certs
+from app.core import privileged, tls_certs
 from app.core.audit import log_action
 from app.core.security import require_role
+from app.daemon.registry import DaemonError
 
 router = APIRouter(prefix="/host/certificate", tags=["host"])
 
@@ -19,10 +20,18 @@ ACME_TIMEOUT_S = 240
 
 
 def _restart_soon():
-    # Imported here: the update router owns the helper that runs a command outside the service's cgroup.
-    from app.routers.update import _spawn_outside_service
+    privileged.run("hyperlite.restart_api")
 
-    _spawn_outside_service("hyperlite-tls-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
+
+def _ask(user, action, op, target="tls", **args):
+    """hyperlite-daemon's answer to `op`. A pair or request it refuses: 422 with the reason, as before; a failure:
+    500; without the daemon: 503."""
+    try:
+        return privileged.run(op, user=user["username"], **args)
+    except DaemonError as e:
+        log_action(user["username"], action, target, "failed", e.detail)
+        status = {"refused": 422, "unavailable": 503}.get(e.kind, 500)
+        raise HTTPException(status_code=status, detail=e.detail) from None
 
 
 @router.get("")
@@ -38,11 +47,9 @@ class CertificateImport(BaseModel):
 
 @router.post("")
 def import_certificate(payload: CertificateImport, user: dict = Depends(require_role("admin"))):
-    try:
-        described = tls_certs.import_pem(payload.certificate, payload.key, payload.chain)
-    except tls_certs.CertError as e:
-        log_action(user["username"], "import_certificate", "tls", "failed", str(e))
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    described = _ask(
+        user, "import_certificate", "tls.import", certificate=payload.certificate, key=payload.key, chain=payload.chain
+    )
     log_action(
         user["username"], "import_certificate", "tls", "success", f"{described['subject']} until {described['end']}"
     )
@@ -52,10 +59,7 @@ def import_certificate(payload: CertificateImport, user: dict = Depends(require_
 
 @router.post("/previous")
 def restore_previous_certificate(user: dict = Depends(require_role("admin"))):
-    try:
-        tls_certs.restore_previous()
-    except tls_certs.CertError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    _ask(user, "restore_certificate", "tls.restore_previous")
     log_action(user["username"], "restore_certificate", "tls", "success")
     _restart_soon()
     return {**tls_certs.info(), "restart": True}
@@ -63,11 +67,7 @@ def restore_previous_certificate(user: dict = Depends(require_role("admin"))):
 
 @router.post("/self-signed")
 def self_signed_certificate(user: dict = Depends(require_role("admin"))):
-    try:
-        tls_certs.self_signed()
-    except (subprocess.SubprocessError, OSError) as e:
-        log_action(user["username"], "self_signed_certificate", "tls", "failed", str(e))
-        raise HTTPException(status_code=500, detail=f"The self-signed certificate could not be created: {e}") from e
+    _ask(user, "self_signed_certificate", "tls.self_signed")
     log_action(user["username"], "self_signed_certificate", "tls", "success")
     _restart_soon()
     return {**tls_certs.info(), "restart": True}
@@ -83,17 +83,22 @@ class AcmeRequest(BaseModel):
 def acme_certificate(payload: AcmeRequest, user: dict = Depends(require_role("admin"))):
     """Let's Encrypt by HTTP-01: the domain must resolve to this node and port 80 must reach it from the Internet.
     certbot's deploy hook installs the certificate and restarts the service; certbot's own timer renews it."""
-    try:
-        run = tls_certs.run_acme(payload.domain, payload.email, payload.test, ACME_TIMEOUT_S)
-    except tls_certs.CertError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    except subprocess.TimeoutExpired:
+    run = _ask(
+        user,
+        "acme_certificate",
+        "tls.acme",
+        target=payload.domain[:253],
+        timeout=ACME_TIMEOUT_S + 30,
+        domain=payload.domain,
+        email=payload.email,
+        test=payload.test,
+    )
+    if run["returncode"] is None:
         log_action(user["username"], "acme_certificate", payload.domain, "failed", "timeout")
-        raise HTTPException(status_code=504, detail="certbot did not finish in time") from None
-    if run.returncode != 0:
+        raise HTTPException(status_code=504, detail="certbot did not finish in time")
+    if run["returncode"] != 0:
         # certbot's last lines name the cause (DNS, port 80 unreachable, rate limit): shown as they are.
-        tail = "\n".join((run.stderr or run.stdout).strip().splitlines()[-8:])
-        log_action(user["username"], "acme_certificate", payload.domain, "failed", tail[-500:])
-        raise HTTPException(status_code=502, detail=f"certbot failed:\n{tail}")
+        log_action(user["username"], "acme_certificate", payload.domain, "failed", run["tail"][-500:])
+        raise HTTPException(status_code=502, detail=f"certbot failed:\n{run['tail']}")
     log_action(user["username"], "acme_certificate", payload.domain, "success", "staging" if payload.test else None)
     return {**tls_certs.info(), "restart": True}
