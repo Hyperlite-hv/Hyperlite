@@ -112,12 +112,12 @@ func cmdLogin(rawURL string, yes bool) error {
 	if errors.As(err, &certErr) {
 		// First contact with an internal certificate: the same trust-on-first-use
 		// decision as an SSH host key, made once and remembered for this server.
-		fmt.Fprintf(os.Stderr, "The certificate of %s is not trusted by this computer.\nSHA-256 fingerprint: %s\n", u, certErr.fingerprint)
+		fmt.Fprintf(os.Stderr, "The certificate of %s is not trusted by this computer.\nSHA-256 fingerprint: %s\n", u, certErr.Fingerprint)
 		fmt.Fprintln(os.Stderr, "Compare it with the one shown by the server administrator before trusting it.")
 		if !yes && !confirm("Trust this certificate for this server?") {
 			return errors.New("sign-in cancelled")
 		}
-		s.Fingerprint = certErr.fingerprint
+		s.Fingerprint = certErr.Fingerprint
 		err = call(s, "POST", "/auth/cli/start", body, &start)
 	}
 	if err != nil {
@@ -143,7 +143,7 @@ func cmdLogin(rawURL string, yes bool) error {
 		err := call(s, "POST", "/auth/cli/token", map[string]string{"device_code": start.DeviceCode}, &tok)
 		var apiErr *apiError
 		if errors.As(err, &apiErr) {
-			switch apiErr.code {
+			switch apiErr.OAuthError {
 			case "authorization_pending":
 				continue
 			case "access_denied":

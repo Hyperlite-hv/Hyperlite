@@ -917,15 +917,33 @@
    "CustomRoleRename": {
     "properties": {
      "name": {
-      "maxLength": 100,
-      "minLength": 1,
-      "title": "Name",
-      "type": "string"
+      "anyOf": [
+       {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "privileges": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Privileges"
      }
     },
-    "required": [
-     "name"
-    ],
     "title": "CustomRoleRename",
     "type": "object"
    },
@@ -3185,6 +3203,17 @@
       ],
       "title": "Password"
      },
+     "resource_pool": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Resource Pool"
+     },
      "storage_pool": {
       "anyOf": [
        {
@@ -3378,16 +3407,32 @@
    },
    "app__routers__pools__PoolRename": {
     "properties": {
+     "description": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
      "name": {
-      "maxLength": 100,
-      "minLength": 1,
-      "title": "Name",
-      "type": "string"
+      "anyOf": [
+       {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
      }
     },
-    "required": [
-     "name"
-    ],
     "title": "PoolRename",
     "type": "object"
    },
@@ -3816,8 +3861,52 @@
      "acl"
     ]
    },
+   "get": {
+    "description": "One custom role, as GET /acl/custom-roles lists it.",
+    "operationId": "get_custom_role_api_v1_acl_custom_roles__role_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "role_id",
+      "required": true,
+      "schema": {
+       "title": "Role Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Custom Role",
+    "tags": [
+     "acl"
+    ]
+   },
    "patch": {
-    "description": "Only its name changes: the role (custom:<id> in the assignments) is known by its id everywhere else.",
+    "description": "Its name, its privileges, or both. The role (custom:<id> in the assignments) is known by its id everywhere\nelse, so its assignments stay: a role changed by deleting and creating it again lost every one of them.",
     "operationId": "rename_custom_role_api_v1_acl_custom_roles__role_id__patch",
     "parameters": [
      {
@@ -4016,6 +4105,50 @@
      }
     ],
     "summary": "Delete Acl",
+    "tags": [
+     "acl"
+    ]
+   },
+   "get": {
+    "description": "One assignment, as GET /acl lists it.",
+    "operationId": "get_acl_api_v1_acl__acl_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "acl_id",
+      "required": true,
+      "schema": {
+       "title": "Acl Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Acl",
     "tags": [
      "acl"
     ]
@@ -5663,6 +5796,50 @@
      "auth"
     ]
    },
+   "get": {
+    "description": "One account, as GET /auth/users lists it.",
+    "operationId": "get_account_api_v1_auth_users__username__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "username",
+      "required": true,
+      "schema": {
+       "title": "Username",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Account",
+    "tags": [
+     "auth"
+    ]
+   },
    "patch": {
     "operationId": "update_user_api_v1_auth_users__username__patch",
     "parameters": [
@@ -5990,6 +6167,50 @@
      }
     ],
     "summary": "Delete Group Job",
+    "tags": [
+     "backups"
+    ]
+   },
+   "get": {
+    "description": "One job, as GET /backup-groups lists it (with the VMs it selects now).",
+    "operationId": "get_group_job_api_v1_backup_groups__job_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "job_id",
+      "required": true,
+      "schema": {
+       "title": "Job Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Group Job",
     "tags": [
      "backups"
     ]
@@ -8096,6 +8317,50 @@
      "groups"
     ]
    },
+   "get": {
+    "description": "One group, as GET /groups lists it.",
+    "operationId": "get_group_api_v1_groups__group_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "group_id",
+      "required": true,
+      "schema": {
+       "title": "Group Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Group",
+    "tags": [
+     "groups"
+    ]
+   },
    "patch": {
     "description": "Only its name changes: the group (its members and permissions) is known by its id everywhere else.",
     "operationId": "rename_group_api_v1_groups__group_id__patch",
@@ -8605,6 +8870,50 @@
      }
     ],
     "summary": "Disable",
+    "tags": [
+     "ha"
+    ]
+   },
+   "get": {
+    "description": "One protected VM, as GET /ha lists it.",
+    "operationId": "get_protected_api_v1_ha__vm_name__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "vm_name",
+      "required": true,
+      "schema": {
+       "title": "Vm Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Protected",
     "tags": [
      "ha"
     ]
@@ -12664,8 +12973,52 @@
      "pools"
     ]
    },
+   "get": {
+    "description": "One pool, as GET /pools lists it.",
+    "operationId": "get_pool_api_v1_pools__pool_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_id",
+      "required": true,
+      "schema": {
+       "title": "Pool Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Pool",
+    "tags": [
+     "pools"
+    ]
+   },
    "patch": {
-    "description": "Only its name changes: the pool (its members and permissions) is known by its id everywhere else.",
+    "description": "Its name, its description, or both: the pool (its members and permissions) is known by its id everywhere\nelse.",
     "operationId": "rename_pool_api_v1_pools__pool_id__patch",
     "parameters": [
      {
@@ -13377,6 +13730,66 @@
     "tags": [
      "storage"
     ]
+   },
+   "get": {
+    "description": "One storage pool, as GET /storage lists it (node: the same convention).",
+    "operationId": "get_pool_api_v1_storage__pool_name__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_name",
+      "required": true,
+      "schema": {
+       "title": "Pool Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Pool",
+    "tags": [
+     "storage"
+    ]
    }
   },
   "/api/v1/storage/{pool_name}/check-permissions": {
@@ -13541,6 +13954,7 @@
     ]
    },
    "post": {
+    "description": "An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one, as\nProxmox VE's Datastore.AllocateSpace (deleting a volume stays an administrator's: it may hold another VM's data).",
     "operationId": "create_volume_api_v1_storage__pool_name__volumes_post",
     "parameters": [
      {
@@ -13653,6 +14067,59 @@
      }
     ],
     "summary": "Delete Volume",
+    "tags": [
+     "storage"
+    ]
+   },
+   "get": {
+    "description": "One volume, as GET /storage/{pool}/volumes lists it.",
+    "operationId": "get_volume_api_v1_storage__pool_name__volumes__volume_name__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_name",
+      "required": true,
+      "schema": {
+       "title": "Pool Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "volume_name",
+      "required": true,
+      "schema": {
+       "title": "Volume Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Volume",
     "tags": [
      "storage"
     ]
@@ -14223,6 +14690,7 @@
   },
   "/api/v1/templates/from-vm/{name}": {
    "post": {
+    "description": "wait=false: every check is made, then the work runs as a task and the answer is 202 with its id.",
     "operationId": "convert_to_template_api_v1_templates_from_vm__name__post",
     "parameters": [
      {
@@ -14232,6 +14700,16 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
       }
      }
     ],
@@ -14333,6 +14811,7 @@
   },
   "/api/v1/templates/{template_name}/deploy": {
    "post": {
+    "description": "wait=false: every check is made, then the copy runs as a task and the answer is 202 with its id.",
     "operationId": "deploy_template_api_v1_templates__template_name__deploy_post",
     "parameters": [
      {
@@ -14342,6 +14821,16 @@
       "schema": {
        "title": "Template Name",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
       }
      }
     ],
@@ -15135,7 +15624,20 @@
     ]
    },
    "post": {
+    "description": "wait=false: every check is made, then the creation runs as a task and the answer is 202 with its id.",
     "operationId": "create_vm_api_v1_vms_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -15179,6 +15681,7 @@
   },
   "/api/v1/vms/{name}": {
    "delete": {
+    "description": "An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there).",
     "operationId": "delete_vm_api_v1_vms__name__delete",
     "parameters": [
      {
@@ -16149,6 +16652,7 @@
   },
   "/api/v1/vms/{name}/clone": {
    "post": {
+    "description": "wait=false: every check is made, then the copy runs as a task and the answer is 202 with its id.",
     "operationId": "clone_vm_api_v1_vms__name__clone_post",
     "parameters": [
      {
@@ -16158,6 +16662,16 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
       }
      }
     ],

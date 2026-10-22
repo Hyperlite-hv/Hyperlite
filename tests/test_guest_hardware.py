@@ -33,7 +33,7 @@ def domain(monkeypatch):
 
 
 def test_extra_disk_inherits_sata_controller(domain):
-    devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin"})
+    devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
     xml, _ = domain.attachDeviceFlags.call_args.args
     assert ET.fromstring(xml).find("target").attrib == {"dev": "sdb", "bus": "sata"}
 
@@ -41,13 +41,13 @@ def test_extra_disk_inherits_sata_controller(domain):
 def test_sata_disk_attach_requires_shutdown(domain):
     domain.isActive.return_value = True
     with pytest.raises(HTTPException) as error:
-        devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin"})
+        devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
     assert error.value.status_code == 409
     domain.attachDeviceFlags.assert_not_called()
 
 
 def test_extra_interface_inherits_windows_model(domain):
-    devices.attach_interface("win", devices.InterfaceAttach(network="default"), {"username": "admin"})
+    devices.attach_interface("win", devices.InterfaceAttach(network="default"), {"username": "admin", "role": "admin"})
     xml, _ = domain.attachDeviceFlags.call_args.args
     assert ET.fromstring(xml).find("model").get("type") == "e1000e"
 

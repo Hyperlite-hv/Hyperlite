@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core import ha, ha_fencing, ha_watch, maintenance
 from app.core.audit import log_action
-from app.core.listing import listing
+from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
 from app.services import node_service
 
@@ -17,8 +17,12 @@ router = APIRouter(prefix="/ha", tags=["ha"])
 
 @router.get("")
 async def list_protected(user: dict = Depends(get_current_user)):
+    return listing(await _protected())
+
+
+async def _protected():
     rows = await run_in_threadpool(ha.list_protected)
-    return listing([{**row, "node_status": await node_service.status(row["node"])} for row in rows])
+    return [{**row, "node_status": await node_service.status(row["node"])} for row in rows]
 
 
 class EnableRequest(BaseModel):
@@ -148,3 +152,10 @@ def test_fencing(node: str, user: dict = Depends(require_role("admin"))):
 def lease_check(node: str, user: dict = Depends(require_role("admin"))):
     _known_node(node)
     return ha_watch.lease_check(node)
+
+
+# Registered last so that the fixed paths above (/status, /fencing...) keep their routes.
+@router.get("/{vm_name}")
+async def get_protected(vm_name: str, user: dict = Depends(get_current_user)):
+    """One protected VM, as GET /ha lists it."""
+    return item(await _protected(), "vm_name", vm_name, f"HA protection of '{vm_name}'")

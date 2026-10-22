@@ -403,17 +403,17 @@ def init_db():
                 subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                 subject_id TEXT NOT NULL,
                 role TEXT NOT NULL,
-                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container')),
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
                 resource_id TEXT NOT NULL
             )
         """)
-        # Migration: existing databases were created with the old CHECK
-        # (resource_type IN ('vm','pool')). CREATE TABLE IF NOT EXISTS above is a no-op on
+        # Migration: existing databases were created with an older CHECK
+        # (resource_type IN ('vm','pool'), then ('vm','pool','container')). CREATE TABLE IF NOT EXISTS above is a no-op on
         # a table that already exists, and SQLite cannot modify an existing CHECK through
         # ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
         # migrated).
         existing_acl_sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'").fetchone()
-        if existing_acl_sql and "'container'" not in existing_acl_sql["sql"]:
+        if existing_acl_sql and "'network'" not in existing_acl_sql["sql"]:
             conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
             conn.execute("""
                 CREATE TABLE acl (
@@ -421,7 +421,7 @@ def init_db():
                     subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                     subject_id TEXT NOT NULL,
                     role TEXT NOT NULL,
-                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container')),
+                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
                     resource_id TEXT NOT NULL
                 )
             """)

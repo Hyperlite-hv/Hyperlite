@@ -51,3 +51,9 @@ def test_the_page_parses_the_marker_the_script_writes():
     assert r"/<!-- claim (\{.*?\}) -->[\s\S]*?<!-- \/claim -->/" in page
     assert f'labels={claim.LABEL}"' in page or f"labels={claim.LABEL}&" in page
     assert f"STALE_DAYS = {claim.STALE_DAYS}" in page
+
+
+def test_every_owner_has_its_label_and_is_accepted_by_take():
+    parser_owners = claim.OWNERS
+    assert len(set(parser_owners)) == len(parser_owners) and all(o.isalnum() and o.islower() for o in parser_owners)
+    assert "terraform" in parser_owners
