@@ -22,9 +22,8 @@ import shlex
 import threading
 import time
 
-from app.core import cluster, maintenance, self_node
+from app.core import cluster, maintenance, peer_auth, self_node
 from app.core.audit import log_action
-from app.core.security import create_peer_token
 from app.core.tasks import finish_task, task_log, update_task_progress
 
 logger = logging.getLogger(__name__)
@@ -100,7 +99,10 @@ def _peer_api(node, username, method, path, body=None, timeout=60, connect_timeo
     Over HTTPS to the member, its certificate pinned (app/core/peer_https.py); over SSH when that cannot be done."""
     from app.core import peer_https
 
-    token = create_peer_token({"sub": username, "role": "admin"})
+    try:
+        token = peer_auth.ticket_for(node, username)
+    except peer_auth.NoTicket as e:
+        raise PeerUnreachable(f"{node['name']} cannot be called in {username}'s name: {e}") from None
     try:
         return peer_https.call(node, token, method, path, body=body, timeout=timeout, connect_timeout=connect_timeout)
     except peer_https.Unavailable as e:
@@ -246,6 +248,7 @@ def cluster_plan(username, local_check):
     def run(i, node):
         results[i] = node_plan(node, username, local_check, targets[i])
 
+    run = peer_auth.carry(run)  # each thread calls a member in the name of the request's user
     threads = [threading.Thread(target=run, args=(i, n), daemon=True) for i, n in enumerate([*others, None])]
     for t in threads:
         t.start()
