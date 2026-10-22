@@ -57,6 +57,7 @@ TABLES = {
     "vm_ssh_users": {},
     "vm_os_label": {},
     "vm_cloudinit": {},
+    "vm_cloudinit_custom": {},
     "vm_auto_cleanup": {"volatile": {"last_active_at", "warned_at"}, "fill": {"last_active_at": "now"}},
     "container_ssh_users": {},
     "container_storage": {},

@@ -52,7 +52,7 @@
       "en": "Virtual machines and containers",
       "rows": [
         {"fr": "Cycle de vie, snapshots, modèles", "en": "Lifecycle, snapshots, templates", "status": "parity", "pve": "Yes", "hl": "Yes, native ZFS snapshots on ZFS pools; a template made as a copy (the VM kept, as vSphere's Clone to Template) or by conversion"},
-        {"fr": "Cloud-init", "en": "Cloud-init", "status": "parity", "pve": "Yes", "hl": "Yes, editable after creation, ready Debian image"},
+        {"fr": "Cloud-init", "en": "Cloud-init", "status": "parity", "pve": "Account, SSH keys, host name, addresses per interface, resolvers, custom user-data (cicustom)", "hl": "The same, editable after creation, ready Debian image"},
         {"fr": "UEFI, Secure Boot, TPM 2.0", "en": "UEFI, Secure Boot, TPM 2.0", "status": "parity", "pve": "Yes", "hl": "Yes, Windows 11 / Server 2025 profile"},
         {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
