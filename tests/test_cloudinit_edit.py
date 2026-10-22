@@ -116,8 +116,8 @@ def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_header
     monkeypatch.setattr(
         cloudinit_edit,
         "rewrite_drive",
-        lambda name, iso, user, pw, keys: (
-            written.append((name, user, pw, keys)) or cloudinit_edit._save_state(name, user, keys)
+        lambda name, iso, user, pw, keys, custom=None, macs=(): (
+            written.append((name, user, pw, keys)) or cloudinit_edit._save_state(name, user, keys, custom)
         ),
     )
     admin = auth_headers("admin")
