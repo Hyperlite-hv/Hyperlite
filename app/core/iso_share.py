@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.core import node_health
 from app.core.audit import log_action
 from app.core.cluster import get_node, list_nodes, node_ssh_options
 from app.core.error_messages import describe_exception
@@ -93,7 +94,7 @@ def _ssh(node, command, timeout):
     return subprocess.run(
         [
             "ssh",
-            *node_ssh_options(["-o", "ConnectTimeout=8"]),
+            *node_ssh_options(["-o", f"ConnectTimeout={node_health.CONNECT_TIMEOUT_S}"]),
             "-p",
             str(node["ssh_port"]),
             _target(node),
@@ -129,6 +130,14 @@ def local_isos():
 # message) stays in the service log.
 NO_LIBRARY = "no Hyperlite ISO library on this node"
 UNREADABLE = "the node's library could not be read (details in the service log)"
+OFFLINE = "the node is offline"
+
+# One connection per node lists its library: where it is (LIBRARY_DIRS, in order) and what it holds, in the same call.
+# Exit status 3: neither directory exists.
+_LIST = (
+    'for d in "$@"; do if [ -d "$d" ]; then '
+    'exec find "$d" -maxdepth 1 -type f -name "*.iso" -printf "%f\\t%s\\t%T@\\n"; fi; done; exit 3'
+)
 
 
 class NoLibrary(Exception):
@@ -136,16 +145,11 @@ class NoLibrary(Exception):
 
 
 def remote_isos(node):
-    r = _ssh(
-        node,
-        ["find", str(_library(node)), "-maxdepth", "1", "-type", "f", "-name", "*.iso", "-printf", "%f\\t%s\\t%T@\\n"],
-        LIST_TIMEOUT_S,
-    )
+    r = _ssh(node, ["sh", "-c", _LIST, "sh", *LIBRARY_DIRS], LIST_TIMEOUT_S)
+    if r.returncode == 3:
+        raise NoLibrary()
     if r.returncode != 0:
-        detail = r.stderr.strip()
-        if "No such file" in detail:
-            raise NoLibrary()
-        raise RuntimeError(detail[:200] or "unreachable")
+        raise RuntimeError(r.stderr.strip()[:200] or "unreachable")
     out = []
     for line in r.stdout.splitlines():
         parts = line.split("\t")
@@ -160,10 +164,13 @@ def remote_isos(node):
 
 
 def cluster_isos():
-    """Every node's library. A node that cannot be read is reported next to the list instead of failing it."""
+    """Every node's library. A node that cannot be read is reported next to the list instead of failing it; one the
+    cluster sees down is reported at once, never waited for (app/core/node_health.py)."""
     nodes = list_nodes()
     isos = local_isos()
-    unreachable = []
+    seen_down = node_health.down(nodes)
+    unreachable = [{"node": name, "error": OFFLINE} for name in sorted(seen_down)]
+    nodes = [n for n in nodes if n["name"] not in seen_down]
     if nodes:
         with ThreadPoolExecutor(max_workers=min(8, len(nodes))) as pool:
             futures = {n["name"]: pool.submit(remote_isos, n) for n in nodes}
