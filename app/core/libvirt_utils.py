@@ -24,6 +24,17 @@ def open_lxc_conn():
     return conn
 
 
+def open_lxc_conn_if_any():
+    """The LXC connection, or None when this node has no LXC driver (libvirt installed without it, as on a VM-only
+    host or a CI runner): it then simply has no containers. What looks for every guest of the node (a network's, a
+    shutdown's) goes through this; what acts on a container named by the user uses open_lxc_conn."""
+    try:
+        return open_lxc_conn()
+    except libvirt.libvirtError as e:
+        logger.info("No LXC connection on this node, so no containers: %s", e)
+        return None
+
+
 def open_conn(node_name=None):
     """node_name=None (the default): unchanged local connection, so every existing
     call (dozens, across all routers) keeps working without any change.
