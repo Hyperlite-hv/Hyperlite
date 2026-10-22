@@ -45,3 +45,22 @@ def test_the_vm_directory_goes_with_its_last_backup(database, tmp_path):
     assert (tmp_path / "web").is_dir() and not (tmp_path / "web" / "1").exists()
     backup_service.delete(ids[1])
     assert not (tmp_path / "web").exists() and tmp_path.is_dir()
+
+
+def test_the_pools_holding_the_deleted_files_are_refreshed(database, tmp_path, monkeypatch):
+    # The files go behind libvirt's back: without a refresh the pool kept listing them (seen on the provider's
+    # acceptance runner: a deleted VM's disk and drive still in `virsh vol-list default`).
+    disk = tmp_path / "web.qcow2"
+    disk.write_text("x")
+
+    class _WithDisk(_Domain):
+        def XMLDesc(self, *_):
+            return (
+                f"<domain><name>web</name><devices><disk type='file' device='disk'><source file='{disk}'/>"
+                "<target dev='sda'/></disk></devices></domain>"
+            )
+
+    refreshed = []
+    monkeypatch.setattr(lifecycle, "refresh_pools_for_paths", lambda conn, paths: refreshed.append(list(paths)))
+    lifecycle._perform_vm_deletion(None, _WithDisk(), "web")
+    assert not disk.exists() and refreshed == [[disk]]

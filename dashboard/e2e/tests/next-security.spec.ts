@@ -7,6 +7,7 @@ const USER = `${PREFIX}sec-${stamp}`;
 const GROUP = `${PREFIX}grp-${stamp}`;
 const POOL = `${PREFIX}vmpool-${stamp}`;
 const ROLE = `${PREFIX}role-${stamp}`;
+const USER2 = `${PREFIX}alloc-${stamp}`;
 let token = "";
 const auth = () => ({ Authorization: `Bearer ${token}` });
 test.describe.configure({ mode: "serial", timeout: 120_000 });
@@ -16,11 +17,12 @@ test.afterAll(async ({ request }) => {
   // A missing route answers a JSON 404 (it used to answer the dashboard page): only a list is walked.
   const get = async (p: string) => { const r = await request.get(p, { headers: h }); const body = r.ok() ? await r.json() : []; return (Array.isArray(body) ? body : []) as { id: number; name?: string; key?: string; label?: string }[]; };
   // Only this file's assignments: other files run at the same time and keep theirs.
-  for (const a of (await get("/acl").catch(() => [])) as { id: number; subject_label?: string }[]) if (a.subject_label === USER || a.subject_label === GROUP) await request.delete(`/acl/${a.id}`, { headers: h }).catch(() => {});
+  for (const a of (await get("/acl").catch(() => [])) as { id: number; subject_label?: string }[]) if (a.subject_label === USER || a.subject_label === USER2 || a.subject_label === GROUP) await request.delete(`/acl/${a.id}`, { headers: h }).catch(() => {});
   for (const g of await get("/groups").catch(() => [])) if (g.name === GROUP) await request.delete(`/groups/${g.id}`, { headers: h }).catch(() => {});
   for (const p of await get("/pools").catch(() => [])) if (p.name === POOL) await request.delete(`/pools/${p.id}`, { headers: h }).catch(() => {});
   for (const r of await get("/acl/custom-roles").catch(() => [])) if ((r.label ?? r.name) === ROLE) await request.delete(`/acl/custom-roles/${r.id}`, { headers: h }).catch(() => {});
   await request.delete(`/auth/users/${USER}`, { headers: h }).catch(() => {});
+  await request.delete(`/auth/users/${USER2}`, { headers: h }).catch(() => {});
 });
 
 async function open(page: Page) {
@@ -140,6 +142,25 @@ test("groups, pools, custom roles and assignments: full lifecycle with confirmat
   await expect(main.getByRole("combobox", { name: `Role of ${USER}` })).toHaveCount(0, { timeout: 15_000 });
 });
 
+test("a role is assigned on a storage pool and on a network, the steps of a VM's creation", async ({ page, request }) => {
+  const created = await request.post("/auth/users", { headers: auth(), data: { username: USER2, password: "Alloc-Tide-Harbor-2026", role: "viewer" } });
+  expect(created.ok(), await created.text()).toBe(true);
+  await open(page);
+  const main = page.getByRole("main");
+  await tab(page, /^Assignments/);
+  for (const [kind, resource, label] of [["storage", "default", "Storage default"], ["network", "hyperlite-isolated", "Network hyperlite-isolated"]]) {
+    const form = await drawer(page, "Assign a role");
+    await form.getByLabel("Subject").selectOption(USER2);
+    await form.getByLabel("Role", { exact: true }).selectOption("manager");
+    await form.getByLabel("On", { exact: true }).selectOption(kind);
+    await form.getByLabel("Resource").selectOption(resource);
+    await form.getByRole("button", { name: "Assign", exact: true }).click();
+    await expect(main.getByRole("row", { name: new RegExp(USER2) }).filter({ hasText: label })).toBeVisible({ timeout: 15_000 });
+  }
+  const acl = (await (await request.get("/acl", { headers: auth() })).json()) as { subject_label: string; resource_type: string; resource_id: string }[];
+  expect(acl.filter((a) => a.subject_label === USER2).map((a) => `${a.resource_type}:${a.resource_id}`).sort()).toEqual(["network:hyperlite-isolated", "storage:default"]);
+});
+
 test("French labels and no overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 });
   await page.addInitScript(() => { localStorage.setItem("hyperlite-ui", "next"); localStorage.setItem("hyperlite-next-lang", "fr"); });
@@ -152,4 +173,9 @@ test("French labels and no overflow on a phone", async ({ page }) => {
   for (const name of [/^Utilisateurs/, /^Groupes/, /^Rôles/, /^Pools de VM/, /^Attributions/]) await expect(page.getByRole("main").getByRole("tab", { name })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("main").getByRole("button", { name: "Créer un utilisateur" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // The kinds of object a role is assigned on, in French.
+  await page.getByRole("main").getByRole("tab", { name: /^Attributions/ }).click();
+  await page.getByRole("main").getByRole("button", { name: "Attribuer un rôle", exact: true }).click();
+  const on = page.getByRole("dialog", { name: "Attribuer un rôle" }).getByLabel("Sur", { exact: true });
+  await expect(on.locator("option")).toHaveText(["Une VM", "Un pool", "Un conteneur", "Un stockage", "Un réseau"]);
 });

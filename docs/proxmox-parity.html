@@ -77,7 +77,7 @@ const T = {
     work: "en cours : {n} PR fusionnée(s), la dernière le {d}",
     board: "Qui travaille sur quoi", held: "pris par {s} ({o})", none: "Personne n'a réservé d'issue : tout est libre.", by: "Claude de {o} · session {s}", since: "depuis le {d}",
     files: "Fichiers :", nofiles: "fichiers non indiqués", stale: "sans activité depuis {n} j : on peut demander à la reprendre",
-    how: "Avant de commencer une tâche, réservez son issue : <code>python3 .github/scripts/claim.py take &lt;issue&gt; --owner antho|nico --session &lt;nom&gt; --files &lt;fichiers&gt;</code>. Le script refuse une issue ou des fichiers déjà pris. Libérez-la une fois la PR fusionnée : <code>claim.py release &lt;issue&gt;</code>. Détails : docs/onboarding.md." },
+    how: "Avant de commencer une tâche, réservez son issue : <code>python3 .github/scripts/claim.py take &lt;issue&gt; --owner antho|nico|terraform --session &lt;nom&gt; --files &lt;fichiers&gt;</code>. Le script refuse une issue ou des fichiers déjà pris. Libérez-la une fois la PR fusionnée : <code>claim.py release &lt;issue&gt;</code>. Détails : docs/onboarding.md." },
   en: { title: "Hyperlite and <em>Proxmox VE</em>", intro: "Feature by feature, from the code and the Proxmox VE {pve} documentation. Each gap's state comes live from its GitHub issue: a closed issue shows as done.",
     stamp: "Reviewed {d} · issues read live", roadmap: "Roadmap to parity", matrix: "Feature by feature",
     all: "All", ahead: "Ahead", parity: "Parity", done: "Done", partial: "Partial", missing: "Missing",
@@ -88,7 +88,7 @@ const T = {
     work: "in progress: {n} merged PR(s), the last on {d}",
     board: "Who works on what", held: "held by {s} ({o})", none: "No issue is claimed: everything is free.", by: "{o}'s Claude · session {s}", since: "since {d}",
     files: "Files:", nofiles: "files not given", stale: "no activity for {n} days: you may ask to take it over",
-    how: "Before starting a task, claim its issue: <code>python3 .github/scripts/claim.py take &lt;issue&gt; --owner antho|nico --session &lt;name&gt; --files &lt;files&gt;</code>. The script refuses an issue or files already held. Release it once the PR is merged: <code>claim.py release &lt;issue&gt;</code>. Details: docs/onboarding.md." } }[lang];
+    how: "Before starting a task, claim its issue: <code>python3 .github/scripts/claim.py take &lt;issue&gt; --owner antho|nico|terraform --session &lt;name&gt; --files &lt;files&gt;</code>. The script refuses an issue or files already held. Release it once the PR is merged: <code>claim.py release &lt;issue&gt;</code>. Details: docs/onboarding.md." } }[lang];
 const SHAPE = { ahead: "▲", parity: "●", done: "✓", partial: "◐", missing: "○" };
 const fmt = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

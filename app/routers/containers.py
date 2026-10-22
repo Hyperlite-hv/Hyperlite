@@ -279,12 +279,12 @@ def resolve_container_storage(pool_name):
     """{"pool", "base_dir"} for a local directory storage pool, or raise ValueError. NFS, ZFS and iSCSI pools are
     refused: a container filesystem needs root ownership, device files and extended attributes, which an NFS
     export (root squash) does not reliably keep, and ZFS/iSCSI pools hold block volumes, not directories."""
-    from app.core.libvirt_utils import open_conn
+    from app.core.libvirt_utils import lookup_pool, open_conn
 
     conn = open_conn()
     try:
         try:
-            pool = conn.storagePoolLookupByName(pool_name)
+            pool = lookup_pool(conn, pool_name)
         except libvirt.libvirtError:
             raise ValueError(f"Storage pool '{pool_name}' not found") from None
         root = ET.fromstring(pool.XMLDesc(0))

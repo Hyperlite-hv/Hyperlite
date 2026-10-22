@@ -8,13 +8,14 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core import disk_space, firmware, iscsi, maintenance, vm_locks
+from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.network_alloc import allocate_static_ip, generate_mac, release_static_ip
 from app.core.safe_paths import safe_child
 from app.core.security import require_vm_privilege
-from app.core.tasks import create_task
+from app.core.tasks import answer_later, create_task
 from app.core.vm_builder import (
     IMAGES_DIR,
     create_cloudinit_reseed_iso,
@@ -34,18 +35,56 @@ class CloneRequest(BaseModel):
 
 
 @router.post("/{name}/clone", status_code=201)
-def clone_vm(name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone"))):
+def clone_vm(
+    name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone")), wait: bool = True
+):
+    """wait=false: every check is made, then the copy runs as a task and the answer is 202 with its id."""
+    # A clone's disks are copied into the images directory, the "default" storage pool: space taken there, as Proxmox VE
+    # checks Datastore.AllocateSpace on a clone's target storage.
+    perm.refuse_unless(
+        user, "storage", "default", "storage.allocate", "storage pool 'default' (where a clone is copied)"
+    )
     maintenance.refuse_if_in_maintenance("local", "Cloning")
     # The source's disks are read: no restore, move or deletion may change them meanwhile.
-    with vm_locks.claim_or_409(name, "a clone"):
-        if payload.new_name == name:
-            return _clone_vm(name, payload, user)  # refused there: the VM exists
-        # Two clones to the same new name would write the same disk files.
-        with vm_locks.claim_or_409(payload.new_name, "a clone"):
+    source = vm_locks.claim_or_409(name, "a clone")
+    try:
+        # Two clones to the same new name would write the same disk files (the same name is refused by the checks).
+        target = None if payload.new_name == name else vm_locks.claim_or_409(payload.new_name, "a clone")
+    except BaseException:
+        source.release()
+        raise
+
+    def release():
+        if target is not None:
+            target.release()
+        source.release()
+
+    if wait:
+        try:
             return _clone_vm(name, payload, user)
+        finally:
+            release()
+    try:
+        conn = open_conn()
+        try:
+            _check_clone(conn, name, payload, user)
+        finally:
+            conn.close()
+        task_id = create_task("clone_vm", name, node=None, username=user["username"])
+    except BaseException:
+        release()
+        raise
+
+    def work():
+        try:
+            _clone_vm(name, payload, user, task_id)
+        finally:
+            release()
+
+    return answer_later(task_id, work, name=payload.new_name)
 
 
-def _clone_vm(name, payload, user):
+def _clone_vm(name, payload, user, task_id=None):
     # Real bugs fixed in the cloning logic after an audit:
     # 1. SECURITY: there was no permission check (just get_current_user), so any
     #    account, even an "viewer" (read-only everywhere else), could clone and
@@ -68,54 +107,14 @@ def _clone_vm(name, payload, user):
     #    the same limit as a hypervisor without a guest agent, documented in the
     #    response rather than silently ignored.
     conn = open_conn()
-    task_id = create_task("clone_vm", name, node=None, username=user["username"])
+    if task_id is None:
+        task_id = create_task("clone_vm", name, node=None, username=user["username"])
     new_disk_paths = []
     reseed_iso = None
     new_ip_reservations = []
     defined = False
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            log_action(user["username"], "clone_vm", name, "failed", "Source VM not found", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-        iscsi.refuse_if_iscsi(domain, "Cloning")
-
-        name_error = validate_name(payload.new_name)
-        if name_error:
-            log_action(
-                user["username"], "clone_vm", name, "failed", f"invalid name: {payload.new_name}", task_id=task_id
-            )
-            raise HTTPException(status_code=422, detail=name_error)
-
-        try:
-            conn.lookupByName(payload.new_name)
-            log_action(
-                user["username"], "clone_vm", name, "failed", f"'{payload.new_name}' already exists", task_id=task_id
-            )
-            raise HTTPException(status_code=409, detail=f"A VM '{payload.new_name}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in clone_vm()", exc_info=True)
-
-        if domain.isActive():
-            log_action(user["username"], "clone_vm", name, "failed", "VM active", task_id=task_id)
-            raise HTTPException(status_code=409, detail="Stop the VM before cloning it")
-
-        root = ET.fromstring(domain.XMLDesc(0))
-
-        disk_els = [d for d in root.findall(".//devices/disk") if d.get("device") == "disk"]
-        if not disk_els:
-            log_action(user["username"], "clone_vm", name, "failed", "source disk not found", task_id=task_id)
-            raise HTTPException(status_code=500, detail="Source disk not found")
-
-        # Every copy lands in the images directory, on the system disk by default: refused before the first byte when
-        # it would not fit (app/core/disk_space.py), rather than filling it hours later.
-        sources = [d.find("source").get("file") for d in disk_els if d.find("source") is not None]
-        try:
-            disk_space.ensure_room(IMAGES_DIR, sum(disk_space.allocated_bytes(p) for p in sources if p), "this clone")
-        except disk_space.NotEnoughSpace as e:
-            log_action(user["username"], "clone_vm", name, "failed", str(e), task_id=task_id)
-            raise HTTPException(status_code=409, detail=str(e)) from None
+        root, disk_els = _check_clone(conn, name, payload, user, task_id)
 
         # Clone ALL the disks (not only the first one, see the note above).
         for i, disk_el in enumerate(disk_els):
@@ -246,6 +245,52 @@ def _clone_vm(name, payload, user):
         raise
     finally:
         conn.close()
+
+
+def _check_clone(conn, name, payload, user, task_id=None):
+    """Every refusal a clone can meet before its first byte is copied, recorded on its task when it has one:
+    (its parsed XML, its disk elements)."""
+    try:
+        domain = conn.lookupByName(name)
+    except libvirt.libvirtError:
+        log_action(user["username"], "clone_vm", name, "failed", "Source VM not found", task_id=task_id)
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+    iscsi.refuse_if_iscsi(domain, "Cloning")
+
+    name_error = validate_name(payload.new_name)
+    if name_error:
+        log_action(user["username"], "clone_vm", name, "failed", f"invalid name: {payload.new_name}", task_id=task_id)
+        raise HTTPException(status_code=422, detail=name_error)
+
+    try:
+        conn.lookupByName(payload.new_name)
+        log_action(
+            user["username"], "clone_vm", name, "failed", f"'{payload.new_name}' already exists", task_id=task_id
+        )
+        raise HTTPException(status_code=409, detail=f"A VM '{payload.new_name}' already exists")
+    except libvirt.libvirtError:
+        logger.debug("Ignored exception in clone_vm()", exc_info=True)
+
+    if domain.isActive():
+        log_action(user["username"], "clone_vm", name, "failed", "VM active", task_id=task_id)
+        raise HTTPException(status_code=409, detail="Stop the VM before cloning it")
+
+    root = ET.fromstring(domain.XMLDesc(0))
+
+    disk_els = [d for d in root.findall(".//devices/disk") if d.get("device") == "disk"]
+    if not disk_els:
+        log_action(user["username"], "clone_vm", name, "failed", "source disk not found", task_id=task_id)
+        raise HTTPException(status_code=500, detail="Source disk not found")
+
+    # Every copy lands in the images directory, on the system disk by default: refused before the first byte when
+    # it would not fit (app/core/disk_space.py), rather than filling it hours later.
+    sources = [d.find("source").get("file") for d in disk_els if d.find("source") is not None]
+    try:
+        disk_space.ensure_room(IMAGES_DIR, sum(disk_space.allocated_bytes(p) for p in sources if p), "this clone")
+    except disk_space.NotEnoughSpace as e:
+        log_action(user["username"], "clone_vm", name, "failed", str(e), task_id=task_id)
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    return root, disk_els
 
 
 def _undo(conn, disk_paths, reseed_iso, ip_reservations):
