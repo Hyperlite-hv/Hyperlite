@@ -21,6 +21,7 @@ from app.core import (
     inventory_cache,
     paths,
     rolling_update,
+    self_node,
     version,
 )
 from app.core.audit import request_ip
@@ -285,6 +286,9 @@ def health(request: Request):
         return {
             **body,
             "hyperlite_version": _running_version(),
+            # This node's name in the cluster (what ?node= takes, and what other members' lists call it): a client
+            # tells "this node" from another member by it, as lists call this node's objects `local`.
+            "node": self_node.name(),
             "hypervisor": conn.getType(),
             "hostname": conn.getHostname(),
             "libvirt_version": conn.getLibVersion(),

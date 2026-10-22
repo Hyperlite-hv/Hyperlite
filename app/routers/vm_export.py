@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from app.core import vm_locks
+from app.core import cluster_view, vm_locks
 from app.core.audit import log_action
 from app.core.backups import refuse_vm_with_block_disks
 from app.core.listing import listing
@@ -40,8 +40,14 @@ def list_vm_exports(user: dict = Depends(require_role("admin"))):
     return listing(list_exports())
 
 
+# The export is made by the node that hosts the VM, into its own export directory (downloaded from that node).
+_on_vm_node = cluster_view.forward_to(
+    "node", "{node} is not a member of this cluster: its VMs cannot be exported from this node"
+)
+
+
 @router.post("/vms/{name}/export", status_code=202)
-def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot")), _: None = Depends(_on_vm_node)):
     refuse_vm_with_block_disks(name, "An export")
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit as

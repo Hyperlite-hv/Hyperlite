@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 # Another member's VMs come from that member, in one call, out of its own inventory cache (docs/scale-results.md): read
-# here through libvirt over SSH they cost one round trip per VM, 7 s for 333 VMs over Tailscale. A node registered over
-# SSH only (no Hyperlite on it) is still read through libvirt below.
-_on_member = cluster_view.forward_to("node")
+# here through libvirt over SSH they cost one round trip per VM, 7 s for 333 VMs over Tailscale. The router sends any
+# request naming another member there (cluster_view.on_node); a node registered over SSH only (no Hyperlite on it) is
+# still read through libvirt below.
 
 
 def _cluster_vms(username):
@@ -81,7 +81,7 @@ def _cluster_vms(username):
     return listing(items, stale=stale, unreachable=unreachable)
 
 
-@router.get("", dependencies=[Depends(_on_member)])
+@router.get("")
 def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depends(get_current_user)):
     """node: the name of a registered remote node, to list ITS VMs instead of those
     of the local host. Omitted or None = unchanged behaviour (local host).

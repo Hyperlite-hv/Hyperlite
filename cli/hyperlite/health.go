@@ -18,6 +18,9 @@ type Health struct {
 	Status           string `json:"status"`
 	API              int    `json:"api"`
 	HyperliteVersion string `json:"hyperlite_version"`
+	// Node is this node's name in its cluster (signed-in callers): lists name this node's objects "local", other
+	// members' by their name, and ?node= takes either for this node.
+	Node string `json:"node"`
 }
 
 // GetHealth reads GET /health, which lives at the root, outside the API's prefix.
