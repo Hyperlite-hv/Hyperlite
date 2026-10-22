@@ -1,1 +1,0 @@
-- The command-line client and its Go library (`cli/`) are under the Mozilla Public License 2.0 (`cli/LICENSE`), as the Terraform provider built on them will be; the rest of Hyperlite keeps the PolyForm Noncommercial License.

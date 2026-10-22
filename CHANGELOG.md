@@ -4,6 +4,59 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-22
+
+### Added
+
+- An account that is not an administrator can create VMs, as vSphere and Proxmox VE allow it, with one privilege per step: `vm.allocate` on the pool the VM goes in (`resource_pool` of `POST /api/v1/vms`; the VM joins that pool, so the pool's rights apply to it), `storage.allocate` on the storage pool of its disks, `network.assign` on its network; `vm.allocate` also allows deleting the VMs of that pool. Creating a volume to attach as a disk needs `storage.allocate` on its storage pool (it needed the administrator role). Roles are assigned on a storage pool or a network from **Users and access › Assignments**. What a Terraform pipeline's token needs, and nothing more (#330). Such an assignment waits until every node of a cluster is updated: an older node could not store it, and would stop taking the cluster's configuration.
+
+- Each object a list of API v1 gives can be read alone, with the same fields: a storage pool, a volume, a pool, a group, an assignment, a custom role, an account, a grouped backup job, a VM's HA protection (additions to API v1, `docs/api.md`). A custom role's privileges and a pool's description change in place (`PATCH`): a role changed by deleting and creating it again lost all its assignments. What the Terraform provider reads after each change (#330).
+
+- A Go library for API v1, `github.com/Hyperlite-hv/Hyperlite/cli/hyperlite`: the client `hyperlite-cli` is built on, and the base of the Terraform / OpenTofu provider (#330, `docs/design/terraform-provider.md`, step 1). It holds the requests, the TLS rule (the system's trust store, then a pinned certificate), the errors of v1 with their `code`, the check of `/health` (API version, Hyperlite version) and the wait for a task, which fails with the task's error and the end of its log, and asks a task that outlives the wait to stop. `hyperlite-cli` behaves as before.
+
+- `PUT /api/v1/vms/{name}/network` takes `?mac=`, the interface to move to another network: any interface moves in place and keeps its MAC address (a DHCP reservation and the guest's own configuration know it by it); only the first one could, the others had to be removed and added again. What the Terraform provider needs to change one of a VM's interfaces (#330).
+
+- `GET /templates` gives each template's firmware (`bios`, `uefi`, `uefi_secure`) and its disk (`disks[].size_gb`, the virtual size rounded up: the smallest disk a VM deployed from it can have), as vSphere's template is read to size a deployment.
+
+- A VM made from the cloud image is customised as vSphere's and Proxmox VE's guests are: its host name and domain, static addresses by interface (the others keep DHCP), resolvers and search domains, and a cloud-config of the user's (packages, commands, files) added to Hyperlite's own, on its cloud-init drive. At creation (`ssh_keys` and `customize` in `POST /api/v1/vms`, written before the first boot) or later (`PUT /api/v1/vms/{name}/cloud-init`, at the next boot); `GET` reads them back. What the Terraform provider's `customize` block writes (#330). Checked inside a real guest by the e2e suite: a VM created with a static address answers there once booted.
+
+- `?wait=false` on VM creation, clone, template deployment and template creation (an addition to API v1): every check is made first, then the answer is `202` with the task's id at once, as the other long operations answer, instead of a request held for the whole disk copy, which a proxy cuts long before a large disk is copied. The Terraform provider follows the task (#330, `docs/design/terraform-provider.md`, section 6). Checked on a real libvirt by the e2e suite (`api-wait-false.spec.ts`).
+
+- **SMB/CIFS storage pools**, as on Proxmox VE: the share of a Windows server or a NAS holds VM disks (#418). libvirt mounts it (a netfs pool of format cifs), so it is shared storage everywhere an NFS pool is: on every node or the ones chosen, with live migration and HA. The user and password are kept in a file only root can read (0600), on each node that mounts the share, as Proxmox VE does; the pool's definition only names the file, and the API never returns the password. A pool declared for every node also keeps it encrypted, for the nodes registered later. Every file of the share belongs to QEMU's user, so VMs open their disks. The SMB version is negotiated by default or fixed. A credentials file is the only way libvirt's mount takes a password: libvirt always adds `guest`, and mount.cifs then ignores a `password=` option. The package now depends on `cifs-utils`. `type: "smb"` and its `smb_*` fields are additions to API v1; a listed netfs pool now says its `protocol` (`nfs` or `smb`). The pool list also shows an NFS pool's version, which the dashboard used to drop.
+
+- Linked clones (#423): a template can be deployed as a linked clone, whose disk is a qcow2 image backed by the
+  template's disk; it is created at once and stores only its own changes (`linked` on
+  `POST /templates/{name}/deploy`, off by default). A template is not deleted or renamed while a VM reads its disk,
+  the template list names each template's linked clones (`linked_clones`) and whether it can have some (`linkable`),
+  and a linked clone made into a template gets a disk of its own. Hot backups, disk moves, disk growth and internal
+  snapshots of a linked clone were checked on libvirt 10.0 and QEMU 8.2.
+
+- **Serial console** in a VM's Console tab and console window, next to the graphical console and the SSH terminal, as Proxmox VE's xterm.js console (#425). It shows what the guest prints on its serial port and the login prompt its system offers there, which helps when the guest's network or display is broken. It runs `virsh console` on the VM's own node, relayed to the browser, and takes the same privilege as the graphical console. A VM without a serial port gets one, effective at its next start. Every VM Hyperlite creates already has one. Linux shows its console there when booted with `console=ttyS0`, as cloud images are. `POST /api/v1/vms/{name}/serial-ticket` and the `/vms/{name}/serial` WebSocket are additions to API v1.
+
+### Changed
+
+- **Accounts that are not administrators** need the same rights on an existing VM, as Proxmox VE: attaching or growing a disk needs `storage.allocate` on its storage pool, attaching an interface or changing its network `network.assign` on that network, and cloning `storage.allocate` on the `default` storage pool (where a clone is copied). An account that did this with `vm.hardware`, `vm.resize` or `vm.clone` alone is now refused (403, naming the missing right) until it is given these rights; administrators are not concerned.
+
+- The command-line client and its Go library (`cli/`) are under the Mozilla Public License 2.0 (`cli/LICENSE`), as the Terraform provider built on them will be; the rest of Hyperlite keeps the PolyForm Noncommercial License.
+
+- A pull request adds its changelog entry as a file of its own, `changelog.d/<issue>-<slug>.<type>.md`, instead of editing `CHANGELOG.md`: two pull requests no longer conflict over the changelog, nor every open one with each release (#566). The release pull request runs `python3 scripts/changelog.py release <version>`, which writes the version's section from the fragments, in Keep a Changelog's order, and removes them; `scripts/changelog.py unreleased` gives the test channel's notes and the versioned release's. Entries still written under `[Unreleased]` are kept. See `changelog.d/README.md`.
+
+### Fixed
+
+- A VM made on another storage pool than `default` (a directory or NFS pool) had "no cloud-init drive": its Cloud-Init tab could not change its keys or password, and the Terraform provider could not customise it. Its drive is written next to its disk, and everything that finds it again read only the default pool's directory. The same mistake made a clone of such a VM boot with the original's host name and SSH host keys (no new cloud-init drive), and left its drive behind when it was converted to a template. A VM's own drives are now found by one rule, in the default directory or next to its disks, and never an image of the ISO library that carries the same name: deleting a VM could remove such an image.
+
+- On a new node, creating a volume in the `default` storage pool, attaching a disk from it or creating a container there failed with "Storage pool 'default' not found" until someone had opened the storage page, the only place that made the pool: it is now made when it is first used (`lookup_pool`), and when a VM is created on it. Found by the Terraform provider's acceptance tests on a fresh node (#330).
+
+- Three error messages had two words glued together (the HA protection refused on local storage, a container image without a package manager, an update refused on a modified tree).
+
+- Renaming a network failed with a server error on a node whose libvirt has no LXC driver (a VM-only host): such a node simply has no containers. The notes and tags of a container on it answer "not found" instead of a server error.
+
+- A storage pool whose only file left was the base image Hyperlite copies there for the VMs built on it could not be removed ("still contains 1 file"): it is Hyperlite's own copy, removed with a pool of this node and left on a shared (NFS, SMB) pool, where the other nodes' VMs may be built on it. Deleting a VM also refreshes the pools that held its files: they kept listing its disk and its cloud-init drive.
+
+- A task that succeeded no longer carries the details of its audit entry as its `error` (a clone answered `"error": "clone -> copy"`): `error` is a failure's reason only, which a client of the API tests.
+
+- Deploying a template and making a template from a VM now show in Tasks while their disk is copied; they had no task at all. Two creations or two deployments of a VM under the same name at the same time could write the same disk file: the second is now refused (409), as two clones already were.
+
 ## [1.1.4] - 2026-10-22
 
 ### Added
