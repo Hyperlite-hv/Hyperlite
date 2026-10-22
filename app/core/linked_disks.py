@@ -69,7 +69,7 @@ def depends_on(path, base):
 
 def create_linked(base, dest):
     """Create `dest`, a qcow2 image backed by `base` (a qcow2 image), of the same virtual size. Raises LinkedDiskError."""
-    if not _is_qcow2(base):
+    if not is_qcow2(base):
         raise LinkedDiskError(f"{base} is not a qcow2 image: a linked clone needs one")
     if os.path.exists(dest):
         raise LinkedDiskError(f"{dest} already exists")
@@ -84,7 +84,7 @@ def create_linked(base, dest):
         raise LinkedDiskError((e.stderr or e.stdout or str(e)).strip()) from e
 
 
-def _is_qcow2(path):
+def is_qcow2(path):
     try:
         with open(path, "rb") as f:
             return f.read(4) == QCOW2_MAGIC

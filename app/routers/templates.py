@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import disk_space, firmware, maintenance, templates_store, vm_locks, vm_meta, vm_records
+from app.core import disk_space, firmware, linked_disks, maintenance, templates_store, vm_locks, vm_meta, vm_records
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.listing import listing
@@ -25,7 +25,49 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 
 @router.get("")
 def list_templates(user: dict = Depends(get_current_user)):
-    return listing(templates_store.list_templates())
+    """Each template with `linked_clones`: the VMs whose disk reads through its disk (app/core/linked_disks.py), or
+    None when libvirt does not answer: the templates are still listed."""
+    templates = templates_store.list_templates()
+    try:
+        conn = open_conn()
+        try:
+            disks = linked_disks.domain_disks(conn)
+        finally:
+            conn.close()
+    except libvirt.libvirtError as e:
+        logger.warning("Linked clones not listed, libvirt does not answer: %s", e)
+        disks = None
+    for tpl in templates:
+        base = str(templates_store.disk_path(tpl["name"]))
+        tpl["linked_clones"] = (
+            None if disks is None else sorted({vm for vm, path in disks if linked_disks.depends_on(path, base)})
+        )
+    return listing(templates)
+
+
+def _refuse_while_linked(template_name, action, user):
+    """A template's disk is the base of its linked clones: removed or moved (a rename moves it), they no longer
+    start ("Cannot access backing file"). Refused while one exists, naming them."""
+    try:
+        conn = open_conn()
+        try:
+            clones = linked_disks.dependents(templates_store.disk_path(template_name), conn)
+        finally:
+            conn.close()
+    except libvirt.libvirtError as e:
+        # Not known is not none: removing the disk of a template whose clones could not be listed may break them.
+        log_action(user["username"], action, template_name, "failed", f"linked clones not checked: {e}")
+        raise HTTPException(
+            status_code=503, detail="libvirt does not answer: this template's linked clones cannot be checked"
+        ) from e
+    if clones:
+        detail = (
+            f"The linked clones of this template read its disk: {', '.join(clones)}. Delete them, or move their disk "
+            "to another pool (which gives them a disk of their own), before you "
+            + ("delete the template" if action == "delete_template" else "rename it")
+        )
+        log_action(user["username"], action, template_name, "failed", f"linked clones: {', '.join(clones)}")
+        raise HTTPException(status_code=409, detail=detail)
 
 
 class ConvertRequest(BaseModel):
@@ -98,7 +140,10 @@ def _convert_to_template(name, payload, user, check_only=False, task_id=None):
         # The account and the system of the VM go with its disk: a VM deployed from the template needs them for the
         # web terminal (seen on a real node: an ISO-installed RHEL deployed from its template had no SSH user).
         meta = {"ssh_user": vm_meta.get_vm_ssh_user(name), "os_label": vm_meta.get_vm_os_label(name)}
-        if payload.keep_vm:
+        # A linked clone made into a template gets a disk of its own: a template that read through another one would
+        # stop working when that one is removed, and nothing would protect it.
+        linked = linked_disks.backing_file(disk_source) is not None
+        if payload.keep_vm or linked:
             try:
                 disk_space.ensure_room(
                     templates_store.TEMPLATES_DIR, disk_space.allocated_bytes(disk_source), "this template's disk"
@@ -111,6 +156,23 @@ def _convert_to_template(name, payload, user, check_only=False, task_id=None):
         if payload.keep_vm:
             return _copy_to_template(name, tpl_name, xml_desc, vcpu, memory_mb, disk_source, user, meta, task_id)
 
+        flat = None
+        if linked:
+            # Written aside before anything changes: a copy that fails leaves the VM as it was.
+            flat = templates_store.partial_disk_path(tpl_name)
+            try:
+                subprocess.run(
+                    ["qemu-img", "convert", "-O", "qcow2", disk_source, str(flat)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                flat.unlink(missing_ok=True)
+                detail = (exc.stderr or "").strip()[:300]
+                log_action(user["username"], action, name, "failed", f"disk copy: {detail}", task_id=task_id)
+                raise HTTPException(status_code=500, detail="Disk copy failed") from exc
+
         target_disk = templates_store.save_template(tpl_name, xml_desc, vcpu, memory_mb, name, user["username"], **meta)
 
         try:
@@ -118,10 +180,16 @@ def _convert_to_template(name, payload, user, check_only=False, task_id=None):
             domain.undefineFlags(firmware.undefine_flags(root))
         except libvirt.libvirtError as exc:
             templates_store.delete_template(tpl_name)
+            if flat:
+                flat.unlink(missing_ok=True)
             log_action(user["username"], "convert_to_template", name, "failed", str(exc), task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Undefine failed: {exc}") from exc
 
-        shutil.move(disk_source, str(target_disk))
+        if flat:
+            os.replace(flat, target_disk)
+            Path(disk_source).unlink(missing_ok=True)
+        else:
+            shutil.move(disk_source, str(target_disk))
         # Deploying from a template drops the CD-ROM devices, so the helper ISOs of the source VM
         # (cloud-init seed, and the unattended installation media of VMs created before 1.0) would stay behind
         # as orphans.
@@ -174,6 +242,10 @@ def _copy_to_template(name, tpl_name, xml_desc, vcpu, memory_mb, disk_source, us
 class DeployRequest(BaseModel):
     new_name: str
     network: str | None = None
+    # True: a linked clone, as on Proxmox VE: the VM's disk only stores its own changes over the template's disk
+    # (app/core/linked_disks.py). It is made in an instant and stays small, and the template cannot be deleted or
+    # renamed while it exists. False (the default, as before): a full copy of the template's disk.
+    linked: bool = False
 
 
 @router.post("/{template_name}/deploy", status_code=201)
@@ -207,6 +279,10 @@ def deploy_template(
             conn.close()
         if safe_child(IMAGES_DIR, f"{payload.new_name}.qcow2").exists():
             raise HTTPException(status_code=409, detail="A disk file with this name already exists")
+        if payload.linked and not linked_disks.is_qcow2(tpl["disk_path"]):
+            raise HTTPException(
+                status_code=422, detail="This template's disk is not a qcow2 image: deploy it as a full copy"
+            )
         # A task as for a clone: the copy of a large disk takes minutes, and shows in Tasks while it runs.
         task_id = create_task("deploy_template", template_name, node=None, username=user["username"])
     except BaseException:
@@ -223,23 +299,29 @@ def _deploy(template_name, tpl, payload, user, task_id):
     try:
         new_disk_path = safe_child(IMAGES_DIR, f"{payload.new_name}.qcow2")
         try:
-            subprocess.run(
-                ["qemu-img", "convert", "-O", "qcow2", tpl["disk_path"], str(new_disk_path)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as exc:
+            if payload.linked:
+                linked_disks.create_linked(tpl["disk_path"], new_disk_path)
+            else:
+                subprocess.run(
+                    ["qemu-img", "convert", "-O", "qcow2", tpl["disk_path"], str(new_disk_path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+        except (subprocess.CalledProcessError, linked_disks.LinkedDiskError) as exc:
             new_disk_path.unlink(missing_ok=True)
+            detail = exc.stderr if isinstance(exc, subprocess.CalledProcessError) else str(exc)
             log_action(
                 user["username"],
                 "deploy_template",
                 template_name,
                 "failed",
-                f"disk copy: {exc.stderr}",
+                f"disk {'link' if payload.linked else 'copy'}: {detail}",
                 task_id=task_id,
             )
-            raise HTTPException(status_code=500, detail="Disk copy failed") from exc
+            raise HTTPException(
+                status_code=500, detail="Linked disk creation failed" if payload.linked else "Disk copy failed"
+            ) from exc
 
         root = ET.fromstring(tpl["xml"])
         name_el = root.find("name")
@@ -255,6 +337,11 @@ def _deploy(template_name, tpl, payload, user, task_id):
                 src = disk.find("source")
                 if src is not None:
                     src.set("file", str(new_disk_path))
+                # The new disk is a qcow2 image either way (copied with -O qcow2, or linked), whatever the template's
+                # source VM had: read as raw, it would not boot.
+                driver = disk.find("driver")
+                if driver is not None:
+                    driver.set("type", "qcow2")
 
         devices_el = root.find(".//devices")
         cloud_init = False
@@ -310,9 +397,14 @@ def _deploy(template_name, tpl, payload, user, task_id):
         if tpl.get("os_label"):
             vm_meta.set_vm_os_label(payload.new_name, tpl["os_label"])
         log_action(
-            user["username"], "deploy_template", template_name, "success", f"-> {payload.new_name}", task_id=task_id
+            user["username"],
+            "deploy_template",
+            template_name,
+            "success",
+            f"-> {payload.new_name}" + (" (linked clone)" if payload.linked else ""),
+            task_id=task_id,
         )
-        return {"template": template_name, "vm": new_domain.name(), "state": "stopped"}
+        return {"template": template_name, "vm": new_domain.name(), "state": "stopped", "linked": payload.linked}
     finally:
         conn.close()
 
@@ -329,6 +421,8 @@ def rename_template_endpoint(template_name: str, payload: TemplateRename, user: 
         raise HTTPException(status_code=422, detail=error)
     if new == template_name:
         raise HTTPException(status_code=422, detail="The new name is the current one")
+    if templates_store.exists(template_name):
+        _refuse_while_linked(template_name, "rename_template", user)
     try:
         templates_store.rename_template(template_name, new)
     except FileNotFoundError:
@@ -349,6 +443,7 @@ def delete_template_endpoint(template_name: str, confirm: bool = False, user: di
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
+    _refuse_while_linked(template_name, "delete_template", user)
     templates_store.delete_template(template_name)
     log_action(user["username"], "delete_template", template_name, "success")
     return {"template": template_name, "deleted": True}
