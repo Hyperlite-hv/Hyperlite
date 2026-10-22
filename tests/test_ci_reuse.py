@@ -9,7 +9,18 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "ci-reuse.sh"
-CHECKS = ("backend", "frontend", "cli", "shell", "package", "cfs", "e2e")
+CHECKS = (
+    "backend",
+    "frontend",
+    "cli",
+    "shell",
+    "package",
+    "cfs",
+    "cfs-cluster (three nodes)",
+    "cfs-cluster (two nodes)",
+    "e2e (1/4)",
+    "e2e",
+)
 
 
 def _git(repo, *args):
@@ -98,6 +109,16 @@ def test_skipped_checks_count_only_when_that_run_was_a_reuse(repo, tmp_path):
 def test_a_gate_not_passed_validates_nothing(repo, tmp_path):
     jobs = dict.fromkeys(CHECKS, "success") | {"e2e": "skipped", "reuse": "success"}
     assert _decide(repo, tmp_path, jobs)[0] == "full"
+
+
+def test_every_part_of_a_matrix_counts(repo, tmp_path):
+    """cfs-cluster and the end-to-end parts report as "<job> (<part>)": one failed part validates nothing, and a run
+    from before a job existed (no cfs-cluster at all) does not validate these files either."""
+    assert _decide(repo, tmp_path)[0] == "exact"
+    failed = dict.fromkeys(CHECKS, "success") | {"cfs-cluster (two nodes)": "failure"}
+    assert _decide(repo, tmp_path, failed)[0] == "full"
+    older = {k: v for k, v in dict.fromkeys(CHECKS, "success").items() if not k.startswith("cfs-cluster")}
+    assert _decide(repo, tmp_path, older)[0] == "full"
 
 
 def test_any_error_runs_everything(repo, tmp_path):
