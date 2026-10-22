@@ -1,0 +1,1 @@
+- `GET /templates` gives each template's firmware (`bios`, `uefi`, `uefi_secure`) and its disk (`disks[].size_gb`, the virtual size rounded up: the smallest disk a VM deployed from it can have), as vSphere's template is read to size a deployment.

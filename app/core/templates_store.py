@@ -1,8 +1,10 @@
 import contextlib
 import json
+import os
 import time
+import xml.etree.ElementTree as ET
 
-from app.core import paths
+from app.core import firmware, paths
 from app.core.safe_paths import safe_child
 
 TEMPLATES_DIR = paths.TEMPLATES
@@ -34,11 +36,38 @@ def exists(name):
     return _meta_path(name).exists()
 
 
+def disk_size_gb(path):
+    """A template disk's virtual size in whole GB, rounded up: the smallest disk a VM deployed from it can have (a disk
+    grows only). Read from the qcow2 header, a few bytes: the listing stays as quick as before, without running
+    qemu-img for every template. None while the disk is being copied."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(32)
+        size = int.from_bytes(header[24:32], "big") if header[:4] == b"QFI\xfb" else os.path.getsize(path)
+    except FileNotFoundError:
+        return None
+    return max(1, -(-size // 1024**3))
+
+
+def _described(meta):
+    """The listing of a template: its stored description, with what a client sizes a deployment by (vSphere's
+    template facts): its firmware and its disk, read from its own files, so templates made before are described too."""
+    name = meta["name"]
+    try:
+        root = ET.parse(_xml_path(name)).getroot()
+        meta["firmware"] = firmware.of_domain(root)
+    except (OSError, ET.ParseError):
+        meta["firmware"] = None
+    size = disk_size_gb(_disk_path(name))
+    meta["disks"] = [] if size is None else [{"size_gb": size}]
+    return meta
+
+
 def list_templates():
     result = []
     for meta_file in sorted(TEMPLATES_DIR.glob("*.json")):
         with open(meta_file) as f:
-            result.append(json.load(f))
+            result.append(_described(json.load(f)))
     return result
 
 
