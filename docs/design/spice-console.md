@@ -22,17 +22,41 @@ SPICE display.
 | A password set on the running VM (`updateDeviceFlags`, `passwd` + `passwdValidTo` 20 s ahead, `connected='keep'`) | Connects within the 20 s; the old password no longer does; **the open session survives the expiry**; a new connection after it is refused; the stored configuration keeps its own password |
 | A stored password already expired (`passwdValidTo` in 1970) | The VM starts; nobody connects, not even with an empty password, until a ticket sets a new one |
 
-A SPICE display **without** a password admits anyone who reaches its port: every SPICE display Hyperlite defines
-carries a random, already expired password.
+| libvirt 10 and a drop-in file (`/etc/libvirt/qemu.conf.d/`) | Not read: `spice_tls` must be in `qemu.conf` itself |
+| A VM with a TLS-only SPICE display on a node without `spice_tls` | Does not start: "Auto allocation of spice TLS port requested but spice TLS is disabled in qemu.conf" |
+| A configuration rewritten from libvirt's ordinary XML (as most of Hyperlite's settings changes do) | The display's password and its expiry are gone: they are only in the secure XML. Started again, QEMU **admits a client with no password** on the TLS port |
+| The same display, with a random `spice_password` in `qemu.conf` | Refused without a password ("auth failure"); a ticket still opens it (the live password wins). The password never shows on QEMU's command line |
+
+A SPICE display **without** a password admits anyone who reaches its port. Two locks: every SPICE display Hyperlite
+defines carries a random, already expired password; and each node's `qemu.conf` (root-only) has a random default
+`spice_password` nobody is told, for a display that lost its own.
+
+### Through Hyperlite (the real backend on that host)
+
+| What | Result |
+|---|---|
+| Ticket for a VM without a SPICE display | 409, "add one" |
+| SPICE display added to a running VM | Takes effect at its next start (409 for a ticket until then); afterwards VNC and a TLS-only SPICE display, no plain port |
+| The `.vv` from the API, and the one the dashboard downloads (French and English) | `remote-viewer` opens the VM through Hyperlite's proxy on 3128, in TLS; it deletes the file once read |
+| The session after 30 s | Still open |
+| A `.vv` opened 30 s after it was handed out | Refused by the proxy ("HTTP proxy connection not allowed"), logged |
+| A made-up ticket | 403, logged without the request line |
+| A VM defined as Hyperlite defines one (no `<video>`: libvirt chose `cirrus`), given a SPICE display through the API | Its video model unchanged; `remote-viewer` shows its screen |
+| noVNC on the same VMs | Unchanged, connected |
+| `scripts/ensure-spice-tls.sh` from a clean node | Certificates, `spice_tls`, `spice_password`; a running VM kept running across libvirtd's restart; run again, nothing changes |
 
 ## Design
 
 - **Display**: a VM gets a SPICE display next to its VNC one (`<graphics type='spice' autoport='yes'
-  defaultMode='secure'>` on 127.0.0.1, random expired password, `qxl` video), on a stopped VM, as the serial port is
-  added today. VNC stays: noVNC is unchanged.
-- **Node setup**: each node has its own SPICE CA and server certificate in a root-only directory, and
-  `spice_tls = 1` with `spice_tls_x509_cert_dir` in `qemu.conf` (libvirtd restarted once; running VMs are not
-  touched, the setting applies to VMs started afterwards). The package depends on `qemu-system-modules-spice`.
+  defaultMode='secure'>` on 127.0.0.1, random expired password), effective at its next start, as the serial port is
+  added today. Its video model is left as it is. VNC stays: noVNC is unchanged.
+- **Node setup** (`scripts/ensure-spice-tls.sh`, run by the package's `postinst`): each node has its own SPICE CA
+  and server certificate in `/etc/pki/libvirt-spice` (the directory Debian's AppArmor profile lets QEMU read; the
+  CA's key is deleted once used), and `spice_tls = 1`, `spice_tls_x509_cert_dir` and a random `spice_password` in
+  `qemu.conf` (libvirtd restarted once; running VMs are not touched, the setting applies to VMs started
+  afterwards). An administrator's own settings are kept. The package depends on `qemu-system-modules-spice`. Every
+  node needs it: a VM with a SPICE display does not start on a node without it, so a display is only added where
+  the node is ready.
 - **Ticket** (`POST /vms/{name}/spice-ticket`, the `vm.console` privilege as the VNC console): sets a random password
   on the running VM, valid 30 s, and records a proxy ticket for the VM, its node and its TLS port, valid as long.
   Answers the `.vv` content (`type=spice`, `host=<ticket>`, `tls-port`, `password`, `proxy=http://<the address the
@@ -40,12 +64,19 @@ carries a random, already expired password.
 - **Proxy** (a listener on 3128 inside the service): accepts `CONNECT <ticket>:<port>` only for a valid ticket and its
   own port, and relays to the VM's TLS port on 127.0.0.1, or on its node through the cluster's SSH connection, as the
   noVNC console does. Anything else gets 403 and is logged. The proxy sees TLS only.
-- **Dashboard**: the VM console page offers "SPICE (virt-viewer)" when the VM has a SPICE display, and "Add a SPICE
-  display" on a stopped VM; the `.vv` is downloaded, never shown.
+- **Dashboard**: the VM console's SPICE menu: "Open in virt-viewer" downloads the `.vv` (never shown), "Add a SPICE
+  display" adds one for the VM's next start. Their outcome is said in the console itself: the console's own window
+  has no toasts or dialogs.
+- **Not added**: audio, USB redirection and several screens. The display alone gives what the VNC console gives
+  (screen, keyboard, mouse), so a ticket takes the same `vm.console` privilege.
 
 ## Not checked yet
 
-- Audio, USB redirection and several screens through the proxy (the channels exist; not exercised in the lab).
+- `systemctl restart libvirtd` from the script on a real Debian node (the lab has no systemd: libvirtd was
+  restarted by hand there).
+- `qemu-system-modules-spice` on Debian 13: checked on Ubuntu 24.04 only (Debian's archive was not reachable from the
+  lab); the package's CI job resolves every dependency on Debian 13.
+- AppArmor on Debian (QEMU reading `/etc/pki/libvirt-spice`; the lab has no AppArmor).
 - A VM on another node (the relay through SSH): needs two hosts.
 - Live migration of a VM with a SPICE display between nodes with different SPICE certificates.
 - Windows and macOS `remote-viewer` builds.
