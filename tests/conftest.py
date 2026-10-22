@@ -35,6 +35,8 @@ os.environ["HYPERLITE_ETC_DIR"] = tempfile.mkdtemp(prefix="hyperlite-etc-tests-"
 # No hyperlite-daemon runs here: sessions are signed in this process, with keys under HYPERLITE_ETC_DIR
 # (app/core/tickets.py).
 os.environ["HYPERLITE_AUTH_SIGNING"] = "local"
+# Nor any operation hyperlite-daemon does as root: run in this process, through its registry (app/core/privileged.py).
+os.environ["HYPERLITE_DAEMON_INPROCESS"] = "1"
 
 import pytest
 

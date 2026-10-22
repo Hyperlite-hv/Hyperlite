@@ -28,6 +28,7 @@ def host(tmp_path, monkeypatch):
     for name in (
         "RESOLV_CONF",
         "RESOLVED_DROPIN",
+        "RESOLVED_UPLINK",
         "TIMESYNCD_DROPIN",
         "RSYSLOG_DROPIN",
         "REBOOT_REQUIRED",
@@ -245,3 +246,22 @@ def test_stop_guests_reports_what_did_not_stop(monkeypatch):
     left = hs.stop_guests([("vm", "web"), ("vm", "db")], lines.append, timeout_s=0.02, poll_s=0.01)
     assert left == ["db"] and doms["web"].asked and doms["db"].asked
     assert lines == ["Shutdown requested: web", "Shutdown requested: db"]
+
+
+def test_with_systemd_resolved_the_real_servers_are_shown_never_its_own_stub(host):
+    """Seen on a node: /etc/resolv.conf is systemd-resolved's stub ("nameserver 127.0.0.53", "search ."). The form showed
+    127.0.0.53 and the domain ".", and saving it back was refused for the "."; once that refusal was gone, it would have
+    made the node's resolver ask itself."""
+    resolv = host["tmp"] / "resolv_conf"
+    resolv.symlink_to("/run/systemd/resolve/stub-resolv.conf")
+    (host["tmp"] / "resolved_uplink").write_text("nameserver 192.168.3.1\nnameserver 2a01:cb08::1\nsearch .\n")
+    assert hs.dns() == {
+        "managed_by": "systemd-resolved",
+        "modifiable": True,
+        "servers": ["192.168.3.1", "2a01:cb08::1"],
+        "search": [],
+    }
+    with pytest.raises(hs.SettingError, match="own resolver"):
+        hs.set_dns(["127.0.0.53"], [])
+    hs.set_dns(["192.168.3.1"], [])  # what the form shows can be saved back as it is
+    assert "DNS=192.168.3.1" in (host["tmp"] / "resolved_dropin").read_text()
