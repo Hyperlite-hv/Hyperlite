@@ -162,6 +162,8 @@ _API_ROUTERS = (
     sso_router,
     dashboard_router,
     vms_router,
+    # Before storage: GET /storage/history is the metrics', and storage's GET /storage/{pool_name} would take it.
+    metrics_router,
     storage_router,
     network_router,
     templates_router,
@@ -173,7 +175,6 @@ _API_ROUTERS = (
     acl_router,
     host_router,
     update_router,
-    metrics_router,
     backups_router,
     jobs_router,
     nodes_router,
