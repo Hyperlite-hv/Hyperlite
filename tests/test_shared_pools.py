@@ -144,7 +144,7 @@ def test_a_pool_already_there_is_kept_and_a_choice_of_nodes_is_honoured(client, 
 
 def test_only_shared_storage_goes_on_several_nodes(client, auth_headers, cluster_of_three):
     r = client.post("/storage", json={"name": "dirs", "type": "dir", "all_nodes": True}, headers=auth_headers("a"))
-    assert r.status_code == 422 and "NFS or iSCSI" in r.json()["detail"]
+    assert r.status_code == 422 and "NFS, SMB or iSCSI" in r.json()["detail"]
 
 
 def test_nowhere_is_an_error_not_a_saved_definition(client, auth_headers, cluster_of_three):

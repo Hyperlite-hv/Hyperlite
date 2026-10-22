@@ -28,7 +28,7 @@
         {"fr": "Répertoire, NFS, iSCSI", "en": "Directory, NFS, iSCSI", "status": "parity", "pve": "Yes", "hl": "Yes, shared pools created on every node"},
         {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "missing", "issue": 417, "pve": "Yes", "hl": "None"},
         {"fr": "ZFS sur de vrais disques", "en": "ZFS on real disks", "status": "partial", "issue": 419, "pve": "Mirror, RAIDZ, from the GUI", "hl": "Loopback files only, one node, not live-migratable"},
-        {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "missing", "issue": 418, "pve": "Yes", "hl": "None"},
+        {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "parity", "issue": 418, "pve": "Yes", "hl": "Yes, shared like NFS (migration, HA, every node); credentials root-only on each node, SMB version negotiated or fixed"},
         {"fr": "Ceph", "en": "Ceph", "status": "missing", "issue": 338, "pve": "Hyperconverged, from the GUI", "hl": "None"},
         {"fr": "Clones liés", "en": "Linked clones", "status": "missing", "issue": 423, "pve": "From templates", "hl": "Full clones only"},
         {"fr": "Déplacer ou agrandir un disque à chaud", "en": "Move or grow a disk live", "status": "parity", "pve": "Yes", "hl": "Yes (block copy and pivot)"}
