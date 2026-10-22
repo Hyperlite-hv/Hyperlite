@@ -1,0 +1,5 @@
+#!/bin/sh
+# ssh for the libvirt connections this node opens to the others (qemu+ssh://...&command=, app/core/cluster.py): libvirt
+# passes no ssh option, and without a connection timeout a node switched off held each call for the system's TCP
+# timeout, over two minutes (app/core/node_health.py).
+exec ssh -o ConnectTimeout=8 "$@"

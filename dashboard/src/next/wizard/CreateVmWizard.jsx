@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createVM, fetchClusterIsos, fetchHostFirmware, fetchVmDisks, fetchVolumes } from "../../api/client";
+import { createVM, fetchClusterIsos, fetchHostFirmware, fetchIsoTemplates, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { isWindowsInstall, guestProfile, diskController, vmFirmware } from "../../utils/osFamily";
@@ -26,7 +26,7 @@ const defaultNetwork = (networks) => (networks.find((n) => n.active !== false) |
 
 function initialForm(nodes, networks, d = DEFAULTS) {
   return {
-    node: (nodes.find((n) => !n.maintenance) || nodes[0])?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", firmware: "auto", importDisk: null,
+    node: (nodes.find((n) => !n.maintenance && n.state === "online") || nodes.find((n) => !n.maintenance) || nodes[0])?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", firmware: "auto", importDisk: null,
     name: "", vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }],
     username: "", password: "", network: defaultNetwork(networks) || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
@@ -51,7 +51,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
 
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(() => initialForm(nodes, networks));
-  const [isos, setIsos] = useState([]);
+  const [localIsos, setLocalIsos] = useState([]);
+  const [remoteIsos, setRemoteIsos] = useState({ items: [], loading: false, failed: false });
   const [disks, setDisks] = useState([]);
   const [luns, setLuns] = useState(null); // LUNs of the chosen iSCSI pool, null while unknown
   const [fwSupport, setFwSupport] = useState(null); // what this host offers beyond BIOS, null while unknown
@@ -65,16 +66,27 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const bodyRef = useRef(null);
 
   // Images of every node: this host's first, then those only another node has (copied here before creation, since
-  // a VM boots only from an image on its own host). One entry per name.
-  const reloadIsos = () => fetchClusterIsos().then((r) => {
-    const all = Array.isArray(r?.isos) ? r.isos : [];
-    const local = all.filter((i) => i.node === "local");
-    const here = new Set(local.map((i) => i.name));
+  // a VM boots only from an image on its own host). One entry per name. This host's show as soon as they are read and
+  // the other nodes' join them when the cluster's list answers: a node that is down never holds the list, as
+  // Proxmox VE lists the storage of the chosen node only.
+  const isos = useMemo(() => {
+    const here = new Set(localIsos.map((i) => i.name));
     const remote = [];
-    for (const i of all) if (i.node !== "local" && !here.has(i.name) && !remote.some((x) => x.name === i.name)) remote.push(i);
-    setIsos([...local, ...remote.sort((a, b) => a.name.localeCompare(b.name))]);
-    loadOk("isos");
-  }).catch(loadFailed("isos"));
+    for (const i of remoteIsos.items) if (!here.has(i.name) && !remote.some((x) => x.name === i.name)) remote.push(i);
+    return [...localIsos, ...remote.sort((a, b) => a.name.localeCompare(b.name))];
+  }, [localIsos, remoteIsos.items]);
+  const reloadIsos = () => {
+    if (nodes.length > 1) {
+      setRemoteIsos((p) => ({ ...p, loading: true, failed: false }));
+      fetchClusterIsos()
+        .then((r) => setRemoteIsos({ items: (Array.isArray(r?.isos) ? r.isos : []).filter((i) => i.node !== "local"), loading: false, failed: false }))
+        .catch(() => setRemoteIsos((p) => ({ ...p, loading: false, failed: true })));
+    }
+    return fetchIsoTemplates().then((list) => {
+      setLocalIsos((Array.isArray(list) ? list : []).map((i) => ({ ...i, node: "local" })));
+      loadOk("isos");
+    }).catch(loadFailed("isos"));
+  };
   const isoNodeName = (id) => nodes.find((n) => n.id === id)?.name || id;
   const isoSub = (iso) => (iso.node === "local" ? `${formatSizeMb(iso.size_mb, lang)} · ISO`
     : t("wz.src.remoteIso", { size: formatSizeMb(iso.size_mb, lang), node: isoNodeName(iso.node) }));
@@ -144,7 +156,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     },
     // Creation always runs on this host for now (see wz.nodeWarn), so this host in maintenance refuses it whatever
     // tile is picked: say so here rather than after the eight steps.
-    placement: !form.node ? { node: "wz.e.node" } : nodes.find((n) => n.id === form.node)?.maintenance || nodes.find((n) => n.id === "local")?.maintenance ? { node: "wz.e.nodeMaint" } : {},
+    placement: !form.node ? { node: "wz.e.node" } : nodes.find((n) => n.id === form.node)?.maintenance || nodes.find((n) => n.id === "local")?.maintenance ? { node: "wz.e.nodeMaint" }
+      : nodes.find((n) => n.id === form.node)?.state === "online" ? {} : { node: "wz.e.nodeOffline" },
     compute: { ...(!int(form.vcpu, vMin, vMax) ? { vcpu: "wz.e.vcpu" } : {}), ...(!int(form.memory_mb, mMin, mMax) ? { memory_mb: "wz.e.memory" } : {}) },
     storage: iscsiErrors || Object.fromEntries(form.disks.map((d, i) => [`disk${i}`, importMode && i === 0 ? "" : int(d.size_gb, 1, dMax) ? "" : "wz.e.diskSize"]).filter(([, v]) => v)),
     network: networks.some((n) => n.name === form.network) ? {} : { network: "wz.e.network" },
@@ -268,6 +281,8 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                       {isos.map((iso) => radio(form.iso === iso.name, () => patch({ iso: iso.name, isoNode: iso.node }), iso.name, isoSub(iso), "iso"))}
                     </div>
                     {loadErrors.isos && <InlineError message={loadErrors.isos} onRetry={reloadIsos} />}
+                    {remoteIsos.loading && <span className="nx-muted" role="status">{t("wz.src.remoteIsosLoading")}</span>}
+                    {remoteIsos.failed && <span className="nx-muted" role="status">{t("wz.src.remoteIsosFailed")}</span>}
                   </fieldset>
                   {form.iso && (
                     <label>{t("wz.os")}
@@ -300,9 +315,10 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 <legend>{t("ns.node")}</legend>
                 <div className="nx-tiles">{nodes.map((n) => {
                   const ram = n.memoire_totale_mo ? (n.used_memory_mb / n.memoire_totale_mo) * 100 : null;
+                  const offline = n.state !== "online";
                   return radio(form.node === n.id, () => patch({ node: n.id }), n.name,
-                    n.maintenance ? t("wz.inMaintenance") : [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_running ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
-                    "node", ram != null && !n.maintenance ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null, Boolean(n.maintenance));
+                    n.maintenance ? t("wz.inMaintenance") : offline ? t("wz.offline") : [n.cpu_utilisation != null ? `CPU ${Math.round(n.cpu_utilisation)} %` : null, ram != null ? `RAM ${Math.round(ram)} %` : null, `${n.vms_running ?? 0} ${t("wz.running")}`].filter(Boolean).join(" · "),
+                    "node", ram != null && !n.maintenance && !offline ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null, Boolean(n.maintenance) || offline);
                 })}</div>
                 {show("placement", "node")}
                 {form.node && form.node !== "local" && <p className="nx-notice nx-notice--warning" role="note">{t("wz.nodeWarn")}</p>}

@@ -4,12 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-21
+
 ### Added
 
 - **Create a template (copy)** in a VM's Actions menu, first of the two: the template gets a copy of the VM's disk and the VM stays, as vSphere's "Clone to Template" (`POST /api/v1/templates/from-vm/{name}` with `keep_vm: true`, an addition to API v1). The copy is refused before it starts when it would not fit, and a template being copied never shows in the list. "Convert to template" stays (the VM becomes the template, as on Proxmox VE), its warning now naming the VM that leaves the list: an administrator converted a VM expecting a copy.
 
 ### Fixed
 
+- A node that is down no longer holds the pages that list the cluster: as Proxmox VE and vSphere, Hyperlite never waits for a host that is gone (`app/core/node_health.py`). A node the cluster sees down (the node poller found it offline, and it sends no status) is named at once and never asked: the ISO list, the VM list, a node's storage, the metrics. A connection to a node switched off seconds ago, not seen down yet, gives up after 8 seconds instead of the system's two minutes, libvirt's included (`scripts/node-ssh`). A node that does not answer is said unreachable (502) where a node's storage list failed with an internal error. The VM creation wizard shows this server's ISO images at once and adds the other nodes' when they come: with a node switched off the list stayed empty about 16 seconds. As in Proxmox VE, a node that is offline can no longer be chosen as the new VM's node.
 - A VM deployed from a template takes the SSH user and the system of the VM the template was made from: an ISO-installed VM deployed from its template had none, and the web terminal could not reach it. Converting a VM to a template no longer leaves its SSH user and system recorded under the name of a VM that is gone.
 
 - Converting a VM to a template forgets it as a deletion does: its backup schedule (which then failed at every run), its rights, pools, automatic deletion, start-at-boot setting, tags and DHCP reservation stayed under the name of a VM that is gone. Both now go through one list (`app/core/vm_records.py`).
