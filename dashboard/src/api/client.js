@@ -229,6 +229,8 @@ export async function fetchNodes() {
     read_only: d.read_only ?? null,
     read_only_cause: d.read_only_cause ?? null,
     read_only_waiting_for: d.read_only_waiting_for ?? [],
+    // This node's database: "ok", "damaged" or "failing", with the repair that fits (app/core/db_health.py).
+    database: d.database ?? null,
   };
 
   // Registered remote nodes. They used to be missing here: this function only ever
@@ -1385,6 +1387,14 @@ export async function fetchNodeCapabilitiesById(nodeId) {
 }
 export async function fetchHostPreflight() {
   return realFetch("/host/preflight");
+}
+
+// This node's database: the full check now, and the online repair of index entries (app/core/db_health.py).
+export async function checkHostDatabase() {
+  return realFetch("/host/database/check", { method: "POST" });
+}
+export async function repairHostDatabase() {
+  return realFetch("/host/database/repair", { method: "POST" });
 }
 
 // ---- Renaming (administrators): storage pools, networks, VM pools, groups, custom roles, jobs, templates, ISOs ----

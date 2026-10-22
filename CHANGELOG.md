@@ -4,13 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
-### Security
+### Added
 
-- The node's own settings are done by `hyperlite-daemon`, as root, instead of the API (#511, step 3, first domain): the Debian package updates and their nightly schedule, DNS, host name, time and NTP, remote syslog, and the scheduling of a reboot or shutdown (`app/daemon/ops/host.py`). The API keeps who may ask, the audit log and the tasks; the daemon checks every argument again (`app/core/privileged.py`). Without the daemon these settings answer that it is unavailable.
+- A damaged database is detected and said, no longer only written to the log at every round of a background loop (#440). Each node checks its SQLite file at start and once a day (`PRAGMA quick_check`), and fully (`PRAGMA integrity_check`, every index against its table) when the metrics, the node poller, the backup scheduler or the configuration copy fail 3 times in a row on a damaged file. A damaged database shows a banner above every page, with the repair that fits, and sends the new **Database check** notification. Index entries that disagree with their tables are repaired from the banner, with the service running (`REINDEX`, `POST /api/v1/host/database/repair`). Damaged index pages, which SQLite cannot free, need the file rebuilt from its tables with the service stopped: `python -m app.core.db_health rebuild`, which keeps the damaged file next to the new one and can empty a damaged history table (`--drop-history`). `GET /api/v1/host/database` and `POST /api/v1/host/database/check` are additions to API v1. See `docs/database-health.md`.
 
 ### Fixed
 
 - On a node whose DNS is managed by systemd-resolved, the DNS form showed the local stub (`127.0.0.53`, search domain `.`) instead of the servers it forwards to, and refused to save it back. It now shows systemd-resolved's own servers, ignores the `.`, and refuses a loopback address, which would make the node's resolver ask itself.
+
+- `.github/scripts/claim.py` sends its JSON bodies with `Content-Type: application/json`: a proxy that requires it refused `take` and `release`.
+
+### Security
+
+- The node's own settings are done by `hyperlite-daemon`, as root, instead of the API (#511, step 3, first domain): the Debian package updates and their nightly schedule, DNS, host name, time and NTP, remote syslog, and the scheduling of a reboot or shutdown (`app/daemon/ops/host.py`). The API keeps who may ask, the audit log and the tasks; the daemon checks every argument again (`app/core/privileged.py`). Without the daemon these settings answer that it is unavailable.
 
 ## [1.1.2] - 2026-10-22
 
