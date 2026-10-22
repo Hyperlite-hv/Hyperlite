@@ -10,7 +10,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Fixed
 
+- **A backup asked while another runs shows up.** One backup runs at a time on a node: one asked meanwhile waits for its turn before its row exists, and a VM's Backups tab read the list once, 1.5 s after the click, so it never appeared until the page was reloaded. The tab now follows it until it shows and says it waits for its turn; a container's Backups tab follows its backup's task and a running backup until it ends (it read the list once too). This was also the end-to-end test that failed first in 14 of the last 25 CI runs (#569).
 - `.github/scripts/claim.py` sends its JSON bodies with `Content-Type: application/json`: a proxy that requires it refused `take` and `release`.
+
+### Changed
+
+- **The CI runs what a pull request needs** (#569): the end-to-end suite only for `app/` and the dashboard, hyperlite-cfs only for `cfs/` and its client, the workstation client only for `cli/`, the package for the code and the installer (`scripts/ci-scope.sh`); pushes to test and master still run everything. The end-to-end suite runs in four even parts (`next-audit.spec.ts` in parallel), hyperlite-cfs's clusters on runners of their own and its two fuzzers side by side. The required `e2e` check now also covers cfs, its clusters, the package and the client: a red one blocked nothing. CodeQL runs only when Python or JavaScript changes, and every Monday.
+
 
 ### Security
 

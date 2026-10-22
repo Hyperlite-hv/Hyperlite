@@ -57,7 +57,9 @@ const urlFor = (kind: string, id: string, tab: string, vm?: string) =>
   : kind === "node" ? (tab === "summary" ? "/node/local" : `/node/local?tab=${tab}`)
   : (tab === "summary" ? `/vm/${encodeURIComponent(vm!)}` : `/vm/${encodeURIComponent(vm!)}?tab=${tab}`);
 
-test.describe.configure({ timeout: 240_000 });
+// Parallel: these tests share nothing (each signs in on its own page; the lifecycle below keeps its own order), and
+// one after another they made this file the longest of the suite, the floor of its part.
+test.describe.configure({ mode: "parallel", timeout: 240_000 });
 
 for (const [theme, lang] of [["dark", "en"], ["light", "fr"]] as const) {
   test(`every page is clean in ${theme}/${lang}: no errors, no failed request, no raw key, no wrong-language text, no serious a11y issue`, async ({ page, request }) => {
