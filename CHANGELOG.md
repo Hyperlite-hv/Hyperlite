@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Added
+
+- `GET /templates` gives each template's firmware (`bios`, `uefi`, `uefi_secure`) and its disk (`disks[].size_gb`, the virtual size rounded up: the smallest disk a VM deployed from it can have), as vSphere's template is read to size a deployment.
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
