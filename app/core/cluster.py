@@ -45,7 +45,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import cluster_lead, paths
+from app.core import cluster_lead, db_health, paths
 from app.core.audit import log_action
 
 logger = logging.getLogger(__name__)
@@ -494,8 +494,10 @@ def _poll_nodes():
         down = False
         try:
             down = _poll_once()
+            db_health.succeeded("node-poller")
         except Exception as e:
             print(f"[cluster] poll failed: {e!r}", flush=True)
+            db_health.failed("node-poller", e)
         time.sleep(OFFLINE_POLL_S if down else POLL_INTERVAL_S)
 
 
