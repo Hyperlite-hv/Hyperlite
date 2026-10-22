@@ -14,6 +14,7 @@ from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
+    refresh_pools_for_paths,
 )
 from app.core.security import require_role, require_vm_privilege
 from app.core.tasks import create_task
@@ -298,6 +299,9 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     else:
         for disk_path in disk_paths_to_remove:
             disk_path.unlink(missing_ok=True)
+        # Removed behind libvirt's back: without a refresh their pools kept listing them (as create and clone refresh
+        # after writing).
+        refresh_pools_for_paths(conn, disk_paths_to_remove)
         for zvol_path in zvol_paths_to_remove:
             # '/dev/zvol/<pool>/<name>': the pool is the 3rd segment, the name is the rest (a
             # zvol name never contains a '/' itself, see validate_zfs_name). Best-effort: a

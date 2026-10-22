@@ -19,7 +19,7 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
-from app.core.vm_builder import validate_name
+from app.core.vm_builder import POOL_BASE_NAME, validate_name
 from app.core.vm_limits import validate_vm_resources
 
 logger = logging.getLogger(__name__)
@@ -891,6 +891,11 @@ def _delete_single(pool_name, node, detach, user):
         pool.refresh(0)
         volumes = pool.listAllVolumes()
         pool_root = ET.fromstring(pool.XMLDesc(0))
+        # The base image Hyperlite copied into the pool for the VMs built on it (vm_builder.ensure_pool_base_image)
+        # is its own copy, not a file of the user's: it does not keep the pool from being removed. A pool where it
+        # is the last file therefore said "still contains 1 file" for a pool the user had emptied.
+        base_images = [v for v in volumes if v.name() == POOL_BASE_NAME]
+        volumes = [v for v in volumes if v.name() != POOL_BASE_NAME]
         if pool_root.get("type") == "iscsi":
             # Removing an iSCSI pool only logs out of the target: the LUNs and their data stay on the storage
             # side. Refused while a VM still uses one of them.
@@ -924,6 +929,18 @@ def _delete_single(pool_name, node, detach, user):
                     detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
                 )
 
+        # Removed with a pool of this node; kept on a shared one (NFS, SMB), where the VMs of the other nodes using
+        # the same share may still be built on it.
+        if pool_root.get("type") == "dir" and not detach:
+            in_use = _vms_using_path(conn, pool_root.findtext("target/path")) if base_images else []
+            if in_use:
+                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool used by VMs")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
+                )
+            for volume in base_images:
+                volume.delete(0)
         try:
             if pool.isActive():
                 # netfs: unmounts the export. dir: does not touch the content of the directory

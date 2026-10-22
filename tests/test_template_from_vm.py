@@ -214,6 +214,7 @@ def test_a_conversion_and_a_deletion_forget_through_the_same_list(node, client, 
 
     forgotten = []
     monkeypatch.setattr(vm_records, "forget", lambda name, node=None: forgotten.append(name))
+    monkeypatch.setattr(lifecycle, "refresh_pools_for_paths", lambda conn, paths: None)  # no libvirt here
     assert (
         client.post("/templates/from-vm/web", json={"template_name": "conv"}, headers=auth_headers("root")).status_code
         == 201
