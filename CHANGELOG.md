@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- Renaming a network failed with a server error on a node whose libvirt has no LXC driver (a VM-only host): such a node simply has no containers. The notes and tags of a container on it answer "not found" instead of a server error.
+
 ## [1.1.1] - 2026-10-21
 
 ### Added

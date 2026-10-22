@@ -265,7 +265,7 @@ def nets(database, monkeypatch):
     qemu, lxc = _NetHost(), _NetHost()
     qemu.nets["lab"] = _Net(qemu, "<network><name>lab</name><bridge name='virbr7'/><ip address='10.9.0.1'/></network>")
     monkeypatch.setattr(network, "open_conn", lambda node=None: qemu)
-    monkeypatch.setattr(network, "open_lxc_conn", lambda: lxc)
+    monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda: lxc)
     monkeypatch.setattr(network, "_network_summary", lambda net: {"name": net.name()})
     monkeypatch.setattr(network, "remove_network_firewall", lambda conn, name: None)
     applied = []
@@ -300,6 +300,26 @@ def test_a_network_with_a_running_guest_or_a_system_network_keeps_its_name(clien
     r = client.post("/networks/lab/rename", json={"new_name": "labo"}, headers=headers)
     assert r.status_code == 409 and "web" in r.json()["detail"]
     assert client.post("/networks/default/rename", json={"new_name": "x-net"}, headers=headers).status_code == 403
+
+
+def test_a_network_is_renamed_on_a_node_without_containers(client, auth_headers, nets, monkeypatch):
+    # A node whose libvirt has no LXC driver (a VM-only host, a CI runner) has no containers: the rename went on
+    # opening the LXC connection anyway and failed with a 500, found by the Terraform provider's acceptance tests.
+    import libvirt
+
+    from app.core import libvirt_utils
+    from app.routers import network
+
+    def no_driver(_uri):
+        raise libvirt.libvirtError("no connection driver available for lxc:///system")
+
+    monkeypatch.setattr(libvirt_utils.libvirt, "open", no_driver)
+    monkeypatch.setattr(network, "open_lxc_conn_if_any", libvirt_utils.open_lxc_conn_if_any)
+    qemu, _lxc, _applied = nets
+    qemu.domains.append(_guest("web", "lab", active=False))
+    r = client.post("/networks/lab/rename", json={"new_name": "labo"}, headers=auth_headers("alice"))
+    assert r.status_code == 200 and r.json()["guests_updated"] == ["web"]
+    assert "labo" in qemu.nets and "lab" not in qemu.nets
 
 
 # ---- Objects known by an id ----
