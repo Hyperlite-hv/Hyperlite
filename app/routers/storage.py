@@ -16,7 +16,7 @@ from app.core import iscsi, nfs_permissions, renaming, shared_pools, smb_storage
 from app.core.audit import log_action
 from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
+from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_pool, lookup_volume, open_conn
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import POOL_BASE_NAME, validate_name
@@ -981,7 +981,7 @@ def _volumes(pool_name):
             return result
 
         try:
-            pool = conn.storagePoolLookupByName(pool_name)
+            pool = lookup_pool(conn, pool_name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         pool.refresh(0)
@@ -1029,7 +1029,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(re
     conn = open_conn()
     try:
         try:
-            pool = conn.storagePoolLookupByName(pool_name)
+            pool = lookup_pool(conn, pool_name)
         except libvirt.libvirtError:
             log_action(user["username"], "create_volume", payload.name, "failed", "Pool not found")
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
@@ -1108,7 +1108,7 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
     conn = open_conn()
     try:
         try:
-            pool = conn.storagePoolLookupByName(pool_name)
+            pool = lookup_pool(conn, pool_name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         if _pool_type(pool) == "iscsi":
