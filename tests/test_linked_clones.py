@@ -124,7 +124,9 @@ def test_a_full_deployment_stays_the_default(lab, client, auth_headers):
 def test_a_template_whose_disk_is_not_qcow2_is_only_copied(lab, client, auth_headers):
     lab["template"]("base")
     templates_store.disk_path("base").write_bytes(b"\0" * 4096)
-    r = client.post("/templates/base/deploy", json={"new_name": "web-1", "linked": True}, headers=auth_headers("root"))
+    admin = auth_headers("root")
+    assert [t["linkable"] for t in client.get("/templates", headers=admin).json()["items"]] == [False]
+    r = client.post("/templates/base/deploy", json={"new_name": "web-1", "linked": True}, headers=admin)
     assert r.status_code == 422 and "full copy" in r.json()["detail"]
     assert list(lab["images"].iterdir()) == []
 
@@ -142,8 +144,9 @@ def test_a_template_with_linked_clones_is_neither_deleted_nor_renamed(lab, clien
     assert moved.status_code == 409 and "rename it" in moved.json()["detail"]
     assert tpl.exists() and templates_store.exists("base")
 
-    listed = {t["name"]: t["linked_clones"] for t in client.get("/templates", headers=admin).json()["items"]}
-    assert listed == {"base": ["web-1", "web-2"], "other": []}
+    items = client.get("/templates", headers=admin).json()["items"]
+    assert {t["name"]: t["linked_clones"] for t in items} == {"base": ["web-1", "web-2"], "other": []}
+    assert all(t["linkable"] for t in items)
 
     for vm in list(lab["conn"].doms):
         vm.undefineFlags()

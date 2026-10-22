@@ -4,10 +4,21 @@ A VM deployed from a template can share the template's disk and store only its o
 clones: the clone's disk is a qcow2 image whose backing file is the template's disk. It is created in an instant and
 stays small; the template's disk is then shared, read-only, by every clone made from it.
 
-Step 1 is `app/core/linked_disks.py`: create a linked disk, read a disk's backing chain
-from the qcow2 header, and name the VMs that read through a given disk. The deploy option and the template's
-protection come in step 2, on the structure of #546 (deploy as a task, `_deploy`) and #576 (`generated_drives`), which
-change the same files.
+Step 1 is `app/core/linked_disks.py`: create a linked disk, read a disk's backing chain from the qcow2 header, and
+name the VMs that read through a given disk. Step 2 uses it in `app/routers/templates.py` and the templates page:
+
+- **Deploy**: `POST /templates/{name}/deploy` takes `linked` (off by default: API v1 only grows). The new VM's disk is
+  then `linked_disks.create_linked(template_disk, new_disk)` instead of a full copy, on this host (the template's disk
+  must be where the clone runs). A template whose disk is not qcow2 is only copied (422); `GET /templates` says it
+  with `linkable`.
+- **Protect the template**: deleting or renaming a template is refused (409) while `linked_disks.dependents()` names a
+  VM; renaming moves the file the clones point to. The answer names the VMs. When libvirt does not answer, nothing can
+  be checked and the request is refused (503).
+- **Templates made from linked clones**: converting a linked clone into a template flattens its disk
+  (`qemu-img convert` into a partial file next to the templates, renamed once the VM is undefined), so every template
+  stands alone and the protection only has VMs to count.
+- **Say it**: `GET /templates` adds `linked_clones`, the VMs reading through each template (`null` when libvirt does
+  not answer); the templates page shows them and offers "linked clone" when deploying a template whose disk is qcow2.
 
 ## What was checked on real libvirt and QEMU
 
@@ -28,19 +39,19 @@ the disk and writing a file of their own. Each line below ran Hyperlite's own fu
 | Growing a stopped clone's disk (`disk_resize.grow`) | The clone grows to 1 GiB while the template stays 64 MiB; it still boots and reads the template's data |
 | Internal snapshot of a clone, then revert | Revert drops the clone's writes and keeps the template's data; the template is unchanged |
 
-## What step 2 must do
+### Step 2 through the API
 
-- **Deploy**: a `linked` option on template deployment (off by default: API v1 only grows), creating the VM's disk
-  with `linked_disks.create_linked(template_disk, new_disk)` instead of a full copy. On this host only: the template's
-  disk must be where the clone runs.
-- **Protect the template**: deleting or renaming a template is refused while `linked_disks.dependents()` names a VM
-  (renaming moves the file the clones point to). The answer names the VMs.
-- **Templates made from linked clones**: converting a linked clone into a template moves its disk, backing file
-  included, so the new template depends on the old one. Either flatten the disk when converting (`qemu-img convert`,
-  as a copy to a template already does), or count templates' disks among the dependents. Flattening is simpler and
-  keeps every template standalone.
-- **Say it**: a VM's page and the template list show which template a linked clone depends on, and how many clones a
-  template has.
+The same libvirt and QEMU, Hyperlite's API running against them (`POST /templates/from-vm`, `/deploy`, `DELETE`,
+`/rename`), each VM booted and its file read from inside the guest:
+
+| What | Result |
+|---|---|
+| A linked and a full deployment of one template | Once created, the linked disk is 196,616 bytes, the full copy 655,360; both boot and read the template's file |
+| `GET /templates` | Names the linked clone, not the full copy |
+| Delete or rename the template while the clone exists | 409, naming the clone; the template's files are unchanged |
+| A linked clone converted into a template | Its new template's disk has no backing file and holds the old template's data and the clone's writes; a VM deployed from it reads both |
+| Delete the template once its clones are gone | 200 |
+| The full copy, its template deleted | Still boots and reads its data |
 
 ## Not checked yet
 
