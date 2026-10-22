@@ -593,7 +593,7 @@ def _run_update_job(task_id, username, branch):
     try:
         if _is_dirty():
             raise RuntimeError(
-                "Working tree is not clean (uncommitted changes): update refused so as not to"
+                "Working tree is not clean (uncommitted changes): update refused so as not to "
                 "risk a merge conflict midway. Commit or discard the local changes first."
             )
 
