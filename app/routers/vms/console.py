@@ -11,7 +11,7 @@ import asyncssh
 import libvirt
 from fastapi import Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 
-from app.core import pty_session, spice, spice_proxy
+from app.core import cluster_view, pty_session, spice, spice_proxy
 from app.core.audit import log_action
 from app.core.cluster import get_cluster_private_key_path, get_node, libvirt_uri_from_here
 from app.core.libvirt_utils import (
@@ -58,6 +58,7 @@ async def _connect_to_node(node_name):
 
 
 @router.post("/{name}/console-ticket")
+@cluster_view.stays_here
 def create_console_ticket(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.console"))):
     """node: the registered node the VM runs on (the local host by default). Without it, a VM of a remote node was
     looked up on the local host: a 404, or the console of a local VM that happens to have the same name."""
@@ -185,6 +186,7 @@ TERMINAL_TICKET_TTL = 30
 
 
 @router.post("/{name}/terminal-ticket")
+@cluster_view.stays_here
 def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depends(require_role("admin"))):
     """node: as for the console ticket. A VM of a remote node is reached through that node (its address is on the
     node's networks, not necessarily routable from here)."""
@@ -351,6 +353,7 @@ def add_serial_port(conn, domain):
 
 
 @router.post("/{name}/serial-ticket")
+@cluster_view.stays_here
 def create_serial_ticket(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.console"))):
     """node: as for the console ticket. A VM with no serial port gets one, effective at its next start."""
     node = _remote(node)
@@ -427,6 +430,7 @@ async def vm_serial(websocket: WebSocket, name: str):
 
 
 @router.post("/{name}/spice-display")
+@cluster_view.stays_here
 def add_spice_display(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     """Give the VM a SPICE display next to its VNC one, effective at its next start. Refused on a node not set up for
     SPICE in TLS: the VM would no longer start there."""
@@ -457,6 +461,7 @@ def add_spice_display(name: str, node: str | None = None, user: dict = Depends(r
 
 
 @router.post("/{name}/spice-ticket")
+@cluster_view.stays_here
 def create_spice_ticket(
     name: str, request: Request, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.console"))
 ):

@@ -12,7 +12,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import iscsi, nfs_permissions, renaming, shared_pools, smb_storage, zfs_storage
+from app.core import cluster_view, iscsi, nfs_permissions, renaming, shared_pools, smb_storage, zfs_storage
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.cluster import list_nodes
@@ -25,7 +25,8 @@ from app.core.vm_limits import validate_vm_resources
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/storage", tags=["storage"])
+# ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
+router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[Depends(cluster_view.on_node)])
 
 # This table did not match libvirt's real enumeration (virStoragePoolState,
 # checked through libvirt.VIR_STORAGE_POOL_*: only 5 values, 0-4, not 6). Every
