@@ -365,6 +365,16 @@ def require_container_privilege(privilege):
     return checker
 
 
+def required_user(request):
+    """get_current_user for code that is not a FastAPI dependency of its own (cluster_view.on_node, which a router
+    runs before its endpoint and which also sees WebSockets): the user behind the request's bearer token, 401 without
+    one. A session whose password must be changed is refused, as by get_current_user."""
+    scheme, _, token = (request.headers.get("Authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(status_code=401, detail="Not authenticated", headers={"WWW-Authenticate": "Bearer"})
+    return _current_user(token.strip(), pending_ok=False)
+
+
 def optional_user(request):
     """The user behind the request's bearer token, or None for an anonymous or invalid
     one. For the few endpoints that answer everyone purpose tell a signed-in user more."""

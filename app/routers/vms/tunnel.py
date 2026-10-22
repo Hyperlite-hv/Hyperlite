@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.core import workstation
+from app.core import cluster_view, workstation
 from app.core.audit import log_action, request_ip
 from app.core.libvirt_utils import open_conn
 from app.core.security import require_vm_privilege
@@ -49,6 +49,7 @@ def _guest_ip(domain):
 
 
 @router.post("/{name}/tunnel-ticket")
+@cluster_view.stays_here
 def create_tunnel_ticket(
     name: str, port: int = Body(..., embed=True), user: dict = Depends(require_vm_privilege("vm.tunnel"))
 ):

@@ -7,8 +7,8 @@ session JWT (from `POST /api/v1/auth/login`, or the two-step `POST /api/v1/auth/
 the accounts an administrator chose.
 
 What a browser opens rather than calls stays at the root: `GET /health` (answers everyone with `{"status",
-"environment", "api"}`, `api` being the version of the API, 1; the host name and software versions only to a signed-in
-caller), the SSO sign-in
+"environment", "api"}`, `api` being the version of the API, 1; the host name, `node` (this node's name in its
+cluster, which lists of the cluster call `local`) and software versions only to a signed-in caller), the SSO sign-in
 `/auth/sso/login` and the callback an identity provider is given (`/auth/sso/callback`), the client download
 `/downloads/hyperlite/{platform}`, and the documentation pages.
 
@@ -71,6 +71,20 @@ person: in English and, for infrastructure failures, categorized into an actiona
 | `not_confirmed` | The cluster did not take the change in time, or refused it: it is copied when it answers (503). |
 | `read_only` | This node changes nothing right now (no quorum, a cluster update): the detail says why (503). |
 | `cluster_unavailable` | The cluster's configuration service does not answer: nothing new can be created (503). |
+
+## Clusters: `?node=`
+
+A VM, a template, a network, a storage pool and an ISO image live on one node. Every route under `/vms`, `/templates`,
+`/networks`, `/storage` and `/isos`, and the backups, the backup schedule and the export of a VM, takes `?node=`: when it
+names another member of the cluster, the request goes to that member, without the parameter, in the same user's name,
+and its answer comes back as it is. That member does the work, checks the rights and records the task and the audit
+entry, as Proxmox VE passes a request to the node that owns the guest; follow its task with
+`GET /tasks/{id}?node=<member>` (`?on=` is the same). Absent, `local` or this node's name: here. A node registered over
+SSH only (no Hyperlite on it) is reached by the routes that took `node` before (libvirt over SSH); any other route
+refuses it (409), as it refuses a name that is no node, rather than act here on an object of the same name. A console,
+terminal, serial, SPICE or tunnel ticket stays on the node that answers, where its WebSocket opens. An ISO upload is
+not relayed (422): send it to that member itself. A member that does not answer, or refuses the session, reads as 502
+naming it.
 
 ## Long operations
 

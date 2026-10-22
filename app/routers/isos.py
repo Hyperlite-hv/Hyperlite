@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.core import paths
+from app.core import cluster_view, paths
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
@@ -20,7 +20,8 @@ from app.core.tasks import create_task, finish_task
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/isos", tags=["isos"])
+# ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
+router = APIRouter(prefix="/isos", tags=["isos"], dependencies=[Depends(cluster_view.on_node)])
 
 ISO_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,200}")
 
