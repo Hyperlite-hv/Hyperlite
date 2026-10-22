@@ -12,6 +12,7 @@ import { promptText } from "../../store/usePromptStore";
 import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { useIntent } from "../lib/intents";
+import { usePolling } from "../lib/polling";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
@@ -145,6 +146,8 @@ export function VmSnapshotsPage({ resource: vm }) {
 }
 
 // ---- Backups ---------------------------------------------------------------------------------------------
+// A backup that waits for its turn longer than this is left to the list's own refresh (the tab, the Tasks page).
+const WAIT_LIMIT_MS = 30 * 60_000;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 export function VmBackupPage({ resource: vm }) {
   const t = useT();
@@ -159,6 +162,9 @@ export function VmBackupPage({ resource: vm }) {
   const [busy, setBusy] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [browsing, setBrowsing] = useState(null);
+  // A backup asked here and not listed yet: one backup runs at a time on a node, so it may wait for the one in
+  // progress before its row exists. The rows known at the click: the new one is the first row not among them.
+  const [waiting, setWaiting] = useState(null);
   const vmName = vm?.name;
   // In a cluster the VM's own node keeps its backups: every request names it, and this node sends it there.
   const vmNode = vm?.node && vm.node !== "local" ? vm.node : undefined;
@@ -171,6 +177,11 @@ export function VmBackupPage({ resource: vm }) {
   useEffect(() => { reload(); }, [reload]);
   const running = Boolean(backups?.some((b) => b.status !== "succeeded" && b.status !== "failed"));
   useEffect(() => { if (!running) return undefined; const id = setInterval(reload, 4000); return () => clearInterval(id); }, [running, reload]);
+  useEffect(() => { if (waiting && backups?.some((b) => !waiting.known.has(b.id))) setWaiting(null); }, [waiting, backups]);
+  usePolling(async () => {
+    if (waiting && Date.now() - waiting.since > WAIT_LIMIT_MS) { setWaiting(null); return; }
+    await reload();
+  }, 3000, { enabled: Boolean(waiting) && !running });
 
   if (!vm) return null;
   if (error && backups == null) return <ErrorState message={error} onRetry={reload} />;
@@ -184,7 +195,12 @@ export function VmBackupPage({ resource: vm }) {
 
   async function now() {
     setBusy(true);
-    try { await createBackup(vm.name, null, vmNode); pushToast({ kind: "success", title: t("vb.started"), message: vm.name }); setTimeout(reload, 1500); } catch (e) { fail(t("vb.startFailed"))(e); } finally { setBusy(false); }
+    try {
+      await createBackup(vm.name, null, vmNode);
+      pushToast({ kind: "success", title: t("vb.started"), message: vm.name });
+      setWaiting({ known: new Set(list.map((b) => b.id)), since: Date.now() });
+      reload();
+    } catch (e) { fail(t("vb.startFailed"))(e); } finally { setBusy(false); }
   }
   async function save(e) {
     e?.preventDefault();
@@ -242,6 +258,7 @@ export function VmBackupPage({ resource: vm }) {
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={now}><Archive size={15} aria-hidden="true" />{t("vb.now")}</button>} />
       <div className="nx-cols2">
         <Card title={t("vb.history")} flush={list.length > 0}>
+          {waiting && <p className="nx-f-h" role="status" style={{ margin: "0 var(--space-4) var(--space-3)" }}><LoaderCircle size={13} className="nx-spin" aria-hidden="true" /> {t("vb.queued")}</p>}
           {caps.admin && !stopped && list.some((b) => b.status === "succeeded") && <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("vb.stopToRestore")}</p>}
           {backups == null ? <Loading style={{ margin: 0 }} /> : list.length === 0 ? <Empty icon={Archive} title={t("vb.none")} text={t("vb.noneHelp")} /> : (
             <TableWrap>

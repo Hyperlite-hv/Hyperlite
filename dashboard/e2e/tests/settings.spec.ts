@@ -48,7 +48,11 @@ test.describe("Storage pools (real libvirt backend)", () => {
     await expect(dlg).toContainText(/files are NOT deleted/i);
     await dlg.getByRole("button", { name: "Cancel" }).click();
     await page.getByRole("button", { name: `Delete pool ${POOL}` }).click();
+    // The deletions own answer, not the buttons absence: while the confirmation is open the page behind it is hidden
+    // from the accessibility tree, so the button was "gone" before the DELETE ended, and the list below still had it.
+    const deleted = page.waitForResponse((r) => r.request().method() === "DELETE" && r.url().includes(`/storage/${POOL}`));
     await page.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).click();
+    expect((await deleted).ok()).toBe(true);
     await expect(page.getByRole("button", { name: `Delete pool ${POOL}` })).toHaveCount(0);
     const after = (await (await request.get("/storage", { headers: auth() })).json()) as Array<{ name: string }>;
     expect(after.map((p) => p.name)).not.toContain(POOL);
