@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+### Fixed
+
+- Three error messages had two words glued together (the HA protection refused on local storage, a container image without a package manager, an update refused on a modified tree).
+
 ## [1.1.1] - 2026-10-21
 
 ### Added
