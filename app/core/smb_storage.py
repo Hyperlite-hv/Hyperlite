@@ -27,6 +27,7 @@ import subprocess
 from pathlib import Path
 
 from app.core import nfs_permissions, paths
+from app.core.safe_paths import safe_child
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,21 @@ def credentials_dir(node=None):
 
 
 def credentials_path(pool_name, node=None):
-    """Where a pool's credentials live on `node` (None: this host). The pool name is validated by the caller."""
-    return str(credentials_dir(node) / f"{pool_name}.cred")
+    """Where a pool's credentials live on `node` (None: this host). The pool name is validated by the caller, and
+    checked again here: root writes and removes this file."""
+    return str(safe_child(credentials_dir(node), f"{pool_name}.cred"))
+
+
+def own_file(path):
+    """`path` if it is a credentials file Hyperlite writes (a `.cred` file right in a credentials directory), else
+    None. A pool's definition can name any file, and root writes and removes this one."""
+    directory, name = os.path.split(os.path.normpath(path))
+    if directory not in (REMOTE_DIR, str(paths.PRIV / "smb")) or not name.endswith(".cred"):
+        return None
+    try:
+        return str(safe_child(directory, name))
+    except ValueError:
+        return None
 
 
 def validation_error(host_ok, share, user, password, domain, version):
@@ -111,11 +125,7 @@ def version_of(root):
 def credentials_of(root):
     """The credentials file a pool's definition names, if it is one Hyperlite writes (never another path)."""
     path = _option(root, "credentials")
-    if not path:
-        return None
-    if os.path.dirname(path) not in (REMOTE_DIR, str(paths.PRIV / "smb")) or not path.endswith(".cred"):
-        return None
-    return path
+    return own_file(path) if path else None
 
 
 def _node_ssh(node, command, input_text=None):
@@ -146,6 +156,10 @@ def _node_ssh(node, command, input_text=None):
 def write_credentials(path, text, node=None):
     """Write the credentials file on `node` (None: this host), readable by root only. The password goes through the
     ssh connection's input, never on a command line."""
+    checked = own_file(path)
+    if checked is None:
+        raise ValueError(f"Not an SMB credentials file: {path}")
+    path = checked
     if node:
         directory = os.path.dirname(path)
         _node_ssh(
@@ -165,6 +179,11 @@ def write_credentials(path, text, node=None):
 
 def remove_credentials(path, node=None):
     """Remove a credentials file. A failure is logged: the pool is gone either way."""
+    checked = own_file(path)
+    if checked is None:
+        logger.warning("Not removed, not an SMB credentials file: %s", path)
+        return
+    path = checked
     try:
         if node:
             _node_ssh(node, f"rm -f {shlex.quote(path)}")
@@ -178,7 +197,7 @@ def check(path):
     """{"ok", "message"}: can this host write a disk file on the mounted share, and is it QEMU's? A share mounted
     read-only, or whose SMB user may not write, mounts fine: VMs would then fail to create or write their disks."""
     uid, _, who = nfs_permissions.qemu_identity()
-    probe = os.path.join(path, f".hyperlite-permission-check-{secrets.token_hex(4)}")
+    probe = safe_child(path, f".hyperlite-permission-check-{secrets.token_hex(4)}")
     try:
         fd = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except OSError as e:

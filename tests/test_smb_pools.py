@@ -72,6 +72,24 @@ def test_only_a_credentials_file_hyperlite_writes_is_ever_removed():
     assert smb_storage.credentials_of(root(f"{paths.PRIV}/smb/a.cred")) == f"{paths.PRIV}/smb/a.cred"
 
 
+def test_root_never_writes_or_removes_a_file_outside_the_credentials_directory(tmp_path, caplog):
+    # The API validates a pool's name before; these are the module's own guard, as every path root writes.
+    with pytest.raises(ValueError):
+        smb_storage.credentials_path("../../etc/cron.d/x")
+    outside = tmp_path / "victim.cred"
+    outside.write_text("kept")
+    with pytest.raises(ValueError):
+        smb_storage.write_credentials(str(outside), "username=u\n")
+    smb_storage.remove_credentials(str(outside))
+    assert outside.read_text() == "kept" and "not an SMB credentials file" in caplog.text
+    # A symbolic link in the directory leads nowhere either.
+    (paths.PRIV / "smb").mkdir(parents=True, exist_ok=True)
+    (paths.PRIV / "smb" / "link.cred").symlink_to(outside)
+    with pytest.raises(ValueError):
+        smb_storage.write_credentials(str(paths.PRIV / "smb" / "link.cred"), "username=u\n")
+    assert outside.read_text() == "kept"
+
+
 @pytest.fixture(autouse=True)
 def _no_credentials_left():
     """paths.PRIV is one directory for the whole test session."""
