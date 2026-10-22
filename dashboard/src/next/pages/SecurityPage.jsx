@@ -5,6 +5,7 @@ import {
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, createAcl, deleteAcl,
   fetchPrivileges, fetchCustomRoles, createCustomRole, deleteCustomRole, fetchContainers,
+  fetchStoragePools, fetchNetworks,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -39,10 +40,11 @@ export default function SecurityPage({ initialTab = "users" }) {
 
   const reload = useCallback(async () => {
     try {
-      const [users, groups, pools, roles, privileges, customRoles, acl, containers] = await Promise.all([
+      const [users, groups, pools, roles, privileges, customRoles, acl, containers, storages, networks] = await Promise.all([
         fetchUsers(), fetchGroups(), fetchPools(), fetchAclRoles(), fetchPrivileges(), fetchCustomRoles(), fetchAcl(), fetchContainers().catch(() => []),
+        fetchStoragePools().catch(() => []), fetchNetworks().catch(() => []),
       ]);
-      setData({ users, groups, pools, roles, privileges, customRoles, acl, containers });
+      setData({ users, groups, pools, roles, privileges, customRoles, acl, containers, storages, networks });
       setError(null);
     } catch (e) { setError(errorMessage(e)); }
   }, []);
@@ -332,14 +334,21 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
   const [f, setF] = useState({ subjectType: "user", subjectId: "", role: Object.keys(allRoles)[0] || "", resourceType: "vm", resourceId: "" });
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value, ...(k === "subjectType" ? { subjectId: "" } : {}), ...(k === "resourceType" ? { resourceId: "" } : {}) }));
   const role = allRoles[f.role] ? f.role : Object.keys(allRoles)[0];
-  const resources = f.resourceType === "vm" ? vms.map((v) => [v.name, v.name]) : f.resourceType === "pool" ? data.pools.map((p) => [String(p.id), p.name]) : data.containers.map((c) => [c.name, c.name]);
+  // A storage pool or a network is assigned by its name, the same on every node that has it: listed once.
+  const names = (list) => [...new Set(list.map((x) => x.name))].sort().map((n) => [n, n]);
+  const resources = f.resourceType === "vm" ? vms.map((v) => [v.name, v.name])
+    : f.resourceType === "pool" ? data.pools.map((p) => [String(p.id), p.name])
+    : f.resourceType === "storage" ? names(data.storages)
+    : f.resourceType === "network" ? names(data.networks)
+    : data.containers.map((c) => [c.name, c.name]);
   async function create() {
     if (await run(() => createAcl({ subject_type: f.subjectType, subject_id: f.subjectId, role, resource_type: f.resourceType, resource_id: f.resourceId }), { ok: { title: t("sec.assigned") }, fail: t("sec.assignFailed") })) { setF((x) => ({ ...x, subjectId: "", resourceId: "" })); closeDrawer(); }
   }
   async function remove(a) {
     if (await confirmAction({ title: t("sec.aclDeleteTitle"), message: t("sec.aclDeleteMsg"), confirmLabel: t("sec.remove"), danger: true })) run(() => deleteAcl(a.id), { fail: t("sec.removeFailed") });
   }
-  const resLabel = (a) => (a.resource_type === "pool" ? `${t("sec.pool")} ${a.resource_label}` : a.resource_type === "container" ? `${t("sec.container")} ${a.resource_label}` : a.resource_label);
+  const kindLabel = { pool: "sec.pool", container: "sec.container", storage: "sec.storage", network: "sec.network" };
+  const resLabel = (a) => (kindLabel[a.resource_type] ? `${t(kindLabel[a.resource_type])} ${a.resource_label}` : a.resource_label);
   return (
     <>
       <div className="nx-card2 nx-card2--flush">
@@ -371,7 +380,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
         </div>
         <Field label={t("sec.role")} hint={allRoles[role]?.description}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.role")} value={role} onChange={set("role")}>{Object.entries(allRoles).map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}</select>}</Field>
         <div className="nx-fg">
-          <Field label={t("sec.on")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.on")} value={f.resourceType} onChange={set("resourceType")}><option value="vm">{t("sec.aVm")}</option><option value="pool">{t("sec.aPool")}</option><option value="container">{t("sec.aContainer")}</option></select>}</Field>
+          <Field label={t("sec.on")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.on")} value={f.resourceType} onChange={set("resourceType")}><option value="vm">{t("sec.aVm")}</option><option value="pool">{t("sec.aPool")}</option><option value="container">{t("sec.aContainer")}</option><option value="storage">{t("sec.aStorage")}</option><option value="network">{t("sec.aNetwork")}</option></select>}</Field>
           <Field label={t("sec.resource")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.resource")} value={f.resourceId} onChange={set("resourceId")}><option value="">{t("sec.choose")}</option>{resources.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}</Field>
         </div>
       </SideDrawer>

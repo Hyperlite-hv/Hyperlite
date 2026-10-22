@@ -23,13 +23,12 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.safe_paths import safe_child
 from app.core.security import require_role
-from app.core.vm_builder import validate_name
+from app.core.vm_builder import GENERATED_ISO_SUFFIXES, validate_name
 from app.routers.vms._shared import _domain_summary, router
 
 logger = logging.getLogger(__name__)
 
 # -oemdrv and -autoinstall: the Kickstart/autoinstall answers of VMs created before 1.0.
-GENERATED_ISO_SUFFIXES = ("-cloudinit.iso", "-oemdrv.iso", "-autoinstall.iso")
 NVRAM_DIR = "/var/lib/libvirt/qemu/nvram"
 
 

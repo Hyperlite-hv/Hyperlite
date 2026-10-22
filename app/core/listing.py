@@ -6,3 +6,14 @@ changing its shape. A list that gathers several nodes adds "unreachable": the me
 def listing(items, total=None, **extra):
     items = list(items)
     return {"items": items, "total": len(items) if total is None else total, **extra}
+
+
+def item(items, key, value, what):
+    """One element of a list, exactly as the list gives it: reading one object and listing them answer the same shape,
+    which a client (the Terraform provider) maps once. A 404 naming `what` when there is none."""
+    from fastapi import HTTPException
+
+    for it in items:
+        if str(it.get(key)) == str(value):
+            return it
+    raise HTTPException(status_code=404, detail=f"{what} not found")

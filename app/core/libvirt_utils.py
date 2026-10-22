@@ -24,6 +24,17 @@ def open_lxc_conn():
     return conn
 
 
+def open_lxc_conn_if_any():
+    """The LXC connection, or None when this node has no LXC driver (libvirt installed without it, as on a VM-only
+    host or a CI runner): it then simply has no containers. What looks for every guest of the node (a network's, a
+    shutdown's) goes through this; what acts on a container named by the user uses open_lxc_conn."""
+    try:
+        return open_lxc_conn()
+    except libvirt.libvirtError as e:
+        logger.info("No LXC connection on this node, so no containers: %s", e)
+        return None
+
+
 def open_conn(node_name=None):
     """node_name=None (the default): unchanged local connection, so every existing
     call (dozens, across all routers) keeps working without any change.
@@ -99,6 +110,15 @@ def ensure_default_pool(conn):
         pool.create()
     pool.setAutostart(True)
     return pool
+
+
+def lookup_pool(conn, name):
+    """conn.storagePoolLookupByName() for a pool a user names, with the 'default' pool made and started when it is not
+    there yet: a fresh node defines it at its first listing only, so creating a volume or attaching a disk there
+    failed with "not found" until someone had opened the storage page. Raises libvirt.libvirtError as the lookup."""
+    if name == "default":
+        return ensure_default_pool(conn)
+    return conn.storagePoolLookupByName(name)
 
 
 def pool_type_and_target_path(pool):

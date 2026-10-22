@@ -237,7 +237,7 @@ def bootstrap_os_container(rootfs):
     family = detect_package_family(rootfs)
     if family is None:
         raise ValueError(
-            "This image has no recognized package manager (apt/apk):"
+            "This image has no recognized package manager (apt/apk): "
             "probably a minimal single-process image (scratch/distroless), "
             "it is not compatible with the Hyperlite container model (full system + SSH access)."
         )
