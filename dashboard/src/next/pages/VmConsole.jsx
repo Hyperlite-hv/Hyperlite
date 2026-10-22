@@ -4,8 +4,6 @@ import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Info, Keyboard, Laptop
 import { addSpiceDisplay, createConsoleTicket, createSerialTicket, createTerminalTicket, downloadSpiceFile } from "../../api/client";
 import { ensureXtermLoaded, keepFitted, loadTerminalFont, wsUrl } from "../../utils/loadXterm";
 import { useAuthStore } from "../../store/useAuthStore";
-import { useInfraStore } from "../../store/useInfraStore";
-import { confirmAction } from "../../store/useConfirmStore";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
@@ -40,7 +38,8 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   const [keysOpen, setKeysOpen] = useState(false);
   const [spiceOpen, setSpiceOpen] = useState(false);
   const spiceBtn = useRef(null);
-  const pushToast = useInfraStore((s) => s.pushToast);
+  // The outcome of a SPICE action, said in the console itself: the console's own window shows no toasts or dialogs.
+  const [spiceNote, setSpiceNote] = useState(null);
   const keysBtn = useRef(null);
   const [typing, setTyping] = useState(false);
   const [typed, setTyped] = useState("");
@@ -154,16 +153,16 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
   // SPICE opens outside the browser, in virt-viewer: the page only hands out the .vv file (docs/design/spice-console.md).
   async function openSpice() {
     setSpiceOpen(false);
-    try { await downloadSpiceFile(name, node); pushToast({ kind: "success", title: t("vc.spiceReady"), message: t("vc.spiceReadyMsg") }); }
-    catch (e) { pushToast({ kind: "error", title: t("vc.spiceFailed"), message: errorMessage(e) }); }
+    try { await downloadSpiceFile(name, node); setSpiceNote({ tone: "info", text: t("vc.spiceReadyMsg") }); }
+    catch (e) { setSpiceNote({ tone: "warning", text: t("vc.spiceFailed", { detail: errorMessage(e) }) }); }
   }
+  // Adding a display removes nothing and waits for the VM's next start: no confirmation.
   async function addSpice() {
     setSpiceOpen(false);
-    if (!(await confirmAction({ title: t("vc.spiceAddTitle", { name }), message: t("vc.spiceAddMsg"), confirmLabel: t("vc.spiceAdd"), danger: false }))) return;
     try {
       const r = await addSpiceDisplay(name, node);
-      pushToast({ kind: "success", title: t("vc.spiceAdded"), message: t(r?.effective === "next_start" ? "vc.spiceAddedNext" : "vc.spiceAddedNow") });
-    } catch (e) { pushToast({ kind: "error", title: t("vc.spiceFailed"), message: errorMessage(e) }); }
+      setSpiceNote({ tone: "info", text: t(r?.effective === "next_start" ? "vc.spiceAddedNext" : "vc.spiceAddedNow") });
+    } catch (e) { setSpiceNote({ tone: "warning", text: t("vc.spiceFailed", { detail: errorMessage(e) }) }); }
   }
 
   if (!vm) return null;
@@ -176,6 +175,12 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
     <>
       {terminal && caps.admin && <div className="nx-bn" data-tone="warning" role="note"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vc.sshWarn")}</span></div>}
       {mode === "serial" && <div className="nx-bn" data-tone="info" role="note"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vc.serialHelp")}</span></div>}
+      {spiceNote && (
+        <div className="nx-bn" data-tone={spiceNote.tone} role={spiceNote.tone === "warning" ? "alert" : "status"}>
+          <MonitorDown size={16} aria-hidden="true" /><span className="nx-bn-t">{spiceNote.text}</span>
+          <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("action.close")} onClick={() => setSpiceNote(null)}><X size={14} aria-hidden="true" /></button>
+        </div>
+      )}
       <div className={standalone ? "nx-console-standalone" : undefined}>
         <div className="nx-termbar">
           <div className="nx-seg2" role="group" aria-label={t("vc.mode")}>
