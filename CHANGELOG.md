@@ -12,7 +12,15 @@ All notable changes to this project are documented here. The format is based on 
 
 - `.github/scripts/claim.py` sends its JSON bodies with `Content-Type: application/json`: a proxy that requires it refused `take` and `release`.
 
+### Security
+
+- This node's HTTPS certificate is handled by `hyperlite-daemon` (#511, step 3, host domain part 3): importing a pair, going back to the previous one, making a self-signed one, getting one from Let's Encrypt with certbot, and restarting the API afterwards (`app/daemon/ops/tls.py`). The private key is written to `/etc/hyperlite/local` by the daemon; the API checks who asks and answers as before.
+
 ## [1.1.3] - 2026-10-22
+
+### Security
+
+- Hyperlite's own update is done by `hyperlite-daemon` (#511, step 3, host domain part 2): it checks the request again (an update from the mirror or from a received file, the return to the previous version) and starts the job in a unit of its own, which outlives the restarts of the API and of the daemon that the package being installed causes (`app/daemon/ops/hyperlite.py`). The check for a new version fetches the package lists through the daemon, and the update channel is written by it. The API only asks; without the daemon, the update answers that it is unavailable.
 
 ### Security
 

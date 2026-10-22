@@ -353,15 +353,22 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Domain | Status |
 |---|---|
 | Host system, part 1: package updates, DNS, host name, time, syslog, power (`app/daemon/ops/host.py`) | done |
-| Host system, part 2: Hyperlite's own update (`app/routers/update.py`, the watchdog, the offline file) | next |
-| Host system, part 3: certificates (`app/core/tls_certs.py`, certbot) | |
-| Network, storage, disks, VMs, containers, cluster, consoles | |
+| Host system, part 2: Hyperlite's own update (`app/daemon/ops/hyperlite.py`: the job in a unit of its own, the package lists, the channel) | done |
+| Host system, part 3: the HTTPS certificate (`app/daemon/ops/tls.py`: import, previous, self-signed, certbot, the API's restart) | done |
+| Network | next |
+| Storage, disks, VMs, containers, cluster, consoles | |
 
 **How a domain moves.** The implementation stays in its `app/core` module, which hyperlite-daemon imports. The
 daemon's operation (`app/daemon/ops/<domain>.py`) checks its arguments with a model (extra fields refused, lengths
 bounded) and calls it; a refusal the module raises becomes the daemon's `refused`, whose message reaches the user as
 before. The route asks for the operation by name (`app/core/privileged.py`) and keeps the permission check, the audit
 log and the task. A long operation (an apt run) is one call that waits, its output written into the task by the daemon.
+
+**An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
+hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of
+its own (`systemd-run`, `app/daemon/update_job.py`), as the update watchdog runs: the job keeps going through both
+restarts and writes the task itself. Checked on the test VM: an update and a return, the daemon restarted during the
+update, the task succeeded and the watchdog validated.
 
 `HYPERLITE_DAEMON_INPROCESS=1` runs the operations in the API's process through the same registry (tests, e2e, the
 scale lab). `tests/test_privileged.py` checks that every operation a route names exists in the daemon.
