@@ -37,6 +37,7 @@ permissions:
 jobs:
   analyze:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
       security-events: write

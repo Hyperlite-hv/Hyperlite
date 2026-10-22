@@ -1,0 +1,64 @@
+name: apt-install
+description: >-
+  Installs Debian packages on the runner from the .deb files an earlier run downloaded for the same runner image, and
+  from the mirror only when there are none. The runner's Ubuntu mirror is often slow: apt-get took up to 22 minutes in
+  a job whose tests took 3.
+
+inputs:
+  packages:
+    description: The packages, separated by spaces or line breaks
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The runner image's version is in the key: its installed packages decide which .deb files apt downloads, and a new
+    # image (weekly) downloads them again.
+    - id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        # Word splitting on purpose: one package per line, sorted, so the order of the list does not change the key.
+        list=$(printf '%s\n' $PACKAGES | sort -u | tr '\n' ' ')
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+        echo "key=apt-$ImageOS-$ImageVersion-$(printf '%s' "$list" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.apt-debs
+        key: ${{ steps.key.outputs.key }}
+
+    - shell: bash
+      env:
+        LIST: ${{ steps.key.outputs.list }}
+        HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: |
+        cache="$HOME/.apt-debs"
+        if [ "$HIT" = true ]; then
+          # The files of the transaction apt made on this image, installed together: nothing is fetched. None at all
+          # when the image already had every package.
+          debs=("$cache"/*.deb)
+          if [ ! -e "${debs[0]}" ] || sudo apt-get install -y --no-install-recommends --no-download "${debs[@]}"; then
+            exit 0
+          fi
+          echo "::warning::The cached packages did not install: they come from the mirror this time"
+        fi
+        mkdir -p "$cache/partial"
+        sudo apt-get update
+        # Word splitting on purpose: LIST holds the package names.
+        # shellcheck disable=SC2086
+        sudo apt-get install -y --no-install-recommends -o Dir::Cache::Archives="$cache" $LIST
+        sudo rm -rf "$cache/partial" "$cache/lock"
+        # Never an empty directory: the cache of an image that needed nothing still says so.
+        printf '%s\n' "$LIST" > "$cache/packages"
+        sudo chown -R "$(id -u):$(id -g)" "$cache"
+
+    # Only a push writes the cache, so a pull request's code never decides what another run installs as root; a pull
+    # request reads what test or master saved.
+    - if: steps.restore.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.apt-debs
+        key: ${{ steps.key.outputs.key }}
