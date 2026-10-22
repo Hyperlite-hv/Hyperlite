@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PencilLine, Play, Square, SquareTerminal, TerminalSquare, Trash2 } from "lucide-react";
 import {
   fetchContainer, updateContainer, startContainer, stopContainer, deleteContainer,
-  fetchContainerBackups, createContainerBackup, deleteContainerBackup, restoreContainerBackup,
+  fetchContainerBackups, createContainerBackup, deleteContainerBackup, restoreContainerBackup, fetchTaskDetail,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -13,6 +13,7 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import { refreshExtras } from "../lib/inventory";
+import { usePolling } from "../lib/polling";
 import { NAME_RE } from "../lib/containerImages";
 import StatusIndicator from "../components/StatusIndicator";
 import NotesCard from "../components/NotesCard";
@@ -193,13 +194,23 @@ export function ContainerBackupsPage({ resource: ct }) {
     catch (e) { setError(errorMessage(e)); }
   }, [ct.name]);
   useEffect(() => { if (caps.admin) load(); }, [load, caps.admin]);
+  // The backup asked here is followed by its task until it ends, and a running one until it is done: the list was
+  // read once two seconds after the click, so a backup showed as running, or not at all, until the page was reloaded.
+  const [task, setTask] = useState(null);
+  const running = Boolean(backups?.some((b) => backupWire(b.status) === "running"));
+  usePolling(async () => {
+    await load();
+    if (!task) return;
+    const detail = await fetchTaskDetail(task).catch(() => null);
+    if (detail && detail.status !== "running") { setTask(null); load(); }
+  }, 3000, { enabled: caps.admin && (Boolean(task) || running) });
   if (!caps.admin) return <Card title={t("tab.backups")}><p className="nx-muted" style={{ margin: 0 }}>{t("cd.backupsAdmin")}</p></Card>;
   if (error && !backups) return <ErrorState message={error} onRetry={load} />;
   const on = ct.state === "active";
   const del = t("menu.delete").replace("…", "");
   const nameCheck = (v) => (NAME_RE.test(v) ? "" : t("ct.nameRule"));
   async function backupNow() {
-    try { await createContainerBackup(ct.name); pushToast({ kind: "success", title: t("ct.backupStarted"), message: ct.name }); setTimeout(load, 2000); }
+    try { const r = await createContainerBackup(ct.name); pushToast({ kind: "success", title: t("ct.backupStarted"), message: ct.name }); setTask(r?.task_id || null); load(); }
     catch (e) { pushToast({ kind: "error", title: t("ct.backupFailed"), message: errorMessage(e) }); }
   }
   async function restore(b) {

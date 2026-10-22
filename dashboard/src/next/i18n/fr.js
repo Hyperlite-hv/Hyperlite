@@ -1116,6 +1116,7 @@ export default {
   "vs.none": "Aucun snapshot",
   "vs.noneHelp": "Les snapshots apparaîtront sur cette ligne de temps, du plus récent au plus ancien.",
   "vb.started": "Sauvegarde lancée",
+  "vb.queued": "En attente de son tour : une seule sauvegarde à la fois sur ce nœud. Elle s'affiche ici dès qu'elle démarre.",
   "vb.startFailed": "Échec de la sauvegarde",
   "vb.schedule": "Sauvegarde planifiée",
   "vb.now": "Sauvegarder maintenant",
