@@ -1,7 +1,7 @@
 {
-  "about": "Hyperlite compared with Proxmox VE 9.2, feature by feature. docs/proxmox-parity.html shows it, with the live state of each issue (a closed issue shows as done). Update a row in the PR that changes it. status: ahead, parity, partial, missing.",
+  "about": "Hyperlite compared with Proxmox VE 9.2, feature by feature. docs/proxmox-parity.html shows it, with the live state of each issue (a closed issue shows as done). Update a row, and checked, in the PR that changes it: it is the project's reference, and tests/test_proxmox_parity.py refuses a release that cites a tracked issue the file was not reviewed for. status: ahead, parity, partial, missing.",
   "proxmox_version": "9.2",
-  "checked": "2026-10-20",
+  "checked": "2026-10-22",
   "categories": [
     {
       "id": "cluster",
@@ -9,7 +9,7 @@
       "en": "Cluster and high availability",
       "rows": [
         {"fr": "Configuration répliquée et quorum", "en": "Replicated configuration and quorum", "status": "parity", "pve": "pmxcfs on Corosync, read-only without quorum", "hl": "hyperlite-cfs on Corosync, read-only without quorum, primary node for two-node clusters"},
-        {"fr": "Gérer depuis n'importe quel nœud", "en": "Manage from any node", "status": "parity", "pve": "Any node serves the API and the GUI", "hl": "Any node serves the dashboard and API v1, same accounts and sessions"},
+        {"fr": "Gérer depuis n'importe quel nœud", "en": "Manage from any node", "status": "parity", "pve": "Any node serves the API and the GUI", "hl": "Any node serves the dashboard and API v1, same accounts and sessions; a node that is down never holds a list or a call"},
         {"fr": "Statut des invités diffusé", "en": "Guest status broadcast", "status": "parity", "pve": "pvestatd", "hl": "Every node sends its VMs' summary every 10 s and at once after a change"},
         {"fr": "Configuration répliquée, seule source de vérité", "en": "Replicated configuration as the only source of truth", "status": "partial", "issue": 416, "pve": "Everything in /etc/pve", "hl": "Most configuration in hyperlite-cfs; hosts driven over SSH still depend on one controller"},
         {"fr": "HA automatique (redémarrage ailleurs)", "en": "Automatic HA (restart elsewhere)", "status": "partial", "issue": 333, "pve": "ha-manager restarts guests on another node", "hl": "Dry run only: shows what it would do, recovery is manual"},
@@ -51,7 +51,7 @@
       "fr": "Machines virtuelles et conteneurs",
       "en": "Virtual machines and containers",
       "rows": [
-        {"fr": "Cycle de vie, snapshots, modèles", "en": "Lifecycle, snapshots, templates", "status": "parity", "pve": "Yes", "hl": "Yes, native ZFS snapshots on ZFS pools"},
+        {"fr": "Cycle de vie, snapshots, modèles", "en": "Lifecycle, snapshots, templates", "status": "parity", "pve": "Yes", "hl": "Yes, native ZFS snapshots on ZFS pools; a template made as a copy (the VM kept, as vSphere's Clone to Template) or by conversion"},
         {"fr": "Cloud-init", "en": "Cloud-init", "status": "parity", "pve": "Yes", "hl": "Yes, editable after creation, ready Debian image"},
         {"fr": "UEFI, Secure Boot, TPM 2.0", "en": "UEFI, Secure Boot, TPM 2.0", "status": "parity", "pve": "Yes", "hl": "Yes, Windows 11 / Server 2025 profile"},
         {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
@@ -83,13 +83,15 @@
       "fr": "Sécurité et exploitation",
       "en": "Security and operations",
       "rows": [
-        {"fr": "Séparation des privilèges", "en": "Privilege separation", "status": "missing", "issue": 511, "pve": "pveproxy unprivileged, pvedaemon root", "hl": "One root process serves the API"},
+        {"fr": "Séparation des privilèges", "en": "Privilege separation", "status": "partial", "issue": 511, "pve": "pveproxy unprivileged, pvedaemon root", "hl": "hyperlite-daemon (root, local socket) opens every session after checking the credentials, signs with keys only root reads, and signs the calls between nodes with each node's own key; the API itself still runs as root until step 4"},
+        {"fr": "Emplacement des fichiers", "en": "File layout", "status": "partial", "issue": 525, "pve": "/etc/pve (pmxcfs), /var/lib/vz, /usr/share/perl5/PVE", "hl": "The same layout from 1.1: /etc/hyperlite (priv, local), /var/lib/hyperlite (template/iso, dump, import), /usr/lib/hyperlite; the cluster configuration as files in /etc/hyperlite comes with #525"},
         {"fr": "Authentification et droits", "en": "Authentication and permissions", "status": "parity", "pve": "LDAP, AD, OIDC, TOTP, WebAuthn, roles, pools, ACL", "hl": "The same"},
         {"fr": "Certificats ACME", "en": "ACME certificates", "status": "parity", "pve": "Yes", "hl": "Yes"},
         {"fr": "Métriques et notifications", "en": "Metrics and notifications", "status": "parity", "pve": "InfluxDB, Graphite; notification targets", "hl": "Prometheus, InfluxDB, Graphite; webhook, SMTP"},
         {"fr": "API versionnée", "en": "Versioned API", "status": "parity", "pve": "API v2", "hl": "API v1, its contract checked in CI"},
+        {"fr": "Infrastructure as code (Terraform / OpenTofu)", "en": "Infrastructure as code (Terraform / OpenTofu)", "status": "missing", "issue": 330, "pve": "Community providers only (bpg/proxmox, Telmate/proxmox)", "hl": "Official provider in progress: design accepted, API additions under review (vSphere has an official one)"},
         {"fr": "CLI d'administration", "en": "Administration CLI", "status": "missing", "issue": 516, "pve": "qm, pct, pvesh", "hl": "Workstation client only"},
-        {"fr": "Mises à jour", "en": "Updates", "status": "ahead", "pve": "apt from the GUI", "hl": "Release notes, rollback, channels, offline signed file, nightly security updates"},
+        {"fr": "Mises à jour", "en": "Updates", "status": "ahead", "pve": "apt from the GUI", "hl": "Release notes, channels, offline signed file, nightly security updates; a failed update rolls back by itself, by reinstalling the previous package"},
         {"fr": "Accès depuis le poste", "en": "Workstation access", "status": "ahead", "pve": "None", "hl": "SSH and remote desktop through an HTTPS tunnel, SSO and 2FA"}
       ]
     }
