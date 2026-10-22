@@ -1069,6 +1069,7 @@ export default {
   "vs.none": "No snapshots",
   "vs.noneHelp": "Snapshots will appear on this timeline, newest first.",
   "vb.started": "Backup started",
+  "vb.queued": "Waiting for its turn: one backup runs at a time on this node. It shows here when it starts.",
   "vb.startFailed": "Backup failed",
   "vb.schedule": "Scheduled backup",
   "vb.now": "Back up now",
