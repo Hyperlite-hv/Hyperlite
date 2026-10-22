@@ -1,5 +1,6 @@
 """System settings of this node (app/core/host_system.py): package updates, host name, DNS, time, remote syslog.
-Administrators only: they change the host itself."""
+Administrators only: they change the host itself. What needs root is done by hyperlite-daemon (app/daemon/ops/host.py,
+docs/design/privilege-separation.md, step 3); these routes keep who may ask, the audit log and the tasks."""
 
 import socket
 import threading
@@ -7,11 +8,12 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import host_system
+from app.core import host_system, privileged
 from app.core.audit import log_action
 from app.core.listing import listing
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, task_log
+from app.daemon.registry import DaemonError
 
 router = APIRouter(prefix="/host/system", tags=["host"])
 
@@ -24,10 +26,21 @@ def _refused(user, action, e):
     return HTTPException(status_code=422, detail=str(e))
 
 
+def _ask(user, action, op, **args):
+    """hyperlite-daemon's answer to `op`. A setting it refuses: 422 with its reason, as before; without the daemon: 503."""
+    try:
+        return privileged.run(op, user=user["username"], **args)
+    except DaemonError as e:
+        if e.kind == "refused":
+            raise _refused(user, action, e.detail) from None
+        log_action(user["username"], action, "host", "failed", e.detail)
+        raise HTTPException(status_code=503 if e.kind == "unavailable" else 502, detail=e.detail) from None
+
+
 @router.get("/updates")
 def get_updates(refresh: bool = False, user: dict = Depends(require_role("admin"))):
     try:
-        return host_system.updates(refresh)
+        return host_system.updates(refresh, user=user["username"])
     except host_system.SettingError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
@@ -39,7 +52,8 @@ class UpgradeRequest(BaseModel):
 @router.post("/updates/upgrade", status_code=202)
 def upgrade(payload: UpgradeRequest, user: dict = Depends(require_role("admin"))):
     try:
-        cmd = host_system.upgrade_command(payload.packages)
+        # Checked here too, so a name apt does not list is a 422 at once rather than a failed task.
+        host_system.upgrade_command(payload.packages)
     except host_system.SettingError as e:
         raise _refused(user, "host_upgrade", e) from e
     if not _upgrade_lock.acquire(blocking=False):
@@ -49,7 +63,10 @@ def upgrade(payload: UpgradeRequest, user: dict = Depends(require_role("admin"))
 
     def work():
         try:
-            code = host_system.run_upgrade(cmd, lambda line: task_log(task_id, line))
+            # Run by hyperlite-daemon, which checks the names against apt's list again; apt's output goes into the task.
+            code = privileged.run(
+                "host.upgrade", user=user["username"], timeout=3 * 3600, task_id=task_id, packages=payload.packages
+            )["code"]
             finish_task(
                 task_id, "succeeded" if code == 0 else "failed", None if code == 0 else f"apt-get exited with {code}"
             )
@@ -75,7 +92,7 @@ def get_auto_updates(user: dict = Depends(require_role("admin"))):
 @router.put("/auto-updates")
 def put_auto_updates(payload: AutoUpdates, user: dict = Depends(require_role("admin"))):
     try:
-        result = host_system.set_auto_updates(payload.active, payload.time)
+        result = _ask(user, "set_auto_updates", "host.set_auto_updates", active=payload.active, at=payload.time)
     except host_system.SettingError as e:
         raise _refused(user, "set_auto_updates", e) from e
     log_action(
@@ -101,7 +118,7 @@ def get_dns(user: dict = Depends(require_role("admin"))):
 @router.put("/dns")
 def put_dns(payload: DnsSettings, user: dict = Depends(require_role("admin"))):
     try:
-        result = host_system.set_dns(payload.servers, payload.search)
+        result = _ask(user, "host_dns", "host.set_dns", servers=payload.servers, search=payload.search)
     except host_system.SettingError as e:
         raise _refused(user, "host_dns", e) from e
     log_action(user["username"], "host_dns", "host", "success", " ".join(payload.servers))
@@ -117,7 +134,7 @@ def put_hostname(payload: HostnameSettings, user: dict = Depends(require_role("a
     """Rename this node: its host name (/etc/hostname) and its line in /etc/hosts. The name libvirt reports, and so
     the one shown for this node, follows at once."""
     try:
-        result = host_system.set_hostname(payload.name)
+        result = _ask(user, "host_hostname", "host.set_hostname", name=payload.name)
     except host_system.SettingError as e:
         raise _refused(user, "host_hostname", e) from e
     log_action(user["username"], "host_hostname", result["old"], "success", f"-> {result['name']}")
@@ -146,7 +163,14 @@ def get_timezones(user: dict = Depends(require_role("admin"))):
 @router.put("/time")
 def put_time(payload: TimeSettings, user: dict = Depends(require_role("admin"))):
     try:
-        result = host_system.set_time(payload.timezone, payload.ntp, payload.ntp_servers)
+        result = _ask(
+            user,
+            "host_time",
+            "host.set_time",
+            timezone=payload.timezone,
+            ntp=payload.ntp,
+            ntp_servers=payload.ntp_servers,
+        )
     except host_system.SettingError as e:
         raise _refused(user, "host_time", e) from e
     log_action(user["username"], "host_time", "host", "success", f"{payload.timezone} ntp={payload.ntp}")
@@ -167,7 +191,9 @@ def get_syslog(user: dict = Depends(require_role("admin"))):
 @router.put("/syslog")
 def put_syslog(payload: SyslogSettings, user: dict = Depends(require_role("admin"))):
     try:
-        result = host_system.set_syslog(payload.host, payload.port, payload.protocol)
+        result = _ask(
+            user, "host_syslog", "host.set_syslog", host=payload.host, port=payload.port, protocol=payload.protocol
+        )
     except host_system.SettingError as e:
         raise _refused(user, "host_syslog", e) from e
     log_action(
@@ -216,7 +242,7 @@ def power(payload: PowerRequest, user: dict = Depends(require_role("admin"))):
                         f"Still running after the wait, {payload.action} cancelled: {', '.join(left)}",
                     )
                     return
-            host_system.schedule_power(payload.action)
+            privileged.run("host.schedule_power", user=user["username"], action=payload.action)
             task_log(task_id, f"{payload.action} in {host_system.POWER_DELAY_S} s")
             finish_task(task_id, "succeeded")
         except Exception as e:  # the task must end whatever happened, with the cause in its log

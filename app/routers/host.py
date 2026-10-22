@@ -21,7 +21,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.core import firmware, passthrough, paths, pty_session
+from app.core import db_health, firmware, passthrough, paths, pty_session
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_local_capabilities
@@ -103,6 +103,29 @@ def host_preflight(user: dict = Depends(require_role("admin"))):
 # the first WebSocket connection.
 HOST_SHELL_TICKETS = {}
 HOST_SHELL_TICKET_TTL = 30
+
+
+@router.get("/database")
+def host_database(user: dict = Depends(get_current_user)):
+    """This node's database: sound, damaged (and which repair fits), or a background loop that keeps failing on it
+    (app/core/db_health.py). The node's summary carries the same, for the dashboard's banner."""
+    return db_health.summary()
+
+
+@router.post("/database/check")
+def check_host_database(user: dict = Depends(require_role("admin"))):
+    """The full check, now: every page, and every index against its table. It reads the whole file."""
+    return db_health.check(full=True)
+
+
+@router.post("/database/repair")
+def repair_host_database(user: dict = Depends(require_role("admin"))):
+    """Rebuild the indexes whose entries disagree with their tables, with the service running. Any other damage
+    answers 409: the summary's `repair` says what fits ("rebuild" with the service stopped, or "restore")."""
+    try:
+        return db_health.repair(user["username"])
+    except db_health.RepairRefused as e:
+        raise HTTPException(status_code=409, detail=f"Not repaired: {e}") from None
 
 
 @router.post("/terminal-ticket")

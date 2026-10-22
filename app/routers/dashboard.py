@@ -1,7 +1,7 @@
 import libvirt
 from fastapi import APIRouter, Depends
 
-from app.core import cluster_lead
+from app.core import cluster_lead, db_health
 from app.core.libvirt_utils import ensure_default_pool, open_conn
 from app.core.metrics import get_node_live
 from app.core.security import get_current_user
@@ -78,6 +78,9 @@ def dashboard(user: dict = Depends(get_current_user)):
             # Latest load and identity of this host (CPU %, memory, cores, model, kernel,
             # OS, address, versions), recorded by the metrics collector.
             "live": get_node_live("local"),
+            # Whether this node's database is sound, and the repair that fits when not (app/core/db_health.py): the
+            # dashboard says it above every page.
+            "database": db_health.summary(),
         }
     finally:
         conn.close()
