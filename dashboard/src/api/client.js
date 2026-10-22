@@ -1135,8 +1135,9 @@ export async function fetchTemplates() {
 export async function createTemplateFromVM(vmName, templateName, keepVm = false) {
   return realFetch(`/templates/from-vm/${encodeURIComponent(vmName)}`, { method: "POST", ...jsonBody({ template_name: templateName || null, keep_vm: !!keepVm }) });
 }
-export async function deployTemplate(templateName, newName, network) {
-  return realFetch(`/templates/${encodeURIComponent(templateName)}/deploy`, { method: "POST", ...jsonBody({ new_name: newName, network: network || null }) });
+// linked: the new VM's disk reads through the template's (a linked clone) instead of being a full copy.
+export async function deployTemplate(templateName, newName, network, linked = false) {
+  return realFetch(`/templates/${encodeURIComponent(templateName)}/deploy`, { method: "POST", ...jsonBody({ new_name: newName, network: network || null, linked }) });
 }
 export async function deleteTemplate(templateName) {
   return realFetch(`/templates/${encodeURIComponent(templateName)}?confirm=true`, { method: "DELETE" });

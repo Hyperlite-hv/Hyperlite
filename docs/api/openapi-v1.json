@@ -1118,6 +1118,11 @@
    },
    "DeployRequest": {
     "properties": {
+     "linked": {
+      "default": false,
+      "title": "Linked",
+      "type": "boolean"
+     },
      "network": {
       "anyOf": [
        {
@@ -14895,6 +14900,7 @@
   },
   "/api/v1/templates": {
    "get": {
+    "description": "Each template with `linked_clones`, the VMs whose disk reads through the template's disk (null when libvirt\ndoes not answer: the templates are still listed), and `linkable`, true when its disk is a qcow2 image, which a\nlinked clone needs as its backing file.",
     "operationId": "list_templates_api_v1_templates_get",
     "responses": {
      "200": {

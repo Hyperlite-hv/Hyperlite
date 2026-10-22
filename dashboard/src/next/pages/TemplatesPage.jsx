@@ -18,6 +18,8 @@ const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 
 // Templates: VMs converted to read-only sources. Converting a stopped VM is done from its own page
 // (Actions ▸ Convert to template); here a copy is deployed under a validated name, or the template deleted.
+// A linked clone shares the template's disk and keeps only its own changes: the server refuses to delete or rename a
+// template while one exists, so the list says which VMs read through each template.
 export default function TemplatesPanel() {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
@@ -38,13 +40,20 @@ export default function TemplatesPanel() {
   const ctx = useContextTarget(); // right click on a template: its actions
   async function deploy(tpl) {
     const taken = new Set(vms.map((v) => v.name));
-    const name = await promptText({
+    const answer = await promptText({
       title: t("tp.deployTitle", { name: tpl.name }), label: t("tp.newName"), defaultValue: `${tpl.name}-01`, confirmLabel: t("tp.deploy"),
       validate: (v) => (!NAME_RE.test(v) ? t("ct.nameRule") : taken.has(v) ? t("tp.nameTaken") : ""),
+      option: tpl.linkable ? { label: t("tp.linked"), hint: t("tp.linkedHint") } : undefined,
     });
-    if (!name || !name.trim()) return;
+    const name = typeof answer === "string" ? answer.trim() : answer?.value?.trim();
+    if (!name) return;
+    const linked = Boolean(answer?.option);
     setBusy(tpl.name);
-    try { await deployTemplate(tpl.name, name.trim()); pushToast({ kind: "success", title: t("tp.deployed"), message: name.trim() }); await refreshAll(); }
+    try {
+      await deployTemplate(tpl.name, name, null, linked);
+      pushToast({ kind: "success", title: linked ? t("tp.deployedLinked") : t("tp.deployed"), message: name });
+      await Promise.all([refreshAll(), reload()]);
+    }
     catch (e) { pushToast({ kind: "error", title: t("tp.deployFailed"), message: errorMessage(e) }); }
     finally { setBusy(null); }
   }
@@ -69,7 +78,7 @@ export default function TemplatesPanel() {
       {items == null ? <Loading style={{ padding: "var(--space-4)" }} /> : list.length === 0 ? <Empty icon={LayoutTemplate} title={t("tp.none")} text={t("tp.noneHelp")} /> : (
         <TableWrap>
           <table className="nx-table">
-            <thead><tr><th scope="col">{t("ct.name")}</th><th scope="col">{t("tp.source")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">{t("tp.created")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+            <thead><tr><th scope="col">{t("ct.name")}</th><th scope="col">{t("tp.source")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">{t("tp.created")}</th><th scope="col">{t("tp.linkedClones")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
               {list.map((tpl) => (
                 <tr key={tpl.name} className={ctx.is("tpl", tpl.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("tpl", tpl)}>
@@ -78,6 +87,7 @@ export default function TemplatesPanel() {
                   <td className="nx-num nx-mono">{tpl.vcpu}</td>
                   <td className="nx-num nx-mono">{formatSizeMb(tpl.memory_mb, lang)}</td>
                   <td>{tpl.created_by} · <span className="nx-mono">{tpl.created_at}</span></td>
+                  <td className="nx-mono">{tpl.linked_clones == null ? <span title={t("tp.linkedUnknown")}>—</span> : tpl.linked_clones.length === 0 ? "0" : tpl.linked_clones.join(", ")}</td>
                   <td><div className="nx-ra">
                     {caps.admin && <button type="button" className="nx-btn nx-btn--sm" disabled={busy === tpl.name} aria-label={t("a11y.deploy_template_x", { v: tpl.name })} onClick={() => deploy(tpl)}>{t("tp.deploy")}</button>}
                     {caps.admin && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={busy === tpl.name} aria-label={t("a11y.delete_template_x", { v: tpl.name })} title={t("menu.delete").replace("…", "")} onClick={() => remove(tpl)}><Trash2 size={15} aria-hidden="true" /></button>}

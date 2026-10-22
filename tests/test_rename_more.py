@@ -366,8 +366,11 @@ def test_an_api_token_is_renamed_by_its_owner_only(client, auth_headers):
 
 def test_a_template_takes_its_new_name(client, auth_headers, tmp_path, monkeypatch):
     from app.core import templates_store
+    from app.routers import templates
 
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tmp_path)
+    # A libvirt without VMs: no linked clone reads the template's disk, so its rename is allowed.
+    monkeypatch.setattr(templates, "open_conn", lambda node=None: _Host())
     for ext, content in (("json", json.dumps({"name": "deb"})), ("xml", "<domain/>"), ("qcow2", "disk")):
         (tmp_path / f"deb.{ext}").write_text(content)
     headers = auth_headers("alice")
