@@ -72,6 +72,20 @@ person: in English and, for infrastructure failures, categorized into an actiona
 | `read_only` | This node changes nothing right now (no quorum, a cluster update): the detail says why (503). |
 | `cluster_unavailable` | The cluster's configuration service does not answer: nothing new can be created (503). |
 
+## Clusters: `?node=`
+
+A VM, a template, a network, a storage pool and an ISO image live on one node. Every route under `/vms`, `/templates`,
+`/networks`, `/storage` and `/isos`, and the backups, the backup schedule and the export of a VM, takes `?node=`: when it
+names another member of the cluster, the request goes to that member, without the parameter, in the same user's name,
+and its answer comes back as it is. That member does the work, checks the rights and records the task and the audit
+entry, as Proxmox VE passes a request to the node that owns the guest; follow its task with
+`GET /tasks/{id}?node=<member>` (`?on=` is the same). Absent, `local` or this node's name: here. A node registered over
+SSH only (no Hyperlite on it) is reached by the routes that took `node` before (libvirt over SSH); any other route
+refuses it (409), as it refuses a name that is no node, rather than act here on an object of the same name. A console,
+terminal, serial, SPICE or tunnel ticket stays on the node that answers, where its WebSocket opens. An ISO upload is
+not relayed (422): send it to that member itself. A member that does not answer, or refuses the session, reads as 502
+naming it.
+
 ## Long operations
 
 Operations that can take time (creation, snapshots, backups, migration, updates) return a task id; poll `GET /tasks/{id}` for progress. VM creation (`POST /vms`), clone (`POST /vms/{name}/clone`), template deployment (`POST /templates/{name}/deploy`) and template creation (`POST /templates/from-vm/{name}`) hold the request until done by default, as before; with `?wait=false` they make every check first (a refusal is the usual 4xx), then answer `202 {"task_id", "status": "running", "name"}` at once, `name` being the object the task makes. A client that copies large disks uses it: a proxy cuts a request held for the whole copy. `GET /tasks/{id}/log` returns the task's own log, line by line. `POST /tasks/{id}/cancel` asks a running task to stop (`{"result": "requested"}`), or closes one that no process runs any more (`"abandoned"`); a task that cannot stop midway answers 409, and an administrator may close its record anyway with `?force=true`. In the task list, `clean_shutdown`, `orphaned` and `cancellable` say which applies; `GET /tasks?object=<name>&family=vm|container` is one object's history.
