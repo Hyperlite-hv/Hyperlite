@@ -146,7 +146,11 @@ def run_probe_script(script, node=None):
     if node is None:
         cmd = ["bash", "-s"]
     else:
+        from app.core import node_health
         from app.core.cluster import node_ssh_options
+
+        if node_health.is_down(node):
+            return None  # not waited for: the same answer as a node that does not answer (app/core/node_health.py)
 
         cmd = [
             "ssh",
