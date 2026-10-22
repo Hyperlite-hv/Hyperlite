@@ -70,9 +70,11 @@ jobs:
             requirements.txt
             requirements-dev.txt
       - name: Install system packages
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
-            meson ninja-build libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            libvirt-dev pkg-config gcc openssl meson ninja-build libsqlite3-dev libssl-dev libcpg-dev libquorum-dev
+            libvotequorum-dev libcmap-dev
       - name: Install dependencies
         # Two commands: requirements.txt carries hashes, which pip would then demand of the development tools too.
         run: pip install -r requirements.txt && pip install -r requirements-dev.txt
@@ -160,6 +162,15 @@ jobs:
           for f in installer/*.sh installer/deb/preinst installer/deb/postinst installer/deb/prerm installer/deb/postrm scripts/*.sh lab/*.sh cfs/tests/cluster/*.sh; do
             bash -n "$f"
           done
+      # The workflows and actions themselves: a template expanded into a shell, a permission wider than needed, an
+      # action pinned to a tag or to a commit outside its repository, a cache a pull request could write.
+      - name: Check the workflows (zizmor)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zizmor"
+          "$RUNNER_TEMP/zizmor/bin/pip" install -q --require-hashes -r .github/requirements-zizmor.txt
+          "$RUNNER_TEMP/zizmor/bin/zizmor" --format=github --config .github/zizmor.yml .github/workflows .github/actions
 
   package:
     # What the package ships, built as the publication builds it (installer/build-runtime.sh in debian:13: hyperlite-cfs,
@@ -196,13 +207,13 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc clang libclang-rt-dev \
-            libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2 \
-            corosync-qnetd corosync-qdevice
-          # The packages start daemons of their own; the cluster tests run their own, in namespaces.
-          sudo systemctl stop corosync corosync-qnetd corosync-qdevice || true
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            meson ninja-build pkg-config gcc clang libclang-rt-dev libsqlite3-dev libssl-dev corosync libcpg-dev
+            libquorum-dev libvotequorum-dev libcmap-dev iproute2 corosync-qnetd corosync-qdevice
+      # The packages start daemons of their own; the cluster tests run their own, in namespaces.
+      - run: sudo systemctl stop corosync corosync-qnetd corosync-qdevice || true
       - name: Build and test (GCC, sanitizers)
         run: |
           meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
@@ -252,12 +263,13 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev \
-            corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2 corosync-qnetd corosync-qdevice
-          # The packages start daemons of their own; the cluster tests run their own, in namespaces.
-          sudo systemctl stop corosync corosync-qnetd corosync-qdevice || true
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev
+            libvotequorum-dev libcmap-dev iproute2 corosync-qnetd corosync-qdevice
+      # The packages start daemons of their own; the cluster tests run their own, in namespaces.
+      - run: sudo systemctl stop corosync corosync-qnetd corosync-qdevice || true
       - name: Build (GCC, sanitizers)
         run: |
           meson setup build-gcc cfs -Db_sanitize=address,undefined -Dbuildtype=debug
@@ -303,11 +315,25 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
-      - name: Install system packages
+      - name: Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+      # The system libraries Chromium needs that this runner image lacks, installed with the rest: `playwright install
+      # --with-deps` ran apt again, from the mirror every time.
+      - id: browser
+        name: The browser's system libraries
+        working-directory: dashboard
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvirt-dev pkg-config gcc openssl \
-            libvirt-daemon-system qemu-system-x86 qemu-utils genisoimage wget dnsmasq-base cloud-image-utils libvirt-daemon-driver-lxc ovmf swtpm swtpm-tools
+          deps=$(npx playwright install-deps --dry-run chromium | sed -n 's/^  \([a-z0-9][a-z0-9.+-]*\)$/\1/p' | tr '\n' ' ')
+          echo "deps=$deps" >> "$GITHUB_OUTPUT"
+          echo "key=playwright-$ImageOS-$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Install system packages
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            libvirt-dev pkg-config gcc openssl libvirt-daemon-system qemu-system-x86 qemu-utils genisoimage wget
+            dnsmasq-base cloud-image-utils libvirt-daemon-driver-lxc ovmf swtpm swtpm-tools
+            ${{ steps.browser.outputs.deps }}
       - name: Enable KVM when the runner exposes it
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -324,12 +350,24 @@ jobs:
         run: |
           python -m venv venv
           venv/bin/pip install -r requirements.txt
-      - name: Build the dashboard and install browsers
+      # Chromium, downloaded once per Playwright version; written by pushes only, as the packages are.
+      - id: chromium
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.browser.outputs.key }}
+      - name: Install the browser
+        if: steps.chromium.outputs.cache-hit != 'true'
         working-directory: dashboard
-        run: |
-          npm ci
-          npm run build
-          npx playwright install --with-deps chromium
+        run: npx playwright install chromium
+      - if: steps.chromium.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.browser.outputs.key }}
+      - name: Build the dashboard
+        working-directory: dashboard
+        run: npm run build
       - name: Replication on a real QEMU VM
         if: matrix.shard == 1
         run: |
@@ -409,4 +447,8 @@ jobs:
     permissions:
       contents: write # the ISO release
     uses: ./.github/workflows/publish.yml
-    secrets: inherit
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      MIRROR_DEPLOY_KEY: ${{ secrets.MIRROR_DEPLOY_KEY }}
+      MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}

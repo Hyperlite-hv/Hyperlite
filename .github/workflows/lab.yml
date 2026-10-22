@@ -5,7 +5,7 @@ name: VM lab
 # changes to cfs/ or the lab, every night, and on demand.
 on:
   pull_request:
-    paths: ["cfs/**", "lab/**", ".github/workflows/lab.yml"]
+    paths: ["cfs/**", "lab/**", ".github/workflows/lab.yml", ".github/actions/**"]
   schedule:
     - cron: "41 2 * * *"
   workflow_dispatch:
@@ -41,10 +41,11 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm  # without KVM the VMs would crawl: fail clearly instead
       - name: Install libvirt
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvirt-daemon-system qemu-system-x86 qemu-utils virtinst dnsmasq-base \
-            cloud-image-utils openssh-client
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            libvirt-daemon-system qemu-system-x86 qemu-utils virtinst dnsmasq-base cloud-image-utils openssh-client
+      - run: |
           sudo systemctl start libvirtd
           pip install pytest==9.1.1
       - name: Cache the Debian image
@@ -84,10 +85,12 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev \
-            corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev
+            libvotequorum-dev libcmap-dev iproute2
+      - run: |
           sudo systemctl stop corosync || true
           pip install pytest==9.1.1
       - name: Build, with the sanitizers (a memory error during the soak fails it)
