@@ -229,6 +229,8 @@ export async function fetchNodes() {
     read_only: d.read_only ?? null,
     read_only_cause: d.read_only_cause ?? null,
     read_only_waiting_for: d.read_only_waiting_for ?? [],
+    // This node's database: "ok", "damaged" or "failing", with the repair that fits (app/core/db_health.py).
+    database: d.database ?? null,
   };
 
   // Registered remote nodes. They used to be missing here: this function only ever
@@ -318,7 +320,9 @@ function mapPool(p, nodeId) {
   // GET /storage never returned a real `type` field (all existing pools really were
   // "dir"), but it would have silently masked the new real field once NFS pools
   // existed on the backend.
-  return { name: p.name, node: nodeId, type: p.type, state: p.state, capacity_gb: p.capacity_gb, available_gb: p.available_gb, path: p.path ?? null };
+  // protocol: "nfs" or "smb" for a netfs pool (null otherwise), with the version its mount is fixed to.
+  return { name: p.name, node: nodeId, type: p.type, state: p.state, capacity_gb: p.capacity_gb, available_gb: p.available_gb, path: p.path ?? null,
+    protocol: p.protocol ?? null, nfs_version: p.nfs_version ?? null, smb_version: p.smb_version ?? null };
 }
 
 export async function fetchStoragePools() {
@@ -1098,6 +1102,10 @@ export async function createConsoleTicket(name, node = null) {
 export async function createTerminalTicket(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/terminal-ticket${nodeQuery(node)}`, { method: "POST" });
 }
+// The VM's serial console (`virsh console` on its node): what the guest prints on its serial port.
+export async function createSerialTicket(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/serial-ticket${nodeQuery(node)}`, { method: "POST" });
+}
 
 // ---- Interactive shell on the physical host (admin only, see app/routers/host.py) ----
 export async function createHostTerminalTicket() {
@@ -1385,6 +1393,14 @@ export async function fetchNodeCapabilitiesById(nodeId) {
 }
 export async function fetchHostPreflight() {
   return realFetch("/host/preflight");
+}
+
+// This node's database: the full check now, and the online repair of index entries (app/core/db_health.py).
+export async function checkHostDatabase() {
+  return realFetch("/host/database/check", { method: "POST" });
+}
+export async function repairHostDatabase() {
+  return realFetch("/host/database/repair", { method: "POST" });
 }
 
 // ---- Renaming (administrators): storage pools, networks, VM pools, groups, custom roles, jobs, templates, ISOs ----

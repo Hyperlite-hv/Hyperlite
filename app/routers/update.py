@@ -385,12 +385,34 @@ def _source_problem(policy_stdout):
     return None
 
 
-def _check_update_apt():
+def _refresh_lists(attempts, delay_s, timeout, user=None):
+    """apt-get update by hyperlite-daemon (root): an object with returncode and stderr, or None (timed out). Without
+    the daemon, said as an apt error, which the check shows as such."""
+    from types import SimpleNamespace
+
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        r = privileged.run(
+            "hyperlite.refresh_lists",
+            user=user,
+            timeout=attempts * (timeout + delay_s) + 30,
+            attempts=attempts,
+            delay_s=delay_s,
+            apt_timeout=timeout,
+        )
+    except DaemonError as e:
+        return SimpleNamespace(returncode=1, stderr=e.detail)
+    return SimpleNamespace(**r) if r is not None else None
+
+
+def _check_update_apt(user=None):
     installed = _dpkg_installed_version()
     # For /update/check (an interactive call, the user is waiting in front of the
     # UI): few attempts and a short delay. A real network outage must come up quickly
     # rather than make the user wait needlessly after a simple click.
-    upd = _apt_update_with_retry(attempts=4, delay_s=8, timeout=25)
+    upd = _refresh_lists(attempts=4, delay_s=8, timeout=25, user=user)
     if upd is None or upd.returncode != 0:
         detail = _explain_apt_error(upd.stderr) if upd is not None else "timed out"
         return {
@@ -486,7 +508,7 @@ def _release_notes(installed, candidate, lang):
 @router.get("/check")
 def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
     if _install_method() == "apt":
-        result = _check_update_apt()
+        result = _check_update_apt((user or {}).get("username"))
         if result.get("verifiable") and not result.get("up_to_date"):
             result["notes"] = _release_notes(result.get("commit_local"), result.get("remote_commit"), lang)
         if result.get("verifiable"):
@@ -815,6 +837,29 @@ UPDATE_IN_PROGRESS_WINDOW = timedelta(minutes=15)
 _apply_lock = threading.Lock()
 
 
+def _start_job(user, kind, task_id, system=True):
+    """The update job, started by hyperlite-daemon in a unit of its own (app/daemon/ops/hyperlite.py): the package it
+    installs restarts this service and the daemon, which the job must outlive. A refusal or a missing daemon ends the
+    task at once, with the reason."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        privileged.run(
+            "hyperlite.start_update",
+            user=user["username"],
+            kind=kind,
+            task_id=task_id,
+            username=user["username"],
+            system=system,
+        )
+    except DaemonError as e:
+        finish_task(task_id, "failed", e.detail)
+        log_action(user["username"], "hyperlite_update", e.detail, "failed")
+        status = 409 if e.kind == "refused" else 503 if e.kind == "unavailable" else 502
+        raise HTTPException(status_code=status, detail=e.detail) from None
+
+
 def _update_in_progress():
     """Username of whoever started an update that is still running, else None.
 
@@ -849,10 +894,9 @@ def apply_update(payload: ApplyRequest | None = None, user: dict = Depends(requi
 def _start_update(user, system=True):
     if _install_method() == "apt":
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
-        threading.Thread(target=_run_update_job_apt, args=(task_id, user["username"], system), daemon=True).start()
+        _start_job(user, "apt", task_id, system)
         return {"task_id": task_id, "status": "running"}
 
-    branch = _current_branch()
     if _is_dirty():
         log_action(user["username"], "hyperlite_update", "arbre non propre", "failed")
         raise HTTPException(
@@ -861,7 +905,7 @@ def _start_update(user, system=True):
         )
 
     task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
-    threading.Thread(target=_run_update_job, args=(task_id, user["username"], branch), daemon=True).start()
+    _start_job(user, "git", task_id)
     return {"task_id": task_id, "status": "running"}
 
 
@@ -965,10 +1009,7 @@ def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depen
                 detail=f"An update started by {running_for} is already running. Wait for it to finish.",
             )
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
-        system = payload.system if payload else True
-        threading.Thread(
-            target=_run_update_job_apt, args=(task_id, user["username"], system, True), daemon=True
-        ).start()
+        _start_job(user, "offline", task_id, payload.system if payload else True)
     return {"task_id": task_id, "status": "running", "version": info["version"]}
 
 
@@ -982,12 +1023,25 @@ def get_channel(user: dict = Depends(require_role("admin"))):
     return {"channel": host_system.channel(), "channels": list(host_system.CHANNELS)}
 
 
+def _set_channel(user, name):
+    """The channel written by hyperlite-daemon (/etc/apt/sources.list.d): a refusal is a SettingError, as before."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        return privileged.run("host.set_channel", user=user["username"], name=name[:16])
+    except DaemonError as e:
+        if e.kind == "refused":
+            raise host_system.SettingError(e.detail) from None
+        raise HTTPException(status_code=503 if e.kind == "unavailable" else 502, detail=e.detail) from None
+
+
 @router.put("/channel")
 def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admin"))):
     """Moves the node to another channel. Nothing is installed: the next check shows what the channel offers, and
     leaving test keeps the installed build until a stable release is newer (no downgrade)."""
     try:
-        new = host_system.set_channel(payload.channel)
+        new = _set_channel(user, payload.channel)
     except host_system.SettingError as e:
         log_action(user["username"], "set_update_channel", payload.channel[:20], "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
@@ -1012,5 +1066,5 @@ def rollback_update(user: dict = Depends(require_role("admin"))):
                 detail=f"An update started by {running_for} is already running. Wait for it to finish.",
             )
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
-        threading.Thread(target=_run_rollback_job, args=(task_id, user["username"], previous), daemon=True).start()
+        _start_job(user, "rollback", task_id)
     return {"task_id": task_id, "status": "running", "version": previous["version"]}
