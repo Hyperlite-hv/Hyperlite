@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core import iscsi, nfs_permissions, renaming, shared_pools, smb_storage, zfs_storage
+from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
@@ -1009,7 +1010,10 @@ class VolumeCreate(BaseModel):
 
 
 @router.post("/{pool_name}/volumes", status_code=201)
-def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(require_role("admin"))):
+def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(get_current_user)):
+    """An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one, as
+    Proxmox VE's Datastore.AllocateSpace (deleting a volume stays an administrator's: it may hold another VM's data)."""
+    perm.refuse_unless(user, "storage", pool_name, "storage.allocate", f"storage pool '{pool_name}'")
     size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
     if size_errors:
         raise HTTPException(status_code=422, detail=size_errors)

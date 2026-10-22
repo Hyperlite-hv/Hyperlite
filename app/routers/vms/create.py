@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.core import firmware, maintenance, vm_locks, zfs_storage
+from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
@@ -23,7 +24,7 @@ from app.core.libvirt_utils import (
 )
 from app.core.network_alloc import allocate_static_ip, generate_mac
 from app.core.safe_paths import safe_child
-from app.core.security import require_role
+from app.core.security import get_current_user
 from app.core.tasks import answer_later, create_task
 from app.core.vm_builder import (
     BASE_IMAGE,
@@ -99,6 +100,10 @@ class VMCreate(BaseModel):
     # STOPPED (see touch_vm_activity, called on every start): a VM that runs
     # continuously is never considered "inactive", whatever the threshold.
     auto_cleanup_days: int | None = Field(None, ge=1, le=365)
+    # The pool (app/routers/pools.py, by its id) the VM goes in. Required from an account that is not an
+    # administrator, which creates VMs only in a pool where it holds vm.allocate, as vSphere requires a resource pool:
+    # the pool's assignments then give it its rights on the new VM.
+    resource_pool: int | None = None
 
 
 def _resolve_luns(conn, pool, disks, erase_luns):
@@ -167,9 +172,23 @@ def _pending_remote_isos(payload):
     return pending
 
 
+def refuse_unallowed(payload, user):
+    """403 unless `user` may create this VM: vm.allocate on its pool, storage.allocate on the storage pool of its
+    disks, network.assign on its network (app/core/permissions.py; an administrator may always). 404 for a pool that
+    does not exist."""
+    if payload.resource_pool is not None and payload.resource_pool not in {p["id"] for p in perm.list_pools()}:
+        raise HTTPException(status_code=404, detail=f"Pool {payload.resource_pool} not found")
+    refusal = perm.allocation_refusal(
+        user, payload.resource_pool, [payload.storage_pool or "default"], [payload.network]
+    )
+    if refusal:
+        raise HTTPException(status_code=403, detail=refusal)
+
+
 @router.post("", status_code=201)
-def create_vm(payload: VMCreate, user: dict = Depends(require_role("admin")), wait: bool = True):
+def create_vm(payload: VMCreate, user: dict = Depends(get_current_user), wait: bool = True):
     """wait=false: every check is made, then the creation runs as a task and the answer is 202 with its id."""
+    refuse_unallowed(payload, user)
     maintenance.refuse_if_in_maintenance("local", "VM creation")
     pending = _pending_remote_isos(payload)
     if pending:
@@ -511,6 +530,8 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         set_vm_os_label(payload.name, os_label)
         if payload.auto_cleanup_days:
             set_vm_auto_cleanup(payload.name, payload.auto_cleanup_days)
+        if payload.resource_pool is not None:
+            perm.add_pool_member(payload.resource_pool, payload.name)
         log_action(user["username"], "create_vm", payload.name, "success", task_id=task_id)
         return _domain_summary(domain)
     finally:
