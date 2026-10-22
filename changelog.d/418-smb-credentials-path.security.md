@@ -1,1 +1,0 @@
-- The SMB credentials files, written and removed as root, are checked by `app/core/smb_storage.py` itself with the path rule every other root-written file follows (`safe_child`): only a `.cred` file right in a credentials directory, never through `..` or a symbolic link. The API already validated the pool's name; the module no longer relies on its callers for it (#418).
