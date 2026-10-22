@@ -10,7 +10,7 @@ from app.core import login_guard, renaming, sign_in, webauthn_keys
 from app.core.api_tokens import create_token, list_tokens, revoke_all_tokens, revoke_token
 from app.core.audit import log_action
 from app.core.client_address import client_address
-from app.core.listing import listing
+from app.core.listing import item, listing
 from app.core.password_policy import password_problem
 from app.core.permissions import delete_acl_for_user, get_user_groups, remove_group_member
 from app.core.security import (
@@ -617,6 +617,12 @@ def logout(token: str = Depends(oauth2_scheme), user: dict = Depends(get_current
 @router.get("/users")
 async def list_users(user: dict = Depends(require_role("admin"))):
     return listing(await account_service.list_users())
+
+
+@router.get("/users/{username}")
+async def get_account(username: str, user: dict = Depends(require_role("admin"))):
+    """One account, as GET /auth/users lists it."""
+    return item(await account_service.list_users(), "username", username, f"User '{username}'")
 
 
 @router.post("/users", status_code=201)
