@@ -31,9 +31,9 @@ def created(monkeypatch, tmp_path):
     for name in ("set_vm_ssh_user", "set_vm_os_label", "set_vm_auto_cleanup", "log_action"):
         monkeypatch.setattr(creation, name, Mock())
 
-    def create(iso):
+    def create(iso, **fields):
         (tmp_path / iso).touch()
-        payload = creation.VMCreate(name="srv", vcpu=2, memory_mb=2048, disks=[{"size_gb": 20}], iso=iso)
+        payload = creation.VMCreate(name="srv", vcpu=2, memory_mb=2048, disks=[{"size_gb": 20}], iso=iso, **fields)
         creation._create_vm(payload, {"username": "admin"})
         return built, tasks, domain
 
