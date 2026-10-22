@@ -28,7 +28,7 @@
         {"fr": "Répertoire, NFS, iSCSI", "en": "Directory, NFS, iSCSI", "status": "parity", "pve": "Yes", "hl": "Yes, shared pools created on every node"},
         {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "missing", "issue": 417, "pve": "Yes", "hl": "None"},
         {"fr": "ZFS sur de vrais disques", "en": "ZFS on real disks", "status": "partial", "issue": 419, "pve": "Mirror, RAIDZ, from the GUI", "hl": "Loopback files only, one node, not live-migratable"},
-        {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "missing", "issue": 418, "pve": "Yes", "hl": "None"},
+        {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "parity", "issue": 418, "pve": "Yes", "hl": "Yes, shared like NFS (migration, HA, every node); credentials root-only on each node, SMB version negotiated or fixed"},
         {"fr": "Ceph", "en": "Ceph", "status": "missing", "issue": 338, "pve": "Hyperconverged, from the GUI", "hl": "None"},
         {"fr": "Clones liés", "en": "Linked clones", "status": "missing", "issue": 423, "pve": "From templates", "hl": "Full clones only"},
         {"fr": "Déplacer ou agrandir un disque à chaud", "en": "Move or grow a disk live", "status": "parity", "pve": "Yes", "hl": "Yes (block copy and pivot)"}
@@ -57,7 +57,7 @@
         {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
         {"fr": "Consoles", "en": "Consoles", "status": "partial", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC and terminals; no SPICE"},
-        {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "missing", "issue": 425, "pve": "xterm.js", "hl": "None"},
+        {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
         {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
         {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
         {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
@@ -83,7 +83,7 @@
       "fr": "Sécurité et exploitation",
       "en": "Security and operations",
       "rows": [
-        {"fr": "Séparation des privilèges", "en": "Privilege separation", "status": "partial", "issue": 511, "pve": "pveproxy unprivileged, pvedaemon root", "hl": "hyperlite-daemon (root, local socket) opens every session after checking the credentials, signs with keys only root reads, and signs the calls between nodes with each node's own key; the API itself still runs as root until step 4"},
+        {"fr": "Séparation des privilèges", "en": "Privilege separation", "status": "partial", "issue": 511, "pve": "pveproxy unprivileged, pvedaemon root", "hl": "hyperlite-daemon (root, local socket) opens every session after checking the credentials, signs with keys only root reads, signs the calls between nodes with each node's own key, does the node's own settings (packages, DNS, host name, time, syslog, power), its HTTPS certificate and Hyperlite's own update; the other domains and the API's own account (step 4) follow"},
         {"fr": "Emplacement des fichiers", "en": "File layout", "status": "partial", "issue": 525, "pve": "/etc/pve (pmxcfs), /var/lib/vz, /usr/share/perl5/PVE", "hl": "The same layout from 1.1: /etc/hyperlite (priv, local), /var/lib/hyperlite (template/iso, dump, import), /usr/lib/hyperlite; the cluster configuration as files in /etc/hyperlite comes with #525"},
         {"fr": "Authentification et droits", "en": "Authentication and permissions", "status": "parity", "pve": "LDAP, AD, OIDC, TOTP, WebAuthn, roles, pools, ACL", "hl": "The same"},
         {"fr": "Certificats ACME", "en": "ACME certificates", "status": "parity", "pve": "Yes", "hl": "Yes"},
