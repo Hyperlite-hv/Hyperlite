@@ -109,9 +109,9 @@ provider "hyperlite" {
 | `hyperlite_iso` (an upload) | `hyperlite_iso` | `/isos` |
 | | `hyperlite_node` | `/nodes`, `/cluster` |
 | `hyperlite_resource_pool` | `hyperlite_resource_pool` | `/pools` |
-| `hyperlite_user`, `hyperlite_group`, `hyperlite_group_member` | `hyperlite_user`, `hyperlite_group` | `/auth/users`, `/groups` |
+| `hyperlite_user`, `hyperlite_group` (its `members` an attribute) | `hyperlite_user`, `hyperlite_group` | `/auth/users`, `/groups` |
 | `hyperlite_role` (custom role) | `hyperlite_role` | `/acl/custom-roles` |
-| `hyperlite_acl` (every assignment on one object, as `vsphere_entity_permissions`) | | `/acl`, `/acl/object/{kind}/{name}` |
+| `hyperlite_acl` (one assignment: a subject, a role, an object) | | `/acl`, `/acl/{id}` |
 
 Tags and notes are attributes of the objects that have them (`/meta/{kind}/{name}`). After 1.0: containers,
 replication and firewalls, then DRS rules when Hyperlite has them (#334).
@@ -294,7 +294,7 @@ changes; on a network or a local pool it is a replacement. A shared pool (NFS, i
 | `hyperlite_user` | `GET`, `POST /auth/users`, `PATCH` (`role`, `password`), `DELETE` (`auth.py`) | `GET /auth/users/{username}`; `enabled`, and whether the account must set its password at first sign-in | additive |
 | `hyperlite_group` | `GET`, `POST /groups`, `PATCH` (name), `DELETE`, members (`groups.py`) | nothing | |
 | `hyperlite_role` | `GET`, `POST /acl/custom-roles`, `PATCH` (name only), `DELETE` (`acl.py`) | `privileges` in `PATCH` (today a change means delete and recreate, which drops its assignments) | additive |
-| `hyperlite_acl` | `GET`, `POST /acl`, `DELETE /acl/{id}`, `GET /acl/object/{type}/{id}` | nothing: the resource is every assignment of one object, read with `/acl/object`, an idea of `vsphere_entity_permissions` | |
+| `hyperlite_acl` | `GET`, `POST /acl`, `DELETE /acl/{id}` | `GET /acl/{id}` | additive |
 
 Every row is additive: none needs a v2. Each comes as its own pull request into `test`, with its tests, before the
 provider resource that uses it; the provider's first release needs the rows of `all`, `hyperlite_vm`, `hyperlite_vm`
@@ -340,9 +340,16 @@ what it may use: the pipeline creates VMs in its pool, on its storage and networ
 | Waiting for the guest | `wait_for_guest_net_timeout`, `wait_for_guest_ip_timeout` | `wait_for_ip` |
 | Import | `terraform import vsphere_virtual_machine.vm /dc/vm/folder/name` | `terraform import hyperlite_vm.web node2/web-1` (or the UUID) |
 | Moving a VM | a new `host_system_id` (vMotion) or `datastore_id` (Storage vMotion) | a new `node` (migration) or `storage_pool` (disk move) |
-| Permissions | `vsphere_role`, `vsphere_entity_permissions`, one privilege per creation step | `hyperlite_role`, `hyperlite_acl` (all of one object's assignments), the privileges of section 10 |
+| Permissions | `vsphere_role`, `vsphere_entity_permissions`, one privilege per creation step | `hyperlite_role`, `hyperlite_acl` (one assignment each, see below), the privileges of section 10 |
 | HA | `vsphere_ha_vm_override` | `hyperlite_vm_ha` |
 | Backups | none (other products) | `hyperlite_vm_backup_schedule`, `hyperlite_backup_job` |
+
+**Why one assignment per `hyperlite_acl`, not every assignment of an object as `vsphere_entity_permissions`.** An object
+is often shared: an administrator gives rights on the `default` storage pool from the dashboard, a team's
+configuration gives its own. A resource owning every assignment of the object would remove, at its next apply, those
+it did not write; one assignment per resource only ever touches its own, as Proxmox VE's community providers do with
+`proxmox_virtual_environment_acl`. Membership of a group is the group's `members` attribute for the same reason a
+person reads it so: the group is one object of the dashboard, its members are part of it.
 
 And from Proxmox's community providers, what to keep: `bpg/proxmox` waits for every UPID and fails with the task's
 log; `Telmate/proxmox`, which did not at first, had VMs half-made at the end of an `apply` for years.
@@ -358,7 +365,7 @@ Each resource takes the id a person can see in the dashboard:
 | `hyperlite_storage_volume` | `<node>/<pool>/<volume>` |
 | `hyperlite_vm_snapshot` | `<node>/<vm>/<snapshot>` |
 | `hyperlite_user`, `hyperlite_group` | the name |
-| `hyperlite_acl` | `<kind>/<object>` (`vm/web-1`, `pool/web`) |
+| `hyperlite_acl` | the assignment's id |
 | `hyperlite_role`, `hyperlite_backup_job`, `hyperlite_resource_pool` | the id shown in the dashboard |
 
 OpenTofu and Terraform 1.5+ `import` blocks work the same. The provider also implements `hyperlite_vm`'s import from
