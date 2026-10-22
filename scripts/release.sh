@@ -15,8 +15,9 @@ git fetch -q origin
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && { echo "tag $TAG already exists" >&2; exit 1; }
 
 NOTES=$(mktemp)
-# Release notes: the [Unreleased] section of CHANGELOG.md plus the traceability data.
-awk '/^## \[Unreleased\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md > "$NOTES"
+# Release notes: the unreleased changes (CHANGELOG.md's [Unreleased] and the fragments of changelog.d/, see
+# scripts/changelog.py) plus the traceability data.
+python3 scripts/changelog.py unreleased > "$NOTES"
 {
     echo
     echo "Source commit: $(git rev-parse HEAD)"
