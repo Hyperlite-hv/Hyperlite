@@ -82,9 +82,11 @@ entry, as Proxmox VE passes a request to the node that owns the guest; follow it
 `GET /tasks/{id}?node=<member>` (`?on=` is the same). Absent, `local` or this node's name: here. A node registered over
 SSH only (no Hyperlite on it) is reached by the routes that took `node` before (libvirt over SSH); any other route
 refuses it (409), as it refuses a name that is no node, rather than act here on an object of the same name. A console,
-terminal, serial, SPICE or tunnel ticket stays on the node that answers, where its WebSocket opens. An ISO upload is
-not relayed (422): send it to that member itself. A member that does not answer, or refuses the session, reads as 502
-naming it.
+terminal, serial, SPICE or tunnel ticket stays on the node that answers, where its WebSocket opens. An ISO upload
+(`POST /isos?node=<member>`) goes to that member too, as Proxmox VE relays an upload to the node that stores it: the
+file is read from this node's spool while it is sent, over the members' HTTPS only (502 when that way is closed). A
+member that does not answer, or refuses the session, reads as 502 naming it, with the reason; a change whose answer
+was lost says it may have been made, and is never sent twice.
 
 ## Long operations
 

@@ -1,0 +1,1 @@
+- **A change to another member is never made twice** (#330): when its answer was lost over HTTPS (a timeout, a dropped connection), the change was sent again over SSH and could be made a second time (another snapshot, another VM). It is now sent once, and the 502 says it may have been made; a member that does not answer is reported with its reason.

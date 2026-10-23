@@ -135,7 +135,10 @@ def _create(host):
     return cluster_setup.create("prod", ADDRESS, "alice")
 
 
-def test_creating_a_cluster(host):
+def test_creating_a_cluster(host, monkeypatch):
+    from app.core import peer_https
+
+    monkeypatch.setattr(peer_https, "own_fingerprint", lambda: "ab" * 32)
     state = _create(host)
     assert state["in_cluster"] and state["name"] == "prod" and state["quorum"]
     assert state["members"] == [{"name": "hv-test", "nodeid": 1, "address": ADDRESS, "votes": 1}]
@@ -154,6 +157,8 @@ def test_creating_a_cluster(host):
     assert shadow.enabled() and any(p.startswith("/db/groups/") for p in host.files)
     assert base64.b64decode(host.files[cluster_setup.COROSYNC_KEY_ENTRY]) == key.read_bytes()
     assert host.files["/cluster/ssh/hv-test"] == KEY_A.encode()
+    # Its certificate at once: the members call it over HTTPS from the start, and a file can be relayed to it.
+    assert json.loads(host.files["/cluster/tls/hv-test"]) == {"sha256": "ab" * 32}
     with get_conn() as db:  # listed in the shared nodes table, which this node leaves itself out of
         assert db.execute("SELECT name, hostname FROM nodes").fetchall()[0][:] == ("hv-test", ADDRESS)
     with pytest.raises(cluster_setup.ClusterError, match="already in a cluster"):

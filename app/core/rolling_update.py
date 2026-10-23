@@ -107,6 +107,8 @@ def _peer_api(node, username, method, path, body=None, timeout=60, connect_timeo
         return peer_https.call(node, token, method, path, body=body, timeout=timeout, connect_timeout=connect_timeout)
     except peer_https.Unavailable as e:
         logger.debug("%s: over SSH (%s)", node.get("name"), e)
+    except peer_https.Lost as e:
+        raise PeerUnreachable(str(e)) from None
     request = {
         "url": API_URL + path,
         "method": method,

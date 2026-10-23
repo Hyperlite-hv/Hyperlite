@@ -134,7 +134,7 @@ def merge(local, answers, key, reverse=True, limit=None):
 # member is sent to it, in the name of the same user, and its answer comes back as it is. That member checks the
 # rights again and records the audit entry and the task. This node checked the session first.
 
-MAX_BODY = 1 << 20  # JSON bodies only (a backup request, a restore): uploads are never forwarded
+MAX_BODY = 1 << 20  # JSON bodies: a file (an ISO image) is sent from its spool, never held in memory (_send_form)
 
 
 class Forwarded(Exception):  # not an error: the answer of another member, returned by app/main.py
@@ -257,11 +257,18 @@ async def _send(request, param, node, user):
         path = path[len("/api/v1") :]  # the member's API prefix is added by peer_api, as for every call
     body = None
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-        if not request.headers.get("content-type", "application/json").startswith("application/json"):
-            # A file (an ISO image) would cross this node in memory: it is sent to the member itself.
-            raise HTTPException(
-                status_code=422, detail=f"A file cannot be sent on to {node['name']}: send it to {node['name']} itself"
-            )
+        content_type = request.headers.get("content-type", "application/json")
+        if request.method == "POST" and content_type.startswith("multipart/form-data"):
+            # A file (an ISO image), as Proxmox VE relays an upload to the node that stores it. The form was read
+            # before this dependency ran, the file spooled to disk as for an upload here.
+            form = await request.form()
+            try:
+                status, reply = await run_in_threadpool(_send_form, node, user["username"], path, form)
+            except PeerError as e:
+                raise Forwarded(502, {"detail": str(e)}) from None
+            raise Forwarded(*answer(status, reply, node["name"]))
+        if not content_type.startswith("application/json"):
+            raise HTTPException(status_code=415, detail=f"Only JSON or a form is sent on to {node['name']}")
         raw = await request.body()
         if len(raw) > MAX_BODY:
             raise HTTPException(status_code=413, detail="Request too large to send to another node")
@@ -275,9 +282,70 @@ async def _send(request, param, node, user):
         status, reply = await run_in_threadpool(
             rolling_update_call, node, user["username"], request.method, path, body, timeout
         )
-    except PeerError:
-        status, reply = 0, None
+    except PeerError as e:
+        # Its reason: a member down, or a change sent whose answer was lost and which may have been made.
+        raise Forwarded(502, {"detail": f"{node['name']} does not answer: {e}"}) from None
     raise Forwarded(*answer(status, reply, node["name"]))
+
+
+FORM_CHUNK = 1 << 20
+
+
+def _form_field(value):
+    """A name in a part's header, quoted as browsers do (WHATWG): it cannot end the header or add another one."""
+    return str(value).replace('"', "%22").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _send_form(node, username, path, form):
+    """(status, body) of the form `form` posted to `node` in `username`'s name, multipart again, each file read from
+    its spool while it is sent. Over HTTPS only: the SSH way carries a JSON body. Raises PeerError."""
+    import secrets
+
+    from app.core import peer_https
+
+    boundary = secrets.token_hex(16)
+    parts = []  # (header, bytes or a file, its size)
+    for name, value in form.multi_items():
+        if isinstance(value, str):
+            head = f'--{boundary}\r\nContent-Disposition: form-data; name="{_form_field(name)}"\r\n\r\n'
+            data = value.encode()
+            parts.append((head.encode(), data, len(data)))
+        else:
+            head = (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{_form_field(name)}"; '
+                f'filename="{_form_field(value.filename or "")}"\r\n'
+                f"Content-Type: {_form_field(value.content_type or 'application/octet-stream')}\r\n\r\n"
+            )
+            size = value.file.seek(0, 2)
+            value.file.seek(0)
+            parts.append((head.encode(), value.file, size))
+    tail = f"--{boundary}--\r\n".encode()
+    length = sum(len(head) + size + 2 for head, _, size in parts) + len(tail)
+
+    def chunks():
+        for head, content, _ in parts:
+            yield head
+            if isinstance(content, bytes):
+                yield content
+            else:
+                while block := content.read(FORM_CHUNK):
+                    yield block
+            yield b"\r\n"
+        yield tail
+
+    try:
+        token = peer_auth.ticket_for(node, username)
+    except peer_auth.NoTicket as e:
+        raise PeerError(f"{node['name']} cannot be called in {username}'s name: {e}") from None
+    try:
+        return peer_https.send(
+            node, token, "/api/v1" + path, f"multipart/form-data; boundary={boundary}", length, chunks(),
+            SEND_WRITE_TIMEOUT_S,
+        )  # fmt: skip
+    except peer_https.Unavailable as e:
+        raise PeerError(f"A file is sent to {node['name']} over HTTPS only, which cannot be used: {e}") from None
+    except peer_https.Lost as e:
+        raise PeerError(str(e)) from None
 
 
 def rolling_update_call(node, username, method, path, body, timeout=60):
