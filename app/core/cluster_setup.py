@@ -440,7 +440,7 @@ def accept_member(ticket, name, address, ssh_key):
     the first member raises the votes the cluster needs to 2, so this node loses the quorum, and with it every write,
     until the new node is up."""
     from app.core.audit import log_action
-    from app.repositories.cfs import shadow
+    from app.repositories.cfs import confirm, shadow
     from app.repositories.sqlite.nodes import SqliteNodeStore
 
     with _members_lock:  # one node per ticket, even when two calls race
@@ -467,6 +467,13 @@ def accept_member(ticket, name, address, ssh_key):
         ssh_entry = f"{SSH_DIR}/{shadow.component(name)}"
         _register(name, address)
         try:
+            # The nodes row goes to the cluster through the shadow copy, which the API confirms before the answer:
+            # too late here, once sync() below took the quorum away. The cluster refused it, the answer was an error,
+            # and the new node gave up while this one waited for it without the quorum.
+            try:
+                confirm.settle()
+            except (shadow.NotConfirmed, shadow.Changed) as e:
+                raise ClusterError(f"The cluster could not record {name}: {e}") from None
             client.put(ssh_entry, ssh_key.strip().encode())
             client.put(CONF_PATH, json.dumps(conf).encode())
         except Exception:  # the cluster does not list the new node: neither do the nodes table and the SSH keys

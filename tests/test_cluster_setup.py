@@ -590,3 +590,29 @@ def test_a_member_older_than_1_0_is_asked_at_its_old_address(monkeypatch):
     monkeypatch.setattr(cluster_setup, "_post_member", post)
     assert cluster_setup._call_member({}, {}) == {"ok": True}
     assert sent == ["/api/v1/cluster/members", "/cluster/members"]
+
+
+def test_the_new_members_row_is_taken_by_the_cluster_before_the_quorum_is_lost(host, monkeypatch):
+    """Adding the first member raises the votes needed to 2: once this node's Corosync reloads, the cluster takes no
+    change until the new node is up. The nodes row was confirmed after that (with the answer), refused, and the join
+    failed with the cluster left waiting for a node that gave up."""
+    from app.repositories.cfs import confirm, shadow
+
+    _create(host)
+    _info, decoded = _information(host)
+    order = []
+    monkeypatch.setattr(confirm, "settle", lambda: order.append(("settle", len(host.commands))))
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    [(_, commands_before)] = order
+    assert "corosync-cfgtool -R" not in host.commands[:commands_before]  # confirmed while the quorum held
+
+    def refused():
+        raise shadow.NotConfirmed("The cluster refused the change: hyperlite-cfs has no quorum: it is read-only")
+
+    monkeypatch.setattr(confirm, "settle", refused)
+    _info, decoded = _information(host)
+    with pytest.raises(cluster_setup.ClusterError, match="could not record pve-c"):
+        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B)
+    assert all(m["name"] != "pve-c" for m in cluster_setup.shared_conf()["members"])  # not added, nothing to wait for
+    with get_conn() as db:
+        assert "pve-c" not in {r[0] for r in db.execute("SELECT name FROM nodes")}
