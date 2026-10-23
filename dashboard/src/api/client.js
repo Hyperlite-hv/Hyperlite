@@ -975,6 +975,15 @@ export async function setVMBoot(name, payload, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`, { method: "PUT", ...jsonBody(payload) });
 }
+// The VM's hook script (app/core/hookscript.py): the script attached, its last runs, the node's library (admins).
+export async function fetchVMHookscript(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/hookscript${q}`);
+}
+export async function setVMHookscript(name, script, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/hookscript${q}`, { method: "PUT", ...jsonBody({ script }) });
+}
 // ---- Resource limits/reservations (real: GET/PUT /vms/{name}/limits, cgroups
 // through libvirt schedulerParametersFlags/memoryParameters) ----
 export async function fetchVMLimits(name) {

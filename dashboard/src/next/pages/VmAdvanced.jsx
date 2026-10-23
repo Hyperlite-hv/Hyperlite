@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { fetchVMHardwareOptions, setVMDiskOptions, setVMBootOrder, setVMBalloon, setVMMachine } from "../../api/client";
+import { fetchVMHardwareOptions, setVMDiskOptions, setVMBootOrder, setVMBalloon, setVMMachine, fetchVMHookscript, setVMHookscript } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
+import { formatDateTime } from "../lib/format";
 import { ErrorState } from "../components/States";
-import { Card, Field, Loading, TableWrap } from "../components/ui";
+import { Card, Chip, Field, Loading, TableWrap } from "../components/ui";
 
 const CACHE = ["", "none", "writeback", "writethrough", "directsync", "unsafe"];
 const DISCARD = ["", "ignore", "unmap"];
@@ -150,6 +151,76 @@ function MachineCard({ vm, state, admin, onSaved }) {
   );
 }
 
+// The VM's hook script, as Proxmox VE's hookscript: picked from the node's library, which root alone fills (a script
+// runs as root at every start and stop, so the dashboard never uploads one), with its last runs.
+function HookScriptCard({ vm, admin }) {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [choice, setChoice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { const d = await fetchVMHookscript(vm.name, vm.node); setData(d); setChoice(d.script || ""); setError(null); } catch (e) { setError(errorMessage(e)); }
+  }, [vm.name, vm.node]);
+  useEffect(() => { load(); }, [load]);
+  async function save() {
+    setBusy(true);
+    try {
+      await setVMHookscript(vm.name, choice || null, vm.node);
+      pushToast({ kind: "success", title: choice ? t("hk.attached", { script: choice }) : t("hk.detached") });
+      await load();
+    } catch (e) { pushToast({ kind: "error", title: t("va.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
+  }
+  const result = (r) => (r.ok ? <Chip tone="success">{t("hk.ok")}</Chip>
+    : <Chip tone="warning">{r.exit_code == null ? t("hk.notRun") : t("hk.exit", { code: r.exit_code })}</Chip>);
+  const library = data?.library || [];
+  const runs = [...(data?.runs || [])].reverse();
+  return (
+    <Card title={t("hk.title")}>
+      <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("hk.help")}</p>
+      {error ? <p className="is-error" role="alert">{error}</p> : !data ? <Loading /> : (
+        <>
+          {admin ? (
+            <Field label={t("hk.script")} hint={library.length ? null : t("hk.empty", { dir: "/var/lib/hyperlite/snippets" })}>{(p) => (
+              <select {...p} className="nx-inp nx-mono" value={choice} onChange={(e) => setChoice(e.target.value)}>
+                <option value="">{t("hk.none")}</option>
+                {data.script && !library.some((s) => s.name === data.script) && <option value={data.script}>{data.script} ({t("hk.missing")})</option>}
+                {library.map((s) => <option key={s.name} value={s.name} title={s.reason || undefined} disabled={!s.usable && s.name !== data.script}>{s.usable ? s.name : `${s.name} (${t("hk.unusable")})`}</option>)}
+              </select>
+            )}</Field>
+          ) : (
+            <dl className="nx-dl2"><dt>{t("hk.script")}</dt><dd className="nx-mono">{data.script || t("hk.none")}</dd></dl>
+          )}
+          {admin && <div className="nx-fa"><button type="button" className="nx-btn" disabled={busy || choice === (data.script || "")} onClick={save}>{t("va.save")}</button></div>}
+          {library.some((s) => !s.usable) && (
+            <ul className="nx-muted" style={{ margin: "var(--space-2) 0 0", paddingLeft: "var(--space-4)", fontSize: "var(--fs-13)" }}>
+              {library.filter((s) => !s.usable).map((s) => <li key={s.name}><span className="nx-mono">{s.name}</span>{t("hk.sep")}{s.reason}</li>)}
+            </ul>
+          )}
+          {runs.length > 0 && (<>
+            <h3 style={{ margin: "var(--space-4) 0 var(--space-2)", fontSize: "var(--fs-14)" }}>{t("hk.runs")}</h3>
+            <TableWrap label={t("hk.runs")}>
+              <table className="nx-table">
+                <thead><tr><th scope="col">{t("hk.when")}</th><th scope="col">{t("hk.phase")}</th><th scope="col">{t("hk.result")}</th><th scope="col">{t("hk.output")}</th></tr></thead>
+                <tbody>{runs.map((r, i) => (
+                  <tr key={`${r.at}-${r.phase}-${i}`}>
+                    <td className="nx-mono">{formatDateTime(r.at, lang)}</td>
+                    <td className="nx-mono">{r.phase}</td>
+                    <td>{result(r)} <span className="nx-muted nx-mono">{t("hk.seconds", { s: new Intl.NumberFormat(lang).format(r.seconds) })}</span></td>
+                    <td>{r.output?.trim() ? <details><summary>{t("hk.show")}</summary><pre className="nx-mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0 }}>{r.output.trim()}</pre></details> : <span className="nx-muted">—</span>}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </TableWrap>
+          </>)}
+        </>
+      )}
+    </Card>
+  );
+}
+
 // Advanced hardware settings of a VM of this host.
 export default function VmAdvancedPage({ resource: vm }) {
   const t = useT();
@@ -186,6 +257,7 @@ export default function VmAdvancedPage({ resource: vm }) {
         <BalloonCard vm={vm} state={state} admin={admin} onSaved={onSaved} />
       </div>
       <MachineCard vm={vm} state={state} admin={admin} onSaved={onSaved} />
+      <HookScriptCard vm={vm} admin={admin} />
     </>
   );
 }

@@ -124,7 +124,8 @@ Tabs:
   - *Advanced*: per disk the cache mode, discard (TRIM), I/O mode, I/O thread and IOPS / MB/s limits (limits apply at
     once, the rest at the next start; **What these settings do** explains each one); the **boot order** across disks and
     network cards; **memory ballooning** with a minimum; updating the **machine type** to the current version of its
-    family (VM stopped).
+    family (VM stopped); the **hook script** (administrators): a script from the node's library run as root at the
+    VM's pre-start, post-start, pre-stop and post-stop, with its last runs (see below).
   - *Options and limits*: **start at boot** (with an order and a pause before the next VM; run once per boot of the
     node), resources, CPU and I/O priorities, CPU affinity.
   - *Cloud-init* (cloud-image VMs): change the user's SSH keys and password; applied at the next boot, the password is
@@ -136,6 +137,33 @@ Tabs:
 
 Pages that manage the local host's files only (Hardware, Network, Backups, Snapshots…) explain themselves for a VM on
 another node: open that node's own Hyperlite for them.
+
+### Hook scripts
+
+As Proxmox VE's hookscripts: a script attached to a VM runs as root on its node with two arguments, the VM's name and
+the phase (`pre-start`, `post-start`, `pre-stop`, `post-stop`), also given as `HYPERLITE_VM` and `HYPERLITE_PHASE`,
+the VM's XML on its standard input, for at most 300 s.
+
+- Only root places scripts, in `/var/lib/hyperlite/snippets/` on each node the VM may run on (copy them to every node
+  of a cluster). A script is used only if it is a plain executable file owned by root and writable by root alone; the
+  dashboard never uploads one, so an administrator's web account is not a way to run code as root.
+- An administrator attaches one in *Hardware > Advanced > Hook script* (`PUT /vms/{name}/hookscript`). It is kept in
+  the VM's definition, so it follows a migration and a clone (a backup restored as a new VM gets none: attach it again).
+- **pre-start**, **post-start** and **post-stop** run for every start and stop, whoever asks (the dashboard, the start
+  at boot, HA, `virsh`). A failing pre-start refuses the start with the script's output. A VM whose start was refused
+  gets no post-stop.
+- **pre-stop** runs before a shutdown, a stop or a forced restart asked through Hyperlite; a failing one refuses the
+  shutdown or the stop, but a forced stop runs it and stops the VM anyway. A guest that powers itself off gets no
+  pre-stop, as in Proxmox VE.
+- The output goes into the task's log of a start or stop asked through Hyperlite; the last runs are on the VM's card
+  and in the journal (`journalctl -t hyperlite-hookscript`).
+
+```sh
+#!/bin/sh
+# /var/lib/hyperlite/snippets/maintenance.sh: refuse to start a VM while /etc/maintenance exists.
+[ "$2" = pre-start ] && [ -e /etc/maintenance ] && { echo "maintenance in progress"; exit 1; }
+exit 0
+```
 
 ### The console
 

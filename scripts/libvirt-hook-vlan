@@ -1,5 +1,5 @@
 #!/bin/sh
-# libvirt's qemu hook, installed as /etc/libvirt/hooks/qemu.d/hyperlite-vlan by scripts/ensure-vlan-hook.sh: when a VM
+# libvirt's qemu hook, installed as /etc/libvirt/hooks/qemu.d/hyperlite-vlan by scripts/ensure-libvirt-hooks.sh: when a VM
 # has started (here or by migration), the VLANs recorded in its metadata are set on its bridge ports
 # (app/core/bridge_vlan.py). Every other event returns at once. It never fails the VM: a port it cannot set carries no
 # traffic, and the reason goes to the system journal (journalctl -t hyperlite-vlan).
