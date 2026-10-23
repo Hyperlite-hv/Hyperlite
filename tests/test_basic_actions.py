@@ -3,6 +3,7 @@ environment variables some images need. libvirt and /proc are replaced by fakes.
 
 import json
 import xml.etree.ElementTree as ET
+from types import SimpleNamespace
 
 import libvirt
 import pytest
@@ -351,8 +352,12 @@ def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, 
     domain = _Domain("pg", active=True)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(domain))
     started = []
+    # The router's own `threading` only: patching the module itself also replaced the threads other code starts in
+    # the meantime (the audit writer at the sign-in), and the test failed or passed with the order tests ran in.
     monkeypatch.setattr(
-        containers.threading, "Thread", lambda **kw: type("T", (), {"start": lambda s: started.append(kw["args"])})()
+        containers,
+        "threading",
+        SimpleNamespace(Thread=lambda **kw: type("T", (), {"start": lambda s: started.append(kw["args"])})()),
     )
     set_container_app("pg", "postgres:16", {"args": ["postgres"]}, "192.168.100.10", "isolated")
     r = client.post("/containers/pg/stop", headers=auth_headers("alice"))
