@@ -225,6 +225,9 @@ def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
         finished(1, t[1], moved["task_id"], node=b)
     wait("labvm on node 3", lambda: api(3, "GET", "/vms/labvm", token=t[3])[0] == 200)
     assert api(2, "GET", "/vms/labvm", token=t[2])[0] == 404
+    assert ok(api(1, "GET", f"/vms/labvm?node={c}", token=t[1]))["state"] == "active"  # still running, there
+    ok(api(1, "POST", f"/vms/labvm/stop?node={c}&force=true", token=t[1]))  # a running VM is not deleted
+    wait("labvm stopped", lambda: ok(api(1, "GET", f"/vms/labvm?node={c}", token=t[1]))["state"] == "stopped")
     ok(api(1, "DELETE", f"/vms/labvm?node={c}&confirm=true", token=t[1]))
 
 
