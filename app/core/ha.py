@@ -40,7 +40,7 @@ from datetime import UTC, datetime
 import libvirt
 
 from app.core.audit import log_action
-from app.core.libvirt_utils import open_conn, uses_shared_storage
+from app.core.libvirt_utils import domain_disk_paths, open_conn, uses_shared_storage
 
 
 def _store():
@@ -106,6 +106,26 @@ def get_protected(vm_name):
     return _store().protected_vm(vm_name)
 
 
+def _on_this_node(node_label):
+    from app.core import self_node
+
+    return self_node.is_self(node_label)
+
+
+def _unlocked_reason(domain):
+    """Why QEMU's lock on the VM's disks would not stop a second copy on another node, or None
+    (docs/design/ha-automatic.md, 4.7). Read on the node that runs the VM: the mounts are its own."""
+    from app.core import disk_locks
+
+    if disk_locks.locking_off(domain.XMLDesc(0)):
+        return "its definition turns QEMU's image locks off (locking=off)"
+    for path in domain_disk_paths(domain):
+        reason = disk_locks.local_only(path)
+        if reason:
+            return reason
+    return None
+
+
 def enable_protection(vm_name, node, username):
     node_label = node or "local"
     conn = open_conn(_conn_key(node_label))
@@ -122,6 +142,12 @@ def enable_protection(vm_name, node, username):
             raise RuntimeError(
                 "HA protection impossible: at least one disk of this VM is not on a shared storage pool "
                 "(NFS). Move its disk to a shared pool first."
+            )
+        # The mounts are checked where the VM runs; a VM of another node is checked there, by its own sync.
+        reason = _unlocked_reason(domain) if _on_this_node(node_label) else None
+        if reason:
+            raise RuntimeError(
+                f"HA protection impossible: {reason}, so nothing would stop a second copy of the VM on another node"
             )
 
         _store().protect(vm_name, node_label, _portable_xml(domain.XMLDesc(0)), username, _now())
@@ -170,6 +196,11 @@ def sync_protected_vms():
             if not uses_shared_storage(conn, conn, domain):
                 disable_protection(row["vm_name"], "system")
                 log_action("system", "ha_auto_disable", row["vm_name"], "failed", "storage no longer shared")
+                continue
+            reason = _unlocked_reason(domain) if _on_this_node(row["node"]) else None
+            if reason:  # a share mounted again without locks across nodes, or a definition changed since
+                disable_protection(row["vm_name"], "system")
+                log_action("system", "ha_auto_disable", row["vm_name"], "failed", reason)
                 continue
             _store().sync_definition(row["vm_name"], _portable_xml(domain.XMLDesc(0)), _now())
         finally:
