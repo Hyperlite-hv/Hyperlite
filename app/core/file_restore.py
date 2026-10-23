@@ -23,7 +23,7 @@ import threading
 import time
 from pathlib import Path, PurePosixPath
 
-from app.core import backup_integrity
+from app.core import backup_integrity, disk_images
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,11 @@ def backup_disks(backup_id):
     disks = [root / n for n in names if "/" not in n and (root / n).is_file()]
     if not disks:
         raise RestoreError("This backup has no disk image left to browse")
+    for disk in disks:
+        try:
+            disk_images.check(disk, within=root.parent)  # libguestfs would read whatever file it names
+        except disk_images.UnsafeImage as e:
+            raise RestoreError(str(e)) from None
     return row["vm_name"], [str(d) for d in disks]
 
 

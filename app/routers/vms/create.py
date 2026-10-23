@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core import cloudinit_edit, firmware, lvm_storage, maintenance, vm_locks, zfs_storage
+from app.core import cloudinit_edit, disk_images, firmware, lvm_storage, maintenance, vm_locks, zfs_storage
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
@@ -326,6 +326,10 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         if not candidate.exists():
             errors.append(f"Imported disk '{payload.import_disk}' not found")
         else:
+            try:
+                disk_images.check(candidate)  # it names no other file to read (a backing file...)
+            except disk_images.UnsafeImage as e:
+                errors.append(str(e))
             import_disk_path = candidate
 
     # "Installation from an ISO" mode: a blank system disk, and the operating system is installed by hand from the
