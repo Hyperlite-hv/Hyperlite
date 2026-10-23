@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 import libvirt
 
+from app.core.libvirt_utils import lookup_pool
 from app.core.preflight import BLOCKING, OK, WARNING, summarize
 
 
@@ -408,7 +409,7 @@ def check_vm_migration(src, dst, domain):
                         action="delete its snapshots, or put its disks on shared storage",
                     )
                 )
-            pool = dst.storagePoolLookupByName("default")
+            pool = lookup_pool(dst, "default")  # a fresh node defines it when something first asks for it
             avail = pool.info()[3]
             if avail < to_copy_bytes:
                 out.append(
