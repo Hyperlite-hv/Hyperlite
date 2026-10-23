@@ -15,12 +15,14 @@ import logging
 import threading
 import time
 import zlib
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 PERIOD_S = 10
 STALE_S = 30
 GONE_S = 90
+MEMINFO = Path("/proc/meminfo")
 DEBOUNCE_S = 0.5  # several changes in a row (a VM created then started): one summary
 
 _wake = threading.Event()
@@ -58,8 +60,20 @@ def summary():
         "at": time.time(),
         "api": cluster_v1.API_VERSION,
         "features": list(FEATURES),
+        "mem_free_mb": _mem_free_mb(),
         "vms": vms,
     }
+
+
+def _mem_free_mb():
+    """The memory a new VM could take here (MemAvailable), for HA's placement (docs/design/ha-automatic.md, 4.3)."""
+    try:
+        for line in MEMINFO.read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        logger.debug("MemAvailable not read", exc_info=True)
+    return None
 
 
 def encode(data):
@@ -113,8 +127,36 @@ def table():
             "stale": age > STALE_S,
             "api": data.get("api", 0),
             "features": data.get("features", []),
+            "mem_free_mb": data.get("mem_free_mb"),
         }
     return out
+
+
+def latest():
+    """{node name: (age in seconds, its VMs)} of the latest status of every node the daemon holds one of, however old:
+    HA counts from the moment a node was last seen, and restarts what ran there then (app/core/ha_recovery.py). Empty
+    when hyperlite-cfs does not answer."""
+    from app.core.cfs_client import CfsError
+    from app.repositories.cfs import shadow
+
+    try:
+        statuses = shadow._get_client().stat_get()
+    except (CfsError, OSError) as e:
+        logger.debug("Statuses not read: %s", e)
+        return {}
+    out = {}
+    for s in statuses:
+        try:
+            data = json.loads(zlib.decompress(s.data))
+            out[data["node"]] = (s.age_ms / 1000, data.get("vms") or [])
+        except (ValueError, KeyError, TypeError, zlib.error):
+            logger.warning("A status that could not be read (node id %s)", s.node)
+    return out
+
+
+def ages():
+    """{node name: age in seconds of its latest status}, however old (latest)."""
+    return {name: age for name, (age, _) in latest().items()}
 
 
 # What this node's database accepts that a version of 1.0 did not: an assignment on a storage pool or a network
