@@ -26,7 +26,7 @@
       "en": "Storage",
       "rows": [
         {"fr": "Répertoire, NFS, iSCSI", "en": "Directory, NFS, iSCSI", "status": "parity", "pve": "Yes", "hl": "Yes, shared pools created on every node"},
-        {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "partial", "issue": 417, "pve": "Yes", "hl": "LVM pools on an existing volume group or an empty disk; VM disks are logical volumes, grown and deleted with the VM. LVM-thin is listed and protected from the pool's removal, not managed yet; no VM snapshot or live migration on LVM"},
+        {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "parity", "issue": 417, "pve": "Yes", "hl": "LVM pools on an existing volume group or an empty disk, thick or thin (a thin pool adopted or created); VM disks grown and deleted with the VM; LVM-thin snapshots and rollback, disk only; backups and live migration refuse block disks, as for ZFS and iSCSI"},
         {"fr": "ZFS sur de vrais disques", "en": "ZFS on real disks", "status": "partial", "issue": 419, "pve": "Mirror, RAIDZ, from the GUI", "hl": "Loopback files only, one node, not live-migratable"},
         {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "parity", "issue": 418, "pve": "Yes", "hl": "Yes, shared like NFS (migration, HA, every node); credentials root-only on each node, SMB version negotiated or fixed"},
         {"fr": "Ceph", "en": "Ceph", "status": "missing", "issue": 338, "pve": "Hyperconverged, from the GUI", "hl": "None"},
@@ -73,7 +73,7 @@
       "rows": [
         {"fr": "Planification, rétention, vérification", "en": "Schedules, retention, verification", "status": "parity", "pve": "vzdump and PBS", "hl": "Per VM, tag or pool; GFS retention; weekly verification"},
         {"fr": "Restauration de fichiers", "en": "File restore", "status": "ahead", "pve": "Needs Proxmox Backup Server", "hl": "Built in, no backup server"},
-        {"fr": "Sauvegardes incrémentales", "en": "Incremental backups", "status": "missing", "issue": 337, "pve": "With PBS (dirty bitmaps)", "hl": "Full backups; ZFS and iSCSI disks refused"},
+        {"fr": "Sauvegardes incrémentales", "en": "Incremental backups", "status": "missing", "issue": 337, "pve": "With PBS (dirty bitmaps)", "hl": "Full backups; ZFS, iSCSI and LVM disks refused"},
         {"fr": "Déduplication et chiffrement", "en": "Deduplication and encryption", "status": "missing", "issue": 420, "pve": "Proxmox Backup Server", "hl": "None"},
         {"fr": "Restauration à chaud", "en": "Live restore", "status": "missing", "issue": 513, "pve": "Yes", "hl": "None"}
       ]
