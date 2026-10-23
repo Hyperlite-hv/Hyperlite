@@ -124,6 +124,19 @@ def ensure_pool_base_image(pool_dir):
     return target
 
 
+def disk_file(target_dir, vm_name, index):
+    """Where a VM's disk `index` goes in a directory pool: <name>.qcow2, then <name>-2.qcow2..."""
+    return Path(target_dir) / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
+
+
+def _new_file(path):
+    """A new VM's disk is a new file: never one there already, which may be another VM's disk (VM "web-2" and the
+    second disk of "web", GHSA-vfmj-3v3j-48fq). The creation checks it first (app/routers/vms/create.py)."""
+    if path.exists():
+        raise ValueError(f"A disk file '{path.name}' already exists in this storage pool: choose another VM name")
+    return path
+
+
 def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     """Create a qcow2 disk for the VM. The disk at index 0 (system) is based on the
     default Debian cloud image; the following disks are always blank (extra
@@ -133,8 +146,7 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     path of the chosen storage pool, resolved by the caller through libvirt.
     It defaults to IMAGES_DIR (the 'default' pool), which leaves the historical
     behaviour unchanged."""
-    target_dir = target_dir or IMAGES_DIR
-    disk_path = target_dir / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
+    disk_path = _new_file(disk_file(target_dir or IMAGES_DIR, vm_name, index))
     if index == 0 and not blank:
         base = ensure_base_image() if Path(target_dir) == IMAGES_DIR else ensure_pool_base_image(Path(target_dir))
         subprocess.run(
@@ -216,8 +228,7 @@ def create_disk_from_import(vm_name, source_path, target_dir=None):
     form, an alternative to installing from an ISO. `qemu-img convert` detects the
     source format by itself (raw/vmdk/vdi/vhd/qcow2/...), nothing to tell it.
     `target_dir`: see create_disk()."""
-    target_dir = target_dir or IMAGES_DIR
-    disk_path = target_dir / f"{vm_name}.qcow2"
+    disk_path = _new_file(disk_file(target_dir or IMAGES_DIR, vm_name, 0))
     subprocess.run(
         ["qemu-img", "convert", "-O", "qcow2", str(source_path), str(disk_path)],
         check=True,
