@@ -515,8 +515,22 @@ def _decode_information(text):
     return checked
 
 
+MEMBERS_PATH = "/api/v1/cluster/members"
+
+
 def _call_member(info, body):
-    """POST to the member's /cluster/members over HTTPS, trusting only the certificate of the join information."""
+    """POST to the member's /api/v1/cluster/members over HTTPS, trusting only the certificate of the join
+    information. A member older than 1.0 has the route without the prefix: asked there when it answers a bare 404."""
+    status, answer = _post_member(info, MEMBERS_PATH, body)
+    if status == 404 and answer == {"detail": "Not Found"}:
+        status, answer = _post_member(info, MEMBERS_PATH.removeprefix("/api/v1"), body)
+    if status != 200:
+        detail = answer.get("detail") if isinstance(answer, dict) else None
+        raise ClusterError(f"The member refused: {detail}" if isinstance(detail, str) else "The member refused")
+    return answer
+
+
+def _post_member(info, path, body):
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # the certificate is checked against the fingerprint below, before any data
@@ -528,7 +542,7 @@ def _call_member(info, body):
             raise ClusterError(
                 "The member's certificate does not match the join information: copy it again from the member"
             )
-        conn.request("POST", "/cluster/members", json.dumps(body), {"Content-Type": "application/json"})
+        conn.request("POST", path, json.dumps(body), {"Content-Type": "application/json"})
         response = conn.getresponse()
         data = response.read(1_000_000)
     except (OSError, http.client.HTTPException) as e:
@@ -537,13 +551,9 @@ def _call_member(info, body):
     finally:
         conn.close()
     try:
-        answer = json.loads(data)
+        return response.status, json.loads(data)
     except ValueError:
         raise ClusterError("The member answered something unexpected") from None
-    if response.status != 200:
-        detail = answer.get("detail") if isinstance(answer, dict) else None
-        raise ClusterError(f"The member refused: {detail}" if isinstance(detail, str) else "The member refused")
-    return answer
 
 
 def _check_env_keys(keys):
