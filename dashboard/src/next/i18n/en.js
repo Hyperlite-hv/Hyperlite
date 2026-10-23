@@ -1773,6 +1773,7 @@ export default {
   "task.type.backup_vm": "Back up VM",
   "task.type.restore_backup": "Restore backup",
   "task.type.export_vm": "Export VM",
+  "task.type.extract_ova": "Extract an OVA's disks",
   "task.type.run_job": "Run job",
   "task.type.upload_iso": "Upload ISO",
   "task.type.copy_iso": "Copy ISO to a node",

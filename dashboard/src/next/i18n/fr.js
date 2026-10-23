@@ -1804,6 +1804,7 @@ export default {
   "task.type.backup_vm": "Sauvegarder la VM",
   "task.type.restore_backup": "Restaurer une sauvegarde",
   "task.type.export_vm": "Exporter la VM",
+  "task.type.extract_ova": "Extraire les disques d’une OVA",
   "task.type.run_job": "Exécuter une tâche",
   "task.type.upload_iso": "Téléverser une ISO",
   "task.type.copy_iso": "Copier une ISO vers un nœud",
