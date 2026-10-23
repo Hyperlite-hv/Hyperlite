@@ -122,7 +122,7 @@ def finished(n, token, task_id, node=None, timeout=900):
         return task if task["status"] not in ("pending", "running") else None
 
     task = wait(f"task {task_id}", done, timeout=timeout, every=5)
-    assert task["status"] == "succeeded", task
+    assert task["status"] == "succeeded", task.get("error") or task  # the error first: the report cuts the task
     return task
 
 
