@@ -209,15 +209,16 @@ def create_zvol_disk(zfs_pool, vm_name, index, disk_gb, blank=False, import_sour
     return dev_path
 
 
-def create_disk_from_import(vm_name, source_path, target_dir=None):
+def create_disk_from_import(vm_name, source_path, target_dir=None, index=0):
     """Create the system disk (index 0) of a VM from an already uploaded disk file
     (see app/routers/vm_disks.py) instead of the default Debian cloud image or
     a blank disk: this is the "import a VM from a disk" path of the creation
     form, an alternative to installing from an ISO. `qemu-img convert` detects the
     source format by itself (raw/vmdk/vdi/vhd/qcow2/...), nothing to tell it.
-    `target_dir`: see create_disk()."""
+    `target_dir`: see create_disk(). `index`: a data disk imported too (the other disks of an OVA), named as
+    create_disk() names it."""
     target_dir = target_dir or IMAGES_DIR
-    disk_path = target_dir / f"{vm_name}.qcow2"
+    disk_path = target_dir / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
     subprocess.run(
         ["qemu-img", "convert", "-O", "qcow2", str(source_path), str(disk_path)],
         check=True,
