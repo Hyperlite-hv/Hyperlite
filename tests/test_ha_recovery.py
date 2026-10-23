@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import libvirt
 import pytest
+from fastapi import HTTPException
 
 from app.core import cluster_lead, ha, ha_fencing, ha_recovery, ha_selffence, maintenance, self_node, statd
 
@@ -61,8 +62,13 @@ def cluster(database, monkeypatch):
     monkeypatch.setattr(maintenance, "get", lambda node: {"node": node} if node in world["maintenance"] else None)
     monkeypatch.setattr(ha_recovery, "_notify", lambda *a, **k: None)
 
+    world["unreachable"] = set()  # nodes a connection to fails (open_conn's HTTPException)
+    world["running"] = set()  # (vm, node) a libvirt lookup finds running
+
     def start_on(row, target, reuse_stopped=False):
         assert reuse_stopped
+        if target in world["unreachable"]:
+            raise HTTPException(status_code=502, detail="Node unreachable: timed out")
         if world["refuse"]:
             raise libvirt.libvirtError(world["refuse"].pop(0))
         world["started"].append((row["vm_name"], target))
@@ -71,6 +77,10 @@ def cluster(database, monkeypatch):
 
     monkeypatch.setattr(ha, "start_on", start_on)
     monkeypatch.setattr(ha, "forget_on", lambda row, target: None)
+    monkeypatch.setattr(ha, "runs_on", lambda row, node: (row["vm_name"], node) in world["running"])
+    monkeypatch.setattr(
+        ha, "adopt", lambda row, node: ha._store().sync_definition(row["vm_name"], row["domain_xml"], "now", node=node)
+    )
     ha_recovery._lost.clear()
     yield world
     ha_recovery._lost.clear()
@@ -338,3 +348,83 @@ def test_back_after_a_reset_only_what_ran_before_is_restarted(cluster, database,
     monkeypatch.setattr(ha_recovery, "_running_on", lambda member: set())
     ha_recovery.tick()
     assert cluster["started"] == [("web", "n3")]
+
+
+# --- Found by a review of #333 step 4 (ECC's code-reviewer, in a sandbox) ---------------------------------------------
+
+
+def test_a_target_that_cannot_be_reached_is_passed_over_for_the_next(cluster, database):
+    protect(database, "web")
+    cluster["ages"]["n2"] = 61.0
+    cluster["fencing"] = "ipmi"
+    cluster["unreachable"] = {"n3"}  # its HTTPException used to end the round: the VM stayed recovering for ever
+    protect(database, "db", node="n3", n=2)  # another member's VM: the round goes on to it
+    ha_recovery.tick()
+    assert cluster["started"] == [("web", "n1")] and state("web") == "ok"
+
+
+def test_a_vm_an_earlier_round_started_is_found_where_it_runs_never_started_twice(cluster, database):
+    protect(database, "web")
+    cluster["ages"]["n2"] = 61.0
+    cluster["fencing"] = "ipmi"
+    cluster["running"] = {("web", "n3")}  # started there, its record not updated (the cfs refused the write)
+    ha_recovery.tick()
+    assert cluster["started"] == []
+    row = ha.get_protected("web")
+    assert row["node"] == "n3" and row["ha_state"] == "ok"
+
+
+def test_each_vm_started_takes_its_memory_out_for_the_next(cluster, database):
+    for i, vm in enumerate(("a", "b", "c"), start=1):
+        protect(database, vm, memory_mib=3000, n=i, at=f"2026-01-0{i}")
+    cluster["ages"]["n2"] = 61.0
+    cluster["fencing"] = "ipmi"
+    ha_recovery.tick()
+    # n3 has 6000 MiB free: room for two of them, not three (all three went there, 9000 MiB on 6000).
+    assert cluster["started"] == [("a", "n3"), ("b", "n3")] and state("c") == "manual"
+
+
+def test_a_bmc_that_did_not_confirm_is_asked_again_before_the_vms_go_to_manual(cluster, database, monkeypatch):
+    protect(database, "web")
+    cluster["ages"]["n2"] = 600.0
+    cluster["fencing"] = "ipmi"
+    monkeypatch.setattr(ha_recovery, "BMC_RETRY_S", 0)
+    answers = [{"fenced": False, "detail": "busy"}, {"fenced": True, "detail": "off"}]
+    monkeypatch.setattr(ha_fencing, "power_off", lambda node: answers.pop(0))
+    assert ha_recovery.tick() == {"n2": "fencing"} and state("web") == "fencing"  # not manual after one refusal
+    ha_recovery.tick()
+    assert cluster["started"] == [("web", "n3")]
+
+
+def test_a_bmc_that_never_confirms_leaves_the_vms_to_an_administrator(cluster, database, monkeypatch):
+    protect(database, "web")
+    cluster["ages"]["n2"] = 600.0
+    cluster["fencing"] = "ipmi"
+    cluster["power_off"] = {"fenced": False, "detail": "no answer"}
+    monkeypatch.setattr(ha_recovery, "BMC_RETRY_S", 0)
+    calls = []
+    monkeypatch.setattr(ha_fencing, "power_off", lambda node: calls.append(node) or dict(cluster["power_off"]))
+    for _ in range(5):
+        ha_recovery.tick()
+    assert len(calls) == ha_recovery.BMC_ATTEMPTS and state("web") == "manual" and cluster["started"] == []
+
+
+def test_a_member_whose_service_was_stopped_normally_is_never_fenced(cluster, database, monkeypatch):
+    protect(database, "web")
+    cluster["ages"]["n2"] = 600.0  # an update that takes long, a service stopped by hand: its VMs still run
+    cluster["fencing"] = "ipmi"
+    cluster["watchdog"] = {"armed": False, "stopped": True, "reset_within_s": None}
+    monkeypatch.setattr(ha_fencing, "power_off", lambda node: pytest.fail("a running node powered off"))
+    assert ha_recovery.tick() == {"n2": "manual"} and cluster["started"] == []
+    assert "stopped normally" in ha.get_protected("web")["last_action"]
+
+
+def test_a_leader_that_loses_the_lead_mid_round_restarts_nothing_more(cluster, database, monkeypatch):
+    protect(database, "a", n=1, at="2026-01-01")
+    protect(database, "b", n=2, at="2026-01-02")
+    cluster["ages"]["n2"] = 61.0
+    cluster["fencing"] = "ipmi"
+    leads = iter([True, True, False])  # the round's own check, then one per VM
+    monkeypatch.setattr(cluster_lead, "is_leader", lambda: next(leads, False))
+    ha_recovery.tick()
+    assert cluster["started"] == [("a", "n3")]

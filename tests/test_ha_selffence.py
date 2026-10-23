@@ -27,7 +27,13 @@ def node(tmp_path, monkeypatch):
         return world["ha_vm"]
 
     monkeypatch.setattr(ha_selffence, "_hosts_running_ha_vm", hosts)
-    monkeypatch.setattr(ha_selffence, "_publish", lambda armed: world["published"].append(armed))
+    monkeypatch.setattr(
+        ha_selffence,
+        "_publish",
+        lambda armed, stopped=False: world["published"].append((armed, "stopped") if stopped else armed),
+    )
+    world["mine"] = None  # what this node published before the service started
+    monkeypatch.setattr(ha_selffence, "published", lambda name: world["mine"])
     monkeypatch.setattr(ha_selffence, "state", ha_selffence._State())
     world["dev"] = dev
     yield world
@@ -67,10 +73,25 @@ def test_disarmed_cleanly_when_no_ha_vm_runs_here_any_more(node):
     assert not ha_selffence.report()["armed"] and node["published"] == [True, False]
 
 
-def test_a_normal_stop_disarms_it(node):
+def test_a_normal_stop_disarms_it_and_says_so_to_the_cluster(node):
     ha_selffence.tick()
     ha_selffence.stop()
     assert written(node).endswith(b"V") and not ha_selffence.report()["armed"]
+    # Or the leader would wait for a reset that never comes, then start the VMs still running here elsewhere.
+    assert node["published"] == [True, (False, "stopped")]
+
+
+def test_what_the_last_run_published_is_cleared_once_the_service_runs_again(node):
+    node["ha_vm"] = False
+    node["mine"] = {"armed": False, "stopped": True}
+    ha_selffence.tick()
+    ha_selffence.tick()
+    assert node["published"] == [False]  # once
+    ha_selffence.state.unpublished_start = True
+    node["mine"] = {"armed": True}  # left by a run that died: its watchdog is not armed by this one yet
+    node["published"].clear()
+    ha_selffence.tick()
+    assert node["published"] == [False]
 
 
 def test_libvirt_not_answering_keeps_it_armed_and_fed(node):

@@ -429,6 +429,28 @@ def start_on(row, target_node, reuse_stopped=False):
     return ejected
 
 
+def runs_on(row, node):
+    """True when this very VM (same UUID) runs on `node`: an earlier recovery round started it there and its record
+    could not be updated after (app/core/ha_recovery.py), so it must not be started anywhere else."""
+    uuid = _uuid_of(row["domain_xml"])
+    if not uuid:
+        return False
+    conn = open_conn(_conn_key(node))
+    try:
+        try:
+            return bool(conn.lookupByUUIDString(uuid).isActive())
+        except libvirt.libvirtError:
+            return False
+    finally:
+        conn.close()
+
+
+def adopt(row, node):
+    """The record of a protected VM found running on `node` (runs_on) names that node, as start_on would have."""
+    _store().sync_definition(row["vm_name"], row["domain_xml"], _now(), node=node)
+    _follow(row["vm_name"], row["node"], node)
+
+
 def _start_networks(conn, domain_xml):
     """Start, on the target, each network of the VM that exists there but is stopped, as a migration does: a network
     missing there stays a reason the VM does not start, said by libvirt."""
