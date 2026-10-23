@@ -697,7 +697,7 @@ def _rename_container(name, payload, user):
 # There is no instantaneous snapshot: libvirt's LXC driver does not support
 # virDomainSnapshotCreateXML (see app/core/container_builder.py for the detail).
 # Clone = a full copy of the rootfs; backup = a tar archive (without scheduling or
-# retention for now).
+# retention for now); snapshot = an rsync copy of the stopped container's directory (below).
 
 
 class CloneContainerRequest(BaseModel):
