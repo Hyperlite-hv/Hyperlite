@@ -2899,7 +2899,7 @@ export default {
   "ldap.groupAttr": "Group attribute",
   "ldap.groupAttrHelp": "The user attribute that lists their groups (memberOf in Active Directory, and in OpenLDAP with the memberof overlay).",
   "ldap.adminGroups": "Administrator groups",
-  "ldap.groupsHelp": "Group names (CN) or DNs, separated by ';' or line breaks. Their members are administrators; everyone else is an observer, with the rights ACLs give them.",
+  "ldap.groupsHelp": "Full group DNs (cn=…,ou=…,dc=…), separated by ';' or line breaks: a bare name could match a group of that name anywhere in the directory. Their members are administrators; everyone else is an observer, with the rights ACLs give them.",
   "ldap.allowedGroups": "Allowed groups (optional)",
   "ldap.allowedHelp": "When set, only members of these groups (or of an administrator group) can sign in.",
   "ldap.test": "Test",
