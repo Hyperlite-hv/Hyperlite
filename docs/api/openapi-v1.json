@@ -2099,6 +2099,30 @@
       "title": "Address",
       "type": "string"
      },
+     "auth_keys": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auth Keys"
+     },
+     "fingerprint": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fingerprint"
+     },
      "name": {
       "maxLength": 63,
       "title": "Name",
