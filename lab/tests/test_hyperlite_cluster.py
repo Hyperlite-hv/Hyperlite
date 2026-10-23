@@ -215,13 +215,24 @@ def test_root_drives_another_member_with_hyperlite_admin(cluster):
     me, b = f"root@{names[1]}", names[2]
     listed = json.loads(on(1, "hyperlite-admin", "vm", "list", "--cluster", "--json"))
     assert listed["unreachable"] == [], listed
+    # A range of its own: the provider's test makes 10.98.3.0/24 after this one.
     on(1, "hyperlite-admin", "post", "/networks", "--node", b, "name=labcli", "mode=isolated",
-       "subnet_address=10.98.3.1", "dhcp_start=10.98.3.10", "dhcp_end=10.98.3.50")  # fmt: skip
-    assert api(2, "GET", "/networks/labcli", token=t[2])[0] == 200  # made on node 2 itself
-    assert json.loads(on(1, "hyperlite-admin", "network", "show", "labcli", "--node", b, "--json"))["name"] == "labcli"
-    audit = ok(api(2, "GET", f"/audit?username={me}&action=get_network", token=t[2]))
-    assert any(e["resource"] == "labcli" for e in audit["items"]), audit
-    on(1, "hyperlite-admin", "delete", "/networks/labcli", "--node", b, "confirm==true")
+       "subnet_address=10.98.9.1", "dhcp_start=10.98.9.10", "dhcp_end=10.98.9.50")  # fmt: skip
+    try:
+        assert api(2, "GET", "/networks/labcli", token=t[2])[0] == 200  # made on node 2 itself
+        shown = json.loads(on(1, "hyperlite-admin", "network", "show", "labcli", "--node", b, "--json"))
+        assert shown["name"] == "labcli"
+
+        def entries():
+            return ok(api(2, "GET", "/audit?resource=labcli", token=t[2]))["items"]
+
+        # The audit log is written by a thread of its own (app/core/audit.py): the entry comes a moment later.
+        try:
+            wait(f"node 2's audit log naming {me}", lambda: any(e["username"] == me for e in entries()), 30, 1)
+        except AssertionError as e:
+            raise AssertionError(f"{e}; what node 2 recorded for labcli: {entries()}") from None
+    finally:
+        on(1, "hyperlite-admin", "delete", "/networks/labcli", "--node", b, "confirm==true")
     assert api(2, "GET", "/networks/labcli", token=t[2])[0] == 404
     # api reads the description the package ships next to the code.
     assert on(1, "hyperlite-admin", "api", "/vms/x/migrate").startswith("POST /vms/{name}/migrate")
