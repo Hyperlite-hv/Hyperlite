@@ -1,1 +1,0 @@
-- **A certificate fingerprint copied from a browser is accepted** (#330): `hyperlite-cli` and the Terraform provider pinned a fingerprint only in the dashboard's form (64 hexadecimal digits); the form browsers and `openssl` show, pairs separated by colons, was taken for another certificate and refused. Both forms pin the same certificate.
