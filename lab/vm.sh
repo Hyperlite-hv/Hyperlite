@@ -160,6 +160,8 @@ provision_hyperlite() { # provision_hyperlite DIR N: install the package $DEB, a
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
     on "$dir" "$i" tee /root/hyperlite.deb > /dev/null < "$DEB"
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q /root/hyperlite.deb
+    # The lab's own tool, not the package's: cut and heal drop Corosync's traffic with nftables.
+    on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q nftables > /dev/null
     for _ in $(seq 1 120); do
         on "$dir" "$i" curl -fsk -o /dev/null https://127.0.0.1:8000/health && return 0
         sleep 2

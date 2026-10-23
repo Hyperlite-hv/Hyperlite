@@ -32,7 +32,9 @@ node after a failover.
 
 """
 
+import contextlib
 import logging
+import re
 import subprocess
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
@@ -94,8 +96,10 @@ def _portable_xml(raw_xml):
 def _conn_key(node_label):
     """The frontend convention for the local host ('local') ->
     None (the backend convention, see open_conn()). It is never a row of the
-    `nodes` table."""
-    return None if node_label in (None, "local") else node_label
+    `nodes` table. In a cluster, this node's own name is this node too."""
+    from app.core import self_node
+
+    return None if self_node.is_self(node_label) else node_label
 
 
 def list_protected():
@@ -150,10 +154,29 @@ def enable_protection(vm_name, node, username):
                 f"HA protection impossible: {reason}, so nothing would stop a second copy of the VM on another node"
             )
 
+        with contextlib.suppress(libvirt.libvirtError):
+            domain.setAutostart(0)  # started at boot by Hyperlite only, which checks the HA record first (4.4)
         _store().protect(vm_name, node_label, _portable_xml(domain.XMLDesc(0)), username, _now())
         log_action(username, "ha_enable", vm_name, "success", f"node {node_label}")
     finally:
         conn.close()
+
+
+NODE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
+
+
+def policy(vm_name):
+    """{"priority", "preferred_nodes", "auto_restarts"} of a protected VM (app/core/ha_recovery.py)."""
+    return _store().policy(vm_name)
+
+
+def set_policy(vm_name, priority, preferred_nodes):
+    bad = [n for n in preferred_nodes if not isinstance(n, str) or not NODE_NAME.match(n)]
+    if bad:
+        raise RuntimeError(f"Not a node name: {', '.join(map(str, bad))}")
+    if priority not in ("high", "medium", "low"):
+        raise RuntimeError("The priority is high, medium or low")
+    _store().set_policy(vm_name, priority, list(dict.fromkeys(preferred_nodes)))
 
 
 def disable_protection(vm_name, username):
@@ -338,23 +361,149 @@ def recover(vm_name, target_node, username):
             f"without it"
         )
 
+    try:
+        ejected = start_on(row, target_node)
+    except libvirt.libvirtError as e:
+        raise RuntimeError(f"Recovery failed: {e}") from e
+    note = f" (CD-ROM emptied: {', '.join(ejected)})" if ejected else ""
+    log_action(username, "ha_recover", vm_name, "success", f"{row['node']} -> {target_node}{note}")
+
+
+def _uuid_of(domain_xml):
+    try:
+        return (ET.fromstring(domain_xml).findtext("uuid") or "").strip() or None
+    except ET.ParseError:
+        return None
+
+
+def eject_media(domain_xml):
+    """(definition, ejected paths): the definition with every CD-ROM empty. A recovered VM restarts where its old
+    node's ISO library is not: an installation ISO left in its drive kept it from starting anywhere else (lab). Its
+    disks are untouched."""
+    root = ET.fromstring(domain_xml)
+    ejected = []
+    for disk in root.findall(".//devices/disk[@device='cdrom']"):
+        source = disk.find("source")
+        if source is not None:
+            ejected.append(source.get("file") or source.get("dev") or "?")
+            disk.remove(source)
+    return (ET.tostring(root, encoding="unicode") if ejected else domain_xml), ejected
+
+
+def start_on(row, target_node, reuse_stopped=False):
+    """Define the protected VM on `target_node` from its stored definition, its CD-ROMs empty (eject_media), and start
+    it; its record then names that node. A VM of that name already there is refused, unless `reuse_stopped` and it is
+    this very VM (same UUID), stopped: what an earlier automatic attempt left when the disk was still locked
+    (app/core/ha_recovery.py). Returns the ISO paths ejected. Raises RuntimeError for a conflict,
+    libvirt.libvirtError when libvirt refuses."""
+    vm_name = row["vm_name"]
+    domain_xml, ejected = eject_media(row["domain_xml"])
     conn = open_conn(_conn_key(target_node))
     try:
         try:
-            conn.lookupByName(vm_name)
+            domain = conn.lookupByName(vm_name)
+        except libvirt.libvirtError:
+            domain = None
+        if domain is not None and not (
+            reuse_stopped and not domain.isActive() and domain.UUIDString() == _uuid_of(row["domain_xml"])
+        ):
             raise RuntimeError(
                 f"A VM '{vm_name}' already exists on '{target_node}': risk of conflict, recovery refused"
             )
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in recover()", exc_info=True)
+        _start_networks(conn, domain_xml)
+        if domain is None:
+            domain = conn.defineXML(domain_xml)
+        domain.setAutostart(0)  # started at boot by Hyperlite only, which checks the HA record first
+        domain.create()
+        _store().sync_definition(vm_name, _portable_xml(domain.XMLDesc(0)), _now(), node=target_node)
+    finally:
+        conn.close()
+    _follow(vm_name, row["node"], target_node)
+    return ejected
 
+
+def _start_networks(conn, domain_xml):
+    """Start, on the target, each network of the VM that exists there but is stopped, as a migration does: a network
+    missing there stays a reason the VM does not start, said by libvirt."""
+    try:
+        names = {i.get("network") for i in ET.fromstring(domain_xml).findall(".//devices/interface/source")}
+    except ET.ParseError:
+        return
+    for name in sorted(n for n in names if n):
         try:
-            new_domain = conn.defineXML(row["domain_xml"])
-            new_domain.create()
-        except libvirt.libvirtError as e:
-            raise RuntimeError(f"Recovery failed: {e}") from e
+            net = conn.networkLookupByName(name)
+            if not net.isActive():
+                net.create()
+                net.setAutostart(True)
+        except libvirt.libvirtError:
+            logger.debug("Network %s not started on the target", name, exc_info=True)
 
-        _store().sync_definition(vm_name, _portable_xml(new_domain.XMLDesc(0)), _now(), node=target_node)
-        log_action(username, "ha_recover", vm_name, "success", f"{row['node']} -> {target_node}")
+
+def _follow(vm_name, source_node, target_node):
+    """The VM's notes, tags and start at boot go with it, as after a migration. Its snapshots' records stayed in the
+    lost node's libvirt: they are not carried."""
+    from app.core import object_meta, vm_boot
+
+    for what, move in (
+        ("its tags and notes", lambda: object_meta.follow_migration(vm_name, source_node, target_node)),
+        ("its start at boot", lambda: vm_boot.follow_migration(vm_name, source_node, target_node)),
+    ):
+        try:
+            move()
+        except Exception:  # the VM runs: a step after it never undoes that
+            logger.exception("HA %s: %s did not follow it to %s", vm_name, what, target_node)
+
+
+def moved_away(vm_name):
+    """True when HA restarted this VM on another member: its record names another node."""
+    from app.core import self_node
+
+    row = get_protected(vm_name)
+    return bool(row) and not self_node.is_self(row["node"])
+
+
+def forget_moved():
+    """At this node's start, before anything starts at boot (docs/design/ha-automatic.md, 4.4): undefine each stopped
+    VM here that HA restarted on another member while this node was down. Its disks are shared: only the definition
+    goes. A copy running here is left alone (QEMU's lock kept a second copy from opening the disk): an administrator's
+    call. Returns the VMs undefined."""
+    from app.core import self_node
+
+    rows = {r["vm_name"]: r for r in list_protected() if not self_node.is_self(r["node"])}
+    if not rows:
+        return []
+    conn = open_conn(None)
+    done = []
+    try:
+        for name, row in rows.items():
+            try:
+                domain = conn.lookupByName(name)
+            except libvirt.libvirtError:
+                continue
+            if domain.isActive() or domain.UUIDString() != _uuid_of(row["domain_xml"]):
+                continue
+            domain.undefineFlags(
+                libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM
+                | libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA
+                | libvirt.VIR_DOMAIN_UNDEFINE_MANAGED_SAVE
+            )
+            log_action(
+                "system", "ha_forget_moved", name, "success", f"restarted on {row['node']} while this node was down"
+            )
+            done.append(name)
+    finally:
+        conn.close()
+    return done
+
+
+def forget_on(row, target_node):
+    """Undefine, on `target_node`, the stopped copy of the protected VM an abandoned attempt left there."""
+    conn = open_conn(_conn_key(target_node))
+    try:
+        domain = conn.lookupByName(row["vm_name"])
+        if not domain.isActive() and domain.UUIDString() == _uuid_of(row["domain_xml"]):
+            domain.undefine()
+    except libvirt.libvirtError:
+        logger.debug("Nothing to undefine on %s", target_node, exc_info=True)
     finally:
         conn.close()

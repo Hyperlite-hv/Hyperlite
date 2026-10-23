@@ -502,6 +502,18 @@ def init_db():
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
+        # Automatic HA per protected VM (docs/design/ha-automatic.md, 4.3): its restart priority, its preferred nodes
+        # (a JSON list, in order) and its last automatic restarts (a JSON list of times), for the limit per hour. A
+        # table of its own, not columns of ha_protected_vms: a node before this version ignores a table it does not
+        # know, while a column it does not know would stop it applying any change from the cluster.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ha_policies (
+                vm_name TEXT PRIMARY KEY,
+                priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('high', 'medium', 'low')),
+                preferred_nodes TEXT NOT NULL DEFAULT '[]',
+                auto_restarts TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
         # Fencing settings per node ("local" or a registered node name), see app/core/ha_fencing.py. The password
         # is Fernet-encrypted and never returned by the API.
         conn.execute("""
