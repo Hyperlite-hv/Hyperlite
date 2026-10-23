@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import secrets
+import shlex
 import shutil
 import ssl
 import subprocess
@@ -48,10 +49,11 @@ def ip(n):
 
 
 def on(n, *command):
-    """A command on node n, as root; its output."""
+    """A command on node n, as root; its output. ssh joins its arguments into one line for the remote shell: each one
+    is quoted, or `sh -c "a && b"` would run `sh -c a` and the rest beside it."""
     key = DIR / "id_ed25519"
     ssh = ["ssh", "-i", str(key), "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
-    ssh += ["-o", "LogLevel=ERROR", f"debian@{ip(n)}", "sudo", *command]
+    ssh += ["-o", "LogLevel=ERROR", f"debian@{ip(n)}", shlex.join(["sudo", *command])]
     return subprocess.run(ssh, check=True, capture_output=True, text=True, timeout=600).stdout
 
 
