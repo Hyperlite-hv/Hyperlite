@@ -25,7 +25,7 @@ import VmConsole from "../pages/VmConsole";
 import { VmSnapshotsPage, VmBackupPage } from "../pages/VmSnapshotsBackup";
 import { VmHardwarePage, VmOptionsPage, VmNetworkPage } from "../pages/VmConfigure";
 import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
-import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage } from "../pages/ContainerPages";
+import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage, ContainerSnapshotsPage } from "../pages/ContainerPages";
 import VmCloudInitPage from "../pages/VmCloudInit";
 import VmAdvancedPage from "../pages/VmAdvanced";
 import MetricsPage from "../pages/MetricsPage";
@@ -47,7 +47,7 @@ export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
   backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage,
 };
-export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
+export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, snapshots: ContainerSnapshotsPage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
 
 // vSphere-style model: every inventory object has a few top tabs; a top tab that holds several
@@ -84,6 +84,7 @@ export const OBJECT_TABS = {
   container: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },
     { id: "console", label: "tab.console", pages: [page("console")] },
+    { id: "snapshots", label: "tab.snapshots", pages: [page("snapshots")] },
     { id: "backup", label: "tab.backups", pages: [page("backup")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
     { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
