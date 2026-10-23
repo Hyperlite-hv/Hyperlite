@@ -20,8 +20,14 @@ def main(directory):
     for log in logs:
         if not log.is_file():
             continue
-        tail = "\n".join(log.read_text(errors="replace").splitlines()[-LINES:])[-LIMIT:]
+        lines = log.read_text(errors="replace").splitlines()
         title = escape(str(log.relative_to(root))).replace(",", "%2C").replace(":", "%3A")
+        # A traceback earlier in the log: its start says where, the tail only what followed.
+        first = next((i for i, line in enumerate(lines) if "Traceback" in line), None)
+        if first is not None and first < len(lines) - LINES:
+            start = "\n".join(lines[first : first + LINES])[:LIMIT]
+            print(f"::error title={title} (first traceback)::{escape(start)}")
+        tail = "\n".join(lines[-LINES:])[-LIMIT:]
         print(f"::error title={title}::{escape(tail)}")
 
 

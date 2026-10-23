@@ -65,7 +65,9 @@ def api(n, method, path, body=None, token=None, form=None, content_type=None, ti
         data, headers["Content-Type"] = form, content_type
     elif body is not None:
         data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
-    request = urllib.request.Request(f"https://{ip(n)}:8000/api/v1{path}", data=data, method=method, headers=headers)
+    prefix = "" if path == "/health" else "/api/v1"  # /health is served at the root, for load balancers
+    url = f"https://{ip(n)}:8000{prefix}{path}"
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(request, context=_insecure, timeout=timeout) as r:
             status, raw = r.status, r.read()
