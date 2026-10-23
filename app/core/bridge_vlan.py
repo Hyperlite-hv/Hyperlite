@@ -29,7 +29,9 @@ METADATA_KEY = "hlvlan"
 SYS_NET = Path("/sys/class/net")
 BRIDGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}$")
 MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
-TRUNKS_RE = re.compile(r"^\d{1,4}(-\d{1,4})?(\s*[,;]\s*\d{1,4}(-\d{1,4})?)*$")
+# One trunk entry: a VLAN or a range. The list is split on its separators first, so no pattern runs over the whole
+# input (a pattern with repeated optional spaces backtracks on long runs of them).
+TRUNK_PART_RE = re.compile(r"^(\d{1,4})(?:-(\d{1,4}))?$")
 # A port without an access VLAN takes the bridge's default one, as on Proxmox VE.
 DEFAULT_PVID = 1
 TIMEOUT_S = 15
@@ -78,15 +80,15 @@ def filters_vlans(bridge, node=None):
 
 def parse_trunks(text):
     """Trunk VLANs as Proxmox VE (`10;20-30`) or vSphere (`10,20-30`) write them: a sorted list of (first, last)."""
-    if text is None or text == "":
+    if text is None or str(text).strip() == "":
         return []
-    text = str(text).strip()
-    if not TRUNKS_RE.fullmatch(text):
-        raise VlanError("Trunk VLANs: numbers and ranges from 1 to 4094, such as 10,20-30")
     ranges = []
-    for part in re.split(r"\s*[,;]\s*", text):
-        first, _, last = part.partition("-")
-        first, last = int(first), int(last or first)
+    for part in str(text).replace(";", ",").split(","):
+        part = part.strip()
+        m = TRUNK_PART_RE.fullmatch(part)
+        if m is None:
+            raise VlanError("Trunk VLANs: numbers and ranges from 1 to 4094, such as 10,20-30")
+        first, last = int(m.group(1)), int(m.group(2) or m.group(1))
         if not 1 <= first <= last <= 4094:
             raise VlanError(f"Trunk VLANs: '{part}' is not a range from 1 to 4094")
         ranges.append((first, last))

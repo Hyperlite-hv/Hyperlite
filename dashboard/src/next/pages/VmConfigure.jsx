@@ -433,9 +433,13 @@ export function VmHardwarePage({ resource: vm }) {
 // Trunk VLANs as the API takes them (app/core/bridge_vlan.py): numbers and ranges from 1 to 4094, "10,20-30" or "10;20-30".
 export function trunksValid(text) {
   const t = String(text ?? "").trim();
-  if (!/^\d{1,4}(-\d{1,4})?(\s*[,;]\s*\d{1,4}(-\d{1,4})?)*$/.test(t)) return false;
-  return t.split(/\s*[,;]\s*/).every((part) => {
-    const [a, b = a] = part.split("-").map(Number);
+  if (!t) return false;
+  // Split on the separators first: no pattern runs over the whole input.
+  return t.replace(/;/g, ",").split(",").every((raw) => {
+    const m = /^(\d{1,4})(?:-(\d{1,4}))?$/.exec(raw.trim());
+    if (!m) return false;
+    const a = Number(m[1]);
+    const b = Number(m[2] ?? m[1]);
     return a >= 1 && a <= b && b <= 4094;
   });
 }
