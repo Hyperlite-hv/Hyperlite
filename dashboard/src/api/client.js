@@ -1437,6 +1437,12 @@ export async function fetchApiDocsAccess() {
 export async function setApiDocsAccess(access) {
   return realFetch("/api-docs/access", { method: "PUT", ...jsonBody({ access }) });
 }
+export async function fetchAdminCli() {
+  return realFetch("/admin-cli");
+}
+export async function setAdminCli(lockdown) {
+  return realFetch("/admin-cli", { method: "PUT", ...jsonBody({ lockdown }) });
+}
 // A single-use link to Swagger (/docs), for an account allowed to open it: { url }.
 export async function openSwagger() {
   return realFetch("/api-docs/ticket", { method: "POST" });

@@ -1,4 +1,4 @@
-import { expect, goTo, test, uiLogin } from "../support/fixtures";
+import { apiLogin, expect, goTo, test, uiLogin } from "../support/fixtures";
 
 // Administration › API: a button opens Swagger in a new tab; there "Authorize" signs in and the API can be called.
 // /docs is never public, and an administrator chooses who may open it.
@@ -38,4 +38,25 @@ test("Open Swagger opens /docs in a new tab, Authorize signs in, the access sett
   expect((await swagger.reload())?.status()).toBe(403);
   await main.getByRole("button", { name: "Administrators" }).click();
   await expect(main.getByRole("button", { name: "Open Swagger" })).toBeVisible();
+});
+
+// hyperlite-admin's lockdown, as ESXi's: root of a node runs it as root@<node>, or named accounts only.
+test("The lockdown of hyperlite-admin is turned on and off from the API page", async ({ page, request }) => {
+  await uiLogin(page);
+  await goTo(page, "API");
+  const group = page.getByRole("main").getByRole("group", { name: "Root of a node" });
+  await expect(group.getByRole("button", { name: "Signed in as root@<node>" })).toHaveAttribute("aria-pressed", "true");
+  const token = await apiLogin(request);
+  const lockdown = async () => (await (await request.get("/admin-cli", { headers: { Authorization: `Bearer ${token}` } })).json()).lockdown;
+  try {
+    await group.getByRole("button", { name: "Lockdown: named accounts only" }).click();
+    await expect(group.getByRole("button", { name: "Lockdown: named accounts only" })).toHaveAttribute("aria-pressed", "true");
+    expect(await lockdown()).toBe(true);
+    await group.getByRole("button", { name: "Signed in as root@<node>" }).click();
+    await expect(group.getByRole("button", { name: "Signed in as root@<node>" })).toHaveAttribute("aria-pressed", "true");
+    expect(await lockdown()).toBe(false);
+  } finally {
+    // Another test of this backend may rely on the default.
+    await request.put("/admin-cli", { headers: { Authorization: `Bearer ${token}` }, data: { lockdown: false } });
+  }
 });
