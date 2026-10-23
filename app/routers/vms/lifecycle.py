@@ -9,7 +9,7 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import firmware, guest_agent, lvm_storage, vm_locks, vm_records, zfs_storage
+from app.core import firmware, guest_agent, hookscript, lvm_storage, vm_locks, vm_records, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -60,6 +60,28 @@ def _admit_ha_start(name, node, domain, user, task_id):
         logger.warning("Starting HA VM %s: %s", name, result["detail"])
 
 
+def _has_hookscript(domain):
+    try:
+        return hookscript.script_of_domain_xml(ET.fromstring(domain.XMLDesc(0))) is not None
+    except (libvirt.libvirtError, ET.ParseError):
+        return False
+
+
+def _pre_stop(domain, name, node, task_id, username, action_name, force):
+    """The VM's pre-stop hook script, before Hyperlite stops it (libvirt has no hook there). A failure refuses the
+    shutdown or the stop; a forced one goes on, as an administrator must always be able to stop a VM."""
+    try:
+        run = hookscript.pre_stop(domain, node, task_id)
+    except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError) as e:
+        run = {"ok": False, "exit_code": None, "phase": "pre-stop", "output": str(e), "seconds": 0}
+        hookscript.log_run(task_id, run)
+    if run is None or run["ok"] or force:
+        return
+    msg = hookscript.failure_message(run)
+    log_action(username, action_name, name, "failed", msg, task_id=task_id)
+    raise HTTPException(status_code=409, detail=f"{msg}. A forced stop runs it and stops the VM anyway.")
+
+
 @router.post("/{name}/start")
 def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
     conn = open_conn(node)
@@ -89,12 +111,22 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
             )
             log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=409, detail=msg)
+        hooked, since = _has_hookscript(domain), time.time()
         try:
             domain.create()
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
+            refused = False
+            if hooked:
+                # A pre-start that refused: its own words, not libvirt's command line, and a refusal rather than an
+                # internal error.
+                refused = hookscript.start_error(msg) != msg
+                msg = hookscript.start_error(msg)
+                hookscript.log_runs_since(task_id, name, since, node)
             log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Unable to start the VM: {msg}") from e
+            raise HTTPException(status_code=409 if refused else 500, detail=f"Unable to start the VM: {msg}") from e
+        if hooked:
+            hookscript.log_runs_since(task_id, name, since, node)
         touch_vm_activity(name)  # resets the inactivity counter
         log_action(user["username"], "start_vm", name, "success", task_id=task_id)
         return _domain_summary(domain)
@@ -173,6 +205,7 @@ def stop_vm(
         if not domain.isActive():
             log_action(user["username"], "stop_vm", name, "failed", "VM already stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already stopped")
+        _pre_stop(domain, name, node, task_id, user["username"], action_name, force)
         try:
             method = None
             if force:
@@ -215,6 +248,7 @@ def restart_vm(
                 busy = vm_locks.running(name, node)
                 if busy:  # a hot backup or a live copy holds the VM: destroying it would break that work
                     raise HTTPException(status_code=409, detail=f"VM '{name}' is busy: {busy} is in progress")
+                _pre_stop(domain, name, node, task_id, user["username"], "restart_vm", force)
                 domain.destroy()
                 domain.create()
             else:

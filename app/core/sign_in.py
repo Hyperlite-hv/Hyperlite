@@ -17,6 +17,7 @@ from app.core import tickets
 
 OPERATIONS = ("password", "totp", "webauthn", "sso", "change_password")
 PREAUTH_LIFETIME_S = 5 * 60  # enough to type a code
+LOCAL_ROOT_LIFETIME_S = 5 * 60
 
 
 def ask(op, log_user=None, **args):
@@ -54,6 +55,19 @@ def _session(user, remember, must_change=None):
     )
     token = _sign({"sub": user["username"], "role": user["role"]}, lifetime)
     return {"result": "session", "token": token, "user": _public(user, must_change)}
+
+
+def local_root():
+    """root's session on this node, for hyperlite-admin (docs/design/admin-cli.md): what hyperlite-daemon signs once the
+    kernel told it the caller runs as root (app/daemon/ops/auth.py). Short, so a ticket left in a process's memory soon
+    proves nothing; the CLI asks again during a long wait."""
+    from app.core import admin_cli, security, self_node
+
+    if admin_cli.locked():
+        raise PermissionError(admin_cli.REASON)
+    claims = {"sub": security.local_root_name(self_node.name()), "role": "admin", security.LOCAL_ROOT_CLAIM: True}
+    token = _sign(claims, timedelta(seconds=LOCAL_ROOT_LIFETIME_S))
+    return {"token": token, "expires_in_s": LOCAL_ROOT_LIFETIME_S}
 
 
 def _second_factor_methods(user):
