@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 
 import libvirt
 
-from app.core import iscsi, zfs_storage
+from app.core import iscsi, lvm_storage, zfs_storage
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import refresh_pools_for_paths
 
@@ -85,6 +85,10 @@ def plan(disk_el):
             pool, zvol = parts[2], parts[3]
             if zfs_storage.validate_zfs_name(pool) is None and zfs_storage.validate_zfs_name(zvol) is None:
                 return {"kind": "zvol", "pool": pool, "zvol": zvol}, None
+        # /dev/<group>/<volume>: a logical volume of an LVM pool, grown with lvextend (libvirt's logical pool cannot).
+        lv = lvm_storage.lv_of_path(dev) if dev else None
+        if lv:
+            return {"kind": "lv", "vg": lv[0], "lv": lv[1], "path": dev}, None
         return None, (NOT_GROWABLE_UNSUPPORTED, "This block device is not managed by Hyperlite and cannot be resized")
     return None, (NOT_GROWABLE_UNSUPPORTED, f"Disks of type '{kind or 'unknown'}' cannot be resized here")
 
@@ -180,6 +184,12 @@ def grow(conn, domain, target_dev, size_gb, before_change=None):
             zfs_storage.grow_zvol(how["pool"], how["zvol"], new_bytes)
         except zfs_storage.ZfsError as e:
             raise ResizeError(f"zvol resize error: {e.message}", 500) from e
+    elif how["kind"] == "lv":
+        try:
+            lvm_storage.extend(how["vg"], how["lv"], new_bytes)
+        except lvm_storage.LvmError as e:
+            raise ResizeError(f"Logical volume resize error: {e}", 500) from e
+        _refresh_pool_of(conn, how["path"])
     elif not live:
         _qemu_img_resize(how["path"], how["format"], new_bytes)
         _refresh_pool_of(conn, how["path"])
