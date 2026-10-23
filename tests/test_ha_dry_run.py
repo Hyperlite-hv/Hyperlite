@@ -58,6 +58,7 @@ def test_fencing_settings_keep_the_password_encrypted_and_never_return_it(databa
         (("ipmi", "10.0.0.1", 70000, "a", "p"), "port"),
         (("ipmi", "10.0.0.1", None, "a b", "p"), "user name"),
         (("amt", "10.0.0.1", None, "admin", None), "password is needed"),
+        (("ipmi", "10.0.0.1", None, "admin", "p" * 21), "20 bytes at most"),  # ipmitool would refuse it at fence time
     ],
 )
 def test_invalid_fencing_settings_are_refused(database, args, text):
@@ -112,8 +113,10 @@ def test_a_failed_test_reports_the_agent_message_without_the_password(database, 
 
 def test_a_missing_agent_says_which_package_to_install(database, monkeypatch):
     monkeypatch.setattr(ha_fencing.shutil, "which", lambda name: None)
+    ha_fencing.save("node2", "ipmi", "bmc2.example.lan", None, "admin", "pw")
+    assert "apt install fence-agents-ipmilan" in ha_fencing.test("node2")["detail"]
     ha_fencing.save("node2", "amt", "pc2.example.lan", None, "admin", "pw")
-    assert "apt install fence-agents" in ha_fencing.test("node2")["detail"]
+    assert "not packaged by Debian 13" in ha_fencing.test("node2")["detail"]  # no fence_amt_ws in Debian
 
 
 # --- The watcher -----------------------------------------------------------------------------------------------------

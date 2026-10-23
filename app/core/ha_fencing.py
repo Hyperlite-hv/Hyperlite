@@ -7,11 +7,11 @@ elsewhere. Methods:
   - "amt"        : Intel AMT on vPro PCs (HP EliteDesk, Lenovo ThinkCentre...), fence_amt_ws;
   - "lease_only" : no power control; the node is considered stopped only once its storage leases expired.
 
-This module never powers anything off. Its only action is a **status** query ("Test fencing"), which tells the
-administrator whether the credentials and the network path to the BMC work. The fence agents come from the
-`fence-agents` package; they are run without a shell, and their options, the password included, are passed on
-standard input, so they never show in the process list. The password is stored encrypted (secrets_crypto) and
-never returned by the API.
+Two actions: a **status** query ("Test fencing"), which tells the administrator whether the credentials and the network
+path to the BMC work, and **power_off**, the fence itself: the node powered off, then its power state read until it says
+off (docs/design/ha-automatic.md, 4.2). Never a reboot. The fence agents come from the `fence-agents` package; they are
+run without a shell, and their options, the password included, are passed on standard input, so they never show in the
+process list. The password is stored encrypted (secrets_crypto), never returned by the API, and never in a message.
 """
 
 import ipaddress
@@ -19,6 +19,7 @@ import logging
 import re
 import shutil
 import subprocess
+import time
 from datetime import UTC, datetime
 
 from app.core import secrets_crypto
@@ -33,12 +34,19 @@ def _store():
 logger = logging.getLogger(__name__)
 
 AGENTS = {"ipmi": "fence_ipmilan", "redfish": "fence_redfish", "amt": "fence_amt_ws"}
+# The Debian 13 package of each agent (the package recommends the first two). Debian packages no fence_amt_ws (its
+# WS-MAN library is not in Debian): AMT needs power control of Hyperlite's own (docs/design/ha-automatic.md, step 2b).
+PACKAGES = {"ipmi": "fence-agents-ipmilan", "redfish": "fence-agents-redfish", "amt": None}
 METHODS = (*AGENTS, "lease_only")
 HOST_RE = re.compile(
     r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
 )
 USER_RE = re.compile(r"^[A-Za-z0-9_.@\\-]{1,64}$")
 TEST_TIMEOUT_S = 40
+OFF_TIMEOUT_S = 90  # the agent's own "off": it powers off, then waits for the BMC to say so
+OFF_CONFIRM_S = 60  # then the power state is read again until off, at most this long
+OFF_POLL_S = 5
+IPMI_PASSWORD_MAX = 20  # bytes, IPMI 2.0
 
 
 class FencingError(Exception):
@@ -90,6 +98,9 @@ def save(node, method, address=None, port=None, user=None, secret=None, tls_unve
     error = validate(method, address, port, user)
     if error:
         raise FencingError(error)
+    if method == "ipmi" and secret and len(secret.encode()) > IPMI_PASSWORD_MAX:
+        # ipmitool refuses it ("password is longer than 20 bytes"): the fence would fail only when it is needed.
+        raise FencingError(f"An IPMI password is {IPMI_PASSWORD_MAX} bytes at most (IPMI 2.0)")
     now = datetime.now(UTC).isoformat()
     existing = _store().fencing(node)
     stored = secrets_crypto.encrypt(secret) if secret else (existing["secret"] if existing else None)
@@ -123,6 +134,42 @@ def _agent_input(row, action):
     return "\n".join(lines) + "\n"
 
 
+def _without_secret(row, text):
+    """The agent's own words, without anything that could echo the password back."""
+    try:
+        secret = secrets_crypto.decrypt(row["secret"]) or ""
+    except secrets_crypto.SecretUnreadable:
+        secret = ""
+    message = " ".join(line.strip() for line in text.splitlines() if line.strip())[-300:]
+    return message.replace(secret, "***") if secret else message
+
+
+def _run(row, action, timeout):
+    """(output, None) of the node's fence agent run with `action`, or (None, why it could not run)."""
+    agent = AGENTS[row["method"]]
+    path = shutil.which(agent)
+    if path is None:
+        package = PACKAGES[row["method"]]
+        if package is None:
+            return None, f"{agent} is not packaged by Debian 13: AMT power control is not available on this host yet"
+        return None, f"{agent} is not installed on this host: apt install {package}"
+    try:
+        proc = subprocess.run([path], input=_agent_input(row, action), capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, f"No answer from {row['address']} within {timeout} s"
+    except OSError:
+        # The details stay in the service log: an OS error text is not for the API.
+        logger.warning("Fence agent %s could not run for %s", agent, row["node"], exc_info=True)
+        return None, f"{agent} could not run on this host (see the service log)"
+    out = (proc.stdout or "") + (proc.stderr or "")
+    return out if out.strip() else f"{agent} exited with code {proc.returncode}", None
+
+
+def _power_state(out):
+    state = re.search(r"Status:\s*(ON|OFF)", out or "", re.IGNORECASE)
+    return state.group(1).lower() if state else None
+
+
 def test(node):
     """Query the power state through the fence agent. Never powers anything off.
     Returns {"ok", "power": "on"|"off"|None, "detail"}."""
@@ -132,41 +179,32 @@ def test(node):
     if row["method"] == "lease_only":
         return {"ok": True, "power": None, "detail": "Leases only: there is no power control to test"}
     agent = AGENTS[row["method"]]
-    path = shutil.which(agent)
-    if path is None:
-        return {
-            "ok": False,
-            "power": None,
-            "detail": f"{agent} is not installed on this host: apt install fence-agents",
-        }
-    try:
-        proc = subprocess.run(
-            [path], input=_agent_input(row, "status"), capture_output=True, text=True, timeout=TEST_TIMEOUT_S
-        )
-    except subprocess.TimeoutExpired:
-        return {
-            "ok": False,
-            "power": None,
-            "detail": f"No answer from {row['address']} within {TEST_TIMEOUT_S} s",
-        }
-    except OSError:
-        # The details stay in the service log: an OS error text is not for the API.
-        logger.warning("Fence agent %s could not run for %s", agent, node, exc_info=True)
-        return {
-            "ok": False,
-            "power": None,
-            "detail": f"{agent} could not run on this host (see the service log)",
-        }
-    out = (proc.stdout or "") + (proc.stderr or "")
-    state = re.search(r"Status:\s*(ON|OFF)", out, re.IGNORECASE)
-    if state:
-        return {"ok": True, "power": state.group(1).lower(), "detail": f"Power state read through {agent}"}
-    # Keep the agent's own words, without anything that could echo the password back.
-    try:
-        secret = secrets_crypto.decrypt(row["secret"]) or ""
-    except secrets_crypto.SecretUnreadable:
-        secret = ""
-    message = " ".join(line.strip() for line in out.splitlines() if line.strip())[-300:]
-    if secret:
-        message = message.replace(secret, "***")
-    return {"ok": False, "power": None, "detail": message or f"{agent} failed (exit code {proc.returncode})"}
+    out, problem = _run(row, "status", TEST_TIMEOUT_S)
+    if problem:
+        return {"ok": False, "power": None, "detail": problem}
+    power = _power_state(out)
+    if power:
+        return {"ok": True, "power": power, "detail": f"Power state read through {agent}"}
+    return {"ok": False, "power": None, "detail": _without_secret(row, out)}
+
+
+def power_off(node):
+    """Power `node` off through its BMC or AMT, then read its power state until it says off: the proof that the copies
+    of its VMs are stopped before they are started elsewhere (docs/design/ha-automatic.md, 4.2). Never "reboot": a node
+    back on by itself before its VMs are restarted elsewhere is the double start this prevents.
+    Returns {"fenced": bool, "detail"}; fenced only once the agent read the power state as off."""
+    row = _store().fencing(node)
+    if row is None or row["method"] not in AGENTS:
+        return {"fenced": False, "detail": "No BMC or AMT is set for this node"}
+    agent = AGENTS[row["method"]]
+    out, problem = _run(row, "off", OFF_TIMEOUT_S)
+    last = problem or _without_secret(row, out)
+    deadline = time.monotonic() + OFF_CONFIRM_S
+    while True:
+        out, problem = _run(row, "status", TEST_TIMEOUT_S)
+        if not problem and _power_state(out) == "off":
+            return {"fenced": True, "detail": f"Powered off through {agent}, its power state read as off"}
+        last = problem or _without_secret(row, out) or last
+        if time.monotonic() >= deadline:
+            return {"fenced": False, "detail": f"Not confirmed off through {agent} within {OFF_CONFIRM_S} s: {last}"}
+        time.sleep(OFF_POLL_S)

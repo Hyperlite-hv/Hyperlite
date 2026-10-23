@@ -283,7 +283,16 @@ def recover(vm_name, target_node, username):
     # original process's death was really confirmed or whether the recovery only
     # relies on QEMU's native write lock (a real safety net, confirmed in testing,
     # purpose weaker than an active confirmation).
-    fenced, fence_detail = _attempt_ssh_fence(row["node"], vm_name)
+    # A node with a BMC or AMT is powered off through it first, and the VM is restarted elsewhere only once its power
+    # state reads off (docs/design/ha-automatic.md, 4.2): that proof exists, so a recovery without it is refused.
+    from app.core import ha_fencing
+
+    method = (ha_fencing.get(row["node"]) or {}).get("method")
+    if method in ha_fencing.AGENTS:
+        result = ha_fencing.power_off(row["node"])
+        fenced, fence_detail = result["fenced"], result["detail"]
+    else:
+        fenced, fence_detail = _attempt_ssh_fence(row["node"], vm_name)
     log_action(
         username,
         "ha_fence",
@@ -291,6 +300,12 @@ def recover(vm_name, target_node, username):
         "success" if fenced else "failed",
         f"Node '{row['node']}': {fence_detail}",
     )
+    if method in ha_fencing.AGENTS and not fenced:
+        raise RuntimeError(
+            f"'{row['node']}' was not confirmed powered off through its {method} ({fence_detail}): the VM is not "
+            f"restarted elsewhere while its old copy may still run. Fix the node's fencing, or remove it to recover "
+            f"without it"
+        )
 
     conn = open_conn(_conn_key(target_node))
     try:
