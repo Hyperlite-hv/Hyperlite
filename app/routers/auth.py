@@ -58,7 +58,10 @@ LOGIN_IP_MAX_ATTEMPTS = 20
 LOGIN_IP_WINDOW_S = 300
 
 
+# Counted regardless of case: a directory compares names that way, so "Bob", "bob" and "BOB" are one account to
+# guess, never three locks of their own (GHSA-8qgj-pvwg-xj37).
 def _login_locked_out(username, ip):
+    username = username.lower()
     return (
         login_guard.recent_failures("userip", f"{username}|{ip}", LOGIN_WINDOW_S) >= LOGIN_MAX_ATTEMPTS
         or login_guard.recent_failures("user", username, LOGIN_WINDOW_S) >= LOGIN_ACCOUNT_MAX_ATTEMPTS
@@ -66,12 +69,13 @@ def _login_locked_out(username, ip):
 
 
 def _login_record_failure(username, ip):
+    username = username.lower()
     login_guard.record_failure("userip", f"{username}|{ip}")
     login_guard.record_failure("user", username)
 
 
 def _login_clear_failures(username, ip):
-    login_guard.clear_failures("userip", f"{username}|{ip}")
+    login_guard.clear_failures("userip", f"{username.lower()}|{ip}")
 
 
 def _reauth_locked_out(username):
