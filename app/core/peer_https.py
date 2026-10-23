@@ -33,7 +33,12 @@ _pools_lock = threading.Lock()
 
 
 class Unavailable(Exception):
-    """The call could not be made over HTTPS: the caller uses SSH."""
+    """The call could not be made over HTTPS, nothing was sent: the caller uses SSH."""
+
+
+class Lost(Exception):
+    """A change was sent and its answer did not come back: it may have been made, so it is not sent again (over SSH
+    either)."""
 
 
 def _client():
@@ -114,9 +119,11 @@ def call(node, token, method, path, body=None, timeout=60, connect_timeout=5):
     payload = json.dumps(body).encode() if body is not None else None
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     for attempt in (1, 2):  # a kept connection the peer closed meanwhile: once more on a new one
+        sent = False
         try:
             if conn is None:
                 conn = _connect(node["hostname"], PORT, fingerprint, connect_timeout)
+            sent = True
             conn.timeout = timeout
             if conn.sock is not None:
                 conn.sock.settimeout(timeout)
@@ -130,16 +137,50 @@ def call(node, token, method, path, body=None, timeout=60, connect_timeout=5):
             if conn is not None:
                 conn.close()
             conn = None
+            if sent and not reads:
+                raise Lost(
+                    f"{node['name']} did not answer {method} {path.split('?')[0]}, which may have been done: {e}"
+                ) from None
             if attempt == 2 or not reads:
                 raise Unavailable(f"{node['name']} over HTTPS: {e}") from None
     try:
         pool.put_nowait(conn)
     except queue.Full:
         conn.close()
+    return status, _decoded(raw)
+
+
+def _decoded(raw):
     try:
-        return status, json.loads(raw) if raw else None
+        return json.loads(raw) if raw else None
     except ValueError:
-        return status, raw.decode("utf-8", "replace")
+        return raw.decode("utf-8", "replace")
+
+
+def send(node, token, path, content_type, length, chunks, timeout, connect_timeout=5):
+    """(status, decoded body) of a POST whose body, `length` bytes, is read from `chunks` while it is sent: a file,
+    which never crosses this node in memory. On a new connection, and once: there is no SSH way for it. Raises
+    Unavailable when the member cannot be reached this way (nothing was sent), Lost once something was."""
+    from app.core.cluster_setup import PORT
+
+    fingerprint = fingerprint_of(node["name"])
+    if not fingerprint:
+        raise Unavailable(f"{node['name']} published no certificate fingerprint")
+    try:
+        conn = _connect(node["hostname"], PORT, fingerprint, connect_timeout)
+    except (OSError, http.client.HTTPException) as e:
+        raise Unavailable(f"{node['name']} over HTTPS: {e}") from None
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": content_type, "Content-Length": str(length)}
+    try:
+        conn.sock.settimeout(timeout)
+        conn.request("POST", path, chunks, headers)
+        response = conn.getresponse()
+        status, raw = response.status, response.read()
+    except (OSError, http.client.HTTPException) as e:
+        raise Lost(f"{node['name']} did not answer POST {path.split('?')[0]}, which may have been done: {e}") from None
+    finally:
+        conn.close()
+    return status, _decoded(raw)
 
 
 def start():

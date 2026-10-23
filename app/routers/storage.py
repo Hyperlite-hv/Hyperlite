@@ -12,10 +12,9 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cluster_view, iscsi, nfs_permissions, renaming, shared_pools, smb_storage, zfs_storage
+from app.core import cluster, cluster_view, iscsi, nfs_permissions, renaming, shared_pools, smb_storage, zfs_storage
 from app.core import permissions as perm
 from app.core.audit import log_action
-from app.core.cluster import list_nodes
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_pool, lookup_volume, open_conn
 from app.core.listing import item, listing
@@ -538,7 +537,7 @@ def _create_on(payload, node, target_path, user):
 
 def _shared_targets(payload):
     """The node keys ("local" or registered names) a shared pool is created on."""
-    registered = [n["name"] for n in list_nodes()]
+    registered = [n["name"] for n in cluster.list_nodes()]
     if payload.all_nodes:
         return ["local", *registered]
     unknown = [n for n in payload.nodes if n != "local" and n not in registered]
@@ -809,7 +808,7 @@ def rename_pool(
     if not payload.everywhere:
         return _rename_on(pool_name, new, node, user)
     results = []
-    for key in ["local", *[n["name"] for n in list_nodes()]]:
+    for key in ["local", *[n["name"] for n in cluster.list_nodes()]]:
         entry = {"node": key, "state": "renamed", "detail": None}
         try:
             if not _exists_on(pool_name, key):
@@ -851,7 +850,7 @@ def delete_pool(
 
 def _delete_everywhere(pool_name, detach, user):
     results = []
-    for key in ["local", *[n["name"] for n in list_nodes()]]:
+    for key in ["local", *[n["name"] for n in cluster.list_nodes()]]:
         entry = {"node": key, "state": "deleted", "detail": None}
         try:
             if not _exists_on(pool_name, key):
