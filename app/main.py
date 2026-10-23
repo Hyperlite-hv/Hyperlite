@@ -52,6 +52,7 @@ from app.repositories.cfs.ids import NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
+from app.routers.admin_cli import router as admin_cli_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
@@ -203,6 +204,7 @@ _API_ROUTERS = (
     file_restore_router,
     ldap_router,
     api_docs_router,
+    admin_cli_router,
 )
 for _router in _API_ROUTERS:
     app.include_router(_router, prefix=API)
