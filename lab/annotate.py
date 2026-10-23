@@ -28,7 +28,10 @@ def main(directory):
             start = "\n".join(lines[first : first + LINES])[:LIMIT]
             print(f"::error title={title} (first traceback)::{escape(start)}")
         tail = "\n".join(lines[-LINES:])[-LIMIT:]
-        print(f"::error title={title}::{escape(tail)}")
+        # GitHub keeps ten annotations of each level per step: errors for pytest and the tracebacks, warnings for
+        # the nodes' tails.
+        level = "error" if log.name == "pytest.log" else "warning"
+        print(f"::{level} title={title}::{escape(tail)}")
 
 
 if __name__ == "__main__":
