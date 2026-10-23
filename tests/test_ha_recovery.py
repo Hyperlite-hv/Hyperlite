@@ -51,6 +51,9 @@ def cluster(database, monkeypatch):
     monkeypatch.setattr(cluster_lead, "read_only_reason", lambda: None)
     monkeypatch.setattr(ha_recovery, "_members", lambda: ["n2", "n3"])
     monkeypatch.setattr(statd, "ages", lambda: dict(world["ages"]))
+    # The members' last statuses: None for a member means none is held (every HA VM of it counts).
+    world["last_vms"] = {}
+    monkeypatch.setattr(statd, "latest", lambda: {n: (world["ages"][n], vms) for n, vms in world["last_vms"].items()})
     monkeypatch.setattr(statd, "table", lambda: {n: {"mem_free_mb": f} for n, f in world["free"].items()})
     monkeypatch.setattr(ha_fencing, "get", lambda node: {"method": world["fencing"]} if world["fencing"] else None)
     monkeypatch.setattr(ha_fencing, "power_off", lambda node: dict(world["power_off"]))
@@ -309,3 +312,29 @@ def test_the_recovered_vm_gets_its_networks_started_and_its_settings_moved(datab
     monkeypatch.setattr(vm_boot, "follow_migration", lambda vm, src, dst: moved.append(("boot", src, dst)))
     ha.start_on(row, "n3", reuse_stopped=True)
     assert started == ["lan"] and moved == [("meta", "n2", "n3"), ("boot", "n2", "n3")]
+
+
+def test_a_vm_stopped_on_purpose_before_its_node_was_lost_stays_stopped(cluster, database):
+    """As Proxmox's requested state: only what ran on the member when it was last seen is restarted."""
+    protect(database, "web", n=1)
+    protect(database, "idle", n=2)
+    cluster["ages"]["n2"] = 61.0
+    cluster["fencing"] = "ipmi"
+    cluster["last_vms"]["n2"] = [{"name": "web", "state": "active"}, {"name": "idle", "state": "stopped"}]
+    ha_recovery.tick()
+    assert cluster["started"] == [("web", "n3")]
+    assert ha.get_protected("idle")["node"] == "n2" and "not restarted" in ha.get_protected("idle")["last_action"]
+
+
+def test_back_after_a_reset_only_what_ran_before_is_restarted(cluster, database, monkeypatch):
+    protect(database, "web", n=1)
+    protect(database, "idle", n=2)
+    cluster["ages"]["n2"] = 70.0
+    cluster["watchdog"] = {"armed": True, "reset_within_s": 120}
+    cluster["last_vms"]["n2"] = [{"name": "web", "state": "active"}, {"name": "idle", "state": "stopped"}]
+    ha_recovery.tick()  # lost: what ran is taken from its last status now
+    cluster["ages"]["n2"] = 2.0
+    cluster["last_vms"]["n2"] = []  # rebooted: nothing runs
+    monkeypatch.setattr(ha_recovery, "_running_on", lambda member: set())
+    ha_recovery.tick()
+    assert cluster["started"] == [("web", "n3")]

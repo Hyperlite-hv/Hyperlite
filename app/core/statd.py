@@ -132,9 +132,10 @@ def table():
     return out
 
 
-def ages():
-    """{node name: age in seconds of its latest status}, every node the daemon holds a status of, however old: HA
-    counts from the moment a node was last seen (app/core/ha_recovery.py). Empty when hyperlite-cfs does not answer."""
+def latest():
+    """{node name: (age in seconds, its VMs)} of the latest status of every node the daemon holds one of, however old:
+    HA counts from the moment a node was last seen, and restarts what ran there then (app/core/ha_recovery.py). Empty
+    when hyperlite-cfs does not answer."""
     from app.core.cfs_client import CfsError
     from app.repositories.cfs import shadow
 
@@ -146,10 +147,16 @@ def ages():
     out = {}
     for s in statuses:
         try:
-            out[json.loads(zlib.decompress(s.data))["node"]] = s.age_ms / 1000
+            data = json.loads(zlib.decompress(s.data))
+            out[data["node"]] = (s.age_ms / 1000, data.get("vms") or [])
         except (ValueError, KeyError, TypeError, zlib.error):
             logger.warning("A status that could not be read (node id %s)", s.node)
     return out
+
+
+def ages():
+    """{node name: age in seconds of its latest status}, however old (latest)."""
+    return {name: age for name, (age, _) in latest().items()}
 
 
 # What this node's database accepts that a version of 1.0 did not: an assignment on a storage pool or a network
