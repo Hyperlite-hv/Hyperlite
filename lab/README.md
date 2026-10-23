@@ -35,4 +35,7 @@ sudo env HYPERLITE_LAB_DEB=$PWD/installer/hyperlite_X_amd64.deb venv/bin/python 
 ```
 
 `HYPERLITE_LAB_PROVIDER` (the directory of a built `terraform-provider-hyperlite`, with `terraform` on the PATH) adds
-the provider's test; `HYPERLITE_LAB_DIR` keeps each node's logs (`nN/hyperlite.log`).
+the provider's test; `HYPERLITE_LAB_DIR` keeps each node's logs (`nN/hyperlite.log`); `HYPERLITE_LAB_MEMORY` sets each
+node's memory in MB (3072 by default; 2048 is enough, the VM of the migration test takes 256). The VM test runs only
+where the nodes get nested virtualization (`/sys/module/kvm_*/parameters/nested` is `Y` or `1`): skipped on GitHub's
+runners.
