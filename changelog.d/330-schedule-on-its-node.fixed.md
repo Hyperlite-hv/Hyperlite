@@ -1,1 +1,0 @@
-- The backup schedule of a VM on another member was read and removed on the node that answered, which keeps none for it (schedules are kept by the node that runs them): an empty answer, and a removal that removed nothing. They go to the VM's node, as setting it did.
