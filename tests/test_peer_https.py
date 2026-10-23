@@ -22,7 +22,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         Handler.seen.append((self.command, self.path, self.headers.get("Authorization"), body, self.client_address[1]))
-        if self.path.startswith("/fail-once") and sum(1 for s in Handler.seen if s[1] == self.path) == 1:
+        if "/fail-once" in self.path and sum(1 for s in Handler.seen if s[1] == self.path) == 1:
             self.close_connection = True  # the request is dropped: as a peer that closed a kept connection
             return
         out = json.dumps({"path": self.path, "method": self.command}).encode()
@@ -79,11 +79,36 @@ def test_no_fingerprint_published_means_ssh(server):
         peer_https.call({"name": "pve-b", "hostname": "127.0.0.1"}, "tok", "GET", "/vms")
 
 
-def test_a_read_is_sent_again_once_but_a_change_never(server):
+def test_a_read_is_sent_again_once_but_a_change_never(server, monkeypatch):
     assert peer_https.call(server["node"], "tok", "GET", "/fail-once/read")[0] == 200
-    with pytest.raises(peer_https.Unavailable):
+    with pytest.raises(peer_https.Lost, match="may have been done"):
         peer_https.call(server["node"], "tok", "POST", "/fail-once/change", body={"x": 1})
     assert sum(1 for s in Handler.seen if s[1] == "/fail-once/change") == 1
+    # Nor over SSH: the change may have been made, a second one would be another snapshot, another VM...
+    ssh = []
+    monkeypatch.setattr(rolling_update, "_ssh", lambda *a, **k: ssh.append(a))
+    monkeypatch.setattr(rolling_update.peer_auth, "ticket_for", lambda node, user: "tok")
+    with pytest.raises(rolling_update.PeerUnreachable, match="may have been done"):
+        rolling_update.peer_api(server["node"], "ana", "POST", "/api/v1/fail-once/snapshot", body={})
+    assert ssh == []
+
+
+def test_a_file_is_sent_as_it_is_read_once_and_never_over_ssh(server):
+    chunks = iter([b"--b\r\n", b"ISO" * 1000, b"\r\n--b--\r\n"])
+    length = 5 + 3000 + 9
+    status, body = peer_https.send(
+        server["node"], "tok", "/api/v1/isos", "multipart/form-data; boundary=b", length, chunks, 30
+    )
+    assert status == 200 and body == {"path": "/api/v1/isos", "method": "POST"}
+    method, _, auth, sent, _ = Handler.seen[-1]
+    assert (method, auth, len(sent)) == ("POST", "Bearer tok", length) and b"ISO" * 1000 in sent
+    with pytest.raises(peer_https.Lost):
+        peer_https.send(
+            server["node"], "tok", "/fail-once/upload", "multipart/form-data; boundary=b", 3, iter([b"abc"]), 30
+        )
+    server["published"].clear()
+    with pytest.raises(peer_https.Unavailable):
+        peer_https.send(server["node"], "tok", "/api/v1/isos", "multipart/form-data; boundary=b", 3, iter([b"abc"]), 30)
 
 
 def test_peer_api_uses_https_and_falls_back_to_ssh(server, monkeypatch):
