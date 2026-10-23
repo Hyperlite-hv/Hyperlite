@@ -59,6 +59,12 @@ func CertFingerprint(cert *x509.Certificate) string {
 	return strings.ToUpper(hex.EncodeToString(sum[:]))
 }
 
+// NormalizeFingerprint is a SHA-256 fingerprint in CertFingerprint's form, whichever way it was copied: browsers and
+// openssl show it in pairs separated by colons ("34:9D:4C..."), which pinned nothing before.
+func NormalizeFingerprint(fp string) string {
+	return strings.ToUpper(strings.NewReplacer(":", "", " ", "", "-", "").Replace(strings.TrimSpace(fp)))
+}
+
 // TLSConfig verifies the server with the system trust store (so a certificate from an enterprise CA deployed on the
 // workstation just works) and, failing that, accepts only the pinned certificate.
 func TLSConfig(host, pinned string) *tls.Config {
@@ -79,7 +85,7 @@ func TLSConfig(host, pinned string) *tls.Config {
 				return nil
 			}
 			fp := CertFingerprint(leaf)
-			if pinned != "" && strings.EqualFold(pinned, fp) {
+			if pinned != "" && strings.EqualFold(NormalizeFingerprint(pinned), fp) {
 				return nil
 			}
 			return &UntrustedCertError{Fingerprint: fp, Cause: err}
