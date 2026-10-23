@@ -55,8 +55,9 @@ def own_fingerprint():
 
 
 def publish():
-    """Publish this node's certificate fingerprint when it changed. Never raises: outside a cluster, or without the
-    daemon, there is nothing to publish and the members keep using SSH."""
+    """Publish this node's certificate fingerprint when it changed. True once the cluster has it; False when it could
+    not be written (outside a cluster, without the daemon, or refused while the quorum is lost, as when a node joins).
+    Never raises: the members keep using SSH meanwhile."""
     from app.core import self_node
     from app.core.cfs_client import CfsError, NotFound
     from app.repositories.cfs import shadow
@@ -67,13 +68,15 @@ def publish():
         client = _client()
         try:
             if json.loads(client.get(path).data).get("sha256") == fingerprint:
-                return
+                return True
         except (NotFound, ValueError):
             pass
         client.put(path, json.dumps({"sha256": fingerprint}).encode())
         logger.info("HTTPS certificate fingerprint published for the other members")
+        return True
     except (CfsError, OSError, ValueError) as e:
         logger.debug("Certificate fingerprint not published: %s", e)
+        return False
 
 
 def fingerprint_of(name):
@@ -192,8 +195,9 @@ def start():
         """The pause before the next round: soon after a failure (at the first start the database is made seconds
         later)."""
         try:
-            publish()
-            return PUBLISH_S
+            # Not written (a node that just joined publishes while the cluster reloads, without the quorum): soon
+            # again, or the members would relay nothing to it until the next round.
+            return PUBLISH_S if publish() else min(PUBLISH_S, RETRY_S)
         except Exception:  # the thread must survive anything, or the members would call this node over SSH for good
             pause = min(PUBLISH_S, RETRY_S)
             logger.exception("Publishing the certificate fingerprint failed; trying again in %s s", pause)
