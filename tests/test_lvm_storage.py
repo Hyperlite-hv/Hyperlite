@@ -411,3 +411,15 @@ def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
     monkeypatch.setattr(lifecycle, "refresh_pools_for_paths", lambda conn, paths: None)
     lifecycle._perform_vm_deletion(Conn(), Domain(), "web")
     assert deleted == ["/dev/hlvg/web", "/dev/hlvg/web-2"], "an iSCSI LUN or a group outside a pool stays"
+
+
+def test_a_vm_on_lvm_is_told_apart_from_the_xml_alone():
+    def domain(*devs):
+        disks = "".join(f"<disk type='block' device='disk'><source dev='{d}'/></disk>" for d in devs)
+        return ET.fromstring(
+            f"<domain><devices>{disks}<disk type='file' device='disk'><source file='/a.qcow2'/></disk></devices></domain>"
+        )
+
+    assert lvm_storage.on_lvm(domain("/dev/hlvg/web"))
+    assert not lvm_storage.on_lvm(domain("/dev/zvol/tank/web", "/dev/disk/by-path/ip-lun-1", "/dev/sdb"))
+    assert not lvm_storage.on_lvm(domain())

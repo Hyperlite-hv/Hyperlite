@@ -128,14 +128,28 @@ def extend(vg, lv, size_bytes, node=None):
     _run(["lvm", "lvextend", "-L", f"{-(-int(size_bytes) // 2**20)}m", f"{vg}/{lv}"], node)
 
 
-def lv_of_path(path, node=None):
-    """(group, volume) when `path` is a volume of a volume group (/dev/<group>/<volume>), else None."""
+def _vg_lv(path):
+    """(group, volume) when `path` is shaped as a logical volume's (/dev/<group>/<volume>), else None."""
     parts = str(path).split("/")
     if len(parts) != 4 or parts[:2] != ["", "dev"] or parts[2] in ("zvol", "disk", "mapper"):
         return None
-    vg, lv = parts[2], parts[3]
-    if not LVM_NAME_RE.fullmatch(vg) or not LVM_NAME_RE.fullmatch(lv):
+    if not LVM_NAME_RE.fullmatch(parts[2]) or not LVM_NAME_RE.fullmatch(parts[3]):
         return None
+    return parts[2], parts[3]
+
+
+def on_lvm(root):
+    """Whether a domain's XML has a block disk shaped as a logical volume: read from the XML alone, for the VM list,
+    where an `lvm` call per VM would cost too much."""
+    return any(_vg_lv(d.get("dev", "")) for d in root.findall(".//devices/disk[@type='block'][@device='disk']/source"))
+
+
+def lv_of_path(path, node=None):
+    """(group, volume) when `path` is a volume of a volume group (/dev/<group>/<volume>), else None."""
+    found = _vg_lv(path)
+    if found is None:
+        return None
+    vg, lv = found
     try:
         names = {v["name"] for v in logical_volumes(vg, node)}
     except LvmError:
