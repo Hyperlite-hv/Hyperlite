@@ -343,6 +343,11 @@ def create(name, address, username):
     client.put(COROSYNC_KEY_ENTRY, base64.b64encode(key))
     client.put(f"{SSH_DIR}/{shadow.component(me)}", cluster.get_cluster_pubkey().encode())
     _register(me, address)
+    # Now, not at the next round of peer_https (ten minutes): until the members can check this node's certificate,
+    # their calls to it go over SSH and a file cannot be relayed to it. A joining node publishes as it restarts.
+    from app.core import peer_https
+
+    peer_https.publish()
     log_action(username, "cluster_create", name, "success", f"{me} ({address})")
     return state()
 

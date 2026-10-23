@@ -1,7 +1,7 @@
 """?node= on everything a node holds (app/core/cluster_view.py, on_node): a request about a VM, a template, a network, a
 storage pool or an ISO image that names another member goes to that member, minus the parameter, in the name of the
 same user, and its answer comes back as it is. This node, `local`, a node registered over SSH only and a console ticket
-stay here; a file is never relayed."""
+stay here; a file goes over HTTPS only."""
 
 import asyncio
 
@@ -94,14 +94,50 @@ def test_a_websocket_is_never_sent():
     assert asyncio.run(cluster_view.on_node(ws, "pve-a")) is None
 
 
-def test_a_file_is_not_relayed(client, auth_headers, peers):  # noqa: F811
+def test_a_file_is_sent_to_the_member_from_its_spool(client, auth_headers, peers, monkeypatch):  # noqa: F811
+    """As Proxmox VE relays an upload to the node that stores it: the form again, its file read while it is sent."""
+    import email
+
+    from app.core import peer_auth, peer_https
+
+    sent = []
+
+    def send(node, token, path, content_type, length, chunks, timeout, connect_timeout=5):
+        body = b"".join(chunks)
+        sent.append((node["name"], token, path, content_type, length, body))
+        return 201, {"name": "debian.iso", "size_mb": 0.0}
+
+    monkeypatch.setattr(peer_https, "send", send)
+    monkeypatch.setattr(peer_auth, "ticket_for", lambda node, user: f"ticket-of-{user}")
     r = client.post(
         "/isos?node=pve-a",
-        files={"file": ("debian.iso", b"ISO", "application/octet-stream")},
+        files={"file": ('debian".iso\r\nX-Evil: 1', b"ISO" * 100, "application/octet-stream")},
         headers=auth_headers("ana"),
     )
-    assert r.status_code == 422 and "send it to pve-a itself" in r.json()["detail"]
-    assert peers.calls == []
+    assert r.status_code == 201 and r.json()["name"] == "debian.iso"
+    [(node, token, path, content_type, length, body)] = sent
+    assert (node, token, path) == ("pve-a", "ticket-of-ana", "/api/v1/isos")
+    assert length == len(body) and b"ISO" * 100 in body
+    # The member reads the same form; a name cannot end the part's header or add one.
+    form = email.message_from_bytes(f"Content-Type: {content_type}\r\n\r\n".encode() + body)
+    [part] = form.get_payload()
+    assert part.get_payload(decode=True) == b"ISO" * 100
+    assert "X-Evil" not in part and part.get_param("filename", header="content-disposition").startswith(
+        "debian%22.iso%0D%0A"
+    )
+    assert peers.calls == []  # not the JSON way
+
+
+def test_a_file_needs_the_members_https(client, auth_headers, peers, monkeypatch):  # noqa: F811
+    from app.core import peer_auth, peer_https
+
+    def unavailable(*a, **k):
+        raise peer_https.Unavailable("pve-a published no certificate fingerprint")
+
+    monkeypatch.setattr(peer_https, "send", unavailable)
+    monkeypatch.setattr(peer_auth, "ticket_for", lambda node, user: "t")
+    r = client.post("/isos?node=pve-a", files={"file": ("debian.iso", b"ISO")}, headers=auth_headers("ana"))
+    assert r.status_code == 502 and "over HTTPS only" in r.json()["detail"]
 
 
 def test_a_write_may_take_as_long_as_its_work_a_read_does_not(client, auth_headers, peers, monkeypatch):  # noqa: F811
