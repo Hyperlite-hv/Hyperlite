@@ -174,3 +174,33 @@ def test_the_publishing_loop_survives_a_round_that_fails(monkeypatch):
         time.sleep(0.01)
     stop.set()
     assert len(rounds) >= 2
+
+
+def test_a_fingerprint_the_cluster_refused_is_published_again_soon(monkeypatch):
+    """A node that joined publishes as it restarts, while the cluster reloads without the quorum: hyperlite-cfs refuses
+    the write. It is tried again within seconds, not at the next round, or no file could be relayed to that node."""
+    import time
+
+    from app.core.cfs_client import CfsError, NotFound
+
+    rounds = []
+
+    class Client:
+        def get(self, path):
+            raise NotFound(1, "no such entry")
+
+        def put(self, path, data):
+            rounds.append(path)
+            if len(rounds) == 1:
+                raise CfsError(503, "not quorate")
+
+    monkeypatch.setattr(peer_https, "_client", lambda: Client())
+    monkeypatch.setattr(peer_https, "own_fingerprint", lambda: "ab" * 32)
+    monkeypatch.setattr(peer_https, "PUBLISH_S", 600)
+    monkeypatch.setattr(peer_https, "RETRY_S", 0.01)
+    stop = peer_https.start()
+    deadline = time.monotonic() + 5
+    while len(rounds) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    assert len(rounds) >= 2
