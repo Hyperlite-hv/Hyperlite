@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-23
+
+### Added
+
+- LVM storage pools (#417): a pool on an existing volume group, or on an empty disk Hyperlite builds one on. A VM
+  created there gets each disk as a logical volume (a raw block device, the cloud image or imported disk written into
+  it), grown with `lvextend` and deleted with the VM. The pool's volume list shows the thin volumes and thin pools
+  libvirt does not see, and the pool is removed only once its group holds no volume at all: libvirt's own pool
+  deletion, which wipes the whole group, is never used. VM snapshots and live migration are refused on LVM for now.
+
+### Fixed
+
+- **Updating a cluster node from 1.1 keeps its access assignments and starts at once** (#330): the start that rebuilds the `acl` table (the storage and network assignments of 1.2) copied its rows as new ones, and asked the cluster for their ids while it was still agreeing on its state after the update. The start failed, and the next one, finding the new table already made, left every assignment in the old one, unread. The rows are copied with their own ids, and a start that finds the old table finishes the copy. Found by updating a two-node production cluster from 1.1.3 to 1.3.0, whose table was empty.
+
+- **Updating Hyperlite alone no longer kills apt-get after five minutes** (#330): the update without the Debian packages ran `apt-get install` with a 300-second limit, which killed it in the middle of dpkg on a loaded node while a new dependency was still unpacking; the packages stayed unpacked and not configured and the node on its old version. It now runs as the full upgrade does: to its end, in a unit of its own, its output in the task's log. Found by updating a two-node production cluster from 1.1.3 to 1.3.0.
+
 ## [1.3.0] - 2026-10-23
 
 ### Added
