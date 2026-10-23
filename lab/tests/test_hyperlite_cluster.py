@@ -208,6 +208,25 @@ def test_a_network_is_made_read_and_removed_on_the_member_it_names(cluster):
     assert api(2, "GET", "/networks/labnet", token=t[2])[0] == 404
 
 
+def test_root_drives_another_member_with_hyperlite_admin(cluster):
+    """hyperlite-admin as root on node 1, with no token (docs/design/admin-cli.md): the package installed it, the
+    daemon signs root@<node 1> in, node 2 does what it is asked and its audit log names root of node 1."""
+    t, names = cluster["tokens"], cluster["names"]
+    me, b = f"root@{names[1]}", names[2]
+    listed = json.loads(on(1, "hyperlite-admin", "vm", "list", "--cluster", "--json"))
+    assert listed["unreachable"] == [], listed
+    on(1, "hyperlite-admin", "post", "/networks", "--node", b, "name=labcli", "mode=isolated",
+       "subnet_address=10.98.3.1", "dhcp_start=10.98.3.10", "dhcp_end=10.98.3.50")  # fmt: skip
+    assert api(2, "GET", "/networks/labcli", token=t[2])[0] == 200  # made on node 2 itself
+    assert json.loads(on(1, "hyperlite-admin", "network", "show", "labcli", "--node", b, "--json"))["name"] == "labcli"
+    audit = ok(api(2, "GET", f"/audit?username={me}&action=get_network", token=t[2]))
+    assert any(e["resource"] == "labcli" for e in audit["items"]), audit
+    on(1, "hyperlite-admin", "delete", "/networks/labcli", "--node", b, "confirm==true")
+    assert api(2, "GET", "/networks/labcli", token=t[2])[0] == 404
+    # api reads the description the package ships next to the code.
+    assert on(1, "hyperlite-admin", "api", "/vms/x/migrate").startswith("POST /vms/{name}/migrate")
+
+
 def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
     status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])

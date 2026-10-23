@@ -94,7 +94,7 @@
         {"fr": "Métriques et notifications", "en": "Metrics and notifications", "status": "parity", "pve": "InfluxDB, Graphite; notification targets", "hl": "Prometheus, InfluxDB, Graphite; webhook, SMTP"},
         {"fr": "API versionnée", "en": "Versioned API", "status": "parity", "pve": "API v2", "hl": "API v1, its contract checked in CI"},
         {"fr": "Infrastructure as code (Terraform / OpenTofu)", "en": "Infrastructure as code (Terraform / OpenTofu)", "status": "ahead", "issue": 330, "pve": "Community providers only (bpg/proxmox, Telmate/proxmox)", "hl": "Official provider, published on the Terraform and OpenTofu registries and tested on a real Hyperlite (VMs, templates, networks, storage, ISO images, snapshots, backups, HA, rights); every member's objects through one node (node), as vSphere's official one does for its hosts"},
-        {"fr": "CLI d'administration", "en": "Administration CLI", "status": "missing", "issue": 516, "pve": "qm, pct, pvesh", "hl": "Workstation client only"},
+        {"fr": "CLI d'administration", "en": "Administration CLI", "status": "parity", "issue": 516, "pve": "qm, pct, pvesh", "hl": "hyperlite-admin: any route of API v1 (as pvesh) and short commands for VMs, containers, storage, networks, backups, tasks and the cluster; root of a node signed in as root@<node>, with no token"},
         {"fr": "Mises à jour", "en": "Updates", "status": "ahead", "pve": "apt from the GUI", "hl": "Release notes, channels, offline signed file, nightly security updates; a failed update rolls back by itself, by reinstalling the previous package"},
         {"fr": "Accès depuis le poste", "en": "Workstation access", "status": "ahead", "pve": "None", "hl": "SSH and remote desktop through an HTTPS tunnel, SSO and 2FA"}
       ]
