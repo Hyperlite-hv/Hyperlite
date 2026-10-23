@@ -345,7 +345,7 @@ export async function fetchStoragePools() {
 
 export async function fetchNetworks() {
   const nets = await realList("/networks");
-  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true, vlanMode: n.vlan_mode ?? null }));
+  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true, vlanMode: n.vlan_mode ?? null, vlanAware: n.vlan_aware ?? null, vlanAwareByHyperlite: n.vlan_aware_by_hyperlite === true }));
 }
 export async function fetchNetworkDetail(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}`);
@@ -369,6 +369,17 @@ export async function addNetworkReservation(name, payload) {
 }
 export async function deleteNetworkReservation(name, mac) {
   return realFetch(`/networks/${encodeURIComponent(name)}/reservations/${encodeURIComponent(mac)}`, { method: "DELETE" });
+}
+// A network's Linux bridge made VLAN-aware, as a trial the dashboard confirms from a new request (app/core/bridge_vlan.py):
+// undone by the host itself when the confirmation does not come back in time.
+export async function makeBridgeVlanAware(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware`, { method: "POST" });
+}
+export async function confirmBridgeVlanAware(name, token) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware/confirm`, { method: "POST", ...jsonBody({ token }) });
+}
+export async function undoBridgeVlanAware(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware`, { method: "DELETE" });
 }
 export async function startNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}/start`, { method: "POST" });

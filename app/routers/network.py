@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cluster_view, network_edit, renaming
+from app.core import bridge_vlan, cluster_view, network_edit, renaming
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn_if_any
@@ -112,6 +112,7 @@ def _network_summary(net):
     ip_elem = root.find("ip")
     dhcp = ip_elem is not None and ip_elem.find("dhcp") is not None
     vlan_mode = network_edit.vlan_mode(root)
+    linux_bridge = _linux_bridge_of(root)
     subnet = None
     if ip_elem is not None:
         subnet = {"address": ip_elem.get("address"), "netmask": ip_elem.get("netmask")}
@@ -128,6 +129,10 @@ def _network_summary(net):
         # "native": libvirt's <vlan> (Open vSwitch, SR-IOV); "bridge": a VLAN-aware Linux bridge, with trunks too.
         "vlan": vlan_mode is not None,
         "vlan_mode": vlan_mode,
+        # A bridge network on a Linux bridge: whether it filters VLANs (it can be made to, POST .../vlan-aware), and
+        # whether Hyperlite made it so (DELETE .../vlan-aware undoes that). None on any other network.
+        "vlan_aware": vlan_mode == "bridge" if linux_bridge else None,
+        "vlan_aware_by_hyperlite": linux_bridge in bridge_vlan.aware_bridges() if linux_bridge else None,
     }
 
 
@@ -301,6 +306,105 @@ def start_network(name: str, user: dict = Depends(require_role("admin"))):
         return _network_summary(net)
     finally:
         conn.close()
+
+
+def _linux_bridge_of(root):
+    """The host Linux bridge a bridge network (its parsed XML) sits on, or None (NAT, isolated, macvtap, Open vSwitch)."""
+    forward = root.find("forward")
+    bridge = root.find("bridge")
+    if forward is None or forward.get("mode") != "bridge" or bridge is None or network_edit.carries_vlan_tags(root):
+        return None
+    name = bridge.get("name")
+    return name if bridge_vlan.is_linux_bridge(name) else None
+
+
+class VlanAwareConfirm(BaseModel):
+    token: str = Field(max_length=100)
+
+
+@router.post("/{name}/vlan-aware", status_code=202)
+def make_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
+    """Make the network's Linux bridge VLAN-aware, as a trial: undone after `expires_in` seconds unless
+    POST .../vlan-aware/confirm brings the token back, from a new request that shows the host is still reachable."""
+    conn = open_conn()
+    try:
+        root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
+    finally:
+        conn.close()
+    bridge = _linux_bridge_of(root)
+    if bridge is None:
+        msg = f"Network '{name}' is not on a Linux bridge of this host"
+        log_action(user["username"], "vlan_aware_bridge", name, "failed", msg)
+        raise HTTPException(status_code=422, detail=msg)
+    try:
+        token = bridge_vlan.start_trial(bridge)
+    except bridge_vlan.VlanError as e:
+        log_action(user["username"], "vlan_aware_bridge", name, "failed", str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    log_action(user["username"], "vlan_aware_bridge", name, "success", f"bridge {bridge}: trial, to be confirmed")
+    return {"bridge": bridge, "token": token, "expires_in": bridge_vlan.TRIAL_S}
+
+
+@router.post("/{name}/vlan-aware/confirm")
+def confirm_vlan_aware(name: str, payload: VlanAwareConfirm, user: dict = Depends(require_role("admin"))):
+    conn = open_conn()
+    try:
+        root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
+    finally:
+        conn.close()
+    bridge = _linux_bridge_of(root)
+    try:
+        bridge_vlan.confirm_trial(bridge, payload.token)
+    except bridge_vlan.VlanError as e:
+        log_action(user["username"], "vlan_aware_bridge", name, "failed", str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    log_action(user["username"], "vlan_aware_bridge", name, "success", f"bridge {bridge}: kept, set again at boot")
+    return {"bridge": bridge, "vlan_aware": True}
+
+
+@router.delete("/{name}/vlan-aware")
+def undo_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
+    """Stop filtering VLANs on a bridge Hyperlite made VLAN-aware. Refused while a VM keeps VLANs on it: they would
+    become every frame of the bridge, whatever its tag."""
+    conn = open_conn()
+    try:
+        root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
+        bridge = _linux_bridge_of(root)
+        on_bridge = set()
+        for n in conn.listAllNetworks():
+            n_bridge = ET.fromstring(n.XMLDesc(0)).find("bridge")
+            if n_bridge is not None and n_bridge.get("name") == bridge:
+                on_bridge.add(n.name())
+        users = []
+        for domain in conn.listAllDomains(0):
+            dom_root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+            ports = bridge_vlan.ports_of_domain_xml(dom_root)
+            for iface in dom_root.findall("devices/interface"):
+                mac = iface.find("mac")
+                source = iface.find("source")
+                if (
+                    mac is not None
+                    and source is not None
+                    and source.get("network") in on_bridge
+                    and (mac.get("address") or "").lower() in ports
+                ):
+                    users.append(domain.name())
+                    break
+    finally:
+        conn.close()
+    if bridge is None:
+        raise HTTPException(status_code=422, detail=f"Network '{name}' is not on a Linux bridge of this host")
+    if users:
+        msg = f"VMs keep VLANs on bridge {bridge}: {', '.join(sorted(users))}. Remove their VLANs first"
+        log_action(user["username"], "vlan_unaware_bridge", name, "failed", msg)
+        raise HTTPException(status_code=409, detail=msg)
+    try:
+        bridge_vlan.turn_off(bridge)
+    except bridge_vlan.VlanError as e:
+        log_action(user["username"], "vlan_unaware_bridge", name, "failed", str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    log_action(user["username"], "vlan_unaware_bridge", name, "success", f"bridge {bridge}")
+    return {"bridge": bridge, "vlan_aware": False}
 
 
 @router.post("/{name}/stop")
