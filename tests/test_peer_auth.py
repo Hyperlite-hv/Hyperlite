@@ -315,7 +315,9 @@ def test_the_publishing_loop_survives_a_round_that_fails(monkeypatch):
         if len(rounds) == 1:
             raise sqlite3.OperationalError("no such table: app_settings")
 
-    monkeypatch.setattr(peer_auth, "PUBLISH_S", 0.01)
+    # A failed round is tried again soon, not at the next round.
+    monkeypatch.setattr(peer_auth, "PUBLISH_S", 600)
+    monkeypatch.setattr(peer_auth, "RETRY_S", 0.01)
     monkeypatch.setattr(peer_auth, "publish", publish)
     monkeypatch.setattr(peer_auth.tickets, "ensure_keys", lambda: None)
     stop = peer_auth.start_publishing()
