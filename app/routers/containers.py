@@ -61,7 +61,7 @@ from app.core.container_meta import (
 )
 from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import open_lxc_conn
+from app.core.libvirt_utils import open_lxc_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.network_alloc import allocate_static_ip, generate_mac, network_gateway, release_static_ip
 from app.core.safe_paths import safe_child
@@ -150,7 +150,9 @@ class ContainerCreate(BaseModel):
 
 @router.get("")
 def list_containers(user: dict = Depends(get_current_user)):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn_if_any()
+    if conn is None:
+        return listing([])  # no LXC driver on this node: no containers, as libvirt_utils.open_lxc_conn_if_any says
     try:
         return listing([_summary(d) for d in conn.listAllDomains()])
     finally:
