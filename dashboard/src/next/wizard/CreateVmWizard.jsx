@@ -214,7 +214,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     finally { setBusy(false); }
   }
 
-  const selectable = pools.filter((p) => ["dir", "netfs", "zfs", "iscsi"].includes(p.type) && p.state === "active");
+  const selectable = pools.filter((p) => ["dir", "netfs", "zfs", "iscsi", "logical"].includes(p.type) && p.state === "active");
   const profile = guestProfile(form);
   const radio = (checked, on, title, sub, name, extra = null, disabled = false) => (
     <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`} aria-disabled={disabled || undefined} style={disabled ? { opacity: 0.55 } : undefined}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} disabled={disabled} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>

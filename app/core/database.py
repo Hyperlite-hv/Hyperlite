@@ -425,7 +425,18 @@ def init_db():
                     resource_id TEXT NOT NULL
                 )
             """)
-            conn.execute("INSERT INTO acl SELECT * FROM acl_pre_container_migration")
+        # The rows are copied with their ids: nothing to reserve from the cluster (app/repositories/cfs/ids.py), which
+        # may still be agreeing on its state as the service starts after an update. Reserving one failed there, and a
+        # start that stopped between the two statements left the assignments in the old table, unread: a start that
+        # finds it finishes the copy.
+        if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='acl_pre_container_migration'"
+        ).fetchone():
+            reserve_ids, conn.reserve_ids = conn.reserve_ids, False
+            try:
+                conn.execute("INSERT OR IGNORE INTO acl SELECT * FROM acl_pre_container_migration")
+            finally:
+                conn.reserve_ids = reserve_ids
             conn.execute("DROP TABLE acl_pre_container_migration")
         # Custom roles: the same ACL assignments as the predefined roles
         # (reader/operator/manager), purpose the user chooses the privilege subset (see
