@@ -66,6 +66,14 @@ func TestAnUntrustedCertificateIsRefusedThenPinned(t *testing.T) {
 	if err := (&Client{URL: srv.URL, Fingerprint: certErr.Fingerprint}).Call(ctx, "GET", "/vms/web", nil, &out); err != nil || out.Name != "web" {
 		t.Fatalf("pinned: %v, %+v", err, out)
 	}
+	// As a browser or openssl shows it: pairs separated by colons, any case.
+	var pairs []string
+	for i := 0; i < 64; i += 2 {
+		pairs = append(pairs, strings.ToLower(certErr.Fingerprint[i:i+2]))
+	}
+	if err := (&Client{URL: srv.URL, Fingerprint: strings.Join(pairs, ":")}).Call(ctx, "GET", "/vms/web", nil, &out); err != nil {
+		t.Fatalf("the colon form of the fingerprint was not taken: %v", err)
+	}
 	if err := (&Client{URL: srv.URL, Fingerprint: strings.Repeat("0", 64)}).Call(ctx, "GET", "/vms/web", nil, nil); err == nil {
 		t.Fatal("another certificate's fingerprint was accepted")
 	}
