@@ -294,7 +294,7 @@ def remote(monkeypatch):
 
     def run(cmd, input=None, **kw):
         calls.append((cmd, input))
-        args = cmd[-1].split("-m app.core.hookscript ", 1)[1].split()
+        args = json.loads(input)["args"]
         if args[0] == "list":
             out = [{"name": "ok.sh", "usable": True}]
         elif args[0] == "run":
@@ -309,15 +309,18 @@ def remote(monkeypatch):
 
 def test_another_nodes_library_and_pre_stop_go_through_the_module_there(remote):
     assert hookscript.list_scripts_on("n2") == [{"name": "ok.sh", "usable": True}]
-    cmd, _ = remote[-1]
+    cmd, request = remote[-1]
     assert cmd[0] == "ssh" and "root@node2.example" in cmd
-    assert cmd[-1] == "cd /usr/lib/hyperlite && /usr/lib/hyperlite/venv/bin/python3 -m app.core.hookscript list"
+    assert cmd[-1] == "cd /usr/lib/hyperlite && /usr/lib/hyperlite/venv/bin/python3 -m app.core.hookscript remote"
+    assert json.loads(request)["args"] == ["list"]
     dom = FakeDomain(active=True)
     hookscript.set_script(dom, "ok.sh")
     run = hookscript.pre_stop(dom, node="n2")
     assert run["exit_code"] == 2 and run["phase"] == "pre-stop"
-    cmd, stdin = remote[-1]
-    assert cmd[-1].endswith("-m app.core.hookscript run web pre-stop ok.sh") and "<domain>" in stdin
+    cmd, request = remote[-1]
+    assert cmd[-1].endswith("-m app.core.hookscript remote"), "the command line never carries a name"
+    assert json.loads(request)["args"] == ["run", "web", "pre-stop", "ok.sh"]
+    assert "<domain>" in json.loads(request)["stdin"]
     with pytest.raises(hookscript.HookError, match=r"node2\.example: refused"):
         hookscript.runs_on("n2", "web")
     with pytest.raises(hookscript.HookError, match="not found"):
@@ -340,6 +343,18 @@ def test_the_module_answers_the_other_nodes_commands(lib, capsys):
     assert hookscript._main(["check", "nope.sh"]) == 0
     assert "No script" in json.loads(capsys.readouterr().out)["error"]
     assert hookscript._main(["run", "web", "reboot", "ok.sh"]) == 2, "an unknown phase is refused"
+
+
+def test_the_other_node_checks_a_request_again_before_acting(lib, capsys):
+    lib.add("ok.sh")
+    request = json.dumps({"args": ["run", "web", "pre-stop", "ok.sh"], "stdin": "<domain/>"})
+    assert hookscript._main(["remote"], io.StringIO(request)) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["ok"] and answer["output"] == "said pre-stop\n"
+    assert lib.calls()[-1].split()[:2] == ["web", "pre-stop"]
+    for bad in ('{"args": ["run", "web;id", "pre-stop", "ok.sh"]}', '{"args": ["rm", "-rf"]}', "not json", "{}"):
+        assert hookscript._main(["remote"], io.StringIO(bad)) == 2, bad
+    assert len(lib.calls()) == 1
 
 
 # --- The API ---

@@ -12,6 +12,7 @@ Each run is kept on the node (the last RUNS_KEPT, in paths.HOOKSCRIPT_RUNS) and 
 """
 
 import contextlib
+import io
 import json
 import os
 import re
@@ -76,35 +77,47 @@ def _refusal(st, what):
     return None
 
 
-def check(name):
-    """The path of the usable script `name` in this node's library, or HookError saying why it is not."""
+def _why_not(name):
+    """(path, None) for a usable script `name` of this node's library, else (None, why not): the reason is built
+    here, never from an exception's text, as it is shown in the dashboard."""
     if not isinstance(name, str) or not NAME_RE.fullmatch(name):
-        raise HookError("Invalid script name: letters, digits, '.', '_' and '-', at most 100 characters")
+        return None, "Invalid script name: letters, digits, '.', '_' and '-', at most 100 characters"
     base = snippets_dir()
     try:
         dir_st = os.lstat(base)
     except FileNotFoundError:
-        raise HookError(f"No script library on this node ({base})") from None
+        return None, f"No script library on this node ({base})"
+    except OSError:
+        return None, f"The script library {base} cannot be read"
     if not stat.S_ISDIR(dir_st.st_mode):
-        raise HookError(f"The script library {base} is not a directory")
+        return None, f"The script library {base} is not a directory"
     reason = _refusal(dir_st, f"The library {base}")
     if reason:
-        raise HookError(reason)
+        return None, reason
     try:
         path = safe_child(base, name)
-    except ValueError:
-        raise HookError(f"'{name}' is not a plain file (a link or a directory is refused)") from None
-    try:
         st = os.lstat(path)
+    except ValueError:
+        return None, f"'{name}' is not a plain file (a link or a directory is refused)"
     except FileNotFoundError:
-        raise HookError(f"No script '{name}' in {base}") from None
+        return None, f"No script '{name}' in {base}"
+    except OSError:
+        return None, f"'{name}' cannot be read"
     if not stat.S_ISREG(st.st_mode):
-        raise HookError(f"'{name}' is not a plain file (a link or a directory is refused)")
+        return None, f"'{name}' is not a plain file (a link or a directory is refused)"
     reason = _refusal(st, f"'{name}'")
     if reason:
-        raise HookError(reason)
+        return None, reason
     if not st.st_mode & stat.S_IXUSR:
-        raise HookError(f"'{name}' is not executable (chmod 755)")
+        return None, f"'{name}' is not executable (chmod 755)"
+    return path, None
+
+
+def check(name):
+    """The path of the usable script `name` in this node's library, or HookError saying why it is not."""
+    path, reason = _why_not(name)
+    if reason:
+        raise HookError(reason)
     return path
 
 
@@ -121,12 +134,12 @@ def list_scripts():
         try:
             st = os.lstat(base / name)
             entry["size"], entry["mtime"] = st.st_size, int(st.st_mtime)
-            check(name)
-            entry["usable"] = True
-        except HookError as e:
-            entry["reason"] = str(e)
-        except OSError as e:
-            entry["reason"] = f"Unreadable: {e.strerror}"
+        except OSError:
+            entry["reason"] = "Cannot be read"
+            scripts.append(entry)
+            continue
+        _, entry["reason"] = _why_not(name)
+        entry["usable"] = entry["reason"] is None
         scripts.append(entry)
     return scripts
 
@@ -277,32 +290,40 @@ def runs(vm):
 _REMOTE_COMMANDS = {"list": (), "check": ("name",), "runs": ("name",), "run": ("name", "phase", "name")}
 
 
-def _on_node(node, args, stdin=""):
-    from app.core.cluster import get_node, node_ssh_options
-
-    # The command line is run by the other node's shell: only the module's own commands, with names and phases it
-    # accepts, ever reach it (shlex quotes them as well).
-    kinds = _REMOTE_COMMANDS.get(args[0]) if args else None
+def _check_request(args):
+    """A request for another node: one of the module's own commands, with the names and phases it accepts."""
+    kinds = _REMOTE_COMMANDS.get(args[0]) if args and isinstance(args, list) else None
     if kinds is None or len(kinds) != len(args) - 1:
         raise HookError(f"Unknown command for another node: {args!r}")
     for kind, arg in zip(kinds, args[1:], strict=True):
-        if not (arg in PHASES if kind == "phase" else NAME_RE.fullmatch(arg)):
+        if not isinstance(arg, str) or not (arg in PHASES if kind == "phase" else NAME_RE.fullmatch(arg)):
             raise HookError(f"Invalid {kind}: {arg!r}")
+
+
+def _on_node(node, args, stdin=""):
+    from app.core.cluster import get_node, node_ssh_options
+
+    _check_request(args)
     target = get_node(node)
     if target is None:
         raise HookError(f"Node '{node}' not found")
     code = paths.INSTALLED_CODE
-    remote = f"cd {shlex.quote(str(code))} && {shlex.quote(str(code / 'venv/bin/python3'))} -m app.core.hookscript"
+    # The command line is always the same: the request (and the VM's XML for a run) goes on standard input, and the
+    # other node checks it again before acting.
+    remote = (
+        f"cd {shlex.quote(str(code))} && {shlex.quote(str(code / 'venv/bin/python3'))} -m app.core.hookscript remote"
+    )
     cmd = [
         "ssh",
         *node_ssh_options(),
         "-p",
         str(target["ssh_port"]),
         f"{target['ssh_user']}@{target['hostname']}",
-        f"{remote} {shlex.join(args)}",
+        remote,
     ]
     timeout = RUN_TIMEOUT_S + SSH_TIMEOUT_S if args[:1] == ["run"] else SSH_TIMEOUT_S
-    r = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=timeout)
+    request = json.dumps({"args": args, "stdin": stdin})
+    r = subprocess.run(cmd, input=request, capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         raise HookError(f"Node '{node}': {(r.stderr or r.stdout).strip()[-300:] or f'exit code {r.returncode}'}")
     return json.loads(r.stdout)
@@ -424,10 +445,25 @@ def _hook(vm, phase, xml):
     return 0
 
 
-def _main(argv):
+def _remote(stdin):
+    """A request from another node's API (_on_node): checked again here, then answered as the commands below."""
+    try:
+        request = json.loads(stdin.read())
+        args = request["args"]
+        _check_request(args)
+    except (ValueError, KeyError, TypeError, HookError) as e:
+        print(f"Refused request: {e}", file=sys.stderr)
+        return 2
+    return _main(args, io.StringIO(request.get("stdin") or ""))
+
+
+def _main(argv, stdin=None):
+    stdin = stdin or sys.stdin
     command, args = (argv[0], argv[1:]) if argv else ("", [])
     if command == "hook":
-        return hook(args, sys.stdin)
+        return hook(args, stdin)
+    if command == "remote":
+        return _remote(stdin)
     if command == "list":
         print(json.dumps(list_scripts()))
     elif command == "check" and len(args) == 1:
@@ -439,7 +475,7 @@ def _main(argv):
     elif command == "runs" and len(args) == 1:
         print(json.dumps(runs(args[0])))
     elif command == "run" and len(args) == 3 and args[1] in PHASES:
-        print(json.dumps(run(args[0], args[1], args[2], sys.stdin.read())))
+        print(json.dumps(run(args[0], args[1], args[2], stdin.read())))
     else:
         print("usage: python -m app.core.hookscript hook|list|check NAME|runs VM|run VM PHASE SCRIPT", file=sys.stderr)
         return 2
