@@ -298,3 +298,11 @@ def test_a_node_that_does_not_answer_is_named_not_an_error_500(client, auth_head
     peers.down.add("pve-a")
     r = client.get("/vms?node=pve-a", headers=headers)
     assert r.status_code == 502 and "pve-a does not answer" in r.json()["detail"]
+
+
+def test_a_member_whose_api_is_not_reached_says_why():
+    from app.core import cluster_view
+
+    status, body = cluster_view.answer(0, {"detail": "<urlopen error [Errno 111] Connection refused>"}, "pve-a")
+    assert status == 502 and body["detail"] == "pve-a does not answer: <urlopen error [Errno 111] Connection refused>"
+    assert cluster_view.answer(0, None, "pve-a") == (502, {"detail": "pve-a does not answer"})
