@@ -39,7 +39,13 @@ func buildRequest(method string, o options, stdin io.Reader) (*request, error) {
 		return nil, usageError("the path's query string cannot be read: %v", err)
 	}
 	if o.node != "" {
-		query.Set("node", o.node)
+		query.Set(o.nodeParam, o.node)
+	}
+	if o.cluster {
+		query.Set("cluster", "true")
+	}
+	if o.force {
+		query.Set("force", "true")
 	}
 	queryOnly := method == "GET" || method == "DELETE"
 	fields := map[string]any{}
