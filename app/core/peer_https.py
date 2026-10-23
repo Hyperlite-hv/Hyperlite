@@ -187,10 +187,16 @@ def start():
     """Publish now, then every PUBLISH_S (a renewed certificate, a node that joined a cluster since)."""
     stop = threading.Event()
 
-    def loop():
-        publish()
-        while not stop.wait(PUBLISH_S):
+    def once():
+        try:
             publish()
+        except Exception:  # the thread must survive anything, or the members would call this node over SSH for good
+            logger.exception("Publishing the certificate fingerprint failed; trying again in %s s", PUBLISH_S)
+
+    def loop():
+        once()
+        while not stop.wait(PUBLISH_S):
+            once()
 
     threading.Thread(target=loop, daemon=True, name="peer-https").start()
     return stop

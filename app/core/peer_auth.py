@@ -339,9 +339,11 @@ def start_publishing():
         while True:
             try:
                 tickets.ensure_keys()
+                publish()
             except OSError as e:
                 logger.warning("Session keys not made: %s", e)
-            publish()
+            except Exception:  # the thread must survive anything, or the members would never get this node's keys
+                logger.exception("Publishing this node's keys failed; trying again in %s s", PUBLISH_S)
             if stop.wait(PUBLISH_S):
                 return
 

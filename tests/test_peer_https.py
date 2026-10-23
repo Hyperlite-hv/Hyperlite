@@ -151,3 +151,24 @@ def test_the_fingerprint_is_published_only_when_it_changed(monkeypatch):
     monkeypatch.setattr(peer_https, "own_fingerprint", lambda: "cd" * 32)  # a renewed certificate
     peer_https.publish()
     assert len(puts) == 2
+
+
+def test_the_publishing_loop_survives_a_round_that_fails(monkeypatch):
+    import sqlite3
+    import time
+
+    rounds = []
+
+    def publish():
+        rounds.append(1)
+        if len(rounds) == 1:
+            raise sqlite3.OperationalError("no such table: app_settings")
+
+    monkeypatch.setattr(peer_https, "PUBLISH_S", 0.01)
+    monkeypatch.setattr(peer_https, "publish", publish)
+    stop = peer_https.start()
+    deadline = time.monotonic() + 5
+    while len(rounds) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    assert len(rounds) >= 2
