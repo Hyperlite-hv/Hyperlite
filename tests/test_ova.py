@@ -292,6 +292,8 @@ def created(monkeypatch, tmp_path):
     conn.defineXML.return_value = Mock()
     made = []
     monkeypatch.setattr(creation, "IMPORTED_DISKS_DIR", tmp_path)
+    # The disks here are stand-ins: what qemu-img says of a real one is tests/test_disk_images.py.
+    monkeypatch.setattr(creation.disk_images, "check", lambda path, within=None: "vmdk")
     monkeypatch.setattr(creation, "open_conn", lambda: conn)
     monkeypatch.setattr(creation.firmware, "check_choice", lambda conn, choice: None)
     monkeypatch.setattr(creation, "validate_vm_resources", lambda *a: [])
