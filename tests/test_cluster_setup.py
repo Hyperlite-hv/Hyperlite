@@ -25,6 +25,9 @@ from tests.test_cfs_inbound import Cluster
 ADDRESS = "192.0.2.10"
 KEY_A = "ssh-ed25519 " + "A" * 68 + " hyperlite-cluster"
 KEY_B = "ssh-ed25519 " + "B" * 68 + " hyperlite-cluster"
+AUTH_KEYS = {
+    "keys": [{"kid": "3fee8db48546834d", "public": base64.b64encode(b"p" * 32).decode(), "created": 1761200000}]
+}
 
 
 def _certificate(tmp_path):
@@ -243,8 +246,11 @@ def _blob(**over):
 
 
 def test_joining_replaces_this_nodes_configuration_by_the_clusters(host, monkeypatch):
+    from app.core import peer_auth
+
     sent = []
     monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: sent.append((info, body)) or _answer())
+    monkeypatch.setattr(peer_auth, "_own_keys", lambda: AUTH_KEYS)
     cfs_db = cluster_setup.CFS_DB
     cfs_db.parent.mkdir(parents=True)
     cfs_db.write_bytes(b"its own tree")
@@ -266,6 +272,9 @@ def test_joining_replaces_this_nodes_configuration_by_the_clusters(host, monkeyp
         "name": "hv-test",
         "address": "192.0.2.11",
         "ssh_key": KEY_A,
+        # Written by the member while the quorum holds: the others call this node as soon as it is up.
+        "fingerprint": cluster_setup._certificate_fingerprint(),
+        "auth_keys": AUTH_KEYS,
     }
     env = (host.tmp / ".env").read_text()
     assert "HYPERLITE_SECRET_KEY=the-clusters-secret-key-0123456789" in env and "OTHER=1" in env
@@ -618,19 +627,31 @@ def test_a_member_older_than_1_0_is_asked_at_its_old_address(monkeypatch):
     assert sent == ["/api/v1/cluster/members", "/cluster/members"]
 
 
-def test_the_new_members_row_is_taken_by_the_cluster_before_the_quorum_is_lost(host, monkeypatch):
-    """Adding the first member raises the votes needed to 2: once this node's Corosync reloads, the cluster takes no
-    change until the new node is up. The nodes row was confirmed after that (with the answer), refused, and the join
-    failed with the cluster left waiting for a node that gave up."""
+def test_the_new_members_fingerprint_and_keys_are_written_before_the_quorum_is_lost(host, monkeypatch):
+    """Until the cluster has them, the members can neither check the new node's certificate (no file relayed to it)
+    nor sign a call it accepts: taken for a node before 1.2, it was sent the shared key and refused it (401)."""
     from app.repositories.cfs import confirm, shadow
 
     _create(host)
     _info, decoded = _information(host)
-    order = []
-    monkeypatch.setattr(confirm, "settle", lambda: order.append(("settle", len(host.commands))))
-    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
-    [(_, commands_before)] = order
-    assert "corosync-cfgtool -R" not in host.commands[:commands_before]  # confirmed while the quorum held
+    reloaded = []
+    monkeypatch.setattr(
+        cluster_setup,
+        "sync",
+        lambda: reloaded.append((host.files.get("/cluster/tls/pve-b"), host.files.get("/cluster/authkey/pve-b"))),
+    )
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B, "CD" * 32, AUTH_KEYS)
+    [(fingerprint, keys)] = reloaded  # both there when this node's Corosync reloads with the new member
+    assert json.loads(fingerprint) == {"sha256": "cd" * 32} and json.loads(keys) == AUTH_KEYS
+
+    for bad in (
+        ("ab" * 31, None),
+        (None, {"keys": [{"kid": "x", "public": "not base64", "created": 1}]}),
+        (None, {"keys": []}),
+    ):
+        _info, decoded = _information(host)
+        with pytest.raises(cluster_setup.ClusterError, match="Invalid"):
+            cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B, *bad)
 
     def refused():
         raise shadow.NotConfirmed("The cluster refused the change: hyperlite-cfs has no quorum: it is read-only")
@@ -638,7 +659,12 @@ def test_the_new_members_row_is_taken_by_the_cluster_before_the_quorum_is_lost(h
     monkeypatch.setattr(confirm, "settle", refused)
     _info, decoded = _information(host)
     with pytest.raises(cluster_setup.ClusterError, match="could not record pve-c"):
-        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B)
-    assert all(m["name"] != "pve-c" for m in cluster_setup.shared_conf()["members"])  # not added, nothing to wait for
-    with get_conn() as db:
-        assert "pve-c" not in {r[0] for r in db.execute("SELECT name FROM nodes")}
+        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B, "ef" * 32, AUTH_KEYS)
+    assert "/cluster/tls/pve-c" not in host.files and "/cluster/authkey/pve-c" not in host.files
+
+
+def test_a_node_before_1_3_joins_without_its_fingerprint_and_keys(host):
+    _create(host)
+    _info, decoded = _information(host)
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)  # it publishes them itself, later
+    assert "/cluster/tls/pve-b" not in host.files and "/cluster/authkey/pve-b" not in host.files

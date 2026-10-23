@@ -31,6 +31,9 @@ class MemberRequest(BaseModel):
     name: str = Field(max_length=63)
     address: str = Field(max_length=64)
     ssh_key: str = Field(max_length=200)
+    # A node before 1.3 sends neither: it publishes them itself once it is up.
+    fingerprint: str | None = Field(None, max_length=64)
+    auth_keys: dict | None = None
 
 
 class PrimaryRequest(BaseModel):
@@ -90,7 +93,9 @@ def join_cluster(payload: JoinRequest, user: dict = Depends(require_role("admin"
 def accept_member(payload: MemberRequest):
     """Called by a joining node, not by a browser: the ticket stands for the administrator who copied it."""
     try:
-        return cluster_setup.accept_member(payload.ticket, payload.name, payload.address, payload.ssh_key)
+        return cluster_setup.accept_member(
+            payload.ticket, payload.name, payload.address, payload.ssh_key, payload.fingerprint, payload.auth_keys
+        )
     except PermissionError as e:
         log_action("system", "cluster_join", payload.name[:63], "failed", str(e))
         raise HTTPException(status_code=403, detail=str(e)) from None
