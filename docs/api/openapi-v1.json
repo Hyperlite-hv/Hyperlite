@@ -6395,6 +6395,52 @@
     ]
    }
   },
+  "/api/v1/auth/users/{username}/second-factor/reset": {
+   "post": {
+    "description": "An administrator removes an account's second factors (its TOTP and its security keys), as Proxmox VE's\nadministrators may (POST /auth/users/{name}/second-factor/reset): the way back for an owner who lost them, or for an SSO account whose factor someone else\nenrolled with its session alone (GHSA-7wjv-ggfp-7x9c). The owner signs in with the password alone after.",
+    "operationId": "reset_second_factor_api_v1_auth_users__username__second_factor_reset_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "username",
+      "required": true,
+      "schema": {
+       "title": "Username",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Reset Second Factor",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
   "/api/v1/auth/webauthn/keys": {
    "get": {
     "operationId": "list_webauthn_keys_api_v1_auth_webauthn_keys_get",

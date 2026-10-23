@@ -276,16 +276,26 @@ def test_the_shared_key_is_accepted_while_a_member_has_not_published_keys(client
     assert _me(client, _hs256("ana")).status_code == 401
 
 
-def test_a_session_signed_before_the_update_stays_valid_for_a_transition(client, make_user, cfs):
+def test_an_hs256_session_is_never_accepted_on_its_own_word(client, make_user, cfs):
+    # Its signing time is whatever the token says: any holder of the shared key could claim one signed "before".
     make_user("ana", "admin")
     _publish_all(cfs)
-    now = int(time.time())
-    peer_auth.record_cutoff(now)
-    assert _me(client, _hs256("ana", iat=now - 60)).status_code == 200
-    assert _me(client, _hs256("ana", iat=now + 1)).status_code == 401  # signed after: refused
-    assert not peer_auth.legacy_session({"iat": now - 60}, now=now + peer_auth.LEGACY_SESSIONS_S + 1)
-    peer_auth.record_cutoff(now + 999)  # recorded once
-    assert int(peer_auth._cutoff_path().read_text()) == now
+    assert _me(client, _hs256("ana", iat=0)).status_code == 401
+
+
+def test_keys_or_a_membership_that_cannot_be_read_never_turn_the_shared_key_back_on(
+    client, make_user, cfs, monkeypatch
+):
+    make_user("ana", "admin")
+    _publish_all(cfs)
+
+    def unreadable(name):
+        raise peer_auth._Unknown
+
+    monkeypatch.setattr(peer_auth, "_read", unreadable)  # hyperlite-cfs not answering
+    assert _me(client, _hs256("ana")).status_code == 401
+    monkeypatch.setattr(peer_auth, "_members", lambda: None)
+    assert _me(client, _hs256("ana")).status_code == 401
 
 
 def test_outside_a_cluster_only_those_sessions_remain(client, make_user, cfs, monkeypatch):

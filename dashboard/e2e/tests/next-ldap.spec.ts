@@ -31,7 +31,7 @@ test("LDAP settings: check, test, save", async ({ page }) => {
   await card.getByLabel("Search base", { exact: true }).fill("dc=example,dc=org");
   await card.getByLabel("Bind DN", { exact: true }).fill("cn=svc,dc=example,dc=org");
   await card.getByLabel("Password", { exact: true }).fill("svcpw");
-  await card.getByLabel("Administrator groups", { exact: true }).fill("hv-admins");
+  await card.getByLabel("Administrator groups", { exact: true }).fill("cn=hv-admins,ou=groups,dc=example,dc=org");
   await card.getByLabel("User name (optional)").fill("alice");
   await card.getByLabel("Their password").fill("alicepw");
   await card.getByRole("button", { name: "Test with these settings" }).click();
@@ -42,5 +42,5 @@ test("LDAP settings: check, test, save", async ({ page }) => {
   await expect(card.getByText("Empty: keep the stored password.")).toBeVisible();
 
   expect(sent.map(([p]) => p)).toEqual(["/ldap/test", "/ldap/config"]);
-  expect(sent[1][1]).toMatchObject({ enabled: true, url: "ldaps://dc1.example.org", base_dn: "dc=example,dc=org", bind_password: "svcpw", admin_groups: "hv-admins" });
+  expect(sent[1][1]).toMatchObject({ enabled: true, url: "ldaps://dc1.example.org", base_dn: "dc=example,dc=org", bind_password: "svcpw", admin_groups: "cn=hv-admins,ou=groups,dc=example,dc=org" });
 });

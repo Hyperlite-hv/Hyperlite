@@ -11,7 +11,9 @@ for a user it has not checked; unlike it, no private key leaves its node.
 
 A member that published no keys runs a version before this one, during a rolling update: it still gets the HS256 token
 signed with the key the members share (security.create_peer_token), and that token is accepted while such a member is in
-the cluster. The HS256 sessions a node signed before it ran this version stay valid LEGACY_SESSIONS_S at most."""
+the cluster: only one known to have published none, never one whose keys cannot be read, nor when the membership cannot
+be (GHSA-498v-p9g9-wvr8). An HS256 session signed before this version is not accepted any more: its signing time is
+whatever the token says, so any holder of the shared key, a member removed since among them, could have claimed one."""
 
 import base64
 import contextvars
@@ -26,7 +28,7 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from jwt import PyJWTError
 
-from app.core import paths, tickets
+from app.core import tickets
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,6 @@ PUBLISH_S = 600
 PEER_LIFETIME_S = 5 * 60
 TASK_LIFETIME_S = 12 * 3600  # the longest rolling update, its own session aside
 LEEWAY_S = 60  # the members' clocks may differ by that much
-LEGACY_SESSIONS_S = 7 * 24 * 3600  # the longest HS256 session ("Stay signed in") a version before this one signed
 PEER, TASK = "peer", "task"
 
 # The credential of the request being served (security._current_user): what this node's daemon checks before it signs a
@@ -124,8 +125,12 @@ def forget(name):
         logger.warning("Public keys of %s not removed: %s", name, e)
 
 
-def published(name):
-    """The keys `name` published, by kid; None when it published none (or they cannot be read)."""
+class _Unknown(Exception):
+    pass
+
+
+def _read(name):
+    """The keys `name` published, by kid, or None when it published none; _Unknown when they cannot be read."""
     from app.core.cfs_client import CfsError, NotFound
 
     try:
@@ -134,9 +139,17 @@ def published(name):
         return None
     except (CfsError, OSError, ValueError, AttributeError) as e:
         logger.debug("Public keys of %s not read: %s", name, e)
-        return None
+        raise _Unknown from e
     keys = data.get("keys") if isinstance(data, dict) else None
     return {k["kid"]: k for k in keys or [] if isinstance(k, dict) and isinstance(k.get("kid"), str)} or None
+
+
+def published(name):
+    """The keys `name` published, by kid; None when it published none (or they cannot be read)."""
+    try:
+        return _read(name)
+    except _Unknown:
+        return None
 
 
 def _mode():
@@ -199,36 +212,19 @@ def verify(token):
 
 
 def legacy_peer_calls():
-    """Whether a member may still call with the shared key: one of the others published no keys (a version before
-    this one). A membership that cannot be read: yes, as before."""
+    """Whether a member may still call with the shared key: one of the others is known to have published no keys (a
+    version before this one). Not when the membership or a member's keys cannot be read: what cannot be read proves
+    nothing, and an error must never turn the shared key back on."""
     members = _members()
     if members is None:
-        return True
-    return any(published(m) is None for m in members)
-
-
-def _cutoff_path():
-    return paths.VAR / "auth-hs256-cutoff"
-
-
-def record_cutoff(now=None):
-    """The moment this node first ran this version, recorded once: an HS256 session signed before it stays valid
-    LEGACY_SESSIONS_S after it at most."""
-    path = _cutoff_path()
-    if path.exists():
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{int(now if now is not None else time.time())}\n")
-
-
-def legacy_session(claims, now=None):
-    """Whether an HS256 token is a session this node signed before it ran this version, still in its transition."""
-    try:
-        cutoff = int(_cutoff_path().read_text())
-    except (OSError, ValueError):
         return False
-    now = now if now is not None else time.time()
-    return int(claims.get("iat") or 0) < cutoff and now < cutoff + LEGACY_SESSIONS_S
+    for m in members:
+        try:
+            if _read(m) is None:
+                return True
+        except _Unknown:
+            continue
+    return False
 
 
 # ---- The calling member ----
