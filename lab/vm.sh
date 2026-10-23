@@ -376,7 +376,7 @@ case ${1:-} in
         up "$3"
         ;;
     hyperlite)
-        DEB=$(realpath "$2") MEMORY=3072 PROVISION=provision_hyperlite
+        DEB=$(realpath "$2") MEMORY=${HYPERLITE_LAB_MEMORY:-3072} PROVISION=provision_hyperlite
         echo "$3" > $STATE
         up "$3"
         ;;
