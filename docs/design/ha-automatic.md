@@ -1,8 +1,9 @@
 # Design: automatic HA restart with reliable fencing
 
-Status: **the maintainer's decisions of 2026-10-17 (#333) applied to the cluster; steps 2 to 4 waiting for the
-maintainer's acceptance.** Step 1 (the watchdog self-fence) is merged (#444, #459). No code of steps 2 to 4 is written
-before this document is accepted.
+Status: **the maintainer's decisions of 2026-10-17 (#333) applied to the cluster, and what vSphere HA has beyond them
+(disk locks, restart priority, admission control, VM monitoring, asked for on 2026-10-23); accepted on 2026-10-23,
+with the answers of section 8.** Step 1 (the watchdog self-fence) is merged (#444, #459); steps 2 to 7 follow, one pull
+request each.
 
 The first version of this document (one controller driving SSH hosts, a witness, a dry run first) is replaced: since
 1.0 every node runs Hyperlite on the replicated configuration, a node without quorum changes nothing (#436), and one
@@ -68,7 +69,8 @@ method, watchdog not armed or `HYPERLITE_WATCHDOG=0`), the member's HA VMs go to
 
 ### 4.3 Recovery
 
-For each protected VM of the fenced member, one by one:
+For each protected VM of the fenced member, one by one, by **restart priority** (`high`, `medium`, `low`, as vSphere's
+VM restart priority; `medium` by default), and in each priority in the order they were protected:
 
 1. **Target**: among the online members (status fresh), not in maintenance, whose shared pool of the VM's disks is
    active there, and which pass `cluster_compat` for the stored definition (CPU model, firmware): the first of the VM's
@@ -76,7 +78,8 @@ For each protected VM of the fenced member, one by one:
    its free memory to its status (`statd`, one number), so the leader does not ask each one.
 2. **Restart**: the leader asks the target, in the cluster's name (`?node=`, `peer_auth`), to define the VM from its
    stored definition and start it. The VM's HA record then names the target. A VM that does not start there is tried on
-   the next candidate once.
+   the next candidate once. A start refused because its disk is still locked (4.7) is tried again every 10 s for the
+   storage's lock lease (90 s on NFSv4), plus 30 s: a node powered off by its BMC may still hold it that long.
 3. **Limit**: at most 3 automatic restarts of a VM per hour; then it goes to **manual**.
 
 ### 4.4 The node that comes back
@@ -100,11 +103,57 @@ With the primary node's second vote (#445), the primary keeps the quorum alone: 
 The other node, alone, has no quorum: when the primary is lost, nothing is restarted automatically, and the dashboard
 says so. A QDevice makes both directions work, as on Proxmox.
 
+### 4.7 Disk locks on the shared storage (every VM, not only HA)
+
+The fences above prove a node stopped; a lock on the disk makes a second copy **impossible** even if a proof was wrong
+(a softdog stopped by a hung kernel, a bug), as vSphere's locks on VMFS and NFS do. libvirt's `lockd` lock manager
+(`virtlockd`) takes a lock on each disk a VM opens, and QEMU is refused a disk another node holds:
+
+- every node of a cluster gets `lock_manager = "lockd"` in `qemu.conf` with `auto_disk_leases = 1`, so every disk on a
+  shared pool is locked, for every VM: a migration gone wrong, or a VM started by hand on the wrong node, is refused
+  too. Hyperlite's package sets it, and the setting takes effect for each VM at its next start;
+- on NFSv4 the lock is the server's: a node that dies loses it when its lease expires (90 s by default), which 4.3
+  waits for;
+- a pool whose storage does not lock across nodes (checked at its creation and in preflight: a lock taken from two
+  members, the second refused) cannot hold HA VMs, with the reason. QEMU's own image locks may already act across NFS
+  clients; the lab checks both, and only `virtlockd` is relied on.
+
+### 4.8 Admission control
+
+As vSphere's admission control, so that the loss of a node does not leave HA VMs with nowhere to go: turning HA on for a
+VM (or starting an HA VM) checks that, for each member, its HA VMs would fit in the free memory of the other online
+members (the same placement as 4.3). Each member publishes its free memory in its status (4.3). The policy is per
+cluster: `strict` refuses with the member that could not be absorbed; `warn` (the default) accepts and says so on the
+VM and the cluster page; `off`.
+
+### 4.9 VM monitoring
+
+As vSphere's VM monitoring, per VM and off by default: a running HA VM whose guest agent answered before stops
+answering QEMU's `guest-ping` for 3 rounds of 30 s; its node resets it in place (`virsh reset`), at most 3 times an
+hour, then reports it. A VM without the guest agent is never reset: the option says it needs `qemu-guest-agent` in the
+guest. It is the node's own work, with no failover: the VM stays where it is.
+
+### 4.10 Compared with vSphere HA and Proxmox VE HA
+
+| | vSphere HA | Proxmox VE HA | Hyperlite |
+|---|---|---|---|
+| Who decides | an elected primary host (FDM) | the cluster manager, with quorum | the leader, with quorum |
+| A host that is lost | network and datastore heartbeats | Corosync quorum | status every 10 s, lost after 60 s |
+| Proof the old copy stopped | locks on the datastore | watchdog self-fence | watchdog self-fence, or the BMC/AMT powered it off |
+| Second barrier | the same locks | locks on the storage | `virtlockd` locks on every shared disk |
+| Restart order | VM restart priority | through HA groups | restart priority |
+| Capacity kept for a failure | admission control | no | admission control (`warn` by default) |
+| A hung guest | VM monitoring (VMware Tools) | no | VM monitoring (QEMU guest agent) |
+| Where | free capacity, DRS | HA groups, preferred nodes | preferred nodes, else the most free memory |
+
 ## 5. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Double start on the shared disk | Restart only after a confirmed fence (power off confirmed, or watchdog delay passed); the leader acts only with the quorum; the returning node undefines moved VMs before anything starts |
+| Double start on the shared disk | Restart only after a confirmed fence (power off confirmed, or watchdog delay passed); the leader acts only with the quorum; the returning node undefines moved VMs before anything starts; and `virtlockd` refuses a disk another node holds |
+| A storage that does not lock across nodes | Checked at pool creation and in preflight; such a pool cannot hold HA VMs |
+| Admission control refusing too much | `warn` by default; `strict` only when the administrator asks for it |
+| VM monitoring resetting a healthy guest | Only a VM whose agent answered before, 3 missed rounds of 30 s, 3 resets an hour, off by default |
 | The watchdog does not reset a hung node | Hardware watchdog where there is one; softdog otherwise, which a hard kernel hang can stop: stated in the UI next to the node's watchdog type |
 | BMC unreachable in the failure that matters | The watchdog path still applies; with neither, the VM goes to manual. Unavailability, never corruption |
 | A flapping network restarts VMs | 60 s before lost, about 2 minutes before a watchdog fence; 3 restarts per hour per VM |
@@ -116,16 +165,36 @@ says so. A QDevice makes both directions work, as on Proxmox.
 1. ~~Watchdog self-fence~~ (merged, #444, #459).
 2. **BMC/AMT fence**: `off` then `status` until off, in `ha_fencing`; tested with fake agents, and in the lab against
    the lab VMs through a virtual BMC (`vbmc`, IPMI to libvirt on the host).
-3. **Recovery by the leader**: detection, fence decision, target, restart, limit, the returning node, states, audit
-   and notifications; replaces `ha_watch`'s dry run. Lab: three nodes on an NFS share, an HA VM on node 2, node 2 cut
-   from the network (`lab/vm.sh cut`): it resets within its watchdog delay, a single copy of the VM starts elsewhere,
-   its disk intact, and node 2 back undefines it. The same with the virtual BMC.
-4. **UI**: HA state per VM, preferred nodes, each node's fence method and watchdog state, history.
+3. **Disk locks** (4.7): `virtlockd` set up by the package on every node of a cluster, the cross-node lock check at pool
+   creation and in preflight. Lab: a VM on the NFS share started on node 2, the same disk refused on node 3.
+4. **Recovery by the leader**, with the restart priority: detection, fence decision, target, restart, limit, the
+   returning node, states, audit and notifications; replaces `ha_watch`'s dry run. Lab: three nodes on an NFS share,
+   HA VMs on node 2, node 2 cut from the network (`lab/vm.sh cut`): it resets within its watchdog delay, a single copy
+   of each VM starts elsewhere in priority order, its disk intact, and node 2 back undefines them. The same with the
+   virtual BMC.
+5. **Admission control** (4.8), with each member's free memory in its status.
+6. **VM monitoring** (4.9).
+7. **UI**: HA state per VM, preferred nodes, priority, the admission policy, each node's fence method and watchdog
+   state, history.
 
-## 7. Questions for the maintainer
+## 7. Questions asked
 
 1. **Preferred nodes**: an ordered list per VM (as above), or also a "only these nodes" restriction?
 2. **The returning node** undefines moved VMs automatically (4.4): agreed, or keep them defined and stopped?
 3. **3 restarts per hour per VM**, then manual: agreed?
 4. **`fence-agents`** (about 30 MB): a recommended package of Hyperlite, or left for the administrator to install when
    a node has a BMC?
+5. **Disk locks for every VM on a shared pool** (4.7), not only HA VMs: agreed? It also stops a VM started by hand on
+   the wrong node.
+6. **Admission control**: `warn` by default (as proposed), or `strict` as vSphere's default?
+
+## 8. Decisions (maintainer, 2026-10-23)
+
+The maintainer accepted the design and left these to the proposals above:
+
+1. Preferred nodes: an ordered list per VM, no "only these nodes" restriction for now.
+2. The returning node undefines the VMs that moved, automatically, and audits it.
+3. 3 automatic restarts per VM per hour, then manual.
+4. `fence-agents` is a recommended package of Hyperlite (installed by default, removable).
+5. Disk locks for every VM on a shared pool, not only HA VMs.
+6. Admission control `warn` by default.
