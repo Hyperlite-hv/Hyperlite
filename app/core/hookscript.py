@@ -273,9 +273,21 @@ def runs(vm):
 # --- On another node (over SSH, through the same module there) ---
 
 
+# What each command takes: a name (a VM or a script) or a phase.
+_REMOTE_COMMANDS = {"list": (), "check": ("name",), "runs": ("name",), "run": ("name", "phase", "name")}
+
+
 def _on_node(node, args, stdin=""):
     from app.core.cluster import get_node, node_ssh_options
 
+    # The command line is run by the other node's shell: only the module's own commands, with names and phases it
+    # accepts, ever reach it (shlex quotes them as well).
+    kinds = _REMOTE_COMMANDS.get(args[0]) if args else None
+    if kinds is None or len(kinds) != len(args) - 1:
+        raise HookError(f"Unknown command for another node: {args!r}")
+    for kind, arg in zip(kinds, args[1:], strict=True):
+        if not (arg in PHASES if kind == "phase" else NAME_RE.fullmatch(arg)):
+            raise HookError(f"Invalid {kind}: {arg!r}")
     target = get_node(node)
     if target is None:
         raise HookError(f"Node '{node}' not found")

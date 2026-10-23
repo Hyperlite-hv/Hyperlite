@@ -324,6 +324,15 @@ def test_another_nodes_library_and_pre_stop_go_through_the_module_there(remote):
         hookscript.list_scripts_on("gone")
 
 
+def test_only_the_modules_commands_with_plain_names_reach_another_node(remote):
+    for args in (["run", "web;reboot", "pre-stop", "ok.sh"], ["runs", "$(id)"], ["run", "web", "x", "ok.sh"], ["rm"]):
+        with pytest.raises(hookscript.HookError):
+            hookscript._on_node("n2", args)
+    with pytest.raises(hookscript.HookError, match="Invalid name"):
+        hookscript.runs_on("n2", "a b")
+    assert remote == [], "nothing was sent"
+
+
 def test_the_module_answers_the_other_nodes_commands(lib, capsys):
     lib.add("ok.sh")
     assert hookscript._main(["list"]) == 0

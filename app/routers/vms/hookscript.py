@@ -38,8 +38,11 @@ def get_vm_hookscript(name: str, node: str | None = None, user: dict = Depends(r
     try:
         runs = hookscript.runs_on(node, name)[-20:]
         library = hookscript.list_scripts_on(node) if user["role"] == "admin" else None
-    except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError) as e:
+    except hookscript.HookError as e:
         raise HTTPException(status_code=502, detail=f"The node's hook scripts could not be read: {e}") from None
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        msg = describe_exception(e)
+        raise HTTPException(status_code=502, detail=f"The node's hook scripts could not be read: {msg}") from None
     return {"script": script, "runs": runs, "library": library}
 
 
@@ -56,7 +59,8 @@ def set_vm_hookscript(
         log_action(user["username"], "set_vm_hookscript", name, "failed", str(e))
         raise HTTPException(status_code=422, detail=str(e)) from None
     except (OSError, ValueError, subprocess.SubprocessError) as e:
-        raise HTTPException(status_code=502, detail=f"The node's hook scripts could not be read: {e}") from None
+        msg = describe_exception(e)
+        raise HTTPException(status_code=502, detail=f"The node's hook scripts could not be read: {msg}") from None
     conn = open_conn(node)
     try:
         domain = _domain(conn, name)
