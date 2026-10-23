@@ -1,7 +1,7 @@
 # Design: `hyperlite-admin`, the administration CLI on a node (#516)
 
 Status: **proposed; the maintainer left section 8 to the best of vSphere and Proxmox VE (2026-10-23), the choices are
-recorded there.** Step 2 is #622; steps 1, 3, 4 and 5 follow, one pull request each.
+recorded there.** Built in five pull requests: step 1 #624, step 2 #622, step 3 #626, step 4 #627, step 5 #630.
 
 ## 1. Goal
 
@@ -76,7 +76,7 @@ hold `@`) is refused, by session or API token, so the audit never mistakes it fo
 to manage: the routes a person uses for their own account (API tokens, password, second factors) answer 403.
 
 **Lockdown** (step 5), as ESXi's lockdown mode: an administrator can turn on `admin_cli_lockdown` (a key of the
-replicated `app_settings`, no new column; off by default, set from the security page). Then the daemon refuses
+replicated `app_settings`, no new column; off by default, set on Administration › API, `PUT /api/v1/admin-cli`). Then the daemon refuses
 `auth.local` on every member and says why; root on a node must use a named account's token. It protects an
 organization that wants every action under a person's name, at the price of `hyperlite-admin` with no token. It is a
 step of its own because it adds a route and a switch in the dashboard (`docs/api/openapi-v1.json`, `i18n/*.js`).
@@ -97,14 +97,14 @@ Two layers, both on the same calls:
 
 | Group | Commands |
 |---|---|
-| `vm` | `list`, `show`, `start`, `stop [--force]`, `reboot`, `suspend`, `resume`, `migrate --to`, `snapshot list/create/rollback/delete`, `clone`, `delete` |
-| `ct` | `list`, `show`, `start`, `stop`, `delete`, `snapshot ...` |
+| `vm` | `list`, `show`, `start`, `stop [--force]`, `restart`, `migrate <vm> <node>`, `clone`, `delete`, `backup`, `backups`, `snapshot list/create/restore/delete` (API v1 has no suspend or resume) |
+| `ct` | `list`, `show`, `start`, `stop`, `clone`, `delete`, `logs`, `snapshot ...` |
 | `storage` | `list`, `show`, `volumes` |
 | `network` | `list`, `show`, `start`, `stop` |
-| `backup` | `list`, `create <vm>`, `restore`, `verify` |
-| `task` | `list`, `show`, `log`, `wait`, `cancel` |
-| `cluster` | `status`, `nodes`, `maintenance on/off <node>`, `rolling-update` |
-| `node` | `status`, `update check`, `update` (asks to confirm unless `--yes`; the same call as the dashboard's button) |
+| `backup` | `list`, `restore <id> <mode>`, `verify`, `delete` |
+| `task` | `list`, `show`, `log`, `cancel` (and `hyperlite-admin wait <id>`) |
+| `cluster` | `status`, `nodes`, `maintenance on/off <node>`, `update plan`, `update` |
+| `node` | `status [<node>]`, `hardware [<node>]` (this node's own routes when none is named: `/nodes` lists only the others), `update check`, `update` (asks to confirm unless `--yes`; the same call as the dashboard's button) |
 | `cluster` (setup) | `create`, `join`, `leave`, as `pvecm`: the same calls as the Cluster page |
 
 A guest on another member is named with `--node` (the API's `?node=`): the member does the work, as from the dashboard.
@@ -132,9 +132,9 @@ change. With a named account's token (4.3), the entry carries that account's nam
 | `app/daemon/ops/auth.py` | the `auth.local` operation | **#511** (`app/daemon/`): its session ended; the maintainer allowed the addition |
 | `app/core/sign_in.py` or `peer_auth.py` | the ticket for `root@<node>` | nobody |
 | `app/core/security.py` | accept `root@<node>` (no row in `users`) | nobody |
-| `dashboard/src/next/pages/SecurityPage.jsx`, `i18n/en.js`, `fr.js` | the lockdown switch | `i18n/*.js`: **#426** |
+| `dashboard/src/next/pages/ApiPage.jsx`, `i18n/en.js`, `fr.js`, `api/client.js` | the lockdown switch | `api/client.js`: **#515**, asked on #298 |
 | `installer/build-cli.sh`, `installer/build-deb.sh` | build and ship `hyperlite-admin` | maintainers (onboarding: coordinate first) |
-| `docs/user-guide.md`, `docs/proxmox-parity.json` | the commands; the row of #516 | `docs/proxmox-parity.json`: **#426** |
+| `docs/user-guide.md`, `docs/proxmox-parity.json` | the commands; the row of #516 | nobody since #426 released them |
 
 No table, no column of the replicated configuration changes. No route of the API changes; the lockdown is a
 key of `app_settings`, set through the existing settings route if one fits, else one addition to API v1.
