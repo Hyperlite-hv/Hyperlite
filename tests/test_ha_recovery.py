@@ -193,7 +193,7 @@ def test_a_member_back_after_a_reset_its_vm_did_not_survive_gets_it_restarted(cl
     cluster["ages"]["n2"] = 2.0
     monkeypatch.setattr(ha_recovery, "_running_on", lambda member: set())
     assert ha_recovery.tick() == {"n2": "recovering"}
-    assert cluster["started"] == [("web", "n2")] and state("web") == "ok"  # n2: the most free memory, and back
+    assert cluster["started"] == [("web", "n3")] and state("web") == "ok"  # elsewhere, though n2 has more room
 
 
 def test_the_node_that_comes_back_undefines_the_vms_that_moved(database, monkeypatch):

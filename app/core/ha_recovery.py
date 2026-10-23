@@ -274,12 +274,13 @@ def tick():
                 vms = stopped
                 entry["fenced_at"] = time.monotonic()
                 log_action("system", "ha_fenced", member, "success", "it answers again and its HA VMs do not run there")
-            # Known to be stopped: its VMs are restarted even though it answers again (it may be a candidate itself).
+            # Known to be stopped: its VMs are restarted even though it answers again, on another member (as Proxmox
+            # VE and vSphere do): whatever made it fail may not be over.
             online = _online(ages)
             for r in vms:
                 if (_store().protected_vm(r["vm_name"]) or {}).get("ha_state") == MANUAL:
                     continue
-                _restart(r, entry, online, set(_lost) - {member})
+                _restart(r, entry, online, set(_lost))
             states[member] = RECOVERING
             continue
         with _lock:
