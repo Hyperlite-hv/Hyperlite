@@ -27,6 +27,9 @@ Usage:
   hyperlite-admin patch  <path> [items]
   hyperlite-admin delete <path> [items]
   hyperlite-admin wait   <task-id>        Wait for a task and print its log
+  hyperlite-admin api    [path]           The routes of API v1, or one route's parameters and body
+  hyperlite-admin <group> <action> ...    Short commands; hyperlite-admin <group> lists a group's:
+                                          vm, ct, storage, network, backup, task, cluster, node
   hyperlite-admin version
 
 Items:
@@ -39,10 +42,14 @@ Options:
   --json             The API's answer as it is, for scripts
   --data JSON        The whole body (or @FILE, or - for standard input), instead of key=value items
   --no-wait          Print the task of a long operation instead of waiting for it
+  --cluster          Every member's objects, in a list that can gather them (?cluster=true)
+  --force            Force the action where the route allows it (?force=true: a VM's stop, a task's cancel)
+  --yes, -y          Do not ask before a destructive action (needed when no terminal can answer)
   --timeout DUR      Stop waiting after DUR (e.g. 90s, 10m); the task goes on
   --server URL       The API to call (default https://127.0.0.1:8000, this node)
   --cert FILE        The certificate to pin (default /etc/hyperlite/local/hyperlite.crt)
   --token-file FILE  Act as the account of this API token instead of root@<node>
+  --schema FILE      The OpenAPI description api reads (default: the package's, this node's own)
 
 Environment:
   HYPERLITE_TOKEN    An API token, as --token-file
@@ -109,14 +116,20 @@ type options struct {
 	server    string
 	cert      string
 	tokenFile string
+	schema    string
+	cluster   bool
+	force     bool
+	yes       bool
+	nodeParam string // the query parameter naming the member: node, or on for the routes of a backup
 	rest      []string
 }
 
 // parseOptions pulls the options out of args, whatever their position; "--" ends them.
 func parseOptions(args []string) (options, error) {
-	o := options{server: defaultServer, cert: defaultCert}
+	o := options{server: defaultServer, cert: defaultCert, schema: defaultSchema, nodeParam: "node"}
 	valued := map[string]*string{
 		"--node": &o.node, "--data": &o.data, "--server": &o.server, "--cert": &o.cert, "--token-file": &o.tokenFile,
+		"--schema": &o.schema,
 	}
 	var timeout string
 	valued["--timeout"] = &timeout
@@ -142,6 +155,12 @@ func parseOptions(args []string) (options, error) {
 			o.json = true
 		case a == "--no-wait":
 			o.noWait = true
+		case a == "--cluster":
+			o.cluster = true
+		case a == "--force":
+			o.force = true
+		case a == "--yes" || a == "-y":
+			o.yes = true
 		case a == "--":
 			o.rest = append(o.rest, args[i+1:]...)
 			i = len(args)
@@ -201,6 +220,11 @@ func dispatch(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return err
 		}
 		return s.wait(ctx, o.rest[0], o.node, o, stdout, stderr)
+	case "api":
+		return showAPI(o, stdout)
+	}
+	if group, ok := groups[cmd]; ok {
+		return runShort(ctx, cmd, group, o, stdin, stdout, stderr)
 	}
 	return usageError("unknown command %q", cmd)
 }
