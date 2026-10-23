@@ -328,13 +328,16 @@ def test_removing_a_member(host):
 
 
 class _Member(http.server.BaseHTTPRequestHandler):
+    """A member as the API serves it since 1.0: the old address without /api/v1 answers 410."""
+
     received: ClassVar[list] = []
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
-        _Member.received.append(json.loads(body))
-        data = json.dumps({"ok": True}).encode()
-        self.send_response(200)
+        _Member.received.append((self.path, json.loads(body)))
+        gone = not self.path.startswith("/api/v1/")
+        data = json.dumps({"detail": "This address is gone since Hyperlite 1.0"} if gone else {"ok": True}).encode()
+        self.send_response(410 if gone else 200)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -359,7 +362,7 @@ def test_the_member_is_reached_only_through_the_certificate_of_the_join_informat
         assert _Member.received == []  # nothing was sent to a certificate that does not match
         info["fingerprint"] = cluster_setup.hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
         assert cluster_setup._call_member(info, {"ticket": "secret"}) == {"ok": True}
-        assert _Member.received == [{"ticket": "secret"}]
+        assert _Member.received == [("/api/v1/cluster/members", {"ticket": "secret"})]
     finally:
         server.shutdown()
 
@@ -591,3 +594,25 @@ def test_the_new_members_row_is_taken_by_the_cluster_before_the_quorum_is_lost(h
     assert all(m["name"] != "pve-c" for m in cluster_setup.shared_conf()["members"])  # not added, nothing to wait for
     with get_conn() as db:
         assert "pve-c" not in {r[0] for r in db.execute("SELECT name FROM nodes")}
+
+
+def test_a_joining_node_calls_the_route_the_member_serves(client):
+    """Since 1.0 the API is under /api/v1 and the old addresses answer 410: a join posted to /cluster/members was
+    refused by every member, and no node could join a cluster."""
+    body = {"ticket": "x", "name": "pve-b", "address": "192.0.2.2", "ssh_key": ""}
+    # Absolute addresses: the test client otherwise puts every path under /api/v1 itself.
+    r = client.post("http://testserver" + cluster_setup.MEMBERS_PATH, json=body)
+    assert r.status_code == 403, r.text  # the route answers: the ticket is refused
+    assert client.post("http://testserver/cluster/members", json=body).status_code == 410
+
+
+def test_a_member_older_than_1_0_is_asked_at_its_old_address(monkeypatch):
+    sent = []
+
+    def post(info, path, body):
+        sent.append(path)
+        return (404, {"detail": "Not Found"}) if path.startswith("/api/v1") else (200, {"ok": True})
+
+    monkeypatch.setattr(cluster_setup, "_post_member", post)
+    assert cluster_setup._call_member({}, {}) == {"ok": True}
+    assert sent == ["/api/v1/cluster/members", "/cluster/members"]
