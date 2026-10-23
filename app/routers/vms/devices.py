@@ -388,7 +388,8 @@ def _lookup_network(conn, username, action, name, network, vlan_tag, vlan_trunks
     except libvirt.libvirtError:
         log_action(username, action, name, "failed", "Network not found")
         raise HTTPException(status_code=404, detail=f"Network '{network}' not found") from None
-    mode = network_edit.vlan_mode(ET.fromstring(net.XMLDesc(0)))
+    # Without a VLAN asked for, how the network takes one does not matter (an interface's old VLANs are forgotten).
+    mode = network_edit.vlan_mode(ET.fromstring(net.XMLDesc(0))) if vlan_tag is not None or vlan_trunks else None
     if (vlan_tag is not None or vlan_trunks) and mode is None:
         log_action(username, action, name, "failed", "VLAN tag unsupported by the network")
         raise HTTPException(status_code=422, detail=network_edit.VLAN_UNSUPPORTED.format(name=network))
