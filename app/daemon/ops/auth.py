@@ -54,7 +54,10 @@ def local(args, ctx):
     runs as root, never for the API's own user, whatever it claims."""
     if ctx.peer_uid != 0:
         raise DaemonError("forbidden", "Only root on this node gets its session")
-    return sign_in.local_root()
+    try:
+        return sign_in.local_root()
+    except PermissionError as e:
+        raise DaemonError("forbidden", str(e)) from None
 
 
 @operation("auth.totp", TotpArgs)
