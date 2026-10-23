@@ -40,6 +40,19 @@ func TestItemsGoToTheQueryOrTheBody(t *testing.T) {
 		t.Errorf("body %s", body)
 	}
 
+	// The first "=" decides: a value may hold "==" or ":=".
+	o, _ = parseOptions([]string{"/auth/users", "password=a==b:=c", "note==x=y", "tags:=[\"a=b\"]", "empty="})
+	req, err = buildRequest("POST", o, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.path != "/auth/users?note=x%3Dy" {
+		t.Errorf("path %q", req.path)
+	}
+	if body, _ := json.Marshal(req.body); string(body) != `{"empty":"","password":"a==b:=c","tags":["a=b"]}` {
+		t.Errorf("body %s", body)
+	}
+
 	o, _ = parseOptions([]string{"vms", "cluster=true"})
 	req, _ = buildRequest("GET", o, nil)
 	if req.path != "/vms?cluster=true" || req.body != nil {
@@ -66,6 +79,9 @@ func TestWrongUsageIsSaidWithItsExitCode(t *testing.T) {
 	for _, args := range [][]string{
 		{"get"},
 		{"post", "/pools", "a:=notjson"},
+		{"post", "/pools", ":=1"},
+		{"post", "/pools", "=x"},
+		{"post", "/pools", "novalue"},
 		{"post", "/pools", "--data", "{}", "name=x"},
 		{"post", "/pools", "--data", "{oops"},
 		{"get", "/vms", "x:=1"},

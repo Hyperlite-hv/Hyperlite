@@ -43,30 +43,20 @@ func buildRequest(method string, o options, stdin io.Reader) (*request, error) {
 	}
 	queryOnly := method == "GET" || method == "DELETE"
 	fields := map[string]any{}
-	for _, item := range o.rest[1:] {
-		if k, v, ok := strings.Cut(item, "=="); ok && k != "" {
-			query.Add(k, v)
-			continue
+	for _, raw := range o.rest[1:] {
+		it, err := parseItem(raw)
+		if err != nil {
+			return nil, err
 		}
-		if k, v, ok := strings.Cut(item, ":="); ok && k != "" && !strings.Contains(k, "=") {
-			var parsed any
-			if err := json.Unmarshal([]byte(v), &parsed); err != nil {
-				return nil, usageError("%s: the value after := must be JSON: %v", k, err)
-			}
-			if queryOnly {
-				return nil, usageError("%s takes no body: give %s as %s==%s", strings.ToLower(method), k, k, v)
-			}
-			fields[k] = parsed
-			continue
-		}
-		k, v, ok := strings.Cut(item, "=")
-		if !ok || k == "" {
-			return nil, usageError("%q is not an item: use key=value, key==value or key:=json", item)
-		}
-		if queryOnly {
-			query.Add(k, v)
-		} else {
-			fields[k] = v
+		switch {
+		case it.kind == itemQuery || (it.kind == itemText && queryOnly):
+			query.Add(it.key, it.text)
+		case it.kind == itemJSON && queryOnly:
+			return nil, usageError("%s takes no body: give %s as %s==%s", strings.ToLower(method), it.key, it.key, it.text)
+		case it.kind == itemJSON:
+			fields[it.key] = it.json
+		default:
+			fields[it.key] = it.text
 		}
 	}
 	req := &request{method: method, path: base}
@@ -91,6 +81,42 @@ func buildRequest(method string, o options, stdin io.Reader) (*request, error) {
 		req.body = map[string]any{} // FastAPI wants a body where the route declares one, even empty
 	}
 	return req, nil
+}
+
+const (
+	itemText  = iota // key=value
+	itemQuery        // key==value
+	itemJSON         // key:=json
+)
+
+type item struct {
+	kind int
+	key  string
+	text string // the value as written
+	json any    // the value of key:=json
+}
+
+// parseItem reads one item as httpie does: the first "=" ends the key, and the characters around it say which kind it
+// is, so a value may hold "=", "==" or ":=" (password=a==b is a text field, not a query parameter).
+func parseItem(raw string) (item, error) {
+	i := strings.IndexByte(raw, '=')
+	if i <= 0 {
+		return item{}, usageError("%q is not an item: use key=value, key==value or key:=json", raw)
+	}
+	switch {
+	case raw[i-1] == ':':
+		if i == 1 {
+			return item{}, usageError("%q has no key before :=", raw)
+		}
+		it := item{kind: itemJSON, key: raw[:i-1], text: raw[i+1:]}
+		if err := json.Unmarshal([]byte(it.text), &it.json); err != nil {
+			return item{}, usageError("%s: the value after := must be JSON: %v", it.key, err)
+		}
+		return it, nil
+	case i+1 < len(raw) && raw[i+1] == '=':
+		return item{kind: itemQuery, key: raw[:i], text: raw[i+2:]}, nil
+	}
+	return item{kind: itemText, key: raw[:i], text: raw[i+1:]}, nil
 }
 
 // readData is the body of --data: inline JSON, @FILE or - for standard input, checked to be JSON before it is sent.
