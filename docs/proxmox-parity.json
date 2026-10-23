@@ -62,7 +62,7 @@
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
         {"fr": "Consoles", "en": "Consoles", "status": "parity", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC, serial console, terminals, and SPICE in virt-viewer through a proxy (TLS, a ticket valid 30 s); no SPICE audio or USB redirection yet"},
         {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
-        {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
+        {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "OVA/OVF exported from VMware imported from the dashboard (settings mapped, disks checked against the manifest); disk import (vmdk and others); no live ESXi connection yet"},
         {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
         {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
         {"fr": "Conteneurs LXC", "en": "LXC containers", "status": "parity", "issue": 424, "pve": "With snapshots", "hl": "Yes, with snapshots of the stopped container (a copy of its directory, each one keeping only what changed)"},

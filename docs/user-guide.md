@@ -268,7 +268,10 @@ network still used by a VM cannot be deleted).
 
 - **ISO images**: upload an ISO, or share one with other nodes. VMs can install from an ISO of another node.
 - **Templates**: deploy a new VM from a template (made with a VM's **Convert to template**).
-- **Imported disks**: disks uploaded to create VMs from ([section 3](#create-a-vm)).
+- **Imported disks**: disks uploaded to create VMs from ([section 3](#create-a-vm)), and VMs exported from VMware as
+  an **OVA** (ESXi, vCenter, Workstation): **Create a VM** on its row reads its settings (vCPUs, memory, disks, BIOS or
+  UEFI, the system's family), copies its disks out, checked against its manifest, and creates the VM, stopped. A VM
+  with several network cards gets the first on the chosen network: add the others in its **Network** tab.
 
 ## 9. Snapshots, backups and restores
 

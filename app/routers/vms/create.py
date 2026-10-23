@@ -58,6 +58,9 @@ class DiskSpec(BaseModel):
     # iSCSI pool only: the LUN (volume name in the pool, e.g. "unit:0:0:1") this disk takes whole; size_gb is then
     # only its size, for the resource checks.
     lun: str | None = Field(None, max_length=200)
+    # A data disk (not the first) made from a file uploaded through POST /vm-disks, as the other disks of an OVA
+    # (app/core/ova.py); size_gb is then the file's own size. The first disk's is VMCreate.import_disk.
+    import_disk: str | None = Field(None, max_length=255)
 
 
 class VMCreate(BaseModel):
@@ -318,15 +321,36 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
             raise HTTPException(status_code=422, detail=f"Driver ISO '{payload.drivers_iso}' not found")
         drivers_iso_path = candidate
 
+    extra_imports = {}
+    for i, disk in enumerate(payload.disks):
+        if not disk.import_disk:
+            continue
+        if i == 0:
+            errors.append("The first disk's imported file is given as import_disk")
+            continue
+        try:
+            candidate = safe_child(IMPORTED_DISKS_DIR, disk.import_disk)
+        except ValueError:
+            errors.append(f"Disk {i + 1}: invalid imported disk name")
+            continue
+        if not candidate.is_file():
+            errors.append(f"Disk {i + 1}: imported disk '{disk.import_disk}' not found")
+        else:
+            extra_imports[i] = candidate
+
     import_disk_path = None
     if payload.import_disk:
         if payload.iso:
             errors.append("Cannot combine a disk import with an installation ISO")
-        candidate = safe_child(IMPORTED_DISKS_DIR, payload.import_disk)
-        if not candidate.exists():
-            errors.append(f"Imported disk '{payload.import_disk}' not found")
+        try:
+            candidate = safe_child(IMPORTED_DISKS_DIR, payload.import_disk)
+        except ValueError:
+            errors.append("Invalid imported disk name")
         else:
-            import_disk_path = candidate
+            if candidate.exists():
+                import_disk_path = candidate
+            else:
+                errors.append(f"Imported disk '{payload.import_disk}' not found")
 
     # "Installation from an ISO" mode: a blank system disk, and the operating system is installed by hand from the
     # console, as on Proxmox VE: the user creates their own account there (no web SSH terminal until access is
@@ -334,6 +358,10 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
     # image below is the one system it prepares. Without an ISO: the preinstalled Debian 12 image + cloud-init.
     install_mode = iso_path is not None
     profile = guest_profile(payload.iso if install_mode else None, payload.guest_os)
+    if import_disk_path is not None and payload.guest_os != "auto":
+        # An imported disk holds a system Hyperlite does not know (an OVA names it, app/core/ova.py): the family asked
+        # for sets its devices. A Windows guest without VirtIO drivers does not boot from a VirtIO disk.
+        profile = payload.guest_os
     compatible_devices = profile in {"windows", "other"}
     disk_bus = (
         "sata"
@@ -453,6 +481,8 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
             logger.debug("Ignored exception in create_vm()", exc_info=True)
 
         try:
+            if luns and extra_imports:
+                raise ValueError("Imported data disks are not written to iSCSI LUNs: choose another storage pool")
             if luns:
                 # iSCSI: each disk is a whole LUN, attached as a raw block device like a zvol. Disk 0 receives the
                 # system image unless an ISO installs one; the others are blank data disks.
@@ -474,14 +504,24 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
                     disk_paths = [
                         (create_zvol_disk(zfs_pool_name, payload.name, 0, 1, import_source=import_disk_path), "block")
                     ] + [
-                        (create_zvol_disk(zfs_pool_name, payload.name, i, disk.size_gb), "block")
+                        (
+                            create_zvol_disk(
+                                zfs_pool_name, payload.name, i, disk.size_gb, import_source=extra_imports.get(i)
+                            ),
+                            "block",
+                        )
                         for i, disk in enumerate(payload.disks[1:], start=1)
                     ]
                 else:
                     disk_paths = [
                         (
                             create_zvol_disk(
-                                zfs_pool_name, payload.name, i, disk.size_gb, blank=(install_mode and i == 0)
+                                zfs_pool_name,
+                                payload.name,
+                                i,
+                                disk.size_gb,
+                                blank=(install_mode and i == 0),
+                                import_source=extra_imports.get(i),
                             ),
                             "block",
                         )
@@ -506,7 +546,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
                             i,
                             disk.size_gb,
                             base_image=system_source if i == 0 and not import_mode else None,
-                            import_source=import_disk_path if i == 0 and import_mode else None,
+                            import_source=import_disk_path if i == 0 and import_mode else extra_imports.get(i),
                             thin_pool=thin["name"] if thin else None,
                         ),
                         "block",
@@ -517,12 +557,16 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
                 # Disk 0 = conversion of the imported file (qemu-img detects the source format by
                 # itself); any additional disks are always blank as usual.
                 disk_paths = [create_disk_from_import(payload.name, import_disk_path, target_dir=target_dir)] + [
-                    create_disk(payload.name, disk.size_gb, index=i, target_dir=target_dir)
+                    create_disk_from_import(payload.name, extra_imports[i], target_dir=target_dir, index=i)
+                    if i in extra_imports
+                    else create_disk(payload.name, disk.size_gb, index=i, target_dir=target_dir)
                     for i, disk in enumerate(payload.disks[1:], start=1)
                 ]
             else:
                 disk_paths = [
-                    create_disk(
+                    create_disk_from_import(payload.name, extra_imports[i], target_dir=target_dir, index=i)
+                    if i in extra_imports
+                    else create_disk(
                         payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0), target_dir=target_dir
                     )
                     for i, disk in enumerate(payload.disks)
