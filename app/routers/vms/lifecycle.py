@@ -310,14 +310,14 @@ def _perform_vm_deletion(conn, domain, name, node=None):
                     zfs_storage.delete_zvol(parts[2], "/".join(parts[3:]))
                 except zfs_storage.ZfsError:
                     logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
-    # The other block disks: a logical volume of an LVM pool goes with its VM, through libvirt (which runs lvremove);
-    # an iSCSI LUN or a volume outside such a pool is not Hyperlite's to delete.
+    # The other block disks: a logical volume of an LVM pool goes with its VM (a thick one through libvirt, a thin one
+    # and its snapshots through lvm); an iSCSI LUN or a volume outside such a pool is not Hyperlite's to delete.
     for dev in zvol_paths_to_remove:
         if dev.startswith("/dev/zvol/"):
             continue
         try:
-            lvm_storage.delete_vm_volume(conn, dev)
-        except libvirt.libvirtError:
+            lvm_storage.delete_vm_volume(conn, dev, node)
+        except (libvirt.libvirtError, lvm_storage.LvmError):
             logger.warning("Logical volume %s of the deleted VM %s left in place", dev, name, exc_info=True)
     vm_records.forget(name, node)
 

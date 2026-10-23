@@ -488,7 +488,9 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
                         for i, disk in enumerate(payload.disks)
                     ]
             elif lvm_pool is not None:
-                # Thick logical volumes made through libvirt, the image written raw into disk 0 (app/core/lvm_storage.py).
+                # Thick logical volumes made through libvirt, or thin ones in the pool's thin pool, the image written
+                # raw into disk 0 (app/core/lvm_storage.py).
+                thin = lvm_storage.thin_pool_of(lvm_storage.group_of(lvm_pool))
                 if import_mode:
                     system_source = import_disk_path
                 elif install_mode:
@@ -505,6 +507,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
                             disk.size_gb,
                             base_image=system_source if i == 0 and not import_mode else None,
                             import_source=import_disk_path if i == 0 and import_mode else None,
+                            thin_pool=thin["name"] if thin else None,
                         ),
                         "block",
                     )
