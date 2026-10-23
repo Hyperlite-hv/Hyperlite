@@ -253,8 +253,11 @@ class ScheduleRequest(BaseModel):
     keep_months: int | None = Field(None, ge=1, le=120)
 
 
+# A schedule is kept by the node that runs it, the VM's (not replicated): read and removed there, as it is set there.
 @router.get("/vms/{name}/backup-schedule")
-async def get_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
+async def get_backup_schedule(
+    name: str, user: dict = Depends(require_vm_privilege("vm.view")), _: None = Depends(_on_vm_node)
+):
     return await backup_service.get_schedule(name)
 
 
@@ -310,7 +313,9 @@ def set_backup_schedule(
 
 
 @router.delete("/vms/{name}/backup-schedule")
-def delete_backup_schedule(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+def delete_backup_schedule(
+    name: str, user: dict = Depends(require_vm_privilege("vm.snapshot")), _: None = Depends(_on_vm_node)
+):
     backup_service.delete_schedule(name)
     log_action(user["username"], "delete_backup_schedule", name, "success")
     return {"message": "Schedule deleted"}

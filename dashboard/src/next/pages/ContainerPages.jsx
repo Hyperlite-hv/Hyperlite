@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { PencilLine, Play, Square, SquareTerminal, TerminalSquare, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Camera, LoaderCircle, PencilLine, Play, Square, SquareTerminal, TerminalSquare, Trash2 } from "lucide-react";
 import {
   fetchContainer, updateContainer, startContainer, stopContainer, deleteContainer,
   fetchContainerBackups, createContainerBackup, deleteContainerBackup, restoreContainerBackup, fetchTaskDetail,
+  fetchContainerSnapshots, createContainerSnapshot, restoreContainerSnapshot, deleteContainerSnapshot,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -176,6 +177,88 @@ export function ContainerConsolePage({ resource: ct }) {
           </>
         )}
     </Card>
+  );
+}
+
+// This container's snapshots (app/core/container_snapshots.py): copies of its files, taken and restored while it is
+// stopped. Read by everyone who sees the container; taken, restored and deleted by administrators, as its backups.
+export function ContainerSnapshotsPage({ resource: ct }) {
+  const t = useT();
+  const lang = useLangStore((s) => s.lang);
+  const caps = capabilities(useAuthStore((s) => s.role));
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [snaps, setSnaps] = useState(null);
+  const [error, setError] = useState(null);
+  const [job, setJob] = useState(null);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const load = useCallback(async () => {
+    try { const r = await fetchContainerSnapshots(ct.name); setSnaps(Array.isArray(r) ? r : []); setError(null); }
+    catch (e) { setError(errorMessage(e)); }
+  }, [ct.name]);
+  useEffect(() => { load(); }, [load]);
+  if (error && snaps == null) return <ErrorState message={error} onRetry={load} />;
+  const on = ct.state === "active";
+  const busy = job != null;
+  const list = snaps || [];
+
+  async function run(label, start, okTitle, failTitle) {
+    setJob(label);
+    try {
+      const { task_id } = await start();
+      let task = { status: "running" };
+      while (alive.current && task.status === "running") {
+        await new Promise((r) => setTimeout(r, 1000));
+        task = await fetchTaskDetail(task_id);
+      }
+      if (task.status === "succeeded") pushToast({ kind: "success", title: okTitle });
+      else if (alive.current) pushToast({ kind: "error", title: failTitle, message: task.error || t("err.unknown") });
+    } catch (e) { pushToast({ kind: "error", title: failTitle, message: errorMessage(e) }); }
+    finally { if (alive.current) { setJob(null); load(); } }
+  }
+  async function take() {
+    const auto = `snap-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
+    const name = await promptText({ title: t("csn.takeTitle", { name: ct.name }), label: t("csn.name"), defaultValue: auto, confirmLabel: t("csn.take"), validate: (v) => (!NAME_RE.test(v) ? t("csn.nameRule") : list.some((x) => x.name === v) ? t("csn.nameTaken") : "") });
+    if (!name) return;
+    run(t("csn.taking", { name }), () => createContainerSnapshot(ct.name, name.trim()), t("csn.taken"), t("csn.takeFailed"));
+  }
+  async function restore(snap) {
+    if (!(await confirmAction({ title: t("csn.restoreTitle", { name: snap.name }), message: t("csn.restoreMsg", { name: ct.name }), confirmLabel: t("csn.restore"), danger: true }))) return;
+    run(t("csn.restoring", { name: snap.name }), () => restoreContainerSnapshot(ct.name, snap.name), t("csn.restored"), t("csn.restoreFailed"));
+  }
+  async function remove(snap) {
+    if (!(await confirmAction({ title: t("csn.deleteTitle", { name: snap.name }), message: t("csn.deleteMsg"), confirmLabel: t("menu.delete").replace("…", ""), danger: true }))) return;
+    try { await deleteContainerSnapshot(ct.name, snap.name); pushToast({ kind: "success", title: t("csn.deleted"), message: snap.name }); load(); }
+    catch (e) { pushToast({ kind: "error", title: t("csn.deleteFailed"), message: errorMessage(e) }); }
+  }
+  return (
+    <>
+      <div className="nx-bn" data-tone="info" role="note"><Camera size={16} aria-hidden="true" /><span className="nx-bn-t">{t("csn.help")}</span></div>
+      {job && <div className="nx-bn" data-tone="info" role="status" aria-live="polite"><LoaderCircle size={16} className="nx-spin" aria-hidden="true" /><span className="nx-bn-t">{job}</span></div>}
+      <Card title={t("tab.snapshots")} note={snaps?.length || null} flush={Boolean(list.length)}
+        actions={caps.admin && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={on || busy || undefined} title={on ? t("csn.mustStop") : undefined} onClick={() => { if (!on && !busy) take(); }}><Camera size={14} aria-hidden="true" />{t("csn.take")}</button>}>
+        {snaps == null ? <Loading /> : list.length === 0 ? <p className="nx-muted" style={{ margin: 0 }}>{t("csn.none")}</p> : (
+          <TableWrap>
+            <table className="nx-table">
+              <thead><tr><th scope="col">{t("csn.name")}</th><th scope="col">{t("ct.date")}</th><th scope="col">{t("csn.description")}</th>{caps.admin && <th scope="col"><span className="nx-sr">{t("actions")}</span></th>}</tr></thead>
+              <tbody>
+                {[...list].reverse().map((snap) => (
+                  <tr key={snap.name}>
+                    <th scope="row" className="nx-mono">{snap.name}</th>
+                    <td>{new Date(snap.created_at).toLocaleString(lang)}</td>
+                    <td className="nx-muted">{snap.description || "—"}</td>
+                    {caps.admin && <td><div className="nx-ra">
+                      <button type="button" className="nx-btn nx-btn--sm" aria-disabled={on || busy || undefined} title={on ? t("csn.mustStop") : undefined} aria-label={t("a11y.restore_snapshot_x", { v: snap.name })} onClick={() => { if (!on && !busy) restore(snap); }}>{t("csn.restore")}</button>
+                      <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={busy} aria-label={t("a11y.delete_snapshot_x", { v: snap.name })} title={t("menu.delete").replace("…", "")} onClick={() => remove(snap)}><Trash2 size={15} aria-hidden="true" /></button>
+                    </div></td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
+        )}
+      </Card>
+    </>
   );
 }
 

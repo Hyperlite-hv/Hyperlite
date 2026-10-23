@@ -15,6 +15,9 @@ import logging
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
+from fastapi import Query
+from starlette.requests import HTTPConnection, Request
+
 from app.core import cluster_lead, node_health, peer_auth, self_node
 
 logger = logging.getLogger(__name__)
@@ -131,7 +134,7 @@ def merge(local, answers, key, reverse=True, limit=None):
 # member is sent to it, in the name of the same user, and its answer comes back as it is. That member checks the
 # rights again and records the audit entry and the task. This node checked the session first.
 
-MAX_BODY = 1 << 20  # JSON bodies only (a backup request, a restore): uploads are never forwarded
+MAX_BODY = 1 << 20  # JSON bodies: a file (an ISO image) is sent from its spool, never held in memory (_send_form)
 
 
 class Forwarded(Exception):  # not an error: the answer of another member, returned by app/main.py
@@ -147,8 +150,13 @@ def answer(status, body, node_name):
     that fails or does not answer reads as a 502 naming it."""
     if status == 401 or status >= 500:
         return 502, {"detail": f"{node_name} refused the request ({status})"}
-    if status == 0:
-        return 502, {"detail": f"{node_name} does not answer"}
+    if status == 0:  # its API not reached from the member itself (over SSH): why, as the other cases say it
+        reason = body.get("detail") if isinstance(body, dict) else None
+        return 502, {
+            "detail": f"{node_name} does not answer: {reason}"
+            if isinstance(reason, str)
+            else f"{node_name} does not answer"
+        }
     return status, body
 
 
@@ -158,11 +166,15 @@ def forward_to(param, refuse_others=None):
     cluster: the endpoint runs here. A node that is not a member (registered over SSH only, no Hyperlite on it):
     refused with `refuse_others` (a sentence) when given, else the endpoint runs here and handles it its own way."""
     from fastapi import Depends, HTTPException, Request
-    from fastapi.concurrency import run_in_threadpool
 
     from app.core.security import get_current_user
 
-    async def dependency(request: Request, user: dict = Depends(get_current_user)):
+    # The parameter is declared, so the API's description lists it on every route that takes this dependency.
+    async def dependency(
+        request: Request,
+        user: dict = Depends(get_current_user),
+        _named: str | None = Query(None, alias=param, description=NODE_DOC),
+    ):
         name = request.query_params.get(param)
         try:
             node = peer(name)
@@ -172,36 +184,179 @@ def forward_to(param, refuse_others=None):
             return None
         if node is None:
             return None
-        query = urllib.parse.urlencode([(k, v) for k, v in request.query_params.multi_items() if k != param])
-        path = request.scope.get("raw_path", b"").decode("latin-1") or urllib.parse.quote(request.url.path)
-        path = path.split("?", 1)[0] + (f"?{query}" if query else "")
-        if path.startswith("/api/v1/"):
-            path = path[len("/api/v1") :]  # the member's API prefix is added by peer_api, as for every call
-        body = None
-        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-            raw = await request.body()
-            if len(raw) > MAX_BODY:
-                raise HTTPException(status_code=413, detail="Request too large to send to another node")
-            if raw:
-                try:
-                    body = json.loads(raw)
-                except ValueError:
-                    raise HTTPException(status_code=422, detail="Invalid JSON body") from None
-        try:
-            status, reply = await run_in_threadpool(
-                rolling_update_call, node, user["username"], request.method, path, body
-            )
-        except PeerError:
-            status, reply = 0, None
-        raise Forwarded(*answer(status, reply, node["name"]))
+        await _send(request, param, node, user)
 
     return dependency
 
 
-def rolling_update_call(node, username, method, path, body):
+# ---- ?node= on everything a node holds (docs/design/terraform-provider.md, section 8) ----
+#
+# A VM, a template, a network, a storage pool and an ISO image live on one node: a request about them that names
+# another member goes to that member, which does the work itself, with its own locks, tasks and audit entries, as
+# Proxmox's pveproxy passes a request to the node that owns the guest. One rule for every route of their routers
+# (`on_node`, a dependency of each router), instead of some routes reaching another node through libvirt over SSH and
+# others acting here only. A node registered over SSH only (no Hyperlite on it) is still reached through libvirt by the
+# routes that do so.
+
+NODE_DOC = "The member that holds the object (absent, `local` or this node: here): the request is sent to it"
+
+
+def stays_here(endpoint):
+    """Marks an endpoint that `?node=` does not send to another member: it answers here about that member's object,
+    because what follows comes back here (a console ticket: its WebSocket opens on this node)."""
+    endpoint.stays_here = True
+    return endpoint
+
+
+async def on_node(connection: HTTPConnection, node: str | None = Query(None, description=NODE_DOC)):
+    """The routers' dependency: `?node=` naming another member sends the request there (`forward_to`). A WebSocket is
+    never sent (its ticket route says which node it is for), nor an endpoint marked `stays_here`."""
+    if not node or connection.scope["type"] != "http" or not isinstance(connection, Request):
+        return None
+    if getattr(connection.scope.get("endpoint"), "stays_here", False):
+        return None
+    try:
+        member = peer(node)
+    except LookupError:
+        # Not a member: a node registered over SSH only, or no node at all. An endpoint that takes `node` itself
+        # reaches such a node through libvirt, as before; any other would act here, on an object of the same name.
+        if _takes_node(connection.scope.get("endpoint")):
+            return None
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=409, detail=f"{node} is not a member of this cluster: this cannot be done there from this node"
+        ) from None
+    if member is None:
+        return None
+    from app.core.security import required_user
+
+    await _send(connection, "node", member, required_user(connection))
+
+
+def _takes_node(endpoint):
+    """Whether the endpoint has a `node` parameter of its own (it then handles a node that is not a member)."""
+    import inspect
+
+    try:
+        return "node" in inspect.signature(endpoint).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+# The answer of a write can take as long as the work: a VM stopped cleanly, a large disk deleted. A read is short.
+SEND_TIMEOUT_S = {"GET": 60}
+SEND_WRITE_TIMEOUT_S = 1800
+
+
+async def _send(request, param, node, user):
+    """Sends `request`, minus the `param` query parameter, to the member `node` in the name of `user`; raises
+    Forwarded with its answer."""
+    from fastapi import HTTPException
+    from fastapi.concurrency import run_in_threadpool
+
+    query = urllib.parse.urlencode([(k, v) for k, v in request.query_params.multi_items() if k != param])
+    path = request.scope.get("raw_path", b"").decode("latin-1") or urllib.parse.quote(request.url.path)
+    path = path.split("?", 1)[0] + (f"?{query}" if query else "")
+    if path.startswith("/api/v1/"):
+        path = path[len("/api/v1") :]  # the member's API prefix is added by peer_api, as for every call
+    body = None
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        content_type = request.headers.get("content-type", "application/json")
+        if request.method == "POST" and content_type.startswith("multipart/form-data"):
+            # A file (an ISO image), as Proxmox VE relays an upload to the node that stores it. The form was read
+            # before this dependency ran, the file spooled to disk as for an upload here.
+            form = await request.form()
+            try:
+                status, reply = await run_in_threadpool(_send_form, node, user["username"], path, form)
+            except PeerError as e:
+                raise Forwarded(502, {"detail": str(e)}) from None
+            raise Forwarded(*answer(status, reply, node["name"]))
+        if not content_type.startswith("application/json"):
+            raise HTTPException(status_code=415, detail=f"Only JSON or a form is sent on to {node['name']}")
+        raw = await request.body()
+        if len(raw) > MAX_BODY:
+            raise HTTPException(status_code=413, detail="Request too large to send to another node")
+        if raw:
+            try:
+                body = json.loads(raw)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid JSON body") from None
+    timeout = SEND_TIMEOUT_S.get(request.method, SEND_WRITE_TIMEOUT_S)
+    try:
+        status, reply = await run_in_threadpool(
+            rolling_update_call, node, user["username"], request.method, path, body, timeout
+        )
+    except PeerError as e:
+        # Its reason: a member down, or a change sent whose answer was lost and which may have been made.
+        raise Forwarded(502, {"detail": f"{node['name']} does not answer: {e}"}) from None
+    raise Forwarded(*answer(status, reply, node["name"]))
+
+
+FORM_CHUNK = 1 << 20
+
+
+def _form_field(value):
+    """A name in a part's header, quoted as browsers do (WHATWG): it cannot end the header or add another one."""
+    return str(value).replace('"', "%22").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _send_form(node, username, path, form):
+    """(status, body) of the form `form` posted to `node` in `username`'s name, multipart again, each file read from
+    its spool while it is sent. Over HTTPS only: the SSH way carries a JSON body. Raises PeerError."""
+    import secrets
+
+    from app.core import peer_https
+
+    boundary = secrets.token_hex(16)
+    parts = []  # (header, bytes or a file, its size)
+    for name, value in form.multi_items():
+        if isinstance(value, str):
+            head = f'--{boundary}\r\nContent-Disposition: form-data; name="{_form_field(name)}"\r\n\r\n'
+            data = value.encode()
+            parts.append((head.encode(), data, len(data)))
+        else:
+            head = (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{_form_field(name)}"; '
+                f'filename="{_form_field(value.filename or "")}"\r\n'
+                f"Content-Type: {_form_field(value.content_type or 'application/octet-stream')}\r\n\r\n"
+            )
+            size = value.file.seek(0, 2)
+            value.file.seek(0)
+            parts.append((head.encode(), value.file, size))
+    tail = f"--{boundary}--\r\n".encode()
+    length = sum(len(head) + size + 2 for head, _, size in parts) + len(tail)
+
+    def chunks():
+        for head, content, _ in parts:
+            yield head
+            if isinstance(content, bytes):
+                yield content
+            else:
+                while block := content.read(FORM_CHUNK):
+                    yield block
+            yield b"\r\n"
+        yield tail
+
+    try:
+        token = peer_auth.ticket_for(node, username)
+    except peer_auth.NoTicket as e:
+        raise PeerError(f"{node['name']} cannot be called in {username}'s name: {e}") from None
+    try:
+        return peer_https.send(
+            node, token, "/api/v1" + path, f"multipart/form-data; boundary={boundary}", length, chunks(),
+            SEND_WRITE_TIMEOUT_S,
+        )  # fmt: skip
+    except peer_https.Unavailable as e:
+        raise PeerError(f"A file is sent to {node['name']} over HTTPS only, which cannot be used: {e}") from None
+    except peer_https.Lost as e:
+        raise PeerError(str(e)) from None
+
+
+def rolling_update_call(node, username, method, path, body, timeout=60):
     from app.core import rolling_update
 
     try:
-        return rolling_update.peer_api(node, username, method, path, body=body, timeout=60, connect_timeout=5)
+        return rolling_update.peer_api(node, username, method, path, body=body, timeout=timeout, connect_timeout=5)
     except rolling_update.PeerUnreachable as e:
         raise PeerError(str(e)) from None

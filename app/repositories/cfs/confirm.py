@@ -40,6 +40,19 @@ def end(token):
     _current.reset(token)
 
 
+def settle():
+    """Have the cluster take the writes the running request made so far, now rather than before its answer: for a
+    request that then does something after which the cluster could not take them (a member added takes the quorum away
+    until it is up). Raises shadow.NotConfirmed or shadow.Changed. Outside a request, or a single node: nothing."""
+    request = _current.get()
+    if request is None or not request.ids:
+        return
+    from app.repositories.cfs import shadow
+
+    shadow.confirm(request.ids)
+    request.ids.clear()
+
+
 def _top(conn):
     """The last outbox id handed out (AUTOINCREMENT's counter, not the largest id left: copied entries are deleted)."""
     row = sqlite3.Connection.execute(conn, "SELECT seq FROM sqlite_sequence WHERE name = 'cfs_outbox'").fetchone()

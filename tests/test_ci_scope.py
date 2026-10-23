@@ -55,6 +55,8 @@ def test_a_pull_request_runs_the_jobs_its_files_need(tmp_path, files, expected):
 def test_a_change_to_the_ci_itself_runs_everything(tmp_path):
     assert _scope(tmp_path, ["docs/x.md", ".github/workflows/ci.yml"]) == ALL
     assert _scope(tmp_path, ["scripts/ci-scope.sh"]) == ALL
+    # The actions the jobs use: a change of how packages are installed reaches every job.
+    assert _scope(tmp_path, [".github/actions/apt-install/action.yml"]) == ALL
 
 
 def test_a_push_runs_everything(tmp_path):

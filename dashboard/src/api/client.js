@@ -1106,6 +1106,28 @@ export async function createTerminalTicket(name, node = null) {
 export async function createSerialTicket(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/serial-ticket${nodeQuery(node)}`, { method: "POST" });
 }
+// SPICE (docs/design/spice-console.md): the .vv file virt-viewer opens, through Hyperlite's SPICE proxy. It holds a
+// password valid a few seconds: saved straight to a file, never kept in the page.
+export async function downloadSpiceFile(name, node = null) {
+  let res;
+  try {
+    res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/spice-ticket${nodeQuery(node)}`), { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  } catch {
+    throw new Error("Cannot reach the server. Check your network connection and try again.");
+  }
+  if (!res.ok) {
+    let detail = null;
+    try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+    throw Object.assign(new Error(normalizeDetail(detail) || `HTTP ${res.status}`), { status: res.status });
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = `${name}.vv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+export async function addSpiceDisplay(name, node = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/spice-display${nodeQuery(node)}`, { method: "POST" });
+}
 
 // ---- Interactive shell on the physical host (admin only, see app/routers/host.py) ----
 export async function createHostTerminalTicket() {
@@ -1251,8 +1273,8 @@ export async function createContainerTerminalTicket(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
 
-// Container clone and backup/restore (no instantaneous snapshot is possible, since
-// libvirt's LXC driver does not support it; see app/core/container_builder.py).
+// Container clone and backup/restore. libvirt's LXC driver has no snapshot: a container snapshot is a copy of its
+// directory, taken while it is stopped (app/core/container_snapshots.py).
 export async function cloneContainer(name, newName) {
   return realFetch(`/containers/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
@@ -1267,6 +1289,18 @@ export async function deleteContainerBackup(id) {
 }
 export async function restoreContainerBackup(id, newName = null) {
   return realFetch(`/containers/backups/${id}/restore`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
+export async function fetchContainerSnapshots(name) {
+  return realList(`/containers/${encodeURIComponent(name)}/snapshots`);
+}
+export async function createContainerSnapshot(name, snapshot, description = null) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/snapshots`, { method: "POST", ...jsonBody({ name: snapshot, description }) });
+}
+export async function restoreContainerSnapshot(name, snapshot) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/snapshots/${encodeURIComponent(snapshot)}/restore`, { method: "POST" });
+}
+export async function deleteContainerSnapshot(name, snapshot) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/snapshots/${encodeURIComponent(snapshot)}`, { method: "DELETE" });
 }
 
 // Two-factor authentication and API tokens, self-service: each user manages their

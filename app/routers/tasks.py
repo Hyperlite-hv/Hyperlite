@@ -96,9 +96,12 @@ def export_tasks(
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: str, on: str | None = None, user: dict = Depends(get_current_user)):
-    """on: the node that holds the task in a cluster (the "on" of GET /tasks?cluster=true)."""
-    if (body := await _on_peer(on, task_id, user, "GET", f"/tasks/{task_id}")) is not None:
+async def get_task(
+    task_id: str, on: str | None = None, node: str | None = None, user: dict = Depends(get_current_user)
+):
+    """on: the node that holds the task in a cluster (the "on" of GET /tasks?cluster=true). node: the same, under the
+    name every other route takes (a task started with ?node= is held by that node)."""
+    if (body := await _on_peer(on or node, task_id, user, "GET", f"/tasks/{task_id}")) is not None:
         return body
     try:
         return await task_service.get_task(task_id)
@@ -107,9 +110,12 @@ async def get_task(task_id: str, on: str | None = None, user: dict = Depends(get
 
 
 @router.get("/{task_id}/log")
-async def get_task_log(task_id: str, on: str | None = None, user: dict = Depends(get_current_user)):
-    """What the task did, line by line (its own log, distinct from the audit entries of its target)."""
-    if (body := await _on_peer(on, task_id, user, "GET", f"/tasks/{task_id}/log")) is not None:
+async def get_task_log(
+    task_id: str, on: str | None = None, node: str | None = None, user: dict = Depends(get_current_user)
+):
+    """What the task did, line by line (its own log, distinct from the audit entries of its target). on or node: the
+    node that holds it."""
+    if (body := await _on_peer(on or node, task_id, user, "GET", f"/tasks/{task_id}/log")) is not None:
         return body  # the member's own answer, already a list of v1
     try:
         return listing(await task_service.task_log(task_id))
@@ -118,11 +124,18 @@ async def get_task_log(task_id: str, on: str | None = None, user: dict = Depends
 
 
 @router.post("/{task_id}/cancel")
-async def cancel_task(task_id: str, force: bool = False, on: str | None = None, user: dict = Depends(get_current_user)):
+async def cancel_task(
+    task_id: str,
+    force: bool = False,
+    on: str | None = None,
+    node: str | None = None,
+    user: dict = Depends(get_current_user),
+):
     """Ask a running task to stop. An administrator may cancel any task, another user only the tasks they
-    started. on: the node that holds it in a cluster, which checks the same rights and records the cancellation."""
+    started. on (or node): the node that holds it in a cluster, which checks the same rights and records the
+    cancellation."""
     path = f"/tasks/{task_id}/cancel" + ("?force=true" if force else "")
-    if (body := await _on_peer(on, task_id, user, "POST", path)) is not None:
+    if (body := await _on_peer(on or node, task_id, user, "POST", path)) is not None:
         return body
     try:
         task, outcome = await task_service.cancel(task_id, user, force)

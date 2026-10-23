@@ -300,3 +300,52 @@ def _no_credential_left():
     token = peer_auth.CREDENTIAL.set(None)
     yield
     peer_auth.CREDENTIAL.reset(token)
+
+
+def test_the_publishing_loop_survives_a_round_that_fails(monkeypatch):
+    """At the first start the daemon may run before the API made the database: a round failing on it is logged, and
+    the next one publishes. Before, the thread died and the members never got this node's keys."""
+    import sqlite3
+    import time
+
+    rounds = []
+
+    def publish():
+        rounds.append(time.monotonic())
+        if len(rounds) == 1:
+            raise sqlite3.OperationalError("no such table: app_settings")
+
+    # A failed round is tried again soon, not at the next round.
+    monkeypatch.setattr(peer_auth, "PUBLISH_S", 600)
+    monkeypatch.setattr(peer_auth, "RETRY_S", 0.01)
+    monkeypatch.setattr(peer_auth, "publish", publish)
+    monkeypatch.setattr(peer_auth.tickets, "ensure_keys", lambda: None)
+    stop = peer_auth.start_publishing()
+    deadline = time.monotonic() + 5
+    while len(rounds) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    assert len(rounds) >= 2
+
+
+def test_keys_the_cluster_refused_are_published_again_soon(monkeypatch):
+    """A node that joined publishes as it restarts, while the cluster reloads without the quorum: the refused write is
+    tried again within seconds, not at the next round."""
+    import time
+
+    rounds = []
+
+    def publish():
+        rounds.append(time.monotonic())
+        return len(rounds) > 1  # the first one refused
+
+    monkeypatch.setattr(peer_auth, "PUBLISH_S", 600)
+    monkeypatch.setattr(peer_auth, "RETRY_S", 0.01)
+    monkeypatch.setattr(peer_auth, "publish", publish)
+    monkeypatch.setattr(peer_auth.tickets, "ensure_keys", lambda: None)
+    stop = peer_auth.start_publishing()
+    deadline = time.monotonic() + 5
+    while len(rounds) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    stop.set()
+    assert len(rounds) >= 2

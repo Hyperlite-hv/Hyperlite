@@ -92,3 +92,27 @@ def test_a_clean_migration_has_no_warning(migrate, monkeypatch):
     task, audit = migrate["run"]()
     assert task == {"status": "succeeded", "error": None}
     assert "with warnings" not in audit["migrate_vm"][1]
+
+
+def test_the_default_pool_is_made_on_the_destination_before_the_disk_is_copied(migrate, monkeypatch):
+    """A fresh node defines the 'default' pool only when something first asks for it, and libvirt creates the copied
+    disk through the pool of its directory: the migration failed with "no storage pool with matching target path"."""
+    order = []
+    monkeypatch.setattr(migration, "domain_disk_paths", lambda domain: ["/var/lib/libvirt/images/web.qcow2"])
+    monkeypatch.setattr(migration, "uses_shared_storage", lambda *a: False)
+    monkeypatch.setattr(migration, "refresh_pools_for_paths", lambda *a: None, raising=False)
+    monkeypatch.setattr(migration, "_delete_paths_on_node", lambda *a: None)
+    monkeypatch.setattr(migration, "ensure_default_pool", lambda conn: order.append("pool"))
+    monkeypatch.setattr(FakeDomain, "migrateToURI3", lambda self, uri, params, flags: order.append("migrate"))
+    task, _ = migrate["run"]()
+    assert task["status"] == "succeeded", task
+    assert order[:2] == ["pool", "migrate"]
+
+
+def test_no_pool_is_made_for_a_disk_elsewhere(monkeypatch):
+    made = []
+    monkeypatch.setattr(migration, "ensure_default_pool", lambda conn: made.append(conn))
+    migration._ensure_default_pool_for("dest", ["/mnt/pve/nfs/web.qcow2", "/var/lib/libvirt/images/sub/x.qcow2"])
+    assert made == []
+    migration._ensure_default_pool_for("dest", ["/var/lib/libvirt/images/web.qcow2"])
+    assert made == ["dest"]

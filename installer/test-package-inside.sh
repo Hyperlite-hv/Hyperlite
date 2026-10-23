@@ -11,7 +11,9 @@ export DEBIAN_FRONTEND=noninteractive
 log() { echo "[test-package] $*"; }
 . /etc/os-release
 log "$PRETTY_NAME"
+. /src/installer/build-cache.sh
 apt-get update -qq
+apt_trust_kept_debs
 
 # The dependencies, alternatives and version constraints removed: apt resolves each name, virtual ones included.
 deps=$(sed -n 's/^Depends: //p' /src/installer/deb/control.template | tr ',' '\n' | sed 's/([^)]*)//; s/|.*//; s/ //g')

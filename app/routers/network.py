@@ -9,7 +9,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import network_edit, renaming
+from app.core import cluster_view, network_edit, renaming
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn_if_any
@@ -20,7 +20,8 @@ from app.core.vm_builder import validate_name
 from app.routers.vms._shared import inventory
 from app.routers.vms.firewall import _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS, FirewallConfig
 
-router = APIRouter(prefix="/networks", tags=["networks"])
+# ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
+router = APIRouter(prefix="/networks", tags=["networks"], dependencies=[Depends(cluster_view.on_node)])
 
 # One IPv4 address octet (0-255), reused 4 times to validate a user-supplied
 # address before inserting it into libvirt XML.
