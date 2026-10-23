@@ -74,6 +74,7 @@ def host(database, tmp_path, monkeypatch):
     monkeypatch.setattr(cluster_setup, "CFS_DEFAULTS", tmp_path / "default-cfs")
     monkeypatch.setattr(cluster_setup, "CFS_DB", tmp_path / "cfs" / "config.db")
     monkeypatch.setattr(cluster_setup, "WAIT_S", 2)
+    monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 2)
     monkeypatch.setattr(cluster_setup, "_run", run)
     monkeypatch.setattr(cluster_setup, "_local_addresses", lambda: {ADDRESS, "192.0.2.11"})
     restarts = []
@@ -491,6 +492,7 @@ def test_a_join_that_fails_puts_this_node_back_as_it_was(host, monkeypatch):
     authorized_keys are back as they were, and nothing tells Hyperlite it joined."""
     monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: _answer())
     monkeypatch.setattr(cluster_setup, "WAIT_S", 0)
+    monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 0)
     conf = cluster_setup.COROSYNC_CONF
     conf.parent.mkdir(parents=True)
     conf.write_text("# Debian's own\n")
@@ -668,3 +670,14 @@ def test_a_node_before_1_3_joins_without_its_fingerprint_and_keys(host):
     _info, decoded = _information(host)
     cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)  # it publishes them itself, later
     assert "/cluster/tls/pve-b" not in host.files and "/cluster/authkey/pve-b" not in host.files
+
+
+def test_a_joining_node_waits_longer_for_its_links_than_a_new_cluster(host, monkeypatch):
+    """The links to the members come up once they reloaded with the new node: more than a minute on a loaded host
+    (the lab on GitHub's runners gave up at 60 s, the links up a second later)."""
+    waits = []
+    monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: _answer())
+    monkeypatch.setattr(cluster_setup, "_wait_for_cluster", lambda wait_s=None: waits.append(wait_s))
+    monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 300)
+    cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
+    assert waits == [300] and cluster_setup.JOIN_WAIT_S > cluster_setup.WAIT_S
