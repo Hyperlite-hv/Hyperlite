@@ -64,6 +64,7 @@ def cluster(database, monkeypatch):
             raise libvirt.libvirtError(world["refuse"].pop(0))
         world["started"].append((row["vm_name"], target))
         ha._store().sync_definition(row["vm_name"], row["domain_xml"], "now", node=target)
+        return []
 
     monkeypatch.setattr(ha, "start_on", start_on)
     monkeypatch.setattr(ha, "forget_on", lambda row, target: None)
@@ -238,3 +239,73 @@ def test_memory_is_read_from_the_definition():
     assert ha_recovery.memory_mib(xml("x", 4096)) == 4096
     assert ha_recovery.memory_mib("<domain><memory>2097152</memory></domain>") == 2048  # KiB by default
     assert ha_recovery.memory_mib("not xml") == 0
+
+
+def test_a_recovered_vm_restarts_with_its_cd_rom_empty():
+    """Its installation ISO is in the lost node's own library: left in the drive, the VM started nowhere else (lab)."""
+    definition = (
+        "<domain><name>web</name><devices>"
+        "<disk type='file' device='disk'><source file='/mnt/share/web.qcow2'/><target dev='vda'/></disk>"
+        "<disk type='file' device='cdrom'><source file='/var/lib/hyperlite/template/iso/debian.iso'/><target dev='sda'/></disk>"
+        "</devices></domain>"
+    )
+    emptied, ejected = ha.eject_media(definition)
+    assert ejected == ["/var/lib/hyperlite/template/iso/debian.iso"]
+    assert "debian.iso" not in emptied and "/mnt/share/web.qcow2" in emptied and 'device="cdrom"' in emptied
+    assert ha.eject_media("<domain><devices/></domain>") == ("<domain><devices/></domain>", [])
+
+
+def test_the_recovered_vm_gets_its_networks_started_and_its_settings_moved(database, monkeypatch):
+    """As a migration does: a network of the VM stopped on the target is started; its tags, notes and start at boot
+    follow it."""
+    from app.core import object_meta, vm_boot
+
+    protect(database, "web", node="n2")
+    row = dict(
+        ha.get_protected("web"),
+        domain_xml=xml("web").replace(
+            "</domain>", "<devices><interface type='network'><source network='lan'/></interface></devices></domain>"
+        ),
+    )
+    started, moved = [], []
+
+    class Net:
+        active = False
+
+        def isActive(self):
+            return self.active
+
+        def create(self):
+            started.append("lan")
+
+        def setAutostart(self, on):
+            pass
+
+    class Domain:
+        def setAutostart(self, on):
+            pass
+
+        def create(self):
+            pass
+
+        def XMLDesc(self, flags=0):
+            return row["domain_xml"]
+
+    class Conn:
+        def lookupByName(self, name):
+            raise libvirt.libvirtError("Domain not found")
+
+        def networkLookupByName(self, name):
+            return Net()
+
+        def defineXML(self, definition):
+            return Domain()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ha, "open_conn", lambda key=None: Conn())
+    monkeypatch.setattr(object_meta, "follow_migration", lambda vm, src, dst: moved.append(("meta", src, dst)))
+    monkeypatch.setattr(vm_boot, "follow_migration", lambda vm, src, dst: moved.append(("boot", src, dst)))
+    ha.start_on(row, "n3", reuse_stopped=True)
+    assert started == ["lan"] and moved == [("meta", "n2", "n3"), ("boot", "n2", "n3")]

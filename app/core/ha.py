@@ -331,10 +331,11 @@ def recover(vm_name, target_node, username):
         )
 
     try:
-        start_on(row, target_node)
+        ejected = start_on(row, target_node)
     except libvirt.libvirtError as e:
         raise RuntimeError(f"Recovery failed: {e}") from e
-    log_action(username, "ha_recover", vm_name, "success", f"{row['node']} -> {target_node}")
+    note = f" (CD-ROM emptied: {', '.join(ejected)})" if ejected else ""
+    log_action(username, "ha_recover", vm_name, "success", f"{row['node']} -> {target_node}{note}")
 
 
 def _uuid_of(domain_xml):
@@ -344,12 +345,28 @@ def _uuid_of(domain_xml):
         return None
 
 
+def eject_media(domain_xml):
+    """(definition, ejected paths): the definition with every CD-ROM empty. A recovered VM restarts where its old
+    node's ISO library is not: an installation ISO left in its drive kept it from starting anywhere else (lab). Its
+    disks are untouched."""
+    root = ET.fromstring(domain_xml)
+    ejected = []
+    for disk in root.findall(".//devices/disk[@device='cdrom']"):
+        source = disk.find("source")
+        if source is not None:
+            ejected.append(source.get("file") or source.get("dev") or "?")
+            disk.remove(source)
+    return (ET.tostring(root, encoding="unicode") if ejected else domain_xml), ejected
+
+
 def start_on(row, target_node, reuse_stopped=False):
-    """Define the protected VM on `target_node` from its stored definition and start it; its record then names that
-    node. A VM of that name already there is refused, unless `reuse_stopped` and it is this very VM (same UUID),
-    stopped: what an earlier automatic attempt left when the disk was still locked (app/core/ha_recovery.py). Raises
-    RuntimeError for a conflict, libvirt.libvirtError when libvirt refuses."""
+    """Define the protected VM on `target_node` from its stored definition, its CD-ROMs empty (eject_media), and start
+    it; its record then names that node. A VM of that name already there is refused, unless `reuse_stopped` and it is
+    this very VM (same UUID), stopped: what an earlier automatic attempt left when the disk was still locked
+    (app/core/ha_recovery.py). Returns the ISO paths ejected. Raises RuntimeError for a conflict,
+    libvirt.libvirtError when libvirt refuses."""
     vm_name = row["vm_name"]
+    domain_xml, ejected = eject_media(row["domain_xml"])
     conn = open_conn(_conn_key(target_node))
     try:
         try:
@@ -362,13 +379,48 @@ def start_on(row, target_node, reuse_stopped=False):
             raise RuntimeError(
                 f"A VM '{vm_name}' already exists on '{target_node}': risk of conflict, recovery refused"
             )
+        _start_networks(conn, domain_xml)
         if domain is None:
-            domain = conn.defineXML(row["domain_xml"])
+            domain = conn.defineXML(domain_xml)
         domain.setAutostart(0)  # started at boot by Hyperlite only, which checks the HA record first
         domain.create()
         _store().sync_definition(vm_name, _portable_xml(domain.XMLDesc(0)), _now(), node=target_node)
     finally:
         conn.close()
+    _follow(vm_name, row["node"], target_node)
+    return ejected
+
+
+def _start_networks(conn, domain_xml):
+    """Start, on the target, each network of the VM that exists there but is stopped, as a migration does: a network
+    missing there stays a reason the VM does not start, said by libvirt."""
+    try:
+        names = {i.get("network") for i in ET.fromstring(domain_xml).findall(".//devices/interface/source")}
+    except ET.ParseError:
+        return
+    for name in sorted(n for n in names if n):
+        try:
+            net = conn.networkLookupByName(name)
+            if not net.isActive():
+                net.create()
+                net.setAutostart(True)
+        except libvirt.libvirtError:
+            logger.debug("Network %s not started on the target", name, exc_info=True)
+
+
+def _follow(vm_name, source_node, target_node):
+    """The VM's notes, tags and start at boot go with it, as after a migration. Its snapshots' records stayed in the
+    lost node's libvirt: they are not carried."""
+    from app.core import object_meta, vm_boot
+
+    for what, move in (
+        ("its tags and notes", lambda: object_meta.follow_migration(vm_name, source_node, target_node)),
+        ("its start at boot", lambda: vm_boot.follow_migration(vm_name, source_node, target_node)),
+    ):
+        try:
+            move()
+        except Exception:  # the VM runs: a step after it never undoes that
+            logger.exception("HA %s: %s did not follow it to %s", vm_name, what, target_node)
 
 
 def moved_away(vm_name):

@@ -206,7 +206,7 @@ def _restart(row, entry, online, lost):
     for target in targets[:2]:  # the first candidate, then the next one once
         logger.info("HA %s: starting it on %s (candidates: %s)", vm, target, ", ".join(targets))
         try:
-            ha.start_on(row, target, reuse_stopped=True)
+            ejected = ha.start_on(row, target, reuse_stopped=True)
         except libvirt.libvirtError as e:
             logger.warning("HA %s: not started on %s: %s", vm, target, e)
             last = f"{target}: {e}"
@@ -221,8 +221,9 @@ def _restart(row, entry, online, lost):
             last = f"{target}: {e}"
             continue
         _store().record_restart(vm, [*recent, _now().isoformat()])
-        _record(vm, OK, f"restarted on {target} after {row['node']} was lost")
-        log_action("system", "ha_restarted", vm, "success", f"{row['node']} -> {target}")
+        note = f", its CD-ROM emptied ({', '.join(ejected)})" if ejected else ""
+        _record(vm, OK, f"restarted on {target} after {row['node']} was lost{note}")
+        log_action("system", "ha_restarted", vm, "success", f"{row['node']} -> {target}{note}")
         _notify(f"HA: {vm} restarted on {target}", f"{row['node']} was lost and fenced", result="success")
         return target
     reason = f"could not be started on another node ({last})"
