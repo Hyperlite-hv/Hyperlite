@@ -1,1 +1,0 @@
-- An HS256 token signed with the key the members share is accepted only while a member is known to run a version before 1.3.0: never on an error reading the membership or a member's keys, and no longer as a session signed before the update, whose signing time is whatever the token says. Sessions signed before 1.3.0 that were still open must sign in again (GHSA-498v-p9g9-wvr8).

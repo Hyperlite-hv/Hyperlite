@@ -1,1 +1,0 @@
-- A disk image that names another file to read with it (a backing file, an external data file, a VMDK extent) is refused when it is imported, attached, restored or browsed; an attached volume is declared with its real format, and a volume already used by a VM is refused (GHSA-q6pm-r5rj-538c).

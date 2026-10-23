@@ -1,1 +1,0 @@
-- A session alone no longer enrols a second factor on an SSO account (its identity provider's multi-factor authentication applies), a directory account removes its own with its directory password, and an administrator can remove an account's second factors (POST /auth/users/{name}/second-factor/reset) (GHSA-7wjv-ggfp-7x9c).

@@ -1,1 +1,0 @@
-- A node's address and SSH user are checked before any connection to it, on every path that registers or reaches one, and ssh is told where its options end (GHSA-x3f5-r8vr-pvgw).
