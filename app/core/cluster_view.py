@@ -150,8 +150,13 @@ def answer(status, body, node_name):
     that fails or does not answer reads as a 502 naming it."""
     if status == 401 or status >= 500:
         return 502, {"detail": f"{node_name} refused the request ({status})"}
-    if status == 0:
-        return 502, {"detail": f"{node_name} does not answer"}
+    if status == 0:  # its API not reached from the member itself (over SSH): why, as the other cases say it
+        reason = body.get("detail") if isinstance(body, dict) else None
+        return 502, {
+            "detail": f"{node_name} does not answer: {reason}"
+            if isinstance(reason, str)
+            else f"{node_name} does not answer"
+        }
     return status, body
 
 
