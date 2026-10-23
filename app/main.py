@@ -547,6 +547,9 @@ def on_startup():
         # would be set back here): their ports on VLAN-aware bridges get their VLANs (app/core/bridge_vlan.py).
         from app.core import bridge_vlan
 
+        # The boot unit (installer/hyperlite-vlan-bridges.service) has made them VLAN-aware already; this covers a
+        # node where it has not run yet (first installation).
+        bridge_vlan.boot()
         bridge_vlan.apply_running(conn)
     finally:
         conn.close()

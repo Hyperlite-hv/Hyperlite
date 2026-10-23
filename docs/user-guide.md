@@ -242,8 +242,13 @@ A VM interface takes a **VLAN tag** on a network that can carry one, and the fie
   of the bridge when it starts, moves or is changed. Without a tag, the VM is on the bridge's default VLAN (1);
 - an Open vSwitch bridge or an SR-IOV network: libvirt sets the tag itself.
 
-On a Linux bridge that does not filter VLANs, create a **Bridge** network on the VLAN interface (`bond0.20`,
-`eno1.20`) instead, or make the bridge VLAN-aware.
+A **Bridge** network on a Linux bridge has a **VLANs** section in its details: **Make the bridge VLAN-aware**
+(administrators) turns VLAN filtering on, with VLANs 2 to 4094 tagged on the bridge's uplink, as Proxmox VE's "VLAN
+aware"; the switch port should be a trunk. Untagged traffic (the host's own address, the VMs) is not changed. The
+dashboard confirms the change from a new request a few seconds later: if the host can no longer be reached, it undoes
+the change by itself within 60 seconds. Kept, it is set again at every boot. **Stop filtering VLANs** undoes it,
+refused while a VM keeps VLANs on the bridge. Otherwise, create a **Bridge** network on the VLAN interface
+(`bond0.20`, `eno1.20`).
 
 A network's **Details**:
 
