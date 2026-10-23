@@ -65,6 +65,9 @@ TICKET_SETTING = "cluster_join_ticket"  # rows each node keeps for itself (app/r
 JOIN_SETTING = "cfs_join_pending"
 TICKET_TTL_S = 1800
 WAIT_S = 60
+# A joining node waits longer: its Corosync links to the members come up only once they reloaded with it, which took
+# more than a minute on loaded hosts (GitHub's runners), and Proxmox's pvecm add waits for the quorum as long.
+JOIN_WAIT_S = 300
 
 CLUSTER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,14}$")
 SSH_KEY_RE = re.compile(r"^ssh-ed25519 [A-Za-z0-9+/]{68}={0,2}( [A-Za-z0-9@._-]{1,64})?$")
@@ -273,8 +276,9 @@ def state():
 # ---- Creating ----
 
 
-def _wait_for_cluster():
-    deadline = time.monotonic() + WAIT_S
+def _wait_for_cluster(wait_s=None):
+    wait_s = WAIT_S if wait_s is None else wait_s
+    deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
         try:
             status = _client().status()
@@ -748,7 +752,8 @@ def join(information, address, confirmation, username):
                 path.replace(aside)
                 moved.append((path, aside))
         _start_cluster_services()
-        _wait_for_cluster()
+        logger.info("Waiting for the links to the cluster's members and the quorum (at most %s s)", JOIN_WAIT_S)
+        _wait_for_cluster(JOIN_WAIT_S)
         _write_env_keys(keys)
         settings = _settings()
         settings.set_app_setting(JOIN_SETTING, "1")  # the next start empties the outbox (finish_join)
