@@ -3126,6 +3126,7 @@ export default {
   "cfs.domainName.node_fencing": "Fencing",
   "cfs.domainName.ha_settings": "Réglages de haute disponibilité",
   "cfs.domainName.ha_protected_vms": "VM en haute disponibilité",
+  "cfs.domainName.ha_policies": "Redémarrage automatique des VM HA",
   "cfs.domainName.app_settings": "Réglages de l’application",
   "cfs.domainName.object_meta": "Notes et tags",
   "cfs.domainName.vm_boot": "Démarrage automatique",

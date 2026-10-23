@@ -1389,6 +1389,24 @@
        }
       ],
       "title": "Node"
+     },
+     "preferred_nodes": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Preferred Nodes",
+      "type": "array"
+     },
+     "priority": {
+      "default": "medium",
+      "enum": [
+       "high",
+       "medium",
+       "low"
+      ],
+      "title": "Priority",
+      "type": "string"
      }
     },
     "title": "EnableRequest",
