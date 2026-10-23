@@ -513,6 +513,9 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 }
 .nx-seg2--scroll { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .nx-seg2--scroll button { flex: none; white-space: nowrap; }
+/* Too many choices for one line in a drawer: whole buttons go to the next line, never a label cut in two. */
+.nx-seg2--wrap { flex-wrap: wrap; }
+.nx-seg2--wrap button { white-space: nowrap; }
 .nx-nodeband-count--short { display: none; }
 @supports (animation-timeline: scroll()) { .nx-seg2--scroll { animation: nx-edge-fade linear both; animation-timeline: scroll(self inline); } }
 .nx-nodeband-m { display: inline-flex; align-items: center; gap: 0.5333rem; font-size: var(--fs-12); }
