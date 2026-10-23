@@ -51,6 +51,9 @@ class Domain:
     def XMLDesc(self, flags=0):
         return self.xml
 
+    def setAutostart(self, on):
+        pass
+
 
 def disk_xml(path, driver="<driver name='qemu' type='qcow2'/>"):
     return f"<domain><name>web</name><devices><disk type='file' device='disk'>{driver}<source file='{path}'/></disk></devices></domain>"
