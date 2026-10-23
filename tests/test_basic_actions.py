@@ -3,7 +3,6 @@ environment variables some images need. libvirt and /proc are replaced by fakes.
 
 import json
 import xml.etree.ElementTree as ET
-from types import SimpleNamespace
 
 import libvirt
 import pytest
@@ -352,13 +351,16 @@ def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, 
     domain = _Domain("pg", active=True)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(domain))
     started = []
-    # The router's own `threading` only: patching the module itself also replaced the threads other code starts in
-    # the meantime (the audit writer at the sign-in), and the test failed or passed with the order tests ran in.
-    monkeypatch.setattr(
-        containers,
-        "threading",
-        SimpleNamespace(Thread=lambda **kw: type("T", (), {"start": lambda s: started.append(kw["args"])})()),
-    )
+    real_thread = containers.threading.Thread
+
+    def thread(*a, **kw):
+        # Only the forced stop is held back: containers.threading is the threading module, and another thread started
+        # meanwhile (the audit writer, at the first sign-in of a run) must start as usual.
+        if kw.get("target") is containers._force_stop_later:
+            return type("T", (), {"start": lambda s: started.append(kw["args"])})()
+        return real_thread(*a, **kw)
+
+    monkeypatch.setattr(containers.threading, "Thread", thread)
     set_container_app("pg", "postgres:16", {"args": ["postgres"]}, "192.168.100.10", "isolated")
     r = client.post("/containers/pg/stop", headers=auth_headers("alice"))
     assert r.status_code == 200 and r.json()["force_stop_after_s"] == containers.STOP_GRACE_S["application"]
