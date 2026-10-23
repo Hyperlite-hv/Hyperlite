@@ -16,7 +16,9 @@ def escape(text):
 
 def main(directory):
     root = Path(directory)
-    logs = [root / "pytest.log", *sorted(root.glob("n*/provision.log")), *sorted(root.glob("n*/hyperlite.log"))]
+    logs = [root / "pytest.log"]
+    for name in ("provision.log", "hyperlite.log", "cfs.log"):
+        logs += sorted(root.glob(f"n*/{name}"))
     for log in logs:
         if not log.is_file():
             continue

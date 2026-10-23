@@ -148,16 +148,24 @@ def cluster(lab):
     names = {n: ok(api(n, "GET", "/health", token=tokens[n]))["node"] for n in NODES}
     assert len(set(names.values())) == 3, names
 
+    def quorate(members):
+        """The cluster of `members` nodes has the quorum, as the Cluster page shows it before a node is added."""
+        status, state = api(1, "GET", "/cluster", token=tokens[1])
+        return status == 200 and len(state.get("members", [])) == members and state.get("quorum")
+
     ok(api(1, "POST", "/cluster/create", {"name": CLUSTER, "address": ip(1)}, tokens[1]))
     for n in (2, 3):
+        began = time.monotonic()
+        wait(f"the quorum before node {n} joins", lambda n=n: quorate(n - 1), timeout=120, every=1)
+        print(f"[lab] quorum with {n - 1} node(s) after {time.monotonic() - began:.1f} s")
         info = ok(api(1, "POST", "/cluster/adhesion", token=tokens[1]))["information"]
-        ok(api(n, "POST", "/cluster/join", {"information": info, "address": ip(n), "confirmation": CLUSTER}, tokens[n]))
+        body = {"information": info, "address": ip(n), "confirmation": CLUSTER}
+        status, answer = api(n, "POST", "/cluster/join", body, tokens[n], timeout=300)
+        assert status == 200, (
+            f"node {n} could not join: {status} {answer}; cluster: {api(1, 'GET', '/cluster', token=tokens[1])}"
+        )
 
-    def formed():
-        status, state = api(1, "GET", "/cluster", token=tokens[1])
-        return status == 200 and len(state.get("members", [])) == 3 and state.get("quorum")
-
-    wait("a cluster of three", formed)
+    wait("a cluster of three", lambda: quorate(3))
     # Each joining node restarted on the cluster's configuration: sign in again where the session ended.
     for n in NODES:
         tokens[n] = wait(f"node {n} after joining", lambda n=n: (login(n, PASSWORD)[1] or {}).get("access_token"))
