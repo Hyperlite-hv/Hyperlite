@@ -230,6 +230,45 @@ def _password_change_required():
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password change required")
 
 
+# root on a node, through hyperlite-admin (docs/design/admin-cli.md): as root@pam on Proxmox VE, an administrator with
+# no row in `users`, no password and no way in from the web. Its ticket is signed by its own node's daemon for a process
+# the kernel says runs as root (app/core/sign_in.py, local_root), and carries LOCAL_ROOT_CLAIM.
+LOCAL_ROOT_PREFIX = "root@"
+LOCAL_ROOT_CLAIM = "local_root"
+
+
+def local_root_name(node: str) -> str:
+    return LOCAL_ROOT_PREFIX + node
+
+
+def _reserved(username: str) -> bool:
+    """A name only root's ticket may carry: an account of a directory or an identity provider called so (LDAP and SSO
+    names may hold "@") would read as root of a node in the audit."""
+    return username.lower().startswith(LOCAL_ROOT_PREFIX)
+
+
+def _local_root(payload: dict):
+    """The account of a root ticket, when it names root of the node that signed it: this node for its own ticket, the
+    issuer of a peer ticket (app/core/peer_auth.py verified that issuer's signature). A ticket for root@n1 that n2
+    signed is refused."""
+    from app.core import self_node
+
+    node = payload.get("iss") or self_node.name()
+    if payload.get("sub") != local_root_name(node):
+        raise _credentials_exception()
+    return {
+        "id": None,
+        "username": payload["sub"],
+        "role": "admin",
+        "hashed_password": "",
+        "totp_secret": None,
+        "totp_enabled": 0,
+        "auth_source": LOCAL_ROOT_CLAIM,
+        "must_change_password": 0,
+        LOCAL_ROOT_CLAIM: True,
+    }
+
+
 def _session_user(payload: dict, pending_ok: bool = False):
     """pending_ok: the endpoint stays open while the account must change its password (who am I, change it)."""
     username = payload.get("sub")
@@ -239,6 +278,10 @@ def _session_user(payload: dict, pending_ok: bool = False):
     if username is None or payload.get("2fa_pending"):
         raise _credentials_exception()
     if _session_revoked(payload.get("jti")):
+        raise _credentials_exception()
+    if payload.get(LOCAL_ROOT_CLAIM) is True:
+        return _local_root(payload)
+    if _reserved(username):
         raise _credentials_exception()
     user = get_user(username)
     if user is None:
@@ -272,7 +315,7 @@ def _current_user(token: str, pending_ok: bool):
     )
 
     user = verify_token(token)
-    if user is None:
+    if user is None or _reserved(user["username"]):
         raise _credentials_exception()
     # The same rule as a session: an account whose password must be changed can do nothing else, including
     # through a script's token.
@@ -305,7 +348,11 @@ def _session_only(token: str, pending_ok: bool):
                 detail="Not allowed with an API token: sign in to the dashboard",
             )
         raise _credentials_exception()
-    return _session_user(payload, pending_ok)
+    user = _session_user(payload, pending_ok)
+    # What a person does for their own account (a password, a second factor, an API token): root of a node has none.
+    if user.get(LOCAL_ROOT_CLAIM):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not for root of a node: use an account")
+    return user
 
 
 async def get_session_user(token: str = Depends(oauth2_scheme)):

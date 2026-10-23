@@ -48,6 +48,15 @@ def password(args, ctx):
     return sign_in.password(**args.model_dump())
 
 
+@operation("auth.local", Args)
+def local(args, ctx):
+    """root's session on this node, for hyperlite-admin (docs/design/admin-cli.md): only for a process the kernel says
+    runs as root, never for the API's own user, whatever it claims."""
+    if ctx.peer_uid != 0:
+        raise DaemonError("forbidden", "Only root on this node gets its session")
+    return sign_in.local_root()
+
+
 @operation("auth.totp", TotpArgs)
 def totp(args, ctx):
     return sign_in.totp(**args.model_dump())
