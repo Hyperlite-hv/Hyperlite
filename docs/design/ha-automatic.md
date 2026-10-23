@@ -163,8 +163,12 @@ guest. It is the node's own work, with no failover: the VM stays where it is.
 ## 6. Steps (one pull request each, each tested in the lab)
 
 1. ~~Watchdog self-fence~~ (merged, #444, #459).
-2. **BMC/AMT fence**: `off` then `status` until off, in `ha_fencing`; tested with fake agents, and in the lab against
-   the lab VMs through a virtual BMC (`vbmc`, IPMI to libvirt on the host).
+2. **BMC fence**: `off` then `status` until off, in `ha_fencing`; tested with fake agents, and in the lab against
+   the lab VMs through a virtual BMC (`vbmc`, IPMI to libvirt on the host). The manual recovery uses it.
+   2b. **AMT of Hyperlite's own**: Debian 13 packages no `fence_amt_ws` (its WS-MAN library is not in Debian), and
+   `fence_amt` (amtterm) speaks the older interface that AMT 11 and later dropped. Hyperlite powers an AMT PC off
+   itself, over WS-MAN (`CIM_PowerManagementService.RequestPowerStateChange`, digest authentication, port 16993 in
+   TLS), and reads `CIM_AssociatedPowerManagementService.PowerState` until off.
 3. **Disk locks** (4.7): `virtlockd` set up by the package on every node of a cluster, the cross-node lock check at pool
    creation and in preflight. Lab: a VM on the NFS share started on node 2, the same disk refused on node 3.
 4. **Recovery by the leader**, with the restart priority: detection, fence decision, target, restart, limit, the
