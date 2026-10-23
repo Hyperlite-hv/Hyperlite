@@ -340,7 +340,11 @@ def test_the_proxy_says_when_the_vm_cannot_be_reached():
     asyncio.run(scenario())
 
 
-def test_an_open_session_does_not_hold_the_services_stop():
+@pytest.mark.parametrize("loop", ["asyncio", "uvloop"])
+def test_an_open_session_does_not_hold_the_services_stop(loop):
+    """On uvloop too: the service runs on it (uvicorn[standard]), and its server has no close_clients()."""
+    import uvloop
+
     async def scenario():
         upstream = await _upstream()
         qemu_port = upstream.sockets[0].getsockname()[1]
@@ -354,7 +358,7 @@ def test_an_open_session_does_not_hold_the_services_stop():
         assert await asyncio.wait_for(reader.read(), 5) in (b"\r\n", b""), "the session is closed"
         upstream.close()
 
-    asyncio.run(scenario())
+    asyncio.run(scenario(), loop_factory=uvloop.new_event_loop if loop == "uvloop" else None)
 
 
 def test_the_proxy_can_be_turned_off(monkeypatch):

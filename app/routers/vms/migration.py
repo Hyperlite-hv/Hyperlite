@@ -26,6 +26,7 @@ from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     domain_disk_paths,
+    ensure_default_pool,
     open_conn,
     refresh_pools_for_paths,
     uses_shared_storage,
@@ -205,6 +206,17 @@ def _copy_file_from_node(node_name, remote_path, local_path):
         raise RuntimeError(f"Copy of '{Path(remote_path).name}' from {node_name} failed: {scp_r.stderr.strip()[:300]}")
 
 
+DEFAULT_POOL_DIR = "/var/lib/libvirt/images"  # the target of the 'default' pool (ensure_default_pool)
+
+
+def _ensure_default_pool_for(conn, disk_paths):
+    """Make and start the 'default' pool on `conn` when a disk of the VM lives in its directory. libvirt creates the
+    copied disk on the destination through the pool of its directory, and a fresh node defines that pool only when
+    something first asks for it (lookup_pool): the migration failed with "no storage pool with matching target path"."""
+    if any(os.path.dirname(path) == DEFAULT_POOL_DIR for path in disk_paths):
+        ensure_default_pool(conn)
+
+
 def _domain_network_names(domain):
     root = ET.fromstring(domain.XMLDesc(0))
     names = []
@@ -312,6 +324,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         dest_conn = open_conn(dest_node_key)
 
         _ensure_networks_active(dest_conn, _domain_network_names(domain))
+        _ensure_default_pool_for(dest_conn, domain_disk_paths(domain))
         # The VM keeps its addresses on the per-node NAT networks: reserved on the destination first, refused when
         # another machine holds one there (#410).
         moved_reservations, added_reservations = network_alloc.carry_reservations(

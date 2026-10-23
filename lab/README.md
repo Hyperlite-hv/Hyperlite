@@ -19,3 +19,23 @@ The tests (`cfs/tests/cluster/test_cluster.py`) drive either this lab or the net
 
 What the lab cannot show: real hardware, the latency of a real link between sites, and a real NAS. Those are checked
 on real machines with a written procedure before production.
+
+## Hyperlite on the lab
+
+`vm.sh hyperlite DEB DIR` installs the Hyperlite package `DEB` on the same three VMs instead (its dependencies from
+Debian), and `lab/tests` makes them one cluster through the API, as an administrator does. Then it checks what only
+real members show: a request naming another member (`?node=`) is done by that member, an ISO upload is relayed to it,
+a VM made on one member is migrated to another (when the host lets the VMs run VMs of their own), and the Terraform
+provider manages every member's objects through one node. The `hyperlite-cluster` job of `.github/workflows/lab.yml`
+builds the package as the publication does and runs it; on a machine of your own:
+
+```bash
+bash installer/build-deb.sh   # after installer/build-runtime.sh, see installer/
+sudo env HYPERLITE_LAB_DEB=$PWD/installer/hyperlite_X_amd64.deb venv/bin/python -m pytest -q -s lab/tests
+```
+
+`HYPERLITE_LAB_PROVIDER` (the directory of a built `terraform-provider-hyperlite`, with `terraform` on the PATH) adds
+the provider's test; `HYPERLITE_LAB_DIR` keeps each node's logs (`nN/hyperlite.log`); `HYPERLITE_LAB_MEMORY` sets each
+node's memory in MB (3072 by default; 2048 is enough, the VM of the migration test takes 256). The VM test runs only
+where the nodes get nested virtualization (`/sys/module/kvm_*/parameters/nested` is `Y` or `1`): skipped on GitHub's
+runners.
