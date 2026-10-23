@@ -1273,8 +1273,8 @@ export async function createContainerTerminalTicket(name) {
   return realFetch(`/containers/${encodeURIComponent(name)}/terminal-ticket`, { method: "POST" });
 }
 
-// Container clone and backup/restore (no instantaneous snapshot is possible, since
-// libvirt's LXC driver does not support it; see app/core/container_builder.py).
+// Container clone and backup/restore. libvirt's LXC driver has no snapshot: a container snapshot is a copy of its
+// directory, taken while it is stopped (app/core/container_snapshots.py).
 export async function cloneContainer(name, newName) {
   return realFetch(`/containers/${encodeURIComponent(name)}/clone`, { method: "POST", ...jsonBody({ new_name: newName }) });
 }
@@ -1289,6 +1289,18 @@ export async function deleteContainerBackup(id) {
 }
 export async function restoreContainerBackup(id, newName = null) {
   return realFetch(`/containers/backups/${id}/restore`, { method: "POST", ...jsonBody({ new_name: newName }) });
+}
+export async function fetchContainerSnapshots(name) {
+  return realList(`/containers/${encodeURIComponent(name)}/snapshots`);
+}
+export async function createContainerSnapshot(name, snapshot, description = null) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/snapshots`, { method: "POST", ...jsonBody({ name: snapshot, description }) });
+}
+export async function restoreContainerSnapshot(name, snapshot) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/snapshots/${encodeURIComponent(snapshot)}/restore`, { method: "POST" });
+}
+export async function deleteContainerSnapshot(name, snapshot) {
+  return realFetch(`/containers/${encodeURIComponent(name)}/snapshots/${encodeURIComponent(snapshot)}`, { method: "DELETE" });
 }
 
 // Two-factor authentication and API tokens, self-service: each user manages their
