@@ -156,3 +156,19 @@ def test_only_the_requests_own_entries_are_noted(fake):
         mine = {r[0] for r in db.execute("SELECT id FROM cfs_outbox WHERE pk = '[7]'")}
         assert noted.ids == mine and len(mine) == 2  # the old and the new row of the update
         assert db.execute("SELECT COUNT(*) FROM cfs_outbox").fetchone()[0] == 3
+
+
+def test_a_request_can_have_its_writes_taken_before_its_answer(monkeypatch):
+    from app.repositories.cfs import confirm, shadow
+
+    taken = []
+    monkeypatch.setattr(shadow, "confirm", lambda ids: taken.append(set(ids)))
+    confirm.settle()  # outside a request: nothing
+    request, token = confirm.begin()
+    try:
+        request.ids.update({4, 5})
+        confirm.settle()
+        confirm.settle()  # taken once: nothing left to confirm
+    finally:
+        confirm.end(token)
+    assert taken == [{4, 5}] and request.ids == set()
