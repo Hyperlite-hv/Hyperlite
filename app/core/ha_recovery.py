@@ -58,10 +58,12 @@ def _now():
 
 
 def _record(vm_name, state, action):
-    """The VM's HA state, written only when it changes: the record is replicated, and a round runs every TICK_S."""
+    """The VM's HA state, written only when it changes: the record is replicated, and a round runs every TICK_S. Each
+    change is in the service's log too, where an administrator follows a recovery."""
     current = _store().protected_vm(vm_name) or {}
     if current.get("ha_state") == state and (state not in (MANUAL, OK) or current.get("last_action") == action):
         return
+    (logger.warning if state == MANUAL else logger.info)("HA %s: %s (%s)", vm_name, state, action)
     _store().record_watch(vm_name, state, action, _now().isoformat())
 
 
@@ -202,9 +204,11 @@ def _restart(row, entry, online, lost):
     _record(vm, RECOVERING, f"restarting on {targets[0]}")
     last = None
     for target in targets[:2]:  # the first candidate, then the next one once
+        logger.info("HA %s: starting it on %s (candidates: %s)", vm, target, ", ".join(targets))
         try:
             ha.start_on(row, target, reuse_stopped=True)
         except libvirt.libvirtError as e:
+            logger.warning("HA %s: not started on %s: %s", vm, target, e)
             last = f"{target}: {e}"
             locked = LOCKED.search(str(e))
             if locked and time.monotonic() - entry["fenced_at"] < LOCK_WAIT_S:
@@ -213,6 +217,7 @@ def _restart(row, entry, online, lost):
             ha.forget_on(row, target)
             continue
         except RuntimeError as e:
+            logger.warning("HA %s: not started on %s: %s", vm, target, e)
             last = f"{target}: {e}"
             continue
         _store().record_restart(vm, [*recent, _now().isoformat()])
@@ -298,6 +303,7 @@ def tick():
         if first:
             for r in vms:
                 _record(r["vm_name"], LOST, f"{member} not seen for more than {LOST_S} s")
+            logger.warning("HA: member %s lost (last status %s s ago)", member, "unknown" if age is None else int(age))
             log_action("system", "ha_lost", member, "failed", f"no status for more than {LOST_S} s")
             _notify(f"HA: member {member} lost", f"Its HA VMs: {', '.join(r['vm_name'] for r in vms)}")
         if entry["fenced_at"] is None:
@@ -313,6 +319,7 @@ def tick():
                 states[member] = FENCING
                 continue
             entry["fenced_at"] = time.monotonic()
+            logger.warning("HA: member %s fenced: %s", member, why)
             log_action("system", "ha_fenced", member, "success", why)
         online = _online(ages)
         lost = set(_lost)

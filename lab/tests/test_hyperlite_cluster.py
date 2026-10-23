@@ -438,7 +438,15 @@ def test_an_ha_vm_is_restarted_elsewhere_when_its_node_is_cut_off(cluster):
         ]
         return where or None
 
-    where = wait("havm restarted on another member", running_elsewhere, timeout=420, every=10)
+    try:
+        where = wait("havm restarted on another member", running_elsewhere, timeout=420, every=10)
+    except AssertionError:
+        for n in (1, 3):  # what the leader recorded, for the report
+            print(f"[lab] node {n}: {api(n, 'GET', '/ha', token=t[n])}")
+            print(
+                on(n, "sh", "-c", "journalctl -u hyperlite --no-pager | grep -E 'HA |ha_recovery|Traceback' | tail -25")
+            )
+        raise
     print(f"[lab] havm restarted on node {where} {time.monotonic() - began:.0f} s after node 2 was cut off")
     assert len(where) == 1, where  # one copy
     subprocess.run(["bash", str(LAB), "heal", "2"], check=False)  # its reset cleared the cut already
