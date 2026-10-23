@@ -177,7 +177,12 @@ another node: open that node's own Hyperlite for them.
 
 **Containers** lists them; a container's page has **Summary** (resources: memory live, CPUs at the next start; network
 interfaces; DNS servers; start at boot; notes and tags), **Console** (terminal, or the program's output for an image),
-**Backups** (cold backups and restore; the container must be stopped), **Tasks** and **Permissions**.
+**Snapshots**, **Backups** (cold backups and restore; the container must be stopped), **Tasks** and **Permissions**.
+
+- **Snapshots** (administrators take, restore and delete them; the container must be stopped): a copy of the
+  container's files on the node, next to them. The first one copies everything; the next ones keep only the files
+  that changed. Restoring one puts the container's files back as they were, the snapshot kept; whatever changed since
+  is lost. A snapshot is not a backup: it stays on the same disk, and goes with the container when it is deleted.
 
 - **Root shell** (administrators, running container): a shell inside the container, like `docker exec -it … sh`,
   for Docker images too (bash when the image has it, else sh). The **Terminal** of an LXC container connects over SSH

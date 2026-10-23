@@ -939,6 +939,31 @@
     "title": "ContainerCreate",
     "type": "object"
    },
+   "ContainerSnapshotCreate": {
+    "properties": {
+     "description": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "ContainerSnapshotCreate",
+    "type": "object"
+   },
    "ContainerUpdate": {
     "properties": {
      "autostart": {
@@ -8030,7 +8055,7 @@
   },
   "/api/v1/containers/{name}/rename": {
    "post": {
-    "description": "libvirt's LXC driver cannot rename a domain: the stopped container is redefined under its new name, its\nfilesystem directory is renamed next to the old one, and Hyperlite's records follow (app/core/renaming.py).",
+    "description": "libvirt's LXC driver cannot rename a domain: the stopped container is redefined under its new name, its\nfilesystem directory is renamed next to the old one (its snapshots' too), and Hyperlite's records follow\n(app/core/renaming.py).",
     "operationId": "rename_container_api_v1_containers__name__rename_post",
     "parameters": [
      {
@@ -8124,6 +8149,212 @@
      }
     ],
     "summary": "Create Shell Ticket",
+    "tags": [
+     "containers"
+    ]
+   }
+  },
+  "/api/v1/containers/{name}/snapshots": {
+   "get": {
+    "operationId": "list_container_snapshots_api_v1_containers__name__snapshots_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Container Snapshots",
+    "tags": [
+     "containers"
+    ]
+   },
+   "post": {
+    "operationId": "create_container_snapshot_api_v1_containers__name__snapshots_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ContainerSnapshotCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Container Snapshot",
+    "tags": [
+     "containers"
+    ]
+   }
+  },
+  "/api/v1/containers/{name}/snapshots/{snapshot}": {
+   "delete": {
+    "operationId": "delete_container_snapshot_api_v1_containers__name__snapshots__snapshot__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "snapshot",
+      "required": true,
+      "schema": {
+       "title": "Snapshot",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Container Snapshot",
+    "tags": [
+     "containers"
+    ]
+   }
+  },
+  "/api/v1/containers/{name}/snapshots/{snapshot}/restore": {
+   "post": {
+    "operationId": "restore_container_snapshot_api_v1_containers__name__snapshots__snapshot__restore_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "snapshot",
+      "required": true,
+      "schema": {
+       "title": "Snapshot",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Restore Container Snapshot",
     "tags": [
      "containers"
     ]

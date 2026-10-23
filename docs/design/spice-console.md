@@ -43,6 +43,7 @@ defines carries a random, already expired password; and each node's `qemu.conf` 
 | A made-up ticket | 403, logged without the request line |
 | A VM defined as Hyperlite defines one (no `<video>`: libvirt chose `cirrus`), given a SPICE display through the API | Its video model unchanged; `remote-viewer` shows its screen |
 | noVNC on the same VMs | Unchanged, connected |
+| `scripts/ensure-spice-tls.sh` under a real systemd (an Ubuntu 24.04 virtual machine of the lab, libvirtd running) | libvirtd restarted through systemd (its process changed); run again, no restart |
 | `scripts/ensure-spice-tls.sh` from a clean node | Certificates, `spice_tls`, `spice_password`; a running VM kept running across libvirtd's restart; run again, nothing changes |
 
 ## Design
@@ -72,8 +73,6 @@ defines carries a random, already expired password; and each node's `qemu.conf` 
 
 ## Not checked yet
 
-- `systemctl restart libvirtd` from the script on a real Debian node (the lab has no systemd: libvirtd was
-  restarted by hand there).
 - `qemu-system-modules-spice` on Debian 13: checked on Ubuntu 24.04 only (Debian's archive was not reachable from the
   lab); the package's CI job resolves every dependency on Debian 13.
 - AppArmor on Debian (QEMU reading `/etc/pki/libvirt-spice`; the lab has no AppArmor).
