@@ -132,14 +132,16 @@ func matches(template, path string) bool {
 
 func printRoute(w io.Writer, doc *openAPI, path string) {
 	ops := doc.Paths[hyperlite.APIPrefix+path]
-	for i, m := range methodOrder {
+	printed := 0
+	for _, m := range methodOrder {
 		op, ok := ops[m]
 		if !ok {
 			continue
 		}
-		if i > 0 {
-			fmt.Fprintln(w)
+		if printed > 0 {
+			fmt.Fprintln(w) // between two methods of the route, not before the first
 		}
+		printed++
 		fmt.Fprintf(w, "%s %s\n", strings.ToUpper(m), path)
 		if line := firstLine(op.Description, op.Summary); line != "" {
 			fmt.Fprintf(w, "  %s\n", line)

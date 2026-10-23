@@ -162,7 +162,7 @@ func TestAShortCommandSaysWhatItNeeds(t *testing.T) {
 func TestAPIPrintsWhatARouteTakes(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run([]string{"api", "/api/v1/vms/web1/migrate", "--schema", repoSchema}, nil, &out, &errOut)
-	if code != 0 || !strings.Contains(out.String(), "POST /vms/{name}/migrate") ||
+	if code != 0 || !strings.HasPrefix(out.String(), "POST /vms/{name}/migrate\n") ||
 		!strings.Contains(out.String(), "target_node=string  (required)") ||
 		!strings.Contains(out.String(), "skip_checks:=boolean") {
 		t.Fatalf("exit %d: %s%s", code, out.String(), errOut.String())
@@ -172,6 +172,12 @@ func TestAPIPrintsWhatARouteTakes(t *testing.T) {
 	run([]string{"api", "/networks/host-interfaces", "--schema", repoSchema}, nil, &out, io.Discard)
 	if !strings.HasPrefix(out.String(), "GET /networks/host-interfaces\n") {
 		t.Errorf("%s", out.String())
+	}
+	out.Reset()
+	// Two methods of one route, a blank line between them only.
+	run([]string{"api", "/vms/web1/snapshots", "--schema", repoSchema}, nil, &out, io.Discard)
+	if !strings.HasPrefix(out.String(), "GET /vms/{name}/snapshots\n") || !strings.Contains(out.String(), "\n\nPOST /vms/{name}/snapshots\n") {
+		t.Errorf("%q", out.String())
 	}
 	if code := run([]string{"api", "/nothing/here", "--schema", repoSchema}, nil, io.Discard, io.Discard); code != exitAPI {
 		t.Errorf("an unknown route: exit %d", code)
