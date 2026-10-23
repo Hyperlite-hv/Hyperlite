@@ -1,7 +1,7 @@
 # Design: `hyperlite-admin`, the administration CLI on a node (#516)
 
 Status: **proposed; the maintainer left section 8 to the best of vSphere and Proxmox VE (2026-10-23), the choices are
-recorded there.** Steps 1 to 4 follow, one pull request each.
+recorded there.** Step 2 is #622; steps 1, 3, 4 and 5 follow, one pull request each.
 
 ## 1. Goal
 
@@ -40,22 +40,21 @@ the API cannot do, the CLI cannot do either. The workstation client (`hyperlite`
 ### 4.1 One binary, Go, in the package
 
 `/usr/bin/hyperlite-admin`, built from `cli/admin/` on the `cli/hyperlite` library (so a fix to TLS, errors or the wait
-for a task is made once for the three programs), shipped by the `.deb`. Root only: it says so and stops for any other
-user.
+for a task is made once for the three programs), shipped by the `.deb`. Without a token it acts as root and needs root (it says so for any other user); with a
+named account's token (4.3) any user of the node may run it, with that account's rights.
 
 ### 4.2 Transport: the node's own HTTPS API
 
 It calls `https://127.0.0.1:8000/api/v1`, pinning the node's certificate read from `/etc/hyperlite/local/hyperlite.crt`
 (root only can read the key, anyone the certificate; a pin is exactly what `cli/hyperlite` already does for a
 self-signed one). No new listener, no change to `hyperlite.service`: the requests go through the same middleware,
-rights and audit as the dashboard's. The port comes from the unit's `--port` when an administrator changed it.
+rights and audit as the dashboard's. `--server` names another address when an administrator changed the port.
 
 ### 4.3 Identity: a ticket from the daemon, for root only
 
 1. The CLI connects to the daemon's socket and asks `auth.local`.
 2. The daemon answers only when the kernel says the peer's uid is **0** (not the API's user, once #511 drops root): a
-   session ticket, signed as any other, **5 minutes**, for `root@<node>`, with a claim `via: "hyperlite-admin"`
-   and the peer's pid.
+   session ticket, signed as any other, **5 minutes**, for `root@<node>`, with the claim `local_root`.
 3. The CLI sends it as `Authorization: Bearer`. A run longer than the ticket (waiting for a long task) asks for a new
    one; nothing is written to disk.
 
@@ -72,10 +71,15 @@ Proxmox VE, under its own node's name in each member's audit.
 A named account instead of root: `--token-file FILE` (or `HYPERLITE_TOKEN`) uses that account's API token, its own
 rights and its own name in the audit, as an administrator does from a workstation.
 
-**Lockdown**, as ESXi's lockdown mode: an administrator can turn on `admin_cli_lockdown` (a key of the replicated
-`app_settings`, no new column; off by default, set from the security page). Then the daemon refuses `auth.local` on
-every member and says why; root on a node must use a named account's token. It protects an organization that wants
-every action under a person's name, at the price of `hyperlite-admin` with no token.
+The name `root@...` is reserved: an account of a directory or an identity provider called so (LDAP and SSO names may
+hold `@`) is refused, by session or API token, so the audit never mistakes it for root of a node. Root has no account
+to manage: the routes a person uses for their own account (API tokens, password, second factors) answer 403.
+
+**Lockdown** (step 5), as ESXi's lockdown mode: an administrator can turn on `admin_cli_lockdown` (a key of the
+replicated `app_settings`, no new column; off by default, set from the security page). Then the daemon refuses
+`auth.local` on every member and says why; root on a node must use a named account's token. It protects an
+organization that wants every action under a person's name, at the price of `hyperlite-admin` with no token. It is a
+step of its own because it adds a route and a switch in the dashboard (`docs/api/openapi-v1.json`, `i18n/*.js`).
 
 Until #511 step 4, the API itself runs as root, so it could ask `auth.local` too: it gains nothing it did not have (it
 reads the signing key today). After step 4 the uid check is what keeps the API out.
@@ -85,8 +89,10 @@ reads the signing key today). After step 4 the uid check is what keeps the API o
 Two layers, both on the same calls:
 
 - **Generic, as `pvesh`**: `hyperlite-admin get|post|put|patch|delete <path> [key=value ...] [--data JSON]`, any
-  route of API v1; `hyperlite-admin api <path>` prints the route's parameters from the server's own OpenAPI
-  (`/openapi.json`), so nothing in the CLI goes stale when the API grows.
+  route of API v1, with httpie's items (`key==value` to the query, `key=value` and `key:=json` to the body); `hyperlite-admin
+  api <path>` prints the route's parameters. The server's `/openapi.json` takes the documentation's own sign-in, not a
+  bearer token (`app/core/api_docs.py`), so `api` reads `docs/api/openapi-v1.json`, embedded at build time: the
+  binary and the API come from the same commit in the package, so the schema is the node's.
 - **Short commands** for daily work, each a thin wrapper of one or two routes:
 
 | Group | Commands |
@@ -122,8 +128,8 @@ change. With a named account's token (4.3), the entry carries that account's nam
 | File | Change | Held by |
 |---|---|---|
 | `cli/admin/` (new) | the commands | nobody |
-| `cli/hyperlite/` | additions only (a `Do` with query parameters, the OpenAPI read) | nobody |
-| `app/daemon/ops/auth.py` | the `auth.local` operation | **#511** (`app/daemon/`): asked on #298 first |
+| `cli/hyperlite/` | nothing so far: `Call` takes a path with its query | nobody |
+| `app/daemon/ops/auth.py` | the `auth.local` operation | **#511** (`app/daemon/`): its session ended; the maintainer allowed the addition |
 | `app/core/sign_in.py` or `peer_auth.py` | the ticket for `root@<node>` | nobody |
 | `app/core/security.py` | accept `root@<node>` (no row in `users`) | nobody |
 | `dashboard/src/next/pages/SecurityPage.jsx`, `i18n/en.js`, `fr.js` | the lockdown switch | `i18n/*.js`: **#426** |
@@ -135,14 +141,15 @@ key of `app_settings`, set through the existing settings route if one fits, else
 
 ## 6. Steps (one pull request each)
 
-1. **Identity**: `auth.local` in the daemon, `root@<node>` accepted by the API, its audit, the lockdown setting; tests
-   (uid 0 gets a ticket, any other uid is refused, a ticket of 5 minutes expires, the audit names `root@<node>`, lockdown
-   refuses it and a named token still works).
-2. **The generic layer**: `get/post/put/patch/delete`, `api`, `--json`, the wait for tasks, exit codes; Go tests against
-   a test server, and a test against a real API started by the test suite.
-3. **Short commands**: `vm`, `ct`, `task`, then `storage`, `network`, `backup`, `cluster`, `node`.
+1. **Identity**: `auth.local` in the daemon, `root@<node>` accepted by the API and by the other members, its audit, the
+   reserved name; tests (uid 0 gets a ticket, any other uid is refused, the audit names `root@<node>`, a ticket naming
+   another node is refused, a member is accepted as root of the member that signed only).
+2. **The generic layer** (#622): `get/post/put/patch/delete`, `wait`, `--json`, the wait for tasks, exit codes; Go
+   tests against a test server and a fake daemon, and checked against a real API.
+3. **Short commands** and `api`: `vm`, `ct`, `task`, then `storage`, `network`, `backup`, `cluster`, `node`.
 4. **The package**: built and shipped; checked on the lab (`lab/tests`): on node 1, `hyperlite-admin vm list --cluster`
    lists the three members' VMs, `vm start --node n2` starts a VM on node 2, and the audit of node 2 names it.
+5. **Lockdown**: the setting, its route and its switch on the security page, the daemon's refusal.
 
 ## 7. Risks
 
@@ -151,7 +158,8 @@ key of `app_settings`, set through the existing settings route if one fits, else
 | A root shell becomes a Hyperlite administrator without a second factor | It is root on the node already (it reads the database and the keys); Proxmox VE's `root@pam` is the same. The audit names it |
 | A ticket leaks from a running command | 5 minutes, never written to disk, only in the process's memory |
 | The API's process asks for a root ticket after #511 drops root | The daemon checks uid 0 from the kernel, not a claim of the caller |
-| The short commands drift from the API | They are thin wrappers; the generic layer and `api` cover the rest from the server's own schema |
+| The short commands drift from the API | They are thin wrappers; the generic layer and `api` cover the rest from the node's own schema |
+| A member of an older version, during a rolling update | It does not know `root@<node>`: root's calls to it are refused (401) until it is updated; a named account's token works |
 
 ## 8. Choices (left by the maintainer to the best of vSphere and Proxmox VE, 2026-10-23)
 
