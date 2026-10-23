@@ -176,7 +176,9 @@ def cluster(lab):
         info = ok(api(1, "POST", "/cluster/adhesion", token=tokens[1]))["information"]
         body = {"information": info, "address": ip(n), "confirmation": CLUSTER}
         before = main_pid(n)
-        status, answer = api(n, "POST", "/cluster/join", body, tokens[n], timeout=300)
+        status, answer = api(
+            n, "POST", "/cluster/join", body, tokens[n], timeout=420
+        )  # the join waits up to 300 s (JOIN_WAIT_S)
         assert status == 200, (
             f"node {n} could not join: {status} {answer}; cluster: {api(1, 'GET', '/cluster', token=tokens[1])}"
         )
@@ -227,7 +229,7 @@ def test_an_iso_upload_goes_to_the_member_it_names(cluster):
 def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
     t, names = cluster["tokens"], cluster["names"]
     b, c = names[2], names[3]
-    if on(2, "sh", "-c", "test -c /dev/kvm && echo yes || echo no").strip() != "yes":
+    if not nested(2):
         pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
     form, content_type = multipart("boot.iso", b"\0" * (1 << 20))
     ok(api(1, "POST", f"/isos?node={b}", form=form, content_type=content_type, token=t[1]))
@@ -251,17 +253,7 @@ def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
     ok(api(1, "DELETE", f"/vms/labvm?node={c}&confirm=true", token=t[1]))
 
 
-@pytest.mark.skipif(not PROVIDER or not shutil.which("terraform"), reason="needs HYPERLITE_LAB_PROVIDER and terraform")
-def test_the_provider_manages_every_members_objects_through_one_node(cluster, tmp_path):
-    t, names = cluster["tokens"], cluster["names"]
-    b, c = names[2], names[3]
-    token = ok(api(1, "POST", "/auth/tokens", {"name": "terraform-lab", "expires_days": 1}, t[1]))["token"]
-    # The form the dashboard shows and the provider takes: hexadecimal, no colons.
-    fingerprint = on(1, "sh", "-c", "openssl x509 -in /etc/hyperlite/local/hyperlite.crt -outform DER | sha256sum")
-    fingerprint = fingerprint.split()[0].upper()
-    (tmp_path / "image.iso").write_bytes(os.urandom(2 << 20))
-    (tmp_path / "rc").write_text(f'provider_installation {{\n  dev_overrides {{\n    "hyperlite-hv/hyperlite" = "{PROVIDER}"\n  }}\n  direct {{}}\n}}\n')  # fmt: skip
-    (tmp_path / "main.tf").write_text(f"""
+TERRAFORM_HEAD = """
 terraform {{
   required_providers {{
     hyperlite = {{ source = "hyperlite-hv/hyperlite" }}
@@ -269,10 +261,46 @@ terraform {{
 }}
 
 provider "hyperlite" {{
-  server      = "https://{ip(1)}:8000"
+  server      = "https://{server}:8000"
   fingerprint = "{fingerprint}"
 }}
+"""
 
+
+def terraform_on_node_1(t, tmp_path):
+    """terraform(*args) in tmp_path, the provider of HYPERLITE_LAB_PROVIDER talking to node 1 with an API token; the
+    configuration is tmp_path/main.tf, next to the provider block written here (provider.tf)."""
+    token = ok(api(1, "POST", "/auth/tokens", {"name": f"terraform-lab-{tmp_path.name}", "expires_days": 1}, t[1]))
+    # The form the dashboard shows and the provider takes: hexadecimal, no colons.
+    fingerprint = on(1, "sh", "-c", "openssl x509 -in /etc/hyperlite/local/hyperlite.crt -outform DER | sha256sum")
+    fingerprint = fingerprint.split()[0].upper()
+    (tmp_path / "rc").write_text(f'provider_installation {{\n  dev_overrides {{\n    "hyperlite-hv/hyperlite" = "{PROVIDER}"\n  }}\n  direct {{}}\n}}\n')  # fmt: skip
+    (tmp_path / "provider.tf").write_text(TERRAFORM_HEAD.format(server=ip(1), fingerprint=fingerprint))
+    env = {
+        **os.environ,
+        "TF_CLI_CONFIG_FILE": str(tmp_path / "rc"),
+        "HYPERLITE_TOKEN": token["token"],
+        "CHECKPOINT_DISABLE": "1",
+    }
+
+    def terraform(*args):
+        return subprocess.run(["terraform", f"-chdir={tmp_path}", *args], env=env, capture_output=True, text=True)
+
+    return terraform
+
+
+needs_terraform = pytest.mark.skipif(
+    not PROVIDER or not shutil.which("terraform"), reason="needs HYPERLITE_LAB_PROVIDER and terraform"
+)
+
+
+@needs_terraform
+def test_the_provider_manages_every_members_objects_through_one_node(cluster, tmp_path):
+    t, names = cluster["tokens"], cluster["names"]
+    b, c = names[2], names[3]
+    terraform = terraform_on_node_1(t, tmp_path)
+    (tmp_path / "image.iso").write_bytes(os.urandom(2 << 20))
+    (tmp_path / "main.tf").write_text(f"""
 resource "hyperlite_network" "b" {{
   name       = "tfnet"
   node       = "{b}"
@@ -293,16 +321,6 @@ data "hyperlite_network" "b" {{
   node = hyperlite_network.b.node
 }}
 """)
-    env = {
-        **os.environ,
-        "TF_CLI_CONFIG_FILE": str(tmp_path / "rc"),
-        "HYPERLITE_TOKEN": token,
-        "CHECKPOINT_DISABLE": "1",
-    }
-
-    def terraform(*args):
-        return subprocess.run(["terraform", f"-chdir={tmp_path}", *args], env=env, capture_output=True, text=True)
-
     applied = terraform("apply", "-auto-approve", "-input=false")
     assert applied.returncode == 0, applied.stdout + applied.stderr
     assert api(2, "GET", "/networks/tfnet", token=t[2])[0] == 200
@@ -313,3 +331,54 @@ data "hyperlite_network" "b" {{
     destroyed = terraform("destroy", "-auto-approve", "-input=false")
     assert destroyed.returncode == 0, destroyed.stdout + destroyed.stderr
     assert api(2, "GET", "/networks/tfnet", token=t[2])[0] == 404
+
+
+def nested(n):
+    """Whether node n can run a VM of its own (the host gave it nested virtualization)."""
+    return on(n, "sh", "-c", "test -c /dev/kvm && echo yes || echo no").strip() == "yes"
+
+
+@needs_terraform
+def test_the_provider_moves_a_vm_to_the_member_its_node_names(cluster, tmp_path):
+    """A VM made by Terraform on node 2 through node 1, then its `node` changed to node 3: the provider migrates it,
+    live (resource_vm.go, migrate), and the next plan has nothing to change."""
+    t, names = cluster["tokens"], cluster["names"]
+    b, c = names[2], names[3]
+    if not (nested(2) and nested(3)):
+        pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
+    form, content_type = multipart("tfboot.iso", b"\0" * (1 << 20))
+    ok(api(1, "POST", f"/isos?node={b}", form=form, content_type=content_type, token=t[1]))
+    terraform = terraform_on_node_1(t, tmp_path)
+
+    def vm_on(node):
+        (tmp_path / "main.tf").write_text(f"""
+resource "hyperlite_vm" "moved" {{
+  name             = "tfvm"
+  node             = "{node}"
+  vcpu             = 1
+  memory_mb        = 256
+  iso              = "tfboot.iso"
+  wait_for_ip      = "0s"
+  force_stop       = true
+  shutdown_timeout = "10s"
+  disk {{ size_gb = 1 }}
+  network_interface {{ network = "default" }}
+}}
+""")
+        applied = terraform("apply", "-auto-approve", "-input=false")
+        assert applied.returncode == 0, applied.stdout + applied.stderr
+
+    try:
+        vm_on(b)
+        assert ok(api(2, "GET", "/vms/tfvm", token=t[2]))["state"] == "active"
+        assert api(3, "GET", "/vms/tfvm", token=t[3])[0] == 404
+        vm_on(c)  # migrated, still running
+        assert ok(api(3, "GET", "/vms/tfvm", token=t[3]))["state"] == "active"
+        assert api(2, "GET", "/vms/tfvm", token=t[2])[0] == 404
+        plan = terraform("plan", "-detailed-exitcode", "-input=false")
+        assert plan.returncode == 0, plan.stdout + plan.stderr  # its state read on node 3 matches the configuration
+    finally:
+        destroyed = terraform("destroy", "-auto-approve", "-input=false")
+        api(1, "DELETE", f"/isos/tfboot.iso?node={b}&confirm=true", token=t[1])
+    assert destroyed.returncode == 0, destroyed.stdout + destroyed.stderr
+    assert api(3, "GET", "/vms/tfvm", token=t[3])[0] == 404
