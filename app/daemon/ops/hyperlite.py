@@ -85,6 +85,8 @@ def start_update(args, ctx):
         raise DaemonError("refused", "Only a node installed from the package can do that")
     if args.kind == "git" and method == "apt":
         raise DaemonError("refused", "This node is installed from the package: it updates from the mirror")
+    if args.kind == "git" and not update.git_updates_allowed():
+        raise DaemonError("refused", update.GIT_UPDATES_REFUSED)
     if args.kind == "offline" and not offline_update.stored():
         raise DaemonError("refused", "No valid update file received on this node")
     if args.kind == "rollback" and not update._previous():

@@ -47,6 +47,8 @@ def restore(database, tmp_path, monkeypatch):
     monkeypatch.setattr(fr, "HELPER", helper)
     monkeypatch.setattr(fr, "_interpreter", [sys.executable])
     monkeypatch.setattr(fr, "_sessions", {})
+    # The images here are stand-ins the fake helper reads: what qemu-img says of a real one is tests/test_disk_images.py.
+    monkeypatch.setattr(fr.disk_images, "check", lambda path, within=None: "qcow2")
     backup = tmp_path / "bk"
     backup.mkdir()
     (backup / "sda.qcow2").write_text("x")
@@ -117,3 +119,12 @@ def test_sessions_are_per_user_and_limited(restore, monkeypatch, tmp_path):
     monkeypatch.setattr(fr, "MAX_SESSIONS", 1)
     with pytest.raises(fr.RestoreError, match="being browsed already"):
         fr.open_session(1, "bob")
+
+
+def test_an_image_naming_another_file_is_never_browsed(restore, monkeypatch):
+    def unsafe(path, within=None):
+        raise fr.disk_images.UnsafeImage("The disk image sda.qcow2 is based on another file: refused")
+
+    monkeypatch.setattr(fr.disk_images, "check", unsafe)
+    with pytest.raises(fr.RestoreError, match="based on another file"):
+        fr.backup_disks(1)

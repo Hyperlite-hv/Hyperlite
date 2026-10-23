@@ -24,6 +24,15 @@ def directory(database, monkeypatch):
         {"objectClass": ["person"], "uid": "bob", "userPassword": "bobpw", "memberOf": [STAFF]},
     )
     seed.strategy.add_entry(
+        f"uid=mallory,ou=people,{BASE}",
+        {
+            "objectClass": ["person"],
+            "uid": "mallory",
+            "userPassword": "mallorypw",
+            "memberOf": [f"cn=hv-admins,ou=lab,{BASE}", STAFF],  # a group of the same name, made in another OU
+        },
+    )
+    seed.strategy.add_entry(
         f"uid=eve,ou=people,{BASE}", {"objectClass": ["person"], "uid": "eve", "userPassword": "evepw"}
     )
     seed.strategy.add_entry(
@@ -46,7 +55,7 @@ def directory(database, monkeypatch):
             "base_dn": BASE,
             "user_filter": "(&(objectClass=person)(uid={username}))",
             "group_attribute": "memberOf",
-            "admin_groups": "hv-admins",
+            "admin_groups": ADMINS,
             "allowed_groups": STAFF,
         }
     )
@@ -81,7 +90,7 @@ def test_a_local_account_is_never_taken_over(client, directory, auth_headers):
 
 def test_role_follows_the_directory_at_each_sign_in(client, directory):
     assert client.post("/auth/login", data={"username": "alice", "password": "alicepw"}).status_code == 200
-    ldap_auth.set_config({**ldap_auth.public_config(), "admin_groups": "someone-else"})
+    ldap_auth.set_config({**ldap_auth.public_config(), "admin_groups": f"cn=someone-else,{BASE}"})
     assert client.post("/auth/login", data={"username": "alice", "password": "alicepw"}).status_code == 200
     from app.core.security import get_user
 
@@ -119,3 +128,37 @@ def test_settings_api(client, auth_headers, directory):
         r = client.put("/ldap/config", json=bad, headers=admin)
         assert r.status_code == 422 and message in r.json()["detail"], bad
     assert client.get("/ldap/config", headers=auth_headers("watcher", "viewer")).status_code == 403
+
+
+# --- GHSA-8qgj-pvwg-xj37 ----------------------------------------------------------------------------------------------
+
+
+def test_a_group_of_the_same_name_elsewhere_in_the_directory_is_not_the_admin_group(client, directory):
+    assert client.post("/auth/login", data={"username": "mallory", "password": "mallorypw"}).status_code == 200
+    from app.core.security import get_user
+
+    assert get_user("mallory")["role"] == "viewer"
+
+
+def test_groups_are_saved_as_full_dns_only(client, auth_headers, directory):
+    admin = auth_headers("root", "admin")
+    r = client.put("/ldap/config", json={**ldap_auth.public_config(), "admin_groups": "hv-admins"}, headers=admin)
+    assert r.status_code == 422 and "full DN" in r.json()["detail"]
+
+
+def test_bare_names_saved_before_match_nothing_and_still_restrict(client, directory):
+    ldap_auth._store().save_ldap_config({"admin_groups": "hv-admins", "allowed_groups": "staff"})
+    assert client.post("/auth/login", data={"username": "alice", "password": "alicepw"}).status_code == 401
+    assert client.post("/auth/login", data={"username": "bob", "password": "bobpw"}).status_code == 401
+
+
+def test_a_directory_name_is_one_account_and_one_lock_whatever_its_case(client, directory):
+    assert client.post("/auth/login", data={"username": "Bob", "password": "bobpw"}).status_code == 200
+    from app.core.security import get_user
+
+    assert get_user("bob") is not None and get_user("Bob") is None
+    from app.routers import auth
+
+    for name in ("bob", "Bob", "BOB", "bOb", "boB"):
+        client.post("/auth/login", data={"username": name, "password": "wrong"})
+    assert auth._login_locked_out("BoB", "testclient")
