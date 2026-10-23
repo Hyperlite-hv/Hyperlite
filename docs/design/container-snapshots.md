@@ -23,9 +23,22 @@ hash, holes and hard-link groups; it reports the copies `cp -r` and `rsync -a` w
 | Restore: the snapshot copied into a new directory next to the container's, then swapped in | Identical to the snapshot, 13 s; the container's files share no inode with the snapshot, and writing into them leaves the snapshot unchanged |
 | Deleting a snapshot whose files the next one links to | The next one is unchanged |
 
-Not checked: a container started from a restored file system (the lab cannot run LXC containers: its own cgroup
-layout makes libvirt_lxc fail). A restored file system is identical to the snapshot in everything above, so it
-starts as the snapshot's container did; it is still to be seen on a real node.
+### A real container, started again
+
+The lab's own cgroup layout (v1 and v2 mixed) makes libvirt_lxc fail, so this ran in a virtual machine of the lab: an
+Ubuntu 24.04 system (Debian's archive was not reachable from the lab), its own systemd and a pure cgroup v2 tree as a
+Debian 13 node has, Linux 6.8, libvirt 10.0, QEMU without KVM. Its container was a copy of that system, systemd as
+PID 1, defined by Hyperlite's `build_container_xml` (without its network interface: snapshots do not involve it),
+and a unit inside it wrote a line with the content of `/etc/hl-state` at each boot. Snapshots and restores were
+Hyperlite's own `container_snapshots` functions.
+
+| What | Result |
+|---|---|
+| The container started, its unit ran, then stopped | Booted in 10 s, `boot v1` |
+| A snapshot, then `/etc/hl-state` set to `v2`, `/etc/os-release` removed, a file added, the container started again | `boot v2` |
+| The snapshot restored | `v1` back, `/etc/os-release` back, the added file gone |
+| The restored container started | Booted in 8 s, `boot v1`; its boot log is the snapshot's line and this boot's, no `v2` boot left |
+| A second snapshot | The first took 526 MB, the second added 10 MB |
 
 ## Design
 
