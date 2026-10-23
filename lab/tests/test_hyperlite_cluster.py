@@ -198,7 +198,8 @@ def test_an_iso_upload_goes_to_the_member_it_names(cluster):
     form, content_type = multipart("lab.iso", image)
     ok(api(1, "POST", f"/isos?node={c}", form=form, content_type=content_type, token=t[1], timeout=600))
     [item] = [i for i in ok(api(3, "GET", "/isos", token=t[3]))["items"] if i["name"] == "lab.iso"]
-    assert on(3, "sha256sum", item["location"]).split()[0] == hashlib.sha256(image).hexdigest()
+    path = f"{item['location']}/{item['name']}"  # the location is the ISO directory of the node
+    assert on(3, "sha256sum", path).split()[0] == hashlib.sha256(image).hexdigest()
     assert all(i["name"] != "lab.iso" for i in ok(api(1, "GET", "/isos", token=t[1]))["items"])
     ok(api(1, "DELETE", f"/isos/lab.iso?node={c}&confirm=true", token=t[1]))
 
