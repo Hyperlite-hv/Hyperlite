@@ -208,8 +208,9 @@ its VMs and their disks.
 | NFS | A share on a NAS | Shared between nodes: needed for HA and for migration without copying disks. Hyperlite checks that QEMU can use the share (permissions). |
 | ZFS | VM disks as zvols with native snapshots | Local to one node (created on a file); no live migration. |
 | iSCSI | LUNs of a storage array | Each VM takes a whole LUN; allow this host's initiator name on the array first. The LUNs stay on the array when the pool is removed. |
+| LVM | VM disks as logical volumes of a volume group (an existing one, or one created on an empty disk) | With a **thin pool** (LVM-thin), disks take room only as they are written and get snapshots (disk only; restored with the VM stopped). Without one, the volumes are thick and have no snapshot. The pool is removed only once its group holds no VM disk or snapshot; no live migration or backup for now. |
 
-The form says when a client is missing on the host (NFS, ZFS module with Secure Boot, iSCSI initiator) and how to
+The form says when a client is missing on the host (NFS, ZFS module with Secure Boot, iSCSI initiator, LVM) and how to
 install it. A pool's volumes can be created and deleted from its row (a disk used by a VM cannot be deleted). Removing
 a directory or NFS pool never deletes its files.
 

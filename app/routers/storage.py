@@ -145,7 +145,7 @@ def _pool_root(pool):
         return None
 
 
-def _pool_summary(pool):
+def _pool_summary(pool, node=None):
     state, capacity, allocation, available = pool.info()
     if _pool_type(pool) == "iscsi":
         # libvirt counts every LUN as fully allocated, so an iSCSI pool always looked 100 % full. What matters is
@@ -161,7 +161,20 @@ def _pool_summary(pool):
             pass
     root = _pool_root(pool)
     smb = root is not None and smb_storage.is_smb(root)
+    thin = None
+    if _pool_type(pool) == "logical" and root is not None and state == libvirt.VIR_STORAGE_POOL_RUNNING:
+        # VM disks in its thin pool: what the pool holds is that thin pool, filled as LVM reports it (libvirt counts
+        # the thin pool as one volume taking the whole group).
+        try:
+            thin = lvm_storage.thin_pool_of(root.findtext("source/name"), node)
+        except lvm_storage.LvmError as e:
+            logger.warning("Thin pool of %s not read: %s", pool.name(), e)
+        if thin is not None:
+            capacity = thin["size"]
+            allocation = round(thin["size"] * (thin["data_percent"] or 0) / 100)
+            available = capacity - allocation
     return {
+        "lvm_thin_pool": thin["name"] if thin else None,
         # A netfs pool mounts an NFS export or an SMB share: the same shared storage, said apart here.
         "protocol": ("smb" if smb else "nfs") if _pool_type(pool) == "netfs" else None,
         "smb_version": smb_storage.version_of(root) if smb else None,
@@ -202,7 +215,7 @@ def _pools(node):
         for pool in conn.listAllStoragePools():
             # A pool removed while the list is built (another session deleting it) is skipped, not a failed list.
             try:
-                result.append(_pool_summary(pool))
+                result.append(_pool_summary(pool, node))
             except libvirt.libvirtError as e:
                 if e.get_error_code() != libvirt.VIR_ERR_NO_STORAGE_POOL:
                     raise
@@ -254,6 +267,9 @@ class PoolCreate(BaseModel):
     # empty disk (lvm_device), as Proxmox VE's LVM storage.
     lvm_vg: str | None = None
     lvm_device: str | None = None
+    # "lvm" pool: the thin pool its VM disks are made in (LVM-thin): an existing one of the group, or one Hyperlite
+    # creates over the group's free space. None: thick volumes.
+    lvm_thin_pool: str | None = None
     # Shared storage (NFS, iSCSI) declared for several nodes at once, as on Proxmox: every node, including the ones
     # registered later (all_nodes), or the nodes listed ("local" is this host). See app/core/shared_pools.py.
     all_nodes: bool = False
@@ -446,6 +462,11 @@ def _create_single(payload, node, user):
             lvm_storage.check_name(payload.lvm_vg or "")
         except lvm_storage.LvmError as e:
             raise HTTPException(status_code=422, detail=str(e)) from None
+        if payload.lvm_thin_pool is not None:
+            try:
+                lvm_storage.check_name(payload.lvm_thin_pool, "thin pool")
+            except lvm_storage.LvmError as e:
+                raise HTTPException(status_code=422, detail=str(e)) from None
         if payload.lvm_device and not LVM_DEVICE_RE.match(payload.lvm_device):
             raise HTTPException(status_code=422, detail="Invalid disk: a device under /dev, such as /dev/sdb")
         if not node and shutil.which("lvm") is None:
@@ -557,8 +578,20 @@ def _create_on(payload, node, target_path, user):
                 ) from e
             raise HTTPException(status_code=500, detail=f"Pool creation error: {msg}") from e
 
+        if payload.type == "lvm" and payload.lvm_thin_pool:
+            try:
+                lvm_storage.ensure_thin_pool(payload.lvm_vg, payload.lvm_thin_pool, node)
+            except lvm_storage.LvmError as e:
+                # The pool is not left half made: its group stays as it is (a group built on a disk included).
+                with contextlib.suppress(libvirt.libvirtError):
+                    pool.destroy()
+                with contextlib.suppress(libvirt.libvirtError):
+                    pool.undefine()
+                log_action(user["username"], "create_storage_pool", payload.name, "failed", str(e))
+                raise HTTPException(status_code=422, detail=f"Thin pool: {e}") from e
+
         log_action(user["username"], "create_storage_pool", payload.name, "success")
-        summary = _pool_summary(pool)
+        summary = _pool_summary(pool, node)
         if payload.type == "netfs" and not node:
             # Mounted fine is not enough: QEMU must be able to own its disk files there (root_squash).
             perm = nfs_permissions.check(target_path, export=payload.nfs_export_path)
@@ -817,7 +850,7 @@ def _rename_on(pool_name, new, node, user):
             raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
         renaming.storage_pool_records(pool_name, new, node or "local")
         log_action(user["username"], "rename_storage_pool", pool_name, "success", f"-> {new} on {node or 'local'}")
-        return _pool_summary(renamed)
+        return _pool_summary(renamed, node)
     finally:
         conn.close()
 

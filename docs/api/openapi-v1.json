@@ -3789,6 +3789,17 @@
       ],
       "title": "Lvm Device"
      },
+     "lvm_thin_pool": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lvm Thin Pool"
+     },
      "lvm_vg": {
       "anyOf": [
        {

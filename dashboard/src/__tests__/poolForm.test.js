@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { poolFormErrors } from "../next/pages/StoragePage";
 
-const base = { name: "pool-1", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default", lvm_vg: "", lvm_device: "" };
+const base = { name: "pool-1", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default", lvm_vg: "", lvm_device: "", lvm_thin_pool: "" };
 
 describe("pool form: the same rules as the API, for the fields each kind uses", () => {
   it("a directory pool needs a name only; its path, when given, is absolute", () => {
@@ -54,5 +54,7 @@ describe("pool form: the same rules as the API, for the fields each kind uses", 
     expect(poolFormErrors({ ...ok, lvm_device: "/dev/sdb" })).toEqual({});
     expect(poolFormErrors({ ...ok, lvm_device: "sdb" })).toEqual({ lvm_device: "stor.e.lvmDevice" });
     expect(poolFormErrors({ ...ok, lvm_device: "/dev/../etc/passwd" })).toEqual({ lvm_device: "stor.e.lvmDevice" });
+    expect(poolFormErrors({ ...ok, lvm_thin_pool: "vmthin" })).toEqual({});
+    expect(poolFormErrors({ ...ok, lvm_thin_pool: "vm thin" })).toEqual({ lvm_thin_pool: "stor.e.lvmName" });
   });
 });

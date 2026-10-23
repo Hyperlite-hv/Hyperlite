@@ -28,7 +28,7 @@ def test_block_disks_are_found_and_cdroms_ignored():
 
 def test_a_vm_mixing_a_zvol_and_a_file_is_refused():
     error = backups.block_disk_error(_Domain(("file", "sda"), ("block", "sdb")), "A backup")
-    assert error and "sdb" in error and "ZFS or iSCSI" in error
+    assert error and "sdb" in error and "ZFS, iSCSI or LVM" in error
     assert backups.block_disk_error(_Domain(("file", "sda")), "A backup") is None
 
 
