@@ -174,13 +174,26 @@ def test_only_the_leader_with_the_quorum_acts(cluster, database, monkeypatch):
     assert ha_recovery.tick() == {} and cluster["started"] == []
 
 
-def test_a_member_that_answers_again_puts_its_vms_back_to_ok(cluster, database):
+def test_a_member_back_with_its_vm_running_after_a_network_cut_keeps_it(cluster, database, monkeypatch):
     protect(database, "web")
     cluster["ages"]["n2"] = 70.0
     cluster["watchdog"] = {"armed": True, "reset_within_s": 120}
     ha_recovery.tick()
     cluster["ages"]["n2"] = 2.0
+    monkeypatch.setattr(ha_recovery, "_running_on", lambda member: {"web"})
     assert ha_recovery.tick() == {"n2": "ok"} and state("web") == "ok" and cluster["started"] == []
+
+
+def test_a_member_back_after_a_reset_its_vm_did_not_survive_gets_it_restarted(cluster, database, monkeypatch):
+    """Its watchdog reset it, and it rebooted before the leader's wait was over: its VM runs nowhere."""
+    protect(database, "web")
+    cluster["ages"]["n2"] = 70.0
+    cluster["watchdog"] = {"armed": True, "reset_within_s": 120}
+    ha_recovery.tick()
+    cluster["ages"]["n2"] = 2.0
+    monkeypatch.setattr(ha_recovery, "_running_on", lambda member: set())
+    assert ha_recovery.tick() == {"n2": "recovering"}
+    assert cluster["started"] == [("web", "n2")] and state("web") == "ok"  # n2: the most free memory, and back
 
 
 def test_the_node_that_comes_back_undefines_the_vms_that_moved(database, monkeypatch):

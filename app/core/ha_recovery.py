@@ -127,6 +127,14 @@ def candidates(row, policy, online, lost):
     return preferred + others
 
 
+def _running_on(member):
+    """The VMs `member`'s own status says are running there."""
+    from app.core import statd
+
+    vms = (statd.table().get(member) or {}).get("vms") or []
+    return {v.get("name") for v in vms if v.get("state") in ("active", "running")}
+
+
 def _fenced(member, entry):
     """(True, how) once `member` is known to be stopped; (False, why not yet) or (None, why it never will be)."""
     from app.core import ha_fencing, ha_selffence
@@ -245,12 +253,34 @@ def tick():
         age = ages.get(member)
         if age is not None and age <= LOST_S:
             with _lock:
-                back = _lost.pop(member, None)
-            if back is not None:
+                entry = _lost.get(member)
+            if entry is None:
+                states[member] = OK
+                continue
+            if entry["fenced_at"] is None:
+                # Back before it was known to be stopped: a network cut its VMs ran through, or a reset (its watchdog)
+                # they did not survive. Its own status says which: a VM still running there is left there.
+                running = _running_on(member)
+                stopped = [r for r in vms if r["vm_name"] not in running]
                 for r in vms:
-                    _record(r["vm_name"], OK, f"{member} answers again")
-                log_action("system", "ha_back", member, "success", "the member answers again")
-            states[member] = OK
+                    if r["vm_name"] in running:
+                        _record(r["vm_name"], OK, f"{member} answers again, the VM runs there")
+                if not stopped:
+                    with _lock:
+                        _lost.pop(member, None)
+                    log_action("system", "ha_back", member, "success", "the member answers again, its HA VMs run")
+                    states[member] = OK
+                    continue
+                vms = stopped
+                entry["fenced_at"] = time.monotonic()
+                log_action("system", "ha_fenced", member, "success", "it answers again and its HA VMs do not run there")
+            # Known to be stopped: its VMs are restarted even though it answers again (it may be a candidate itself).
+            online = _online(ages)
+            for r in vms:
+                if (_store().protected_vm(r["vm_name"]) or {}).get("ha_state") == MANUAL:
+                    continue
+                _restart(r, entry, online, set(_lost) - {member})
+            states[member] = RECOVERING
             continue
         with _lock:
             entry = _lost.get(member)
