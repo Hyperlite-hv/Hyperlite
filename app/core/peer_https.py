@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 STATE_DIR = "/cluster/tls"
 PUBLISH_S = 600
+RETRY_S = 15  # after a round that failed
 POOL_SIZE = 8  # connections kept open per member
 
 _pools = {}  # (host, port, fingerprint) -> queue of open connections
@@ -187,10 +188,21 @@ def start():
     """Publish now, then every PUBLISH_S (a renewed certificate, a node that joined a cluster since)."""
     stop = threading.Event()
 
-    def loop():
-        publish()
-        while not stop.wait(PUBLISH_S):
+    def once():
+        """The pause before the next round: soon after a failure (at the first start the database is made seconds
+        later)."""
+        try:
             publish()
+            return PUBLISH_S
+        except Exception:  # the thread must survive anything, or the members would call this node over SSH for good
+            pause = min(PUBLISH_S, RETRY_S)
+            logger.exception("Publishing the certificate fingerprint failed; trying again in %s s", pause)
+            return pause
+
+    def loop():
+        pause = once()
+        while not stop.wait(pause):
+            pause = once()
 
     threading.Thread(target=loop, daemon=True, name="peer-https").start()
     return stop
