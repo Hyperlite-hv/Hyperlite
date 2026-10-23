@@ -1,126 +1,200 @@
 # Design: automatic HA restart with reliable fencing
 
-Status: **proposal, waiting for the maintainer's decision.** No code is written before it is accepted.
+Status: **the maintainer's decisions of 2026-10-17 (#333) applied to the cluster, and what vSphere HA has beyond them
+(disk locks, restart priority, admission control, VM monitoring, asked for on 2026-10-23); accepted on 2026-10-23,
+with the answers of section 8.** Step 1 (the watchdog self-fence) is merged (#444, #459); steps 2 to 7 follow, one pull
+request each.
 
-## 1. Where we are
+The first version of this document (one controller driving SSH hosts, a witness, a dry run first) is replaced: since
+1.0 every node runs Hyperlite on the replicated configuration, a node without quorum changes nothing (#436), and one
+node, the leader, runs the cluster-wide work (`app/core/cluster_lead.py`).
 
-- `app/core/ha.py` protects a VM whose disks are all on a shared (NFS, `netfs`) pool. The node poller
-  (`cluster.py::_poll_nodes`, every `POLL_INTERVAL_S` = 60 s) marks a node `hors_ligne` when the libvirt
-  connection over SSH fails, and `alert_for_down_node()` writes an audit alert.
-- Recovery is **manual on purpose**: an admin clicks "recover". Before redefining the VM elsewhere,
-  `_attempt_ssh_fence()` tries to kill the qemu process over SSH. If SSH is also down, the fence fails and the
-  recovery goes on anyway, relying on QEMU's image write lock as the last safety net.
-- The HA record follows a live migration (`ha.follow_migration`, merged with the maintenance mode).
-- Hyperlite runs on **one controller host** (the local node); the other nodes have no Hyperlite agent and are
-  driven over SSH. If the controller itself fails, nothing watches the cluster (see the replicated
-  configuration design, `docs/design/cluster-config.md`).
+## 1. Goal
 
-The reason recovery is manual is still valid: "unreachable" is not "dead". A node cut from the network but
-still running its VMs would get a second copy of each VM started elsewhere, on the same NFS disk, which
-corrupts the disk. Automatic restart is only safe when the old copy is **known** to be stopped.
+Restart a VM with HA turned on, on another member of the cluster, **automatically**, and only once its previous node
+is **known to be stopped**: two copies of a VM on its shared disk corrupt it. "Unreachable" alone never triggers a
+restart. This is a restart, as Proxmox VE's HA and vSphere HA do, not fault tolerance.
 
-## 2. Goal and non-goals
+Out of scope: a cluster of SSH-driven hosts (one controller), where recovery stays manual; storage other than shared
+file pools (NFS, SMB: `uses_shared_storage`); live state preservation.
 
-Goal: restart a protected VM on another node **automatically**, and only when its previous node is **fenced**:
-powered off, or proven unable to write to the VM's disks. "Unreachable" alone never triggers a restart.
+## 2. Where we are
 
-Non-goals, at least in this design:
-- surviving the loss of the controller (covered by the replicated configuration design);
-- live state preservation: this is a restart (like Proxmox HA or vSphere HA), not fault tolerance or
-  lockstep;
-- storage other than NFS (Ceph/iSCSI shared storage comes later, same principles).
+| Piece | State | Where |
+|---|---|---|
+| A VM protected only when every disk is on a shared pool; its definition kept in the replicated `ha_protected_vms` and refreshed by the node that runs it | done | `app/core/ha.py` (#442) |
+| **Step 1**: a node that runs HA VMs arms its watchdog (hardware, else softdog), feeds it every 5 s while it has the quorum, is reset after 60 s without it; disarmed cleanly when it has no HA VM left or the service stops; publishes `armed`, `reset_within_s` | done | `app/core/ha_selffence.py` (#444, #459) |
+| Fencing settings per node (IPMI, Redfish, AMT, `lease_only`) with a **status** test only | done | `app/core/ha_fencing.py` |
+| Manual recovery: an administrator restarts a protected VM elsewhere, after an SSH `kill` attempt | done | `ha.recover` |
+| A watcher that says what it *would* do, written for one controller (witness, SSH probes) | to replace | `app/core/ha_watch.py` |
+| The leader lock; read-only without quorum; each node's status every 10 s with its age | done | `cluster_lead`, `statd` |
 
-## 3. Fencing options
+## 3. Decisions (maintainer, 2026-10-17)
 
-| Option | How | Proves the node is off? | Hardware needed | Main risk |
-|---|---|---|---|---|
-| A. IPMI / Redfish | The node's BMC powers it off, then its power state is queried until "off" (`fence_ipmilan`, `fence_redfish` from the `fence-agents` package) | Yes, from an independent power path | Server with a BMC (iLO, iDRAC, XCC...) | BMC on the same failed network as the node: fencing fails, so no restart (safe, not available) |
-| B. Intel AMT (vPro) | Same, through AMT's WS-MAN power control (`fence_amt_ws`) | Yes | vPro PC with AMT provisioned (MEBx), for example the HP EliteDesk 800 G6 | AMT must be provisioned and reachable; the port and TLS setup vary by firmware |
-| C. Storage lease + hardware watchdog (self-fencing) | Each running VM holds a lease on the shared storage (libvirt `virtlockd` or `sanlock`). A node that loses its lease stops its VMs or is reset by its watchdog (`/dev/watchdog`, softdog as fallback). The controller waits "lease timeout + margin" before restarting | Yes, by construction: after the timeout the old node cannot hold the lease any more | Shared storage that supports locks (NFSv4) and a watchdog; no BMC needed | Needs careful timeouts; a node with a hung kernel and no hardware watchdog does not self-reset |
-| D. SSH fence (today) | `kill -9` of the qemu process over SSH | Only when SSH answers; proves nothing when the node is unreachable | None | Useless in the case that matters (network or host dead) |
+| Question | Decision |
+|---|---|
+| Fencing | All three: watchdog self-fence (any PC), IPMI/Redfish, Intel AMT |
+| Which VMs | Only VMs with HA turned on, one by one, as on Proxmox |
+| Where | The online member with the most free memory; optionally a list of preferred nodes per VM (no HA groups) |
+| Delay before restarting | About 2 minutes: the lost node has time to fence itself, and a short network cut triggers nothing |
+| Self-fence | Reboots the node, as on Proxmox; a node without HA VMs never arms its watchdog |
+| Default | Active by default: no dry-run step |
+| Quorum | Replaces the isolation check and the witness; only the leader acts; on two nodes, the primary node's second vote (#445) or a QDevice |
 
-Option D stays as a first, cheap attempt, but it never counts as a confirmed fence by itself when the node is
-unreachable.
+## 4. Design
 
-## 4. Recommended design
+### 4.1 Detection (the leader)
 
-**Layered fencing, opt-in per VM, and no action without confirmation.**
+Every 10 s, the leader looks at each member that carries a protected VM. A member is **lost** when its status
+(`statd`, sent every 10 s) is older than `LOST_S` = 60 s, while the leader itself has the quorum. The time it was last
+seen is the time of that status: it is what the fence decisions below count from, not the moment the leader noticed.
 
-1. **Per-node fence method** (new table `node_fencing`): `ipmi`, `redfish`, `amt` or `lease_only`. The
-   address and credentials are encrypted with the existing Fernet key (`secrets_crypto.py`) and never returned
-   by the API. A **"Test fencing"** button queries the power **status** only; it never powers anything off.
-2. **Leases for every protected VM** (option C, as a second barrier): libvirt's `lockd` lock manager, with its
-   lockspace directory on the same NFS share as the VM disks. QEMU then refuses to open a disk whose lease is
-   held by another node. That prevents a double start even if everything else went wrong. It is a per-host
-   libvirt setting (`qemu.conf`, `qemu-lockd.conf`) that Hyperlite's preflight checks and reports; the
-   installer can set it up.
-3. **Detection** is a dedicated HA heartbeat, separate from the 60 s inventory poll: every 10 s, per node with
-   protected VMs, a libvirt ping plus an SSH `true`. A node is **suspect** after 3 consecutive failures
-   (about 30 s) and **failed** after 6 (about 60 s), both configurable.
-4. **Controller isolation check** before any fencing: the controller must still reach a **majority** of the
-   nodes plus a **witness** (a configurable address: the NAS, the gateway, or a small third node). If it
-   cannot, it is probably the isolated party: it logs and notifies, and does nothing.
-5. **Fence**, then **confirm**: power off through the BMC or AMT, then poll the power state until "off"
-   (timeout 60 s). For `lease_only`, wait for lease timeout + margin instead. No confirmation means no restart:
-   the VM goes to `manual`, and the admin is notified with the reason.
-6. **Placement**: the first node, in the admin's priority order, that is online, not in maintenance, passes the
-   compatibility diagnostic (`cluster_compat`) and has enough free RAM. VMs restart one by one in HA priority
-   order.
-7. **Per-VM state machine**, persisted in `ha_protected_vms` (new columns `etat_ha`, `derniere_action`):
-   `ok → suspect → fencing → recovering → ok`, or `→ manual` on any doubt. A restart limit (for example 3 in
-   one hour per VM) avoids a restart loop.
-8. **Opt-in**: each protected VM gets "Automatic restart" (off by default). Without it, today's manual
-   recovery stays, now with the fence status shown.
-9. **Audit and notifications**: every transition is an audit entry and a notification through the existing
-   channels (`ha_suspect`, `ha_fenced`, `ha_restarted`, `ha_manual_required`).
+A leader without quorum is no leader (its lock lapses, `cluster_lead.renew`), so a node cut from the majority never
+recovers anything: it is the one that fences itself.
 
-### Behaviour without quorum
+### 4.2 Fence, then confirm
 
-Hyperlite has no cluster-wide quorum yet (see the configuration design). Until it does:
-- only the controller decides, and only after the isolation check of point 4;
-- **with two nodes, a witness is mandatory** to enable automatic restart, otherwise the option stays greyed
-  out with the reason;
-- if the controller is the node that fails, no automatic restart happens. This is stated in the UI.
+A lost member is **fenced** when one of these holds, checked in this order:
+
+1. **BMC or AMT** (`ha_fencing`, method `ipmi`, `redfish` or `amt`): the leader runs the agent with `--action=off`,
+   then polls `--action=status` every 5 s until it says off, for at most 60 s. Never `reboot`: a node that comes back
+   on by itself before its VMs are restarted elsewhere is exactly the double start this prevents. The agent's output is
+   in the audit entry; its password never is.
+2. **Watchdog**: the member published `armed` while it was still seen, and `now − last seen > reset_within_s + 30 s`
+   (`reset_within_s` is what the member measured of its own watchdog: 120 s for Intel's iTCO with a 60 s timeout, about
+   60 s for softdog). That is the "about 2 minutes".
+
+A BMC that fails or does not confirm does not stop the watchdog path: either proof is enough. With neither (no fencing
+method, watchdog not armed or `HYPERLITE_WATCHDOG=0`), the member's HA VMs go to **manual**, with the reason.
+
+### 4.3 Recovery
+
+For each protected VM of the fenced member, one by one, by **restart priority** (`high`, `medium`, `low`, as vSphere's
+VM restart priority; `medium` by default), and in each priority in the order they were protected:
+
+1. **Target**: among the online members (status fresh), not in maintenance, whose shared pool of the VM's disks is
+   active there, and which pass `cluster_compat` for the stored definition (CPU model, firmware): the first of the VM's
+   **preferred nodes** in their order; else the one with the **most free memory**, enough for the VM. Each member adds
+   its free memory to its status (`statd`, one number), so the leader does not ask each one.
+2. **Restart**: the leader asks the target, in the cluster's name (`?node=`, `peer_auth`), to define the VM from its
+   stored definition and start it. The VM's HA record then names the target. A VM that does not start there is tried on
+   the next candidate once. A start refused because its disk is still locked (4.7) is tried again every 10 s for the
+   storage's lock lease (90 s on NFSv4), plus 30 s: a node powered off by its BMC may still hold it that long.
+3. **Limit**: at most 3 automatic restarts of a VM per hour; then it goes to **manual**.
+
+### 4.4 The node that comes back
+
+It was powered off or reset: its libvirt still has the old definition of each VM that moved.
+
+- At its start, before anything starts at boot, a node **undefines** each VM whose HA record names another member
+  (the disks are shared: only the definition goes), and audits it.
+- An HA VM never has libvirt's own autostart (`virsh autostart`): only Hyperlite's start at boot, which checks the HA
+  record first. A VM protected with libvirt's autostart set gets it turned off at protection.
+
+### 4.5 States, audit, notifications
+
+Each protected VM has a state in its replicated record: `ok`, `lost` (its node is lost), `fencing`, `recovering`,
+`manual` (with the reason), and its last automatic restarts. Each change is an audit entry and a notification through
+the existing channels (`ha_lost`, `ha_fenced`, `ha_restarted`, `ha_manual`).
+
+### 4.6 Two nodes
+
+With the primary node's second vote (#445), the primary keeps the quorum alone: it recovers the other node's HA VMs.
+The other node, alone, has no quorum: when the primary is lost, nothing is restarted automatically, and the dashboard
+says so. A QDevice makes both directions work, as on Proxmox.
+
+### 4.7 Disk locks on the shared storage (every VM, not only HA)
+
+The fences above prove a node stopped; a lock on the disk makes a second copy **impossible** even if a proof was wrong
+(a softdog stopped by a hung kernel, a bug), as vSphere's locks on VMFS and NFS do. libvirt's `lockd` lock manager
+(`virtlockd`) takes a lock on each disk a VM opens, and QEMU is refused a disk another node holds:
+
+- every node of a cluster gets `lock_manager = "lockd"` in `qemu.conf` with `auto_disk_leases = 1`, so every disk on a
+  shared pool is locked, for every VM: a migration gone wrong, or a VM started by hand on the wrong node, is refused
+  too. Hyperlite's package sets it, and the setting takes effect for each VM at its next start;
+- on NFSv4 the lock is the server's: a node that dies loses it when its lease expires (90 s by default), which 4.3
+  waits for;
+- a pool whose storage does not lock across nodes (checked at its creation and in preflight: a lock taken from two
+  members, the second refused) cannot hold HA VMs, with the reason. QEMU's own image locks may already act across NFS
+  clients; the lab checks both, and only `virtlockd` is relied on.
+
+### 4.8 Admission control
+
+As vSphere's admission control, so that the loss of a node does not leave HA VMs with nowhere to go: turning HA on for a
+VM (or starting an HA VM) checks that, for each member, its HA VMs would fit in the free memory of the other online
+members (the same placement as 4.3). Each member publishes its free memory in its status (4.3). The policy is per
+cluster: `strict` refuses with the member that could not be absorbed; `warn` (the default) accepts and says so on the
+VM and the cluster page; `off`.
+
+### 4.9 VM monitoring
+
+As vSphere's VM monitoring, per VM and off by default: a running HA VM whose guest agent answered before stops
+answering QEMU's `guest-ping` for 3 rounds of 30 s; its node resets it in place (`virsh reset`), at most 3 times an
+hour, then reports it. A VM without the guest agent is never reset: the option says it needs `qemu-guest-agent` in the
+guest. It is the node's own work, with no failover: the VM stays where it is.
+
+### 4.10 Compared with vSphere HA and Proxmox VE HA
+
+| | vSphere HA | Proxmox VE HA | Hyperlite |
+|---|---|---|---|
+| Who decides | an elected primary host (FDM) | the cluster manager, with quorum | the leader, with quorum |
+| A host that is lost | network and datastore heartbeats | Corosync quorum | status every 10 s, lost after 60 s |
+| Proof the old copy stopped | locks on the datastore | watchdog self-fence | watchdog self-fence, or the BMC/AMT powered it off |
+| Second barrier | the same locks | locks on the storage | `virtlockd` locks on every shared disk |
+| Restart order | VM restart priority | through HA groups | restart priority |
+| Capacity kept for a failure | admission control | no | admission control (`warn` by default) |
+| A hung guest | VM monitoring (VMware Tools) | no | VM monitoring (QEMU guest agent) |
+| Where | free capacity, DRS | HA groups, preferred nodes | preferred nodes, else the most free memory |
 
 ## 5. Risks
 
 | Risk | Mitigation |
 |---|---|
-| Double start (split brain) on the shared disk | Confirmed fence before any restart, plus leases (QEMU refuses a held disk), plus the isolation check |
-| BMC or AMT unreachable in the very failure that matters | Fencing fails, so the VM goes to manual. Unavailability, never corruption |
-| Flapping network restarting VMs for nothing | Suspect/failed thresholds, witness, per-VM restart limit |
-| BMC credentials leak | Encrypted at rest, admin-only, never returned by the API, audit on change |
-| Wrong NFS lock behaviour | Preflight test of the lockspace (take a lease from two nodes, the second must fail) before enabling |
-| Controller failure | Out of scope here, stated in the UI; see the replicated configuration design |
+| Double start on the shared disk | Restart only after a confirmed fence (power off confirmed, or watchdog delay passed); the leader acts only with the quorum; the returning node undefines moved VMs before anything starts; and `virtlockd` refuses a disk another node holds |
+| A storage that does not lock across nodes | Checked at pool creation and in preflight; such a pool cannot hold HA VMs |
+| Admission control refusing too much | `warn` by default; `strict` only when the administrator asks for it |
+| VM monitoring resetting a healthy guest | Only a VM whose agent answered before, 3 missed rounds of 30 s, 3 resets an hour, off by default |
+| The watchdog does not reset a hung node | Hardware watchdog where there is one; softdog otherwise, which a hard kernel hang can stop: stated in the UI next to the node's watchdog type |
+| BMC unreachable in the failure that matters | The watchdog path still applies; with neither, the VM goes to manual. Unavailability, never corruption |
+| A flapping network restarts VMs | 60 s before lost, about 2 minutes before a watchdog fence; 3 restarts per hour per VM |
+| A fenced node's VMs left with nowhere to go | Manual state with the reason (no candidate, not enough memory, pool not active) |
+| BMC credentials | Encrypted at rest, admin only, never returned, passed to the agent on standard input |
 
-## 6. Steps (one pull request each)
+## 6. Steps (one pull request each, each tested in the lab)
 
-1. `node_fencing` table, API, UI and "Test fencing" (status query only). Fence agents called with
-   `subprocess`, arguments validated, no shell.
-2. Lease setup check in preflight, plus documentation for `lockd` on the NFS share.
-3. HA heartbeat, isolation check, witness setting, per-VM state machine; still **no automatic action**: only
-   alerts that say what would have happened ("dry run" mode).
-4. Automatic restart, opt-in per VM, with the restart limit.
-5. UI: fence status, HA state per VM, history; notifications.
-6. Tests: unit tests with a fake fence agent; e2e with two simulated nodes; a manual test on real hardware:
-   pull the network cable of a node, check the fence, the single restart, and that the disk is intact.
+1. ~~Watchdog self-fence~~ (merged, #444, #459).
+2. **BMC/AMT fence**: `off` then `status` until off, in `ha_fencing`; tested with fake agents, and in the lab against
+   the lab VMs through a virtual BMC (`vbmc`, IPMI to libvirt on the host).
+3. **Disk locks** (4.7): `virtlockd` set up by the package on every node of a cluster, the cross-node lock check at pool
+   creation and in preflight. Lab: a VM on the NFS share started on node 2, the same disk refused on node 3.
+4. **Recovery by the leader**, with the restart priority: detection, fence decision, target, restart, limit, the
+   returning node, states, audit and notifications; replaces `ha_watch`'s dry run. Lab: three nodes on an NFS share,
+   HA VMs on node 2, node 2 cut from the network (`lab/vm.sh cut`): it resets within its watchdog delay, a single copy
+   of each VM starts elsewhere in priority order, its disk intact, and node 2 back undefines them. The same with the
+   virtual BMC.
+5. **Admission control** (4.8), with each member's free memory in its status.
+6. **VM monitoring** (4.9).
+7. **UI**: HA state per VM, preferred nodes, priority, the admission policy, each node's fence method and watchdog
+   state, history.
 
-## 7. Questions for the maintainer
+## 7. Questions asked
 
-1. Which fencing does each node have? Is the EliteDesk 800 G6's AMT provisioned (MEBx), and reachable from
-   the controller?
-2. Is there a third machine or the NAS to act as the witness?
-3. What detection delay is acceptable before a restart (about 60 s by default)?
-4. Do we start with step 3 (dry run) on the dev setup before enabling any automatic action?
+1. **Preferred nodes**: an ordered list per VM (as above), or also a "only these nodes" restriction?
+2. **The returning node** undefines moved VMs automatically (4.4): agreed, or keep them defined and stopped?
+3. **3 restarts per hour per VM**, then manual: agreed?
+4. **`fence-agents`** (about 30 MB): a recommended package of Hyperlite, or left for the administrator to install when
+   a node has a BMC?
+5. **Disk locks for every VM on a shared pool** (4.7), not only HA VMs: agreed? It also stops a VM started by hand on
+   the wrong node.
+6. **Admission control**: `warn` by default (as proposed), or `strict` as vSphere's default?
 
-## 8. Decisions (maintainer)
+## 8. Decisions (maintainer, 2026-10-23)
 
-- **Fencing hardware: unknown yet.** Step 1 therefore supports IPMI/Redfish and AMT *and* `lease_only`, and the
-  "Test fencing" button (status query only) is how the maintainer will find out what each node offers. A
-  documentation page explains how to check (`ipmitool mc info`, the MEBx menu on vPro PCs).
-- **No witness** for now (two nodes, no NAS or third machine in the role). As designed, automatic restart stays
-  unavailable on a two-node cluster without a witness, with the reason shown in the UI.
-- **Dry run first**: steps 1 to 3 are implemented (fencing settings and status test, lease preflight,
-  heartbeat, isolation check, per-VM HA state and "what I would have done" alerts). **No automatic restart**
-  until the maintainer has watched the dry run on real nodes and asks for step 4. Detection delay: the proposed
-  defaults (suspect after about 30 s, failed after about 60 s), configurable.
+The maintainer accepted the design and left these to the proposals above:
+
+1. Preferred nodes: an ordered list per VM, no "only these nodes" restriction for now.
+2. The returning node undefines the VMs that moved, automatically, and audits it.
+3. 3 automatic restarts per VM per hour, then manual.
+4. `fence-agents` is a recommended package of Hyperlite (installed by default, removable).
+5. Disk locks for every VM on a shared pool, not only HA VMs.
+6. Admission control `warn` by default.
