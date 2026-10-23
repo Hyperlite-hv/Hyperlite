@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.core import cluster_compat, cluster_view, maintenance, renaming, self_node, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import (
+    check_address,
     get_cluster_pubkey,
     node_summary,
     register_node,
@@ -43,9 +44,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$")
-# A host name or an IPv4/IPv6 address, and a Unix user name: nothing that ssh could read as an option.
-HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:_-]{0,253}$")
-USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 
 
 async def _require(name):
@@ -75,8 +73,10 @@ class NodeTest(BaseModel):
 def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
     """Check that a machine can be registered (SSH trust plus a QEMU/KVM libvirt) without
     registering it, so the add-node form can say what is wrong before submitting."""
-    if not HOST_RE.match(payload.hostname) or not USER_RE.match(payload.ssh_user):
-        raise HTTPException(status_code=422, detail="Invalid address or SSH user")
+    try:
+        check_address(payload.hostname, payload.ssh_user)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     ok, detail = test_node_connection(payload.hostname, payload.ssh_user, payload.ssh_port)
     log_action(user["username"], "test_node", payload.hostname, "success" if ok else "failed", None if ok else detail)
     # The raw libvirt/SSH error stays in the audit log; the browser gets a fixed reason.
@@ -135,6 +135,10 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     if not NAME_RE.match(payload.name):
         raise HTTPException(status_code=422, detail="Invalid node name (letters/digits/-/., 2-63 characters)")
     _refuse_own_name(payload.name)
+    try:
+        check_address(payload.hostname, payload.ssh_user)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     try:
         node = register_node(payload.name, payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     except RuntimeError as e:
