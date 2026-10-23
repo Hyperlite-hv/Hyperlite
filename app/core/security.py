@@ -208,7 +208,7 @@ def _credentials_exception():
 def decode_token(token: str):
     """The claims of a session: a token this node's daemon signed, or a call another member signed for this node with
     its own key (app/core/peer_auth.py); None for any other. An HS256 token signed with the key the members share only
-    while a member of an older version may still call with it, or for a session signed before this node's update."""
+    while a member of an older version may still call with it."""
     claims = tickets.decode(token)
     if claims is not None:
         # A task ticket proves an account to this node's daemon only, and a peer ticket is for another member.
@@ -220,7 +220,7 @@ def decode_token(token: str):
         claims = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except PyJWTError:
         return None
-    return claims if peer_auth.legacy_peer_calls() or peer_auth.legacy_session(claims) else None
+    return claims if peer_auth.legacy_peer_calls() else None
 
 
 _decode_session = decode_token
