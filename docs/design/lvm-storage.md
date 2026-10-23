@@ -31,9 +31,21 @@ Then Hyperlite's own code, run in that VM against the same volume group:
 | `disk_resize.grow()` on a stopped VM whose disk is a logical volume | `lvextend` in MiB; libvirt shows the new size after the refresh; the data is kept. Shrinking is refused |
 | `lvm_storage.delete_vm_volume()` (a deleted VM's block disks) | A volume of the logical pool is deleted through libvirt; a thin volume libvirt does not know, and a device outside any pool, are left alone |
 
+LVM-thin (step 2), on a fresh 12 GiB group built by libvirt, through Hyperlite's own code:
+
+| What | Result |
+|---|---|
+| `ensure_thin_pool()` | Creates a thin pool over 95 % of the group's free space, tagged `hyperlite_thin`; adopting it again changes nothing; a second thin pool under another name is refused |
+| The removal guard with only that empty thin pool | Passes (it holds no data, and stays in the group); thin volumes and snapshots still block the removal |
+| `create_vm_disk()` with a thin pool and a 2 GiB qcow2 image holding 1 MiB of data | An 8 GiB thin volume, the data read back; the thin pool goes from 0 % to 0.01 %: `qemu-img convert -n --target-is-zero` writes none of the image's zeros |
+| A snapshot of a running VM's two thin disks, the VM paused meanwhile | Both taken in 3.4 s (TCG); the VM runs on after it; the same name again is refused; `lv_time` read as epoch seconds |
+| Rollback (VM stopped) | The disk has the snapshot's content again; the snapshot stays (each disk becomes a new thin snapshot of it, `lvcreate -s -kn`); a second rollback to it works; the VM starts on the rolled-back disks; an unknown snapshot is refused before anything moves |
+| `disk_resize.grow()` on a thin disk | `lvextend` to 10 GiB, the data kept |
+| `delete_snapshot()`, then `delete_vm_volume()` | The snapshot goes from every disk; a deleted VM's thin disks go with their snapshots, libvirt not knowing them; the thin pool itself is never deleted as a VM disk |
+
 ## Design
 
-Step 1, this change:
+Step 1:
 
 - **Pools**: a `lvm` pool type in pool creation: an existing volume group, or an empty disk libvirt builds one on.
 - **Removal**: refused while `lvs` shows any volume in the group, thin volumes and thin pools included
@@ -48,8 +60,23 @@ Step 1, this change:
   libvirt's disk copy goes through the destination pool of a file's directory, and the same group on two hosts needs
   shared storage.
 
-Step 2: LVM-thin managed by Hyperlite (thin pools, thin VM disks, snapshots with `lvcreate -s` and rollback with
-`lvconvert --merge`), all through `lvm` since libvirt sees none of it.
+Step 2, LVM-thin, all through `lvm` since libvirt sees none of it:
+
+- **Thin pool**: an LVM pool may name a thin pool (`lvm_thin_pool`): an existing one of the group is adopted, else
+  one is created over 95 % of the group's free space (LVM keeps room for a spare copy of its metadata). It carries
+  the `hyperlite_thin` tag, read back from `lvs`: Hyperlite keeps no record of its own. The pool list shows the
+  thin pool's size and fill instead of the group's (where the thin pool takes everything).
+- **VM disks**: thin volumes in it; the image is written with `qemu-img convert -n --target-is-zero`, so its zeros
+  take no room.
+- **Snapshots** (disk only, as on ZFS): a thin snapshot per disk, `snap_<volume>_<snapshot>`. VM and snapshot names
+  hold no underscore, so the name splits without ambiguity. A running VM with several disks is paused while they
+  are taken, so that they all show the same instant; one that fails removes those already taken.
+- **Rollback** (VM stopped, as on ZFS): each disk is set aside, replaced by a new thin snapshot of the snapshot, then
+  removed; a failure puts every disk back. The snapshot stays, unlike `lvconvert --merge`, which consumes it, and
+  unlike a ZFS rollback, newer snapshots stay too.
+- **Deletion**: a VM's thin disks and their snapshots go with it; the empty thin pool does not keep the pool.
+- Thick LVM keeps no snapshot (a clear refusal). Backups, exports and live migration refuse a VM on LVM, as on ZFS
+  and iSCSI: they copy disk files only.
 
 ## Not checked yet
 
