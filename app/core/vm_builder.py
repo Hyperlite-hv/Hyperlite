@@ -146,7 +146,8 @@ def create_disk(vm_name, disk_gb, index=0, blank=False, target_dir=None):
     path of the chosen storage pool, resolved by the caller through libvirt.
     It defaults to IMAGES_DIR (the 'default' pool), which leaves the historical
     behaviour unchanged."""
-    disk_path = _new_file(disk_file(target_dir or IMAGES_DIR, vm_name, index))
+    target_dir = target_dir or IMAGES_DIR
+    disk_path = _new_file(disk_file(target_dir, vm_name, index))
     if index == 0 and not blank:
         base = ensure_base_image() if Path(target_dir) == IMAGES_DIR else ensure_pool_base_image(Path(target_dir))
         subprocess.run(
