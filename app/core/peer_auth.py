@@ -320,8 +320,16 @@ def peer(credential, targets):
     tickets.ensure_keys()
     publish()  # a key made since: the members called can find it before they see a ticket signed with it
     me = self_node.name()
-    claims = {"typ": PEER, "iss": me, "sub": user["username"], "uid": user["id"]}
+    claims = {"typ": PEER, "iss": me, "sub": user["username"], "uid": user["id"], **_root_claim(user)}
     return {t: _sign({**claims, "aud": t}, PEER_LIFETIME_S) for t in targets}
+
+
+def _root_claim(user):
+    """root of this node (hyperlite-admin) acts on the other members as itself: a member accepts the name
+    root@<this node> only in a ticket this node signed (security._local_root)."""
+    from app.core import security
+
+    return {security.LOCAL_ROOT_CLAIM: True} if user.get(security.LOCAL_ROOT_CLAIM) else {}
 
 
 def delegate(credential):
@@ -331,7 +339,7 @@ def delegate(credential):
     user = _account(credential)
     if user["role"] != "admin":
         raise PermissionError("Only an administrator starts a run across the cluster")
-    return _sign({"typ": TASK, "sub": user["username"], "uid": user["id"]}, TASK_LIFETIME_S)
+    return _sign({"typ": TASK, "sub": user["username"], "uid": user["id"], **_root_claim(user)}, TASK_LIFETIME_S)
 
 
 def start_publishing():
