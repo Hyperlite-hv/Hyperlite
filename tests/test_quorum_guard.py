@@ -87,6 +87,17 @@ def test_the_quorum_back_changes_are_made_again(node):
     assert client.post("/groups", json={"name": "ops"}, headers=headers).status_code == 201
 
 
+def test_the_quorum_back_the_next_change_is_made_at_once(node, monkeypatch):
+    """A refusal is not kept: the Cluster page shows the quorum as soon as hyperlite-cfs has it again, and the change
+    made then must not be refused on an answer from the seconds before."""
+    client, headers, daemon = node
+    monkeypatch.setattr(cluster_lead, "QUORUM_TTL_S", 60)
+    daemon.quorate = False
+    assert client.post("/groups", json={"name": "ops"}, headers=headers).status_code == 503
+    daemon.quorate = True
+    assert client.post("/groups", json={"name": "ops"}, headers=headers).status_code == 201
+
+
 def test_a_node_that_never_heard_its_daemon_is_not_blocked(node):
     """Not known to be in a cluster (a single node whose hyperlite-cfs never answered): nothing is refused."""
     client, headers, daemon = node

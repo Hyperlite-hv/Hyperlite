@@ -3,9 +3,9 @@ import re
 import xml.etree.ElementTree as ET
 
 import libvirt
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from app.core import firmware, guest_agent, iscsi
+from app.core import cluster_view, firmware, guest_agent, iscsi
 from app.core.libvirt_utils import (
     get_vm_uptime_s,
 )
@@ -18,7 +18,8 @@ from app.core.vm_meta import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/vms", tags=["vms"])
+# ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
+router = APIRouter(prefix="/vms", tags=["vms"], dependencies=[Depends(cluster_view.on_node)])
 
 TARGET_DEV_RE = re.compile(r"^[a-z]{2,4}[0-9]{0,2}$")
 

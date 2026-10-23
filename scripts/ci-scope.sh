@@ -36,7 +36,7 @@ e2e=false cfs=false cli=false package=false
 while read -r f; do
     [ -n "$f" ] || continue
     case "$f" in
-        .github/workflows/ci.yml | scripts/ci-scope.sh | scripts/ci-reuse.sh) everything ;;
+        .github/workflows/ci.yml | .github/actions/* | scripts/ci-scope.sh | scripts/ci-reuse.sh) everything ;;
     esac
     case "$f" in
         cfs/* | app/core/cfs_client.py) cfs=true ;;

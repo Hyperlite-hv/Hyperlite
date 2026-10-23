@@ -2,10 +2,11 @@ name: VM lab
 
 # Three Debian VMs under KVM on the runner (lab/vm.sh): what the namespaces of the CI's cfs job cannot show, real
 # kernels and real network stacks between the nodes, and later the HA tests (each VM has a watchdog device). It runs on
-# changes to cfs/ or the lab, every night, and on demand.
+# changes to cfs/ or the lab, on demand, and at night on test when cfs/ or the lab changed there during the day: the
+# night run tested master, which changes at releases only, so it ran the same code for ten runner-hours most nights.
 on:
   pull_request:
-    paths: ["cfs/**", "lab/**", ".github/workflows/lab.yml"]
+    paths: ["cfs/**", "lab/**", ".github/workflows/lab.yml", ".github/actions/**"]
   schedule:
     - cron: "41 2 * * *"
   workflow_dispatch:
@@ -25,12 +26,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # At night: did cfs/ or the lab change on test since the previous night? Any error answers yes.
+  changes:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+      cluster: ${{ steps.changes.outputs.cluster }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: test
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changes
+        run: |
+          if recent=$(git log --since="25 hours ago" --format=%h -- cfs lab .github/workflows/lab.yml .github/actions); then
+            [ -n "$recent" ] && changed=true || changed=false
+          else
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "[lab] cfs/ or the lab changed on test since the previous night: $changed"
+          # What hyperlite-cluster exercises: the members calling each other, forming the cluster, the package.
+          if recent=$(git log --since="25 hours ago" --format=%h -- lab app/core/cluster_view.py app/core/cluster_setup.py \
+              app/core/peer_https.py app/core/peer_auth.py app/core/rolling_update.py app/core/self_node.py \
+              app/routers/cluster_setup.py installer/deb .github/workflows/lab.yml); then
+            [ -n "$recent" ] && cluster=true || cluster=false
+          else
+            cluster=true
+          fi
+          echo "cluster=$cluster" >> "$GITHUB_OUTPUT"
+          echo "[lab] the cluster's code changed on test since the previous night: $cluster"
+
   cfs-on-vms:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changes.outputs.changed != 'false') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # At night, test: the code the next release takes.
+          ref: ${{ github.event_name == 'schedule' && 'test' || '' }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -41,10 +80,11 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
           test -c /dev/kvm  # without KVM the VMs would crawl: fail clearly instead
       - name: Install libvirt
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvirt-daemon-system qemu-system-x86 qemu-utils virtinst dnsmasq-base \
-            cloud-image-utils openssh-client
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            libvirt-daemon-system qemu-system-x86 qemu-utils virtinst dnsmasq-base cloud-image-utils openssh-client
+      - run: |
           sudo systemctl start libvirtd
           pip install pytest==9.1.1
       - name: Cache the Debian image
@@ -65,10 +105,11 @@ jobs:
   # rounds, every answered write checked after each. A round takes about 15 s, mostly Corosync noticing a lost node
   # (token and consensus timeouts, kept at their real values), so the thousand rounds run as ten shards of a hundred
   # in parallel, each on its own runner and its own random seed: about 30 minutes instead of four hours. Namespaces,
-  # not VMs: a round takes seconds instead of a minute. Every night and on demand only; the pull requests run five
-  # rounds in ci.yml.
+  # not VMs: a round takes seconds instead of a minute. At night when cfs/ changed on test (job changes), and on
+  # demand; the pull requests run five rounds in ci.yml.
   cfs-soak:
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && (github.event_name != 'schedule' || needs.changes.outputs.changed != 'false') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -79,15 +120,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'schedule' && 'test' || '' }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
       - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev \
-            corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev iproute2
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            meson ninja-build pkg-config gcc libsqlite3-dev libssl-dev corosync libcpg-dev libquorum-dev
+            libvotequorum-dev libcmap-dev iproute2
+      - run: |
           sudo systemctl stop corosync || true
           pip install pytest==9.1.1
       - name: Build, with the sanitizers (a memory error during the soak fails it)
@@ -102,3 +146,99 @@ jobs:
           sudo env HYPERLITE_CFS_CLUSTER=1 HYPERLITE_CFS_BIN=build/hyperlite-cfs HYPERLITE_CFS_ROUNDS="$ROUNDS" \
             HYPERLITE_CFS_SEED="$SEED" UBSAN_OPTIONS=halt_on_error=1 "$(which python)" -m pytest -q -s -p no:cacheprovider \
             cfs/tests/cluster/test_faults.py -k soak
+
+  # Hyperlite itself, built into its package as the publication builds it, installed on three VMs and made a cluster
+  # through the API, as an administrator does (lab/tests): a request naming another member (?node=) done by that
+  # member, an ISO upload relayed to it, a VM made on one member and migrated to another, and the Terraform provider
+  # managing every member's objects through one node. What the unit tests' simulated members cannot show.
+  hyperlite-cluster:
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'schedule' || needs.changes.outputs.cluster != 'false') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'test' || '' }}
+          persist-credentials: false
+      # The provider's main: what its next release ships, against this Hyperlite.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Hyperlite-hv/terraform-provider-hyperlite
+          ref: main
+          path: provider
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache-dependency-path: |
+            cli/go.sum
+            provider/go.sum
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm
+      - name: Install libvirt and the build tools
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            libvirt-daemon-system qemu-system-x86 qemu-utils virtinst dnsmasq-base cloud-image-utils openssh-client
+            dpkg-dev rsync
+      # What the package job downloaded last (installer/build-cache.sh), read only: every kept file is checked
+      # against the signed Debian index and the hashes of requirements.txt.
+      - id: key
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.package-downloads
+          key: package-${{ steps.key.outputs.month }}-${{ hashFiles('installer/build-runtime.sh', 'installer/test-package-inside.sh', 'installer/deb/control.template', 'requirements.txt') }}
+          restore-keys: package-${{ steps.key.outputs.month }}-
+      - name: Build the package
+        run: |
+          mkdir -p ~/.package-downloads
+          docker run --rm -v "$PWD:/src" -v "$HOME/.package-downloads:/cache" -e HYPERLITE_BUILD_CACHE=/cache \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" debian:13 bash /src/installer/build-runtime.sh /src /src/installer/runtime
+          bash installer/build-deb.sh
+      - name: Build the provider, install terraform
+        run: |
+          (cd provider && go build -o "$RUNNER_TEMP/provider/terraform-provider-hyperlite" .)
+          bash provider/scripts/install-cli.sh terraform 1.13.4 "$RUNNER_TEMP/bin"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/hyperlite-lab-cache
+          key: debian-13-generic-v1
+      - name: A cluster of three Hyperlite nodes
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/lab"
+          sudo systemctl start libvirtd
+          pip install pytest==9.1.1
+          sudo iptables -P FORWARD ACCEPT
+          sudo sysctl -qw net.ipv4.ip_forward=1
+          deb=$(ls "$PWD"/installer/hyperlite_*_amd64.deb)
+          sudo env PATH="$RUNNER_TEMP/bin:$PATH" HYPERLITE_LAB_DEB="$deb" HYPERLITE_LAB_PROVIDER="$RUNNER_TEMP/provider" \
+            HYPERLITE_LAB_DIR="$RUNNER_TEMP/lab" HYPERLITE_LAB_CACHE=/tmp/hyperlite-lab-cache \
+            "$(which python)" -m pytest -q -s -rfEs -p no:cacheprovider lab/tests 2>&1 | tee "$RUNNER_TEMP/lab/pytest.log"
+      - if: always()
+        run: sudo chmod -R a+rX /tmp/hyperlite-lab-cache "$RUNNER_TEMP/lab" || true
+      # The end of each log as an annotation too: the checks' API gives them to whoever cannot open the logs.
+      - if: failure()
+        name: Say why
+        run: python3 lab/annotate.py "$RUNNER_TEMP/lab"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hyperlite-cluster-logs
+          path: |
+            ${{ runner.temp }}/lab/pytest.log
+            ${{ runner.temp }}/lab/n*/*.log
+          retention-days: 7

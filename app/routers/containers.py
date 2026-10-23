@@ -26,6 +26,7 @@ from app.core import (
     container_config,
     container_console,
     container_shell,
+    container_snapshots,
     image_env,
     maintenance,
     object_meta,
@@ -466,6 +467,15 @@ def _create_app_container(conn, payload, user, task_id, storage=None):
     return _summary(domain)
 
 
+def _claim_or_409(name, what):
+    """One operation at a time on a container's files (app/core/container_snapshots.py): a snapshot being taken or
+    restored, a backup, a clone, a rename, a deletion, a start."""
+    try:
+        return container_snapshots.claim(name, what)
+    except container_snapshots.ContainerBusy as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+
+
 def _lookup(conn, name):
     try:
         return conn.lookupByName(name)
@@ -482,7 +492,8 @@ def start_container(name: str, user: dict = Depends(require_container_privilege(
         if domain.isActive():
             raise HTTPException(status_code=409, detail=f"Container '{name}' is already running")
         try:
-            domain.create()
+            with _claim_or_409(name, "a start"):
+                domain.create()
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "start_container", name, "failed", msg)
@@ -563,6 +574,11 @@ def delete_container(name: str, confirm: bool = False, user: dict = Depends(requ
     # Irreversible (its filesystem goes with it), as for a VM, a pool or a backup: it was deleted at the first call.
     if not confirm:
         raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion")
+    with _claim_or_409(name, "a deletion"):
+        return _delete_container(name, user)
+
+
+def _delete_container(name, user):
     conn = open_lxc_conn()
     try:
         try:
@@ -578,6 +594,7 @@ def delete_container(name: str, confirm: bool = False, user: dict = Depends(requ
             log_action(user["username"], "delete_container", name, "failed", msg)
             raise HTTPException(status_code=404, detail=msg) from e
 
+        container_snapshots.delete_all(name)  # before the filesystem: its place is read from the container's storage
         delete_container_rootfs(name)
         delete_container_ssh_user(name)
         object_meta.delete("container", name)
@@ -598,7 +615,13 @@ class RenameContainerRequest(BaseModel):
 @router.post("/{name}/rename")
 def rename_container(name: str, payload: RenameContainerRequest, user: dict = Depends(require_role("admin"))):
     """libvirt's LXC driver cannot rename a domain: the stopped container is redefined under its new name, its
-    filesystem directory is renamed next to the old one, and Hyperlite's records follow (app/core/renaming.py)."""
+    filesystem directory is renamed next to the old one (its snapshots' too), and Hyperlite's records follow
+    (app/core/renaming.py)."""
+    with _claim_or_409(name, "a rename"):
+        return _rename_container(name, payload, user)
+
+
+def _rename_container(name, payload, user):
     new = payload.new_name
     error = validate_name(new, "container")
     if error:
@@ -634,8 +657,14 @@ def rename_container(name: str, payload: RenameContainerRequest, user: dict = De
         for source in sources:
             source.set("dir", str(new_root))
         try:
+            container_snapshots.rename_all(name, new, old_root.parent)
+        except (OSError, container_snapshots.SnapshotError) as e:
+            log_action(user["username"], "rename_container", name, "failed", str(e))
+            raise HTTPException(status_code=409, detail=f"Could not rename the container's snapshots: {e}") from e
+        try:
             os.rename(old_root, new_root)
         except OSError as e:
+            container_snapshots.rename_all(new, name, old_root.parent)
             log_action(user["username"], "rename_container", name, "failed", str(e))
             raise HTTPException(status_code=500, detail=f"Could not rename the filesystem: {e}") from e
         try:
@@ -647,6 +676,7 @@ def rename_container(name: str, payload: RenameContainerRequest, user: dict = De
                 raise
         except libvirt.libvirtError as e:
             os.rename(new_root, old_root)
+            container_snapshots.rename_all(new, name, old_root.parent)
             msg = describe_exception(e)
             log_action(user["username"], "rename_container", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
@@ -667,7 +697,7 @@ def rename_container(name: str, payload: RenameContainerRequest, user: dict = De
 # There is no instantaneous snapshot: libvirt's LXC driver does not support
 # virDomainSnapshotCreateXML (see app/core/container_builder.py for the detail).
 # Clone = a full copy of the rootfs; backup = a tar archive (without scheduling or
-# retention for now).
+# retention for now); snapshot = an rsync copy of the stopped container's directory (below).
 
 
 class CloneContainerRequest(BaseModel):
@@ -677,6 +707,11 @@ class CloneContainerRequest(BaseModel):
 @router.post("/{name}/clone", status_code=201)
 def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depends(require_role("admin"))):
     maintenance.refuse_if_in_maintenance("local", "Cloning")
+    with _claim_or_409(name, "a clone"):
+        return _clone_container(name, payload, user)
+
+
+def _clone_container(name, payload, user):
     conn = open_lxc_conn()
     task_id = create_task("clone_container", name, node=None, username=user["username"])
     try:
@@ -765,7 +800,12 @@ class ContainerBackupRunning(Exception):
 _container_backup_lock = threading.Lock()  # same reasoning as the VM _backup_lock: one at a time
 
 
-def _run_container_backup_job(task_id, username, container_name):
+def _run_container_backup_job(task_id, username, container_name, claim):
+    with claim:
+        _container_backup(task_id, username, container_name)
+
+
+def _container_backup(task_id, username, container_name):
     now = datetime.now(UTC)
     CONTAINER_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     filename = f"{container_name}-{now.strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
@@ -802,9 +842,116 @@ def create_container_backup(name: str, user: dict = Depends(require_role("admin"
             )
     finally:
         conn.close()
-    task_id = create_task("backup_container", name, username=user["username"])
-    threading.Thread(target=_run_container_backup_job, args=(task_id, user["username"], name), daemon=True).start()
+    claim = _claim_or_409(name, "a backup")
+    try:
+        task_id = create_task("backup_container", name, username=user["username"])
+        threading.Thread(
+            target=_run_container_backup_job, args=(task_id, user["username"], name, claim), daemon=True
+        ).start()
+    except BaseException:
+        claim.release()
+        raise
     return {"task_id": task_id}
+
+
+# ---- Snapshots (docs/design/container-snapshots.md): copies of the stopped container's directory ----
+
+
+class ContainerSnapshotCreate(BaseModel):
+    name: str
+    description: str | None = Field(default=None, max_length=500)
+
+
+def _stopped_container_or_error(name, action):
+    conn = open_lxc_conn()
+    try:
+        domain = _lookup(conn, name)
+        if domain.isActive():
+            raise HTTPException(status_code=409, detail=f"Stop the container before {action}")
+    finally:
+        conn.close()
+
+
+def _snapshot_job(task_id, username, action, name, snapshot, claim, work):
+    with claim:
+        try:
+            work()
+            finish_task(task_id, "succeeded")
+            log_action(username, action, name, "success", f"Snapshot '{snapshot}'")
+        except Exception as e:  # any error closes the task, said as it is
+            msg = str(e)[:500] if isinstance(e, container_snapshots.SnapshotError) else describe_exception(e)
+            finish_task(task_id, "failed", msg)
+            log_action(username, action, name, "failed", f"Snapshot '{snapshot}': {msg}")
+
+
+def _start_snapshot_job(user, action, name, snapshot, what, work):
+    claim = _claim_or_409(name, what)
+    try:
+        task_id = create_task(action, name, username=user["username"])
+        threading.Thread(
+            target=_snapshot_job, args=(task_id, user["username"], action, name, snapshot, claim, work), daemon=True
+        ).start()
+    except BaseException:
+        claim.release()
+        raise
+    return {"task_id": task_id, "name": snapshot, "status": "running"}
+
+
+@router.get("/{name}/snapshots")
+def list_container_snapshots(name: str, user: dict = Depends(require_container_privilege("container.view"))):
+    conn = open_lxc_conn()
+    try:
+        _lookup(conn, name)
+    finally:
+        conn.close()
+    return listing(container_snapshots.list_snapshots(name))
+
+
+@router.post("/{name}/snapshots", status_code=202)
+def create_container_snapshot(name: str, payload: ContainerSnapshotCreate, user: dict = Depends(require_role("admin"))):
+    error = validate_name(payload.name, "snapshot")
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    _stopped_container_or_error(name, "taking a snapshot (its files are copied)")
+    if container_snapshots.exists(name, payload.name):
+        raise HTTPException(status_code=409, detail=f"A snapshot '{payload.name}' already exists for this container")
+    return _start_snapshot_job(
+        user,
+        "create_container_snapshot",
+        name,
+        payload.name,
+        "a snapshot",
+        lambda: container_snapshots.create(name, payload.name, payload.description),
+    )
+
+
+@router.post("/{name}/snapshots/{snapshot}/restore", status_code=202)
+def restore_container_snapshot(name: str, snapshot: str, user: dict = Depends(require_role("admin"))):
+    if validate_name(snapshot, "snapshot") or not container_snapshots.exists(name, snapshot):
+        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot}' not found")
+    _stopped_container_or_error(name, "restoring a snapshot")
+    return _start_snapshot_job(
+        user,
+        "restore_container_snapshot",
+        name,
+        snapshot,
+        "a snapshot restore",
+        lambda: container_snapshots.restore(name, snapshot),
+    )
+
+
+@router.delete("/{name}/snapshots/{snapshot}")
+def delete_container_snapshot(name: str, snapshot: str, user: dict = Depends(require_role("admin"))):
+    if validate_name(snapshot, "snapshot") or not container_snapshots.exists(name, snapshot):
+        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot}' not found")
+    with _claim_or_409(name, "a snapshot deletion"):
+        try:
+            container_snapshots.delete(name, snapshot)
+        except (OSError, container_snapshots.SnapshotError) as e:
+            log_action(user["username"], "delete_container_snapshot", name, "failed", f"Snapshot '{snapshot}': {e}")
+            raise HTTPException(status_code=500, detail=str(e)) from e
+    log_action(user["username"], "delete_container_snapshot", name, "success", f"Snapshot '{snapshot}'")
+    return {"ok": True}
 
 
 @router.delete("/backups/{backup_id}")

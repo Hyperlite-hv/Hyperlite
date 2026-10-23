@@ -21,6 +21,7 @@ python3-venv
 
 # Virtualisation
 qemu-kvm
+qemu-system-modules-spice
 qemu-utils
 libvirt-daemon-system
 libvirt-daemon-driver-lxc  # the Containers tab: libvirt-daemon-system does not pull it in
@@ -44,6 +45,8 @@ nfs-common
 nfs-kernel-server
 # SMB/CIFS pools: libvirt mounts the share with mount.cifs.
 cifs-utils
+# Container snapshots copy the container's directory with rsync (docs/design/container-snapshots.md).
+rsync
 
 # Cluster: creating or joining a cluster from the dashboard needs Corosync
 corosync

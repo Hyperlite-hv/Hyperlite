@@ -68,6 +68,8 @@ WAIT_S = 60
 
 CLUSTER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,14}$")
 SSH_KEY_RE = re.compile(r"^ssh-ed25519 [A-Za-z0-9+/]{68}={0,2}( [A-Za-z0-9@._-]{1,64})?$")
+KID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+MAX_AUTH_KEYS = 8  # the current key and the ones a rotation keeps (app/core/tickets.py)
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 TICKET_RE = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
 MARKER = "hyperlite-cluster-member"  # ends the authorized_keys lines this module manages
@@ -343,6 +345,11 @@ def create(name, address, username):
     client.put(COROSYNC_KEY_ENTRY, base64.b64encode(key))
     client.put(f"{SSH_DIR}/{shadow.component(me)}", cluster.get_cluster_pubkey().encode())
     _register(me, address)
+    # Now, not at the next round of peer_https (ten minutes): until the members can check this node's certificate,
+    # their calls to it go over SSH and a file cannot be relayed to it. A joining node publishes as it restarts.
+    from app.core import peer_https
+
+    peer_https.publish()
     log_action(username, "cluster_create", name, "success", f"{me} ({address})")
     return state()
 
@@ -428,14 +435,48 @@ def _cluster_keys():
     return keys
 
 
-def accept_member(ticket, name, address, ssh_key):
+def _check_fingerprint(value):
+    """The joining node's HTTPS certificate fingerprint: 64 hexadecimal digits, or None (a node before this version)."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not FINGERPRINT_RE.match(value.lower()):
+        raise ClusterError("Invalid certificate fingerprint")
+    return value.lower()
+
+
+def _check_auth_keys(value):
+    """The joining node's public keys, as peer_auth publishes them ({"keys": [{"kid", "public", "created"}]}), or None
+    (a node before this version, or one without keys yet)."""
+    if value is None:
+        return None
+    entries = value.get("keys") if isinstance(value, dict) else None
+    if not isinstance(entries, list) or not 1 <= len(entries) <= MAX_AUTH_KEYS:
+        raise ClusterError("Invalid public keys")
+    checked = []
+    for entry in entries:
+        try:
+            kid, public, created = entry["kid"], entry["public"], entry["created"]
+            if not isinstance(kid, str) or not KID_RE.match(kid) or isinstance(created, bool):
+                raise ValueError
+            if not isinstance(created, int | float) or len(base64.b64decode(public, validate=True)) != 32:
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise ClusterError("Invalid public keys") from None
+        checked.append({"kid": kid, "public": public, "created": created})
+    return {"keys": checked}
+
+
+def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=None):
     """Run on a member, called by the joining node with the ticket of the join information.
 
     Every write to the shared configuration happens before this node's Corosync reloads with the new member: adding
     the first member raises the votes the cluster needs to 2, so this node loses the quorum, and with it every write,
-    until the new node is up."""
+    until the new node is up. The new node's certificate fingerprint and public keys too: until the cluster has them,
+    the members can neither check its certificate nor sign a call it accepts (it would be taken for a node before 1.2,
+    sent the shared key, and refuse it)."""
+    from app.core import peer_auth, peer_https
     from app.core.audit import log_action
-    from app.repositories.cfs import shadow
+    from app.repositories.cfs import confirm, shadow
     from app.repositories.sqlite.nodes import SqliteNodeStore
 
     with _members_lock:  # one node per ticket, even when two calls race
@@ -445,6 +486,8 @@ def accept_member(ticket, name, address, ssh_key):
         address = _address(address)
         if not isinstance(ssh_key, str) or not SSH_KEY_RE.match(ssh_key.strip()):
             raise ClusterError("Invalid SSH key")
+        fingerprint = _check_fingerprint(fingerprint)
+        auth_keys = _check_auth_keys(auth_keys)
         client = _client()
         conf = shared_conf()
         if not conf:
@@ -460,13 +503,28 @@ def accept_member(ticket, name, address, ssh_key):
         )
         conf["version"] += 1
         ssh_entry = f"{SSH_DIR}/{shadow.component(name)}"
+        published = {}  # what the new node publishes itself from then on, written here while the quorum holds
+        if fingerprint:
+            published[f"{peer_https.STATE_DIR}/{shadow.component(name)}"] = {"sha256": fingerprint}
+        if auth_keys:
+            published[peer_auth._path(name)] = auth_keys
         _register(name, address)
         try:
+            # The nodes row goes to the cluster through the shadow copy, which the API confirms before the answer:
+            # too late here, once sync() below took the quorum away. The cluster refused it, the answer was an error,
+            # and the new node gave up while this one waited for it without the quorum.
+            try:
+                confirm.settle()
+            except (shadow.NotConfirmed, shadow.Changed) as e:
+                raise ClusterError(f"The cluster could not record {name}: {e}") from None
             client.put(ssh_entry, ssh_key.strip().encode())
+            for path, value in published.items():
+                client.put(path, json.dumps(value).encode())
             client.put(CONF_PATH, json.dumps(conf).encode())
         except Exception:  # the cluster does not list the new node: neither do the nodes table and the SSH keys
-            with contextlib.suppress(Exception):
-                client.delete(ssh_entry)
+            for path in (ssh_entry, *published):
+                with contextlib.suppress(Exception):
+                    client.delete(path)
             with contextlib.suppress(Exception):
                 SqliteNodeStore().delete(name)
             raise
@@ -510,8 +568,22 @@ def _decode_information(text):
     return checked
 
 
+MEMBERS_PATH = "/api/v1/cluster/members"
+
+
 def _call_member(info, body):
-    """POST to the member's /cluster/members over HTTPS, trusting only the certificate of the join information."""
+    """POST to the member's /api/v1/cluster/members over HTTPS, trusting only the certificate of the join
+    information. A member older than 1.0 has the route without the prefix: asked there when it answers a bare 404."""
+    status, answer = _post_member(info, MEMBERS_PATH, body)
+    if status == 404 and answer == {"detail": "Not Found"}:
+        status, answer = _post_member(info, MEMBERS_PATH.removeprefix("/api/v1"), body)
+    if status != 200:
+        detail = answer.get("detail") if isinstance(answer, dict) else None
+        raise ClusterError(f"The member refused: {detail}" if isinstance(detail, str) else "The member refused")
+    return answer
+
+
+def _post_member(info, path, body):
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # the certificate is checked against the fingerprint below, before any data
@@ -523,7 +595,7 @@ def _call_member(info, body):
             raise ClusterError(
                 "The member's certificate does not match the join information: copy it again from the member"
             )
-        conn.request("POST", "/cluster/members", json.dumps(body), {"Content-Type": "application/json"})
+        conn.request("POST", path, json.dumps(body), {"Content-Type": "application/json"})
         response = conn.getresponse()
         data = response.read(1_000_000)
     except (OSError, http.client.HTTPException) as e:
@@ -532,13 +604,9 @@ def _call_member(info, body):
     finally:
         conn.close()
     try:
-        answer = json.loads(data)
+        return response.status, json.loads(data)
     except ValueError:
         raise ClusterError("The member answered something unexpected") from None
-    if response.status != 200:
-        detail = answer.get("detail") if isinstance(answer, dict) else None
-        raise ClusterError(f"The member refused: {detail}" if isinstance(detail, str) else "The member refused")
-    return answer
 
 
 def _check_env_keys(keys):
@@ -615,10 +683,25 @@ def _undo_join(files, services, moved):
     cluster_lead.forget()
 
 
+def _member_request(ticket, me, address):
+    """What a joining node sends the member, its certificate fingerprint and public keys included: the member writes
+    them while the quorum holds, and the others can call this node as soon as it is up."""
+    from app.core import cluster, peer_auth, peer_https
+
+    body = {"ticket": ticket, "name": me, "address": address, "ssh_key": cluster.get_cluster_pubkey()}
+    try:
+        body["fingerprint"] = peer_https.own_fingerprint()
+    except (OSError, ValueError) as e:  # published by this node once it is up, as before
+        logger.warning("This node's certificate fingerprint is not sent with the join: %s", e)
+    own = peer_auth._own_keys()
+    if own["keys"]:
+        body["auth_keys"] = own
+    return body
+
+
 def join(information, address, confirmation, username):
     """Make this node a member of the cluster the join information comes from. Its own configuration is replaced by
     the cluster's: confirmation must be the cluster's name."""
-    from app.core import cluster
     from app.core.audit import log_action
     from app.repositories.cfs import shadow
 
@@ -628,9 +711,7 @@ def join(information, address, confirmation, username):
     address = _address(address, local=True)
     _preflight()
     me = self_node.name()
-    answer = _call_member(
-        info, {"ticket": info["ticket"], "name": me, "address": address, "ssh_key": cluster.get_cluster_pubkey()}
-    )
+    answer = _call_member(info, _member_request(info["ticket"], me, address))
     # The member lists this node from now on: when this node gives up, the member must take it out again.
     take_out = f"{info['address']} already lists this node: remove {me} there (Cluster card) before joining again"
     try:

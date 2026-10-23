@@ -1,0 +1,6 @@
+# zizmor (https://docs.zizmor.sh) checks the workflows and actions in the CI (.github/workflows/ci.yml, job shell).
+rules:
+  # A preference of syntax, not a weakness: `./...` is the documented way to use this repository's own actions and
+  # workflows, at the commit being run.
+  self-repository:
+    disable: true

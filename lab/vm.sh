@@ -12,6 +12,9 @@
 #   vm.sh crash N      kill node N's Corosync and hyperlite-cfs (SIGKILL: a crash of the node's cluster stack)
 #   vm.sh start N      start what is not running on node N, Corosync first
 #   vm.sh down [DIR]   keep each node's logs in DIR/nN/cfs.log, then destroy everything
+#   vm.sh hyperlite DEB DIR
+#                      the same VMs with the Hyperlite package DEB installed on each (its dependencies from Debian),
+#                      each API answering on https://192.0.2.N:8000, no cluster formed: lab/tests make it through the API
 #
 # Needs root, libvirt with KVM, dnsmasq, virt-install, qemu-img, losetup, cloud-image-utils (cloud-localds),
 # openssh-client and Internet access for the Debian image and packages. Same interface as cfs/tests/cluster/lab.sh, so
@@ -27,6 +30,8 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 IMAGE_URL=${HYPERLITE_LAB_IMAGE:-https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2}
 CACHE=${HYPERLITE_LAB_CACHE:-/var/cache/hyperlite-lab}
 POOL=/var/lib/libvirt/images
+MEMORY=1536 # MB; a node running Hyperlite, libvirt and a small VM of its own gets more (hyperlite)
+PROVISION=provision
 
 ip_of() { echo "192.0.2.$1"; }
 mac_of() { printf '52:54:00:c0:02:%02x' "$1"; }
@@ -103,7 +108,7 @@ EOF
     cloud-localds "$POOL/${P}$i-seed.iso" "$dir/n$i/user-data" "$dir/n$i/meta-data"
     # virtio everywhere, said explicitly: without an OS virt-install knows, it falls back to emulated SATA and NICs. The
     # cloud-init seed is a plain virtio disk too (cloud-init finds it by its "cidata" label).
-    virt-install --name ${P}$i --memory 1536 --vcpus 2 --cpu "$cpu" --import \
+    virt-install --name ${P}$i --memory $MEMORY --vcpus 2 --cpu "$cpu" --import \
         --disk "path=$POOL/${P}$i.qcow2,bus=virtio" \
         --disk "path=$POOL/${P}$i-seed.iso,device=disk,bus=virtio,format=raw,readonly=on" \
         --network network=$NET,mac="$(mac_of "$i")",model=virtio --watchdog i6300esb,action=reset \
@@ -112,7 +117,7 @@ EOF
         --serial file,path=/var/log/libvirt/qemu/${P}$i-console.log > /dev/null
 }
 
-provision() { # provision DIR N: build hyperlite-cfs from this checkout and start it with Corosync
+reach() { # reach DIR N: wait for node N's SSH and cloud-init
     local dir=$1 i=$2
     local reached=0
     for _ in $(seq 1 90); do
@@ -128,6 +133,11 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     fi
     echo "node $i: up, provisioning"
     on "$dir" "$i" cloud-init status --wait || true
+}
+
+provision() { # provision DIR N: build hyperlite-cfs from this checkout and start it with Corosync
+    local dir=$1 i=$2
+    reach "$dir" "$i"
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
         corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables
@@ -142,6 +152,21 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
         -o ExitOnForwardFailure=yes -o StreamLocalBindUnlink=yes -o ServerAliveInterval=5 -f -N \
         -L "$dir/n$i/cfs.sock:/run/hyperlite-cfs/socket" "debian@$(ip_of "$i")"
     chmod 0666 "$dir/n$i/cfs.sock"
+}
+
+provision_hyperlite() { # provision_hyperlite DIR N: install the package $DEB, as an administrator would
+    local dir=$1 i=$2
+    reach "$dir" "$i"
+    on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
+    on "$dir" "$i" tee /root/hyperlite.deb > /dev/null < "$DEB"
+    on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q /root/hyperlite.deb
+    for _ in $(seq 1 120); do
+        on "$dir" "$i" curl -fsk -o /dev/null https://127.0.0.1:8000/health && return 0
+        sleep 2
+    done
+    echo "node $i: Hyperlite never answered" >&2
+    on "$dir" "$i" journalctl -u hyperlite -n 80 --no-pager >&2 || true
+    return 1
 }
 
 start_cfs() { # start_cfs DIR N: hyperlite-cfs as a transient unit, and wait for its socket
@@ -288,7 +313,7 @@ up() {
     fi
     local pids=()
     for i in $(seq 1 $NODES); do
-        provision "$dir" "$i" > "$dir/n$i/provision.log" 2>&1 &
+        $PROVISION "$dir" "$i" > "$dir/n$i/provision.log" 2>&1 &
         pids+=($!)
     done
     local failed=0
@@ -298,6 +323,7 @@ up() {
         diagnose
         return 1
     fi
+    [ "$PROVISION" = provision ] || return 0
     # Hand the cluster over only once the three daemons are members of one process group: a change made while some
     # are still joining is legitimate, but the tests expect to start from a formed cluster.
     for _ in $(seq 1 120); do
@@ -315,6 +341,7 @@ down() {
         if [ -n "$dir" ] && [ -f "$(key_of "$dir")" ]; then
             mkdir -p "$dir/n$i"
             on "$dir" "$i" journalctl -u corosync -u hyperlite-cfs --no-pager > "$dir/n$i/cfs.log" 2>&1 || true
+            on "$dir" "$i" journalctl -u hyperlite -u hyperlite-daemon -u libvirtd --no-pager > "$dir/n$i/hyperlite.log" 2>&1 || true
         fi
         virsh destroy ${P}$i > /dev/null 2>&1 || true
         virsh undefine ${P}$i > /dev/null 2>&1 || true
@@ -348,6 +375,11 @@ case ${1:-} in
         echo "$3" > $STATE
         up "$3"
         ;;
+    hyperlite)
+        DEB=$(realpath "$2") MEMORY=${HYPERLITE_LAB_MEMORY:-3072} PROVISION=provision_hyperlite
+        echo "$3" > $STATE
+        up "$3"
+        ;;
     down) down "${2:-$(cat $STATE 2> /dev/null || true)}" ;;
     cut) cut "$(cat $STATE)" "$2" ;;
     heal) heal "$(cat $STATE)" "$2" ;;
@@ -358,7 +390,7 @@ case ${1:-} in
         ;;
     start) start_node "$(cat $STATE)" "$2" ;;
     *)
-        echo "usage: $0 up BIN DIR | cut N | heal N | stop N | crash N | start N | down [DIR]" >&2
+        echo "usage: $0 up BIN DIR | hyperlite DEB DIR | cut N | heal N | stop N | crash N | start N | down [DIR]" >&2
         exit 2
         ;;
 esac

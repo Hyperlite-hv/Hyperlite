@@ -9,7 +9,17 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import disk_space, firmware, linked_disks, maintenance, templates_store, vm_locks, vm_meta, vm_records
+from app.core import (
+    cluster_view,
+    disk_space,
+    firmware,
+    linked_disks,
+    maintenance,
+    templates_store,
+    vm_locks,
+    vm_meta,
+    vm_records,
+)
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
 from app.core.listing import listing
@@ -20,7 +30,8 @@ from app.core.vm_builder import IMAGES_DIR, create_cloudinit_reseed_iso, generat
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/templates", tags=["templates"])
+# ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
+router = APIRouter(prefix="/templates", tags=["templates"], dependencies=[Depends(cluster_view.on_node)])
 
 
 @router.get("")

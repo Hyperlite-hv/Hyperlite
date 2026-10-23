@@ -939,6 +939,31 @@
     "title": "ContainerCreate",
     "type": "object"
    },
+   "ContainerSnapshotCreate": {
+    "properties": {
+     "description": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Description"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "ContainerSnapshotCreate",
+    "type": "object"
+   },
    "ContainerUpdate": {
     "properties": {
      "autostart": {
@@ -2073,6 +2098,30 @@
       "maxLength": 64,
       "title": "Address",
       "type": "string"
+     },
+     "auth_keys": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Auth Keys"
+     },
+     "fingerprint": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fingerprint"
      },
      "name": {
       "maxLength": 63,
@@ -6734,6 +6783,24 @@
        "title": "Confirm",
        "type": "boolean"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "on",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "On"
+      }
      }
     ],
     "responses": {
@@ -6841,6 +6908,24 @@
        "title": "Backup Id",
        "type": "integer"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "on",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "On"
+      }
      }
     ],
     "requestBody": {
@@ -6896,6 +6981,24 @@
       "schema": {
        "title": "Backup Id",
        "type": "integer"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "on",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "On"
       }
      }
     ],
@@ -7976,7 +8079,7 @@
   },
   "/api/v1/containers/{name}/rename": {
    "post": {
-    "description": "libvirt's LXC driver cannot rename a domain: the stopped container is redefined under its new name, its\nfilesystem directory is renamed next to the old one, and Hyperlite's records follow (app/core/renaming.py).",
+    "description": "libvirt's LXC driver cannot rename a domain: the stopped container is redefined under its new name, its\nfilesystem directory is renamed next to the old one (its snapshots' too), and Hyperlite's records follow\n(app/core/renaming.py).",
     "operationId": "rename_container_api_v1_containers__name__rename_post",
     "parameters": [
      {
@@ -8070,6 +8173,212 @@
      }
     ],
     "summary": "Create Shell Ticket",
+    "tags": [
+     "containers"
+    ]
+   }
+  },
+  "/api/v1/containers/{name}/snapshots": {
+   "get": {
+    "operationId": "list_container_snapshots_api_v1_containers__name__snapshots_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Container Snapshots",
+    "tags": [
+     "containers"
+    ]
+   },
+   "post": {
+    "operationId": "create_container_snapshot_api_v1_containers__name__snapshots_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ContainerSnapshotCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Container Snapshot",
+    "tags": [
+     "containers"
+    ]
+   }
+  },
+  "/api/v1/containers/{name}/snapshots/{snapshot}": {
+   "delete": {
+    "operationId": "delete_container_snapshot_api_v1_containers__name__snapshots__snapshot__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "snapshot",
+      "required": true,
+      "schema": {
+       "title": "Snapshot",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Container Snapshot",
+    "tags": [
+     "containers"
+    ]
+   }
+  },
+  "/api/v1/containers/{name}/snapshots/{snapshot}/restore": {
+   "post": {
+    "operationId": "restore_container_snapshot_api_v1_containers__name__snapshots__snapshot__restore_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "snapshot",
+      "required": true,
+      "schema": {
+       "title": "Snapshot",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Restore Container Snapshot",
     "tags": [
      "containers"
     ]
@@ -10163,6 +10472,26 @@
   "/api/v1/isos": {
    "get": {
     "operationId": "list_isos_api_v1_isos_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -10171,6 +10500,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -10185,6 +10524,26 @@
    },
    "post": {
     "operationId": "upload_iso_api_v1_isos_post",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "multipart/form-data": {
@@ -10230,6 +10589,26 @@
    "get": {
     "description": "Every node's library, with the nodes that could not be read.",
     "operationId": "list_cluster_isos_api_v1_isos_cluster_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -10238,6 +10617,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -10255,6 +10644,26 @@
    "post": {
     "description": "Copy an image from one node's library to others, one background task per target node.",
     "operationId": "copy_iso_api_v1_isos_copy_post",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -10320,13 +10729,21 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
       "schema": {
-       "default": "local",
-       "title": "Node",
-       "type": "string"
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -10373,6 +10790,24 @@
       "schema": {
        "title": "Filename",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -11491,6 +11926,26 @@
   "/api/v1/networks": {
    "get": {
     "operationId": "list_networks_api_v1_networks_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -11499,6 +11954,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -11513,6 +11978,26 @@
    },
    "post": {
     "operationId": "create_network_api_v1_networks_post",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -11558,6 +12043,26 @@
    "get": {
     "description": "The host's interfaces a bridged network can sit on (app/core/host_interfaces.py), read-only.",
     "operationId": "host_interfaces_api_v1_networks_host_interfaces_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -11566,6 +12071,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -11600,6 +12115,24 @@
        "default": false,
        "title": "Confirm",
        "type": "boolean"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -11644,6 +12177,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -11687,6 +12238,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -11744,6 +12313,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -11799,6 +12386,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -11841,6 +12446,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -11898,6 +12521,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -11953,6 +12594,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -12018,6 +12677,24 @@
        "title": "Mac",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -12062,6 +12739,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -12118,6 +12813,24 @@
        "default": false,
        "title": "Confirm",
        "type": "boolean"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -13654,6 +14367,7 @@
     "operationId": "list_pools_api_v1_storage_get",
     "parameters": [
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -13666,6 +14380,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -13704,6 +14419,7 @@
     "operationId": "create_pool_api_v1_storage_post",
     "parameters": [
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -13716,6 +14432,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -13828,6 +14545,26 @@
    "get": {
     "description": "The pools declared for several nodes, and which ones (no secret).",
     "operationId": "list_shared_pools_api_v1_storage_shared_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -13836,6 +14573,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -13853,6 +14600,26 @@
    "get": {
     "description": "Which pool types the local host can create now, and why not: read by the pool creation form to warn\nbefore the attempt. nfs: 'ok' or 'no_client'; zfs: see zfs_storage.status(). Nothing is loaded or run.",
     "operationId": "storage_support_api_v1_storage_support_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -13861,6 +14628,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -13889,6 +14666,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -13901,6 +14679,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      },
@@ -13979,6 +14758,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -13991,6 +14771,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -14039,6 +14820,24 @@
        "title": "Pool Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -14086,6 +14885,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -14098,6 +14898,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -14155,6 +14956,24 @@
        "title": "Pool Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -14198,6 +15017,24 @@
       "schema": {
        "title": "Pool Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -14273,6 +15110,24 @@
        "title": "Confirm",
        "type": "boolean"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -14325,6 +15180,24 @@
       "schema": {
        "title": "Volume Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -14704,7 +15577,7 @@
   },
   "/api/v1/tasks/{task_id}": {
    "get": {
-    "description": "on: the node that holds the task in a cluster (the \"on\" of GET /tasks?cluster=true).",
+    "description": "on: the node that holds the task in a cluster (the \"on\" of GET /tasks?cluster=true). node: the same, under the\nname every other route takes (a task started with ?node= is held by that node).",
     "operationId": "get_task_api_v1_tasks__task_id__get",
     "parameters": [
      {
@@ -14730,6 +15603,22 @@
         }
        ],
        "title": "On"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
       }
      }
     ],
@@ -14766,7 +15655,7 @@
   },
   "/api/v1/tasks/{task_id}/cancel": {
    "post": {
-    "description": "Ask a running task to stop. An administrator may cancel any task, another user only the tasks they\nstarted. on: the node that holds it in a cluster, which checks the same rights and records the cancellation.",
+    "description": "Ask a running task to stop. An administrator may cancel any task, another user only the tasks they\nstarted. on (or node): the node that holds it in a cluster, which checks the same rights and records the\ncancellation.",
     "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
     "parameters": [
      {
@@ -14803,6 +15692,22 @@
        ],
        "title": "On"
       }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -14838,7 +15743,7 @@
   },
   "/api/v1/tasks/{task_id}/log": {
    "get": {
-    "description": "What the task did, line by line (its own log, distinct from the audit entries of its target).",
+    "description": "What the task did, line by line (its own log, distinct from the audit entries of its target). on or node: the\nnode that holds it.",
     "operationId": "get_task_log_api_v1_tasks__task_id__log_get",
     "parameters": [
      {
@@ -14864,6 +15769,22 @@
         }
        ],
        "title": "On"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
       }
      }
     ],
@@ -14902,6 +15823,26 @@
    "get": {
     "description": "Each template with `linked_clones`, the VMs whose disk reads through the template's disk (null when libvirt\ndoes not answer: the templates are still listed), and `linkable`, true when its disk is a qcow2 image, which a\nlinked clone needs as its backing file.",
     "operationId": "list_templates_api_v1_templates_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -14910,6 +15851,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -14945,6 +15896,24 @@
        "default": true,
        "title": "Wait",
        "type": "boolean"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -15011,6 +15980,24 @@
        "title": "Confirm",
        "type": "boolean"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -15067,6 +16054,24 @@
        "title": "Wait",
        "type": "boolean"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -15121,6 +16126,24 @@
       "schema": {
        "title": "Template Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -15802,6 +16825,7 @@
     "operationId": "list_vms_api_v1_vms_get",
     "parameters": [
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -15814,6 +16838,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      },
@@ -15870,6 +16895,24 @@
        "default": true,
        "title": "Wait",
        "type": "boolean"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -15939,6 +16982,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -15951,6 +16995,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -15999,6 +17044,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -16011,6 +17057,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -16055,6 +17102,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -16112,6 +17177,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -16157,6 +17240,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -16200,6 +17301,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -16242,6 +17361,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -16298,6 +17435,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -16341,6 +17496,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -16383,6 +17556,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -16439,6 +17630,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -16481,6 +17690,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -16536,6 +17763,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -16594,6 +17839,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -16606,6 +17852,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -16653,6 +17900,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -16665,6 +17913,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -16721,6 +17970,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -16799,6 +18066,24 @@
        ],
        "title": "Target Dev"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -16841,6 +18126,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -16908,6 +18211,24 @@
        "title": "Wait",
        "type": "boolean"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -16964,6 +18285,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17007,6 +18346,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -17066,6 +18423,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -17078,6 +18436,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -17125,6 +18484,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17167,6 +18544,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -17225,6 +18620,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -17237,6 +18633,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -17281,6 +18678,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -17346,6 +18761,24 @@
        "title": "Target Dev",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17400,6 +18833,24 @@
       "schema": {
        "title": "Target Dev",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -17465,6 +18916,24 @@
        "title": "Target Dev",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -17529,6 +18998,24 @@
        "title": "Target Dev",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -17584,6 +19071,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17629,6 +19134,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17671,6 +19194,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -17727,6 +19268,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17772,6 +19331,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17814,6 +19391,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -17879,6 +19474,24 @@
        "title": "Device Id",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -17923,6 +19536,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -17988,6 +19619,24 @@
        "title": "Mac",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -18033,6 +19682,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -18075,6 +19742,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -18131,6 +19816,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -18185,6 +19888,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -18306,6 +20027,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -18318,6 +20040,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -18387,6 +20110,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -18399,6 +20123,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -18448,6 +20173,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -18460,6 +20186,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -18522,6 +20249,24 @@
        ],
        "title": "Mac"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "requestBody": {
@@ -18580,6 +20325,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -18592,6 +20338,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -18641,6 +20388,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -18653,6 +20401,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -18722,6 +20471,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -18734,6 +20484,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -18784,6 +20535,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -18796,6 +20548,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -18843,6 +20596,24 @@
        "title": "Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -18885,6 +20656,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],
@@ -18950,6 +20739,24 @@
        "title": "Snapshot Name",
        "type": "string"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -19014,6 +20821,24 @@
        "title": "Confirm",
        "type": "boolean"
       }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
      }
     ],
     "responses": {
@@ -19047,6 +20872,134 @@
     ]
    }
   },
+  "/api/v1/vms/{name}/spice-display": {
+   "post": {
+    "description": "Give the VM a SPICE display next to its VNC one, effective at its next start. Refused on a node not set up for\nSPICE in TLS: the VM would no longer start there.",
+    "operationId": "add_spice_display_api_v1_vms__name__spice_display_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Add Spice Display",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/spice-ticket": {
+   "post": {
+    "description": "The .vv file of a running VM's SPICE display: a password valid a few seconds, and a ticket for the proxy at the\naddress the browser used. virt-viewer deletes the file once read.",
+    "operationId": "create_spice_ticket_api_v1_vms__name__spice_ticket_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Spice Ticket",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
   "/api/v1/vms/{name}/start": {
    "post": {
     "operationId": "start_vm_api_v1_vms__name__start_post",
@@ -19061,6 +21014,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -19073,6 +21027,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -19148,6 +21103,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -19160,6 +21116,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -19210,6 +21167,7 @@
       }
      },
      {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
       "in": "query",
       "name": "node",
       "required": false,
@@ -19222,6 +21180,7 @@
          "type": "null"
         }
        ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
       }
      }
@@ -19268,6 +21227,24 @@
       "schema": {
        "title": "Name",
        "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
       }
      }
     ],

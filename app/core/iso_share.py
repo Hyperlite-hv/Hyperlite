@@ -20,9 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core import node_health
+from app.core import cluster, node_health
 from app.core.audit import log_action
-from app.core.cluster import get_node, list_nodes, node_ssh_options
 from app.core.error_messages import describe_exception
 from app.core.safe_paths import safe_child
 from app.core.tasks import create_task, finish_task, update_task_progress
@@ -94,7 +93,7 @@ def _ssh(node, command, timeout):
     return subprocess.run(
         [
             "ssh",
-            *node_ssh_options(["-o", f"ConnectTimeout={node_health.CONNECT_TIMEOUT_S}"]),
+            *cluster.node_ssh_options(["-o", f"ConnectTimeout={node_health.CONNECT_TIMEOUT_S}"]),
             "-p",
             str(node["ssh_port"]),
             _target(node),
@@ -107,7 +106,7 @@ def _ssh(node, command, timeout):
 
 
 def _scp(args, timeout=TRANSFER_TIMEOUT_S):
-    r = subprocess.run(["scp", *node_ssh_options(), *args], capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run(["scp", *cluster.node_ssh_options(), *args], capture_output=True, text=True, timeout=timeout)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip()[:300] or "scp failed")
 
@@ -166,7 +165,7 @@ def remote_isos(node):
 def cluster_isos():
     """Every node's library. A node that cannot be read is reported next to the list instead of failing it; one the
     cluster sees down is reported at once, never waited for (app/core/node_health.py)."""
-    nodes = list_nodes()
+    nodes = cluster.list_nodes()
     isos = local_isos()
     seen_down = node_health.down(nodes)
     unreachable = [{"node": name, "error": OFFLINE} for name in sorted(seen_down)]
@@ -189,7 +188,7 @@ def resolve_node(node_id):
     """None for the local host, the registered node otherwise. Raises LookupError for an unknown node."""
     if node_id in (None, "", LOCAL):
         return None
-    node = get_node(node_id)
+    node = cluster.get_node(node_id)
     if not node:
         raise LookupError(f"Node '{node_id}' not found")
     return node
