@@ -1,1 +1,0 @@
-- **The first node of a new cluster is reached over HTTPS at once** (#330): it published its certificate's fingerprint only at the next round, up to ten minutes after the cluster was created; meanwhile the other members called it over SSH, and an ISO upload could not be relayed to it.
