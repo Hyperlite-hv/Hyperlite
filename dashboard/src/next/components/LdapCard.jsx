@@ -80,7 +80,7 @@ export default function LdapCard() {
         {input("user_filter", t("ldap.filter"), { help: t("ldap.filterHelp") })}
         <div className="nx-fg">
           {input("group_attribute", t("ldap.groupAttr"), { help: t("ldap.groupAttrHelp") })}
-          {input("admin_groups", t("ldap.adminGroups"), { ph: "hyperlite-admins", help: t("ldap.groupsHelp") })}
+          {input("admin_groups", t("ldap.adminGroups"), { ph: "cn=hyperlite-admins,ou=groups,dc=example,dc=org", help: t("ldap.groupsHelp") })}
           {input("allowed_groups", t("ldap.allowedGroups"), { help: t("ldap.allowedHelp") })}
         </div>
       </fieldset>

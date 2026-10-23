@@ -495,9 +495,6 @@ def on_startup():
     from app.core import peer_https
 
     peer_https.start()  # this node's certificate fingerprint, for the other members' HTTPS calls
-    from app.core import peer_auth
-
-    peer_auth.record_cutoff()  # the HS256 sessions signed before this version: valid for a transition only
     from app.core import db_health
 
     db_health.start()  # PRAGMA quick_check now and once a day: a damaged file is said, not only logged by the loops
