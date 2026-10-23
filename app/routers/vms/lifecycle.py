@@ -9,7 +9,7 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import firmware, guest_agent, vm_locks, vm_records, zfs_storage
+from app.core import firmware, guest_agent, lvm_storage, vm_locks, vm_records, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -239,8 +239,8 @@ def _perform_vm_deletion(conn, domain, name, node=None):
     # same name (vm_builder.generated_drives).
 
     disk_paths_to_remove = []
-    # BLOCK disks (ZFS zvols): source='dev', not 'file'. They are handled separately
-    # (deletion through `zfs destroy`, not Path.unlink()), see below. They are always
+    # BLOCK disks (ZFS zvols, LVM logical volumes, iSCSI LUNs): source='dev', not 'file'. They are handled separately
+    # (deletion through `zfs destroy` or libvirt, not Path.unlink()), see below. Zvols are always
     # local for now (single-node ZFS management, the same limit as
     # create_vm/storage.py): never expected in the remote deletion path (node= towards
     # another node).
@@ -310,6 +310,15 @@ def _perform_vm_deletion(conn, domain, name, node=None):
                     zfs_storage.delete_zvol(parts[2], "/".join(parts[3:]))
                 except zfs_storage.ZfsError:
                     logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
+    # The other block disks: a logical volume of an LVM pool goes with its VM, through libvirt (which runs lvremove);
+    # an iSCSI LUN or a volume outside such a pool is not Hyperlite's to delete.
+    for dev in zvol_paths_to_remove:
+        if dev.startswith("/dev/zvol/"):
+            continue
+        try:
+            lvm_storage.delete_vm_volume(conn, dev)
+        except libvirt.libvirtError:
+            logger.warning("Logical volume %s of the deleted VM %s left in place", dev, name, exc_info=True)
     vm_records.forget(name, node)
 
 

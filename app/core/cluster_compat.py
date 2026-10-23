@@ -353,7 +353,7 @@ def check_vm_migration(src, dst, domain):
                     _c(
                         f"disk:{target}",
                         BLOCKING,
-                        f"Disk {target} is on a block device (ZFS zvol): live migration is not supported by Hyperlite",
+                        f"Disk {target} is on a block device (ZFS zvol, LVM volume or iSCSI LUN): live migration is not supported by Hyperlite",
                         action="stop the VM and use export/import, or file-based shared storage",
                     )
                 )

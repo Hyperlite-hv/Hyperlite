@@ -360,3 +360,54 @@ def test_a_vm_on_lvm_is_told_its_snapshots_are_not_there_yet(client, auth_header
     monkeypatch.setattr(snapshots.iscsi, "iscsi_disks_of_domain", lambda domain: [])
     r = client.post("/vms/web/snapshots", json={"name": "snap1"}, headers=auth_headers("root"))
     assert r.status_code == 422 and "LVM" in r.json()["detail"]
+
+
+def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
+    from app.routers.vms import lifecycle
+
+    deleted = []
+
+    class Pool:
+        def __init__(self, kind):
+            self.kind = kind
+
+        def XMLDesc(self, flags=0):
+            return f"<pool type='{self.kind}'/>"
+
+    class Vol:
+        def __init__(self, path, kind):
+            self.path, self.kind = path, kind
+
+        def storagePoolLookupByVolume(self):
+            return Pool(self.kind)
+
+        def delete(self, flags=0):
+            deleted.append(self.path)
+
+    known = {"/dev/hlvg/web": "logical", "/dev/hlvg/web-2": "logical", "/dev/disk/by-path/ip-lun-1": "iscsi"}
+
+    class Conn:
+        def storageVolLookupByPath(self, path):
+            if path not in known:
+                raise libvirt.libvirtError("no storage vol with matching path")
+            return Vol(path, known[path])
+
+    disks = ["/dev/hlvg/web", "/dev/hlvg/web-2", "/dev/disk/by-path/ip-lun-1", "/dev/othervg/root"]
+
+    class Domain:
+        def XMLDesc(self, flags=0):
+            body = "".join(
+                f"<disk type='block' device='disk'><source dev='{d}'/><target dev='sd{c}'/></disk>"
+                for d, c in zip(disks, "abcd", strict=True)
+            )
+            return f"<domain><name>web</name><devices>{body}</devices></domain>"
+
+        def undefineFlags(self, flags):
+            pass
+
+    monkeypatch.setattr(lifecycle.vm_records, "reservations", lambda root: [])
+    monkeypatch.setattr(lifecycle.vm_records, "release_addresses", lambda conn, ifaces: None)
+    monkeypatch.setattr(lifecycle.vm_records, "forget", lambda name, node=None: None)
+    monkeypatch.setattr(lifecycle, "refresh_pools_for_paths", lambda conn, paths: None)
+    lifecycle._perform_vm_deletion(Conn(), Domain(), "web")
+    assert deleted == ["/dev/hlvg/web", "/dev/hlvg/web-2"], "an iSCSI LUN or a group outside a pool stays"

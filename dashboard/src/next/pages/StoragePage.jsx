@@ -17,7 +17,7 @@ import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
 import { askNewName } from "../lib/rename";
 
-const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default" };
+const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default", lvm_vg: "", lvm_device: "" };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
 // The same rules as the API (app/routers/storage.py, app/core/iscsi.py), checked before the request.
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -28,15 +28,18 @@ const CHAP_USER_RE = /^[A-Za-z0-9._@:-]{1,64}$/;
 const SMB_SHARE_RE = /^[A-Za-z0-9$][A-Za-z0-9 ._$-]{0,79}$/;
 const SMB_USER_RE = /^[A-Za-z0-9][A-Za-z0-9 ._@-]{0,63}$/;
 const SMB_DOMAIN_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// The same rules as app/core/lvm_storage.py and app/routers/storage.py.
+const LVM_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.+-]{0,126}$/;
+const LVM_DEVICE_RE = /^\/dev\/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9/_.:-]{0,200}$/;
 // A netfs pool mounts an NFS export or an SMB share (its `protocol`).
-export const typeLabel = (type, protocol) => (type === "netfs" && protocol === "smb" ? "SMB" : { netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI" }[type] || type);
+export const typeLabel = (type, protocol) => (type === "netfs" && protocol === "smb" ? "SMB" : { netfs: "NFS", zfs: "ZFS", iscsi: "iSCSI", logical: "LVM" }[type] || type);
 // "default": negotiated by the client (SMB 2.1 or later, 3.1.1 when the server offers it).
 const SMB_VERSIONS = ["default", "3.1.1", "3.0", "2.1", "2.0"];
 // Versions the mount is forced to (never negotiated, see app/routers/storage.py::_build_pool_xml).
 const NFS_VERSIONS = ["4.2", "4.1", "4.0", "4", "3"];
 // An example name per kind of pool (shown as "e.g. …": an empty field must never look filled in).
 const SHARED = ["netfs", "smb", "iscsi"];
-const NAME_EXAMPLE = { dir: "local-ssd", netfs: "nas-vms", smb: "nas-smb", zfs: "zfs-fast", iscsi: "san-vms" };
+const NAME_EXAMPLE = { dir: "local-ssd", netfs: "nas-vms", smb: "nas-smb", zfs: "zfs-fast", iscsi: "san-vms", lvm: "lvm-vms" };
 
 // Error key per field for the chosen kind of pool, or none: only the fields that kind uses are checked.
 export function poolFormErrors(form) {
@@ -57,6 +60,10 @@ export function poolFormErrors(form) {
   }
   // Shared storage (NFS, SMB, iSCSI) can go on several nodes, as on Proxmox: every node, or the ones chosen.
   if (SHARED.includes(form.type) && form.scope === "choix" && !form.chosen.length) e.chosen = "stor.e.nodes";
+  if (form.type === "lvm") {
+    if (req(form.lvm_vg)) e.lvm_vg = "stor.e.required"; else if (!LVM_NAME_RE.test(form.lvm_vg.trim()) || [".", ".."].includes(form.lvm_vg.trim())) e.lvm_vg = "stor.e.lvmName";
+    if (form.lvm_device.trim() && !LVM_DEVICE_RE.test(form.lvm_device.trim())) e.lvm_device = "stor.e.lvmDevice";
+  }
   if (form.type === "zfs") {
     if (form.node !== "local") e.type = "stor.e.zfsLocal";
     const n = Number(form.size_gb);
@@ -95,8 +102,9 @@ function CreatePoolDrawer({ open, onClose }) {
     : form.type === "zfs" && support.zfs !== "ok" ? t(`stor.zfs.${support.zfs}`)
     : form.type === "iscsi" && support.iscsi !== "ok" ? t("stor.iscsiNoInitiator")
     : form.type === "smb" && support.smb !== "ok" ? t("stor.smbNoClient")
+    : form.type === "lvm" && support.lvm && support.lvm !== "ok" ? t("stor.lvmNoTools")
     : null;
-  const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["smb", "SMB/CIFS"], ["zfs", "ZFS"], ["iscsi", "iSCSI"]];
+  const TYPES = [["dir", t("stor.type.dir")], ["netfs", t("stor.type.netfs")], ["smb", "SMB/CIFS"], ["zfs", "ZFS"], ["iscsi", "iSCSI"], ["lvm", "LVM"]];
   const errors = poolFormErrors(form);
   // Shown after a first attempt; a value already typed in the wrong format is flagged at once.
   const err = (k) => (errors[k] && (attempted || (errors[k] !== "stor.e.required" && errors[k] !== "stor.e.chapBoth" && String(form[k] ?? "").trim())) ? t(errors[k]) : null);
@@ -111,6 +119,7 @@ function CreatePoolDrawer({ open, onClose }) {
         : form.type === "netfs" ? { name: form.name, type: "netfs", nfs_host: form.nfs_host.trim(), nfs_export_path: form.nfs_export_path.trim(), nfs_version: form.nfs_version }
         : form.type === "smb" ? { name: form.name, type: "smb", smb_host: form.smb_host.trim(), smb_share: form.smb_share.trim(), smb_user: form.smb_user.trim(), smb_password: form.smb_password, smb_domain: form.smb_domain.trim() || null, smb_version: form.smb_version }
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host.trim(), iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user.trim() || null, chap_password: form.chap_user.trim() ? form.chap_password : null }
+        : form.type === "lvm" ? { name: form.name, type: "lvm", lvm_vg: form.lvm_vg.trim(), lvm_device: form.lvm_device.trim() || null }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
       const where = scope === "all" ? { all_nodes: true } : scope === "choix" ? { nodes: form.chosen } : {};
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
@@ -141,7 +150,7 @@ function CreatePoolDrawer({ open, onClose }) {
       <Field label={t("stor.poolName")} hint={t("stor.nameHelp")} error={err("name")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.pool_name")} value={form.name} onChange={set("name")} placeholder={ex(NAME_EXAMPLE[form.type])} />}</Field>
       <div className="nx-f">
         <span className="nx-f-label" id="pool-type">{t("stor.poolType")}</span>
-        <div className="nx-seg2" role="group" aria-labelledby="pool-type">
+        <div className="nx-seg2 nx-seg2--wrap" role="group" aria-labelledby="pool-type">
           {TYPES.map(([v, label]) => {
             const off = v === "zfs" && form.node !== "local"; // ZFS is managed on this host only (the API refuses it elsewhere)
             return <button key={v} type="button" aria-pressed={form.type === v} aria-disabled={off || undefined} title={off ? t("stor.e.zfsLocal") : undefined} onClick={() => !off && setForm((f) => ({ ...f, type: v }))}>{label}</button>;
@@ -217,6 +226,11 @@ function CreatePoolDrawer({ open, onClose }) {
         <p className="nx-hint">{t("stor.iscsiHelp")}</p>
       </>}
       {form.type === "zfs" && <Field label={t("stor.zfsSize")} hint={t("stor.zfsHelp")} error={err("size_gb")} unit="Go">{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.size_gb_loopback_file")} type="number" min="1" max="4096" value={form.size_gb} onChange={set("size_gb")} />}</Field>}
+      {form.type === "lvm" && <>
+        <Field label={t("stor.lvmVg")} hint={t("stor.lvmVgHelp")} error={err("lvm_vg")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.lvm_vg} onChange={set("lvm_vg")} placeholder={ex("vmdata")} />}</Field>
+        <Field label={t("stor.lvmDevice")} hint={t("stor.lvmDeviceHelp")} error={err("lvm_device")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.lvm_device} onChange={set("lvm_device")} placeholder={ex("/dev/sdb")} />}</Field>
+        <p className="nx-hint">{t("stor.lvmHelp")}</p>
+      </>}
     </SideDrawer>
   );
 }
@@ -338,8 +352,9 @@ export default function StoragePage() {
                             <>
                               {vols.length === 0 ? <span className="nx-muted">{t("stor.noVolumes")}</span> : (
                                 <ul className="nx-list nx-list--vols">{vols.map((v) => (
-                                  <li key={v.name}><span className="nx-mono">{v.name}</span><span className="nx-mono nx-muted">{formatSizeGb(v.capacity_gb, lang)}</span><span className="nx-muted">{v.used ? t("stor.inUse") : t("stor.free")}</span>
-                                    {volumesEditable(p) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={v.used} title={v.used ? t("stor.volInUse") : t("menu.delete").replace("…", "")} aria-label={t("stor.volDeleteAria", { name: v.name })} onClick={() => removeVolume(p, v)}><Trash2 size={14} aria-hidden="true" /></button>}
+                                  <li key={v.name}><span className="nx-mono">{v.name}</span><span className="nx-mono nx-muted">{formatSizeGb(v.capacity_gb, lang)}</span><span className="nx-muted">{v.used ? t("stor.inUse") : t("stor.free")}{v.lvm_kind && v.lvm_kind !== "linear" ? ` · ${t(`stor.lvmKind.${v.lvm_kind}`)}` : ""}</span>
+                                    {/* Thin volumes and thin pools are LVM's own: libvirt cannot delete them. */}
+                                    {volumesEditable(p) && !v.lvm_kind && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={v.used} title={v.used ? t("stor.volInUse") : t("menu.delete").replace("…", "")} aria-label={t("stor.volDeleteAria", { name: v.name })} onClick={() => removeVolume(p, v)}><Trash2 size={14} aria-hidden="true" /></button>}
                                   </li>
                                 ))}</ul>
                               )}

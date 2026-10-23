@@ -12,6 +12,9 @@ import json
 import re
 import shlex
 import subprocess
+import xml.etree.ElementTree as ET
+
+import libvirt
 
 TIMEOUT_S = 60
 # LVM's own rule for volume group and volume names, without the characters a shell or a path would read.
@@ -138,6 +141,19 @@ def lv_of_path(path, node=None):
     except LvmError:
         return None
     return (vg, lv) if lv in names else None
+
+
+def delete_vm_volume(conn, path):
+    """Delete a deleted VM's block disk when libvirt knows it as a volume of a logical pool; anything else (an iSCSI
+    LUN, a volume of a group no Hyperlite pool manages) is left alone. True when deleted. libvirtError propagates."""
+    try:
+        vol = conn.storageVolLookupByPath(path)
+    except libvirt.libvirtError:
+        return False
+    if ET.fromstring(vol.storagePoolLookupByVolume().XMLDesc(0)).get("type") != "logical":
+        return False
+    vol.delete(0)
+    return True
 
 
 def create_vm_disk(pool, vm_name, index, disk_gb, base_image=None, import_source=None):
