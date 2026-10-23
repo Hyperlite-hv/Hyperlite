@@ -345,7 +345,7 @@ export async function fetchStoragePools() {
 
 export async function fetchNetworks() {
   const nets = await realList("/networks");
-  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true }));
+  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true, vlanMode: n.vlan_mode ?? null }));
 }
 export async function fetchNetworkDetail(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}`);
@@ -1051,8 +1051,8 @@ export async function resizeDisk(name, targetDev, sizeGb) {
 export async function fetchVMNetwork(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/network${nodeQs(node)}`);
 }
-export async function attachInterface(name, network, vlanTag = null) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network, vlan_tag: vlanTag }) });
+export async function attachInterface(name, network, vlanTag = null, vlanTrunks = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network, vlan_tag: vlanTag, vlan_trunks: vlanTrunks }) });
 }
 export async function detachInterface(name, mac) {
   return realFetch(`/vms/${encodeURIComponent(name)}/interfaces/${encodeURIComponent(mac)}`, { method: "DELETE" });
