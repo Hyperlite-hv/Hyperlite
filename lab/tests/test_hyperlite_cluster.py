@@ -57,6 +57,11 @@ def on(n, *command):
     return subprocess.run(ssh, check=True, capture_output=True, text=True, timeout=600).stdout
 
 
+def main_pid(n):
+    """The process of node n's API, as systemd knows it ("0" while it is stopped)."""
+    return on(n, "systemctl", "show", "--property=MainPID", "--value", "hyperlite").strip()
+
+
 def api(n, method, path, body=None, token=None, form=None, content_type=None, timeout=120):
     """(status, decoded body) of a call to node n's API."""
     headers = {"Accept": "application/json"}
@@ -162,9 +167,16 @@ def cluster(lab):
         print(f"[lab] quorum with {n - 1} node(s) after {time.monotonic() - began:.1f} s")
         info = ok(api(1, "POST", "/cluster/adhesion", token=tokens[1]))["information"]
         body = {"information": info, "address": ip(n), "confirmation": CLUSTER}
+        before = main_pid(n)
         status, answer = api(n, "POST", "/cluster/join", body, tokens[n], timeout=300)
         assert status == 200, (
             f"node {n} could not join: {status} {answer}; cluster: {api(1, 'GET', '/cluster', token=tokens[1])}"
+        )
+        # The answer comes first, the restart on the cluster's configuration a few seconds later: a call made in
+        # between reaches the process about to stop.
+        assert answer.get("restart"), answer
+        wait(
+            f"node {n} restarted after joining", lambda n=n, b=before: main_pid(n) not in (b, "0"), timeout=60, every=1
         )
 
     wait("a cluster of three", lambda: quorate(3))
