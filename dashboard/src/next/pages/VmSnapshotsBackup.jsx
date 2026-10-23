@@ -66,9 +66,11 @@ export function VmSnapshotsPage({ resource: vm }) {
   if (!vm) return null;
   if (error && snaps == null) return <ErrorState message={error} onRetry={reload} />;
   const zfs = Boolean(vm.zfs_storage);
+  // LVM-thin: disk-only snapshots, as on ZFS (thick LVM has none: the server says so).
+  const lvm = Boolean(vm.lvm_storage);
   const busy = job != null;
   // QEMU cannot snapshot a running VM whose UEFI firmware is in pflash; the server refuses it too.
-  const uefiRunning = !zfs && vm.state === "active" && Boolean(vm.firmware) && vm.firmware !== "bios";
+  const uefiRunning = !zfs && !lvm && vm.state === "active" && Boolean(vm.firmware) && vm.firmware !== "bios";
   const list = snaps || [];
 
   async function run(label, start, okTitle, failTitle) {
@@ -101,7 +103,7 @@ export function VmSnapshotsPage({ resource: vm }) {
   }
 
   const depthOf = (s, seen = new Set()) => { if (!s.parent || seen.has(s.name)) return 0; seen.add(s.name); const p = list.find((x) => x.name === s.parent); return p ? 1 + depthOf(p, seen) : 0; };
-  const kind = (s) => (s.vm_state === "disk_only" ? t("vs.zfsDisk") : s.vm_state === "running" ? t("vs.withMemory") : s.vm_state ? t("vs.diskOnly") : "—");
+  const kind = (s) => (s.vm_state === "disk_only" ? t(lvm ? "vs.lvmDisk" : "vs.zfsDisk") : s.vm_state === "running" ? t("vs.withMemory") : s.vm_state ? t("vs.diskOnly") : "—");
 
   const sorted = [...list].sort((x, y) => Number(y.created_at || 0) - Number(x.created_at || 0));
   return (
@@ -109,11 +111,11 @@ export function VmSnapshotsPage({ resource: vm }) {
       <PageHeader level={2} title={t("tab.snapshots")} count={snaps ? list.length : null} desc={t("vs.desc")}
         actions={caps.admin && <button id="vs-create" type="button" className="nx-btn nx-btn--primary" disabled={busy || uefiRunning} onClick={create}><Camera size={15} aria-hidden="true" />{t("vs.create")}</button>} />
       {uefiRunning && <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t("vs.uefiStop")}</span></div>}
-      {list.length >= 3 && <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t(zfs ? "vs.manyZfs" : "vs.manyQcow", { n: list.length })}</span></div>}
+      {list.length >= 3 && <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" /><span className="nx-bn-t">{t(zfs ? "vs.manyZfs" : lvm ? "vs.manyLvm" : "vs.manyQcow", { n: list.length })}</span></div>}
       {job && (
         <div className="nx-bn" data-tone="info" role="status" aria-live="polite">
           <LoaderCircle size={16} className="nx-spin" aria-hidden="true" />
-          <span className="nx-bn-t"><b>{job.label}</b> <span className="nx-mono nx-muted">{elapsed(job.startedAt)}</span><br /><span className="nx-muted">{zfs ? t("vs.zfsNote") : t("vs.qcowNote")}</span></span>
+          <span className="nx-bn-t"><b>{job.label}</b> <span className="nx-mono nx-muted">{elapsed(job.startedAt)}</span><br /><span className="nx-muted">{zfs ? t("vs.zfsNote") : lvm ? t("vs.lvmNote") : t("vs.qcowNote")}</span></span>
         </div>
       )}
       <div className="nx-card2">

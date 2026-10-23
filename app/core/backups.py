@@ -102,7 +102,7 @@ def domain_disk_paths(domain):
 
 
 def block_disks(domain):
-    """Target names (sda, vdb...) of a domain's disks that are block devices: ZFS zvols and iSCSI LUNs."""
+    """Target names (sda, vdb...) of a domain's disks that are block devices: ZFS zvols, iSCSI LUNs and LVM volumes."""
     import xml.etree.ElementTree as ET
 
     root = ET.fromstring(domain.XMLDesc(0))
@@ -121,7 +121,7 @@ def block_disk_error(domain, action):
     if not devs:
         return None
     return (
-        f"{action} is not available yet for a VM with ZFS or iSCSI disks ({', '.join(devs)}): "
+        f"{action} is not available yet for a VM with ZFS, iSCSI or LVM disks ({', '.join(devs)}): "
         "only disk files can be copied for now"
     )
 

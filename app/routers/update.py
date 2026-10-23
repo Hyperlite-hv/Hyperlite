@@ -756,18 +756,16 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
             raise RuntimeError(f"apt-get update failed: {detail}")
 
         rolled_back = bool(version.STARTUP_VERSION and old_version and old_version != version.STARTUP_VERSION)
-        env = {**os.environ, "HYPERLITE_SKIP_RESTART": "1", "LC_ALL": "C", "LANG": "C"}
         if not rolled_back:
             _keep_previous(task_id)
         if rolled_back and not offline:
             # After a rollback the package is already "installed" at the version that did not start: reinstall it.
             step(35, "Installing Hyperlite again (the last update was rolled back)")
-            again = subprocess.run(
-                ["apt-get", "install", "--reinstall", "-y", "hyperlite"],
-                cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300, env=env,
-            )  # fmt: skip
-            if again.returncode != 0:
-                raise RuntimeError(f"apt-get install failed: {again.stderr.strip()[:400]}")
+            code = host_system.run_upgrade(
+                _apt_command(["install", "--reinstall", "hyperlite"]), lambda line: task_log(task_id, line)
+            )
+            if code != 0:
+                raise RuntimeError(f"apt-get install exited with {code}: see the task log")
         if offline:
             step(40, "Installing the packages of the update file")
             if system:
@@ -788,15 +786,15 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
             if code != 0:
                 raise RuntimeError(f"apt-get full-upgrade exited with {code}: see the task log")
         else:
-            # HYPERLITE_SKIP_RESTART: the package's postinst NORMALLY restarts the service by itself, which here
-            # would kill apt-get in the middle of its own postinst; this thread restarts it right afterwards.
+            # As the full upgrade: no time limit, which killed apt-get in the middle of dpkg on a loaded node (a new
+            # dependency still unpacking after 300 s), leaving packages unpacked and not configured. The output goes
+            # to the task's log, and apt-get runs in a unit of its own (_apt_command).
             step(40, "Installing the new version (apt-get install)")
-            install = subprocess.run(
-                ["apt-get", "install", "--only-upgrade", "-y", "hyperlite"],
-                cwd=str(REPO_DIR), capture_output=True, text=True, timeout=300, env=env,
-            )  # fmt: skip
-            if install.returncode != 0:
-                raise RuntimeError(f"apt-get install failed: {install.stderr.strip()[:400]}")
+            code = host_system.run_upgrade(
+                _apt_command(["install", "--only-upgrade", "hyperlite"]), lambda line: task_log(task_id, line)
+            )
+            if code != 0:
+                raise RuntimeError(f"apt-get install exited with {code}: see the task log")
         new_version = _dpkg_installed_version()
         if host_system.REBOOT_REQUIRED.exists():
             task_log(task_id, "A reboot of the node is needed to use some of the new packages")
