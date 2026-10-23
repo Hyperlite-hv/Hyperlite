@@ -1317,6 +1317,18 @@
    },
    "DiskSpec": {
     "properties": {
+     "import_disk": {
+      "anyOf": [
+       {
+        "maxLength": 255,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Import Disk"
+     },
      "lun": {
       "anyOf": [
        {
@@ -1734,6 +1746,18 @@
        }
       ],
       "title": "Vlan Tag"
+     },
+     "vlan_trunks": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vlan Trunks"
      }
     },
     "required": [
@@ -2439,8 +2463,21 @@
         "type": "null"
        }
       ],
-      "description": "802.1Q tag, only on a network that carries tags (Open vSwitch or SR-IOV, `vlan` in GET /networks)",
+      "description": "802.1Q tag, only on a network that carries tags (`vlan` in GET /networks): the interface's access VLAN, untagged in the VM",
       "title": "Vlan Tag"
+     },
+     "vlan_trunks": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Trunk VLANs the VM sees tagged, such as `10,20-30`, on a VLAN-aware Linux bridge only (`vlan_mode` 'bridge' in GET /networks)",
+      "title": "Vlan Trunks"
      }
     },
     "required": [
@@ -3634,6 +3671,20 @@
      "type"
     ],
     "title": "ValidationError",
+    "type": "object"
+   },
+   "VlanAwareConfirm": {
+    "properties": {
+     "token": {
+      "maxLength": 100,
+      "title": "Token",
+      "type": "string"
+     }
+    },
+    "required": [
+     "token"
+    ],
+    "title": "VlanAwareConfirm",
     "type": "object"
    },
    "VolumeCreate": {
@@ -12916,6 +12967,205 @@
     ]
    }
   },
+  "/api/v1/networks/{name}/vlan-aware": {
+   "delete": {
+    "description": "Stop filtering VLANs on a bridge Hyperlite made VLAN-aware. Refused while a VM keeps VLANs on it: they would\nbecome every frame of the bridge, whatever its tag.",
+    "operationId": "undo_vlan_aware_api_v1_networks__name__vlan_aware_delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Undo Vlan Aware",
+    "tags": [
+     "networks"
+    ]
+   },
+   "post": {
+    "description": "Make the network's Linux bridge VLAN-aware, as a trial: undone after `expires_in` seconds unless\nPOST .../vlan-aware/confirm brings the token back, from a new request that shows the host is still reachable.",
+    "operationId": "make_vlan_aware_api_v1_networks__name__vlan_aware_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Make Vlan Aware",
+    "tags": [
+     "networks"
+    ]
+   }
+  },
+  "/api/v1/networks/{name}/vlan-aware/confirm": {
+   "post": {
+    "operationId": "confirm_vlan_aware_api_v1_networks__name__vlan_aware_confirm_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VlanAwareConfirm"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Confirm Vlan Aware",
+    "tags": [
+     "networks"
+    ]
+   }
+  },
   "/api/v1/nodes": {
    "get": {
     "description": "Registered remote nodes, each with its latest live figures (\"live\", None until the\nmetrics collector has reached it once). \"member\": a member of this node's cluster (it runs Hyperlite and keeps\nits own backups and history, app/core/cluster_view.py), not a node driven over SSH only.",
@@ -16711,6 +16961,108 @@
      }
     ],
     "summary": "Delete Vm Disk",
+    "tags": [
+     "vm-disks"
+    ]
+   }
+  },
+  "/api/v1/vm-disks/{filename}/extract": {
+   "post": {
+    "description": "Copy the OVA's disks out as imported disks (checked against its manifest). wait=false: a task, 202.",
+    "operationId": "extract_ova_api_v1_vm_disks__filename__extract_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "filename",
+      "required": true,
+      "schema": {
+       "title": "Filename",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "wait",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Wait",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Extract Ova",
+    "tags": [
+     "vm-disks"
+    ]
+   }
+  },
+  "/api/v1/vm-disks/{filename}/ovf": {
+   "get": {
+    "description": "The VM an OVA holds, mapped to Hyperlite's settings, and the names its disks take once extracted.",
+    "operationId": "read_ova_api_v1_vm_disks__filename__ovf_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "filename",
+      "required": true,
+      "schema": {
+       "title": "Filename",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Read Ova",
     "tags": [
      "vm-disks"
     ]

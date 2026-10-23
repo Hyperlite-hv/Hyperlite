@@ -14,7 +14,7 @@
         {"fr": "Configuration répliquée, seule source de vérité", "en": "Replicated configuration as the only source of truth", "status": "partial", "issue": 416, "pve": "Everything in /etc/pve", "hl": "Most configuration in hyperlite-cfs; hosts driven over SSH still depend on one controller"},
         {"fr": "HA automatique (redémarrage ailleurs)", "en": "Automatic HA (restart elsewhere)", "status": "partial", "issue": 333, "pve": "ha-manager restarts guests on another node", "hl": "Recovery is manual for now; the automatic restart by the leader, with quorum, is designed (docs/design/ha-automatic.md)"},
         {"fr": "Fencing", "en": "Fencing", "status": "partial", "issue": 333, "pve": "Watchdog self-fencing", "hl": "Watchdog self-fencing of a node cut off; IPMI/Redfish/AMT tested read-only"},
-        {"fr": "Verrous des disques sur le stockage partagé", "en": "Disk locks on the shared storage", "status": "parity", "issue": 333, "pve": "None by default (vSphere: locks on VMFS and NFS)", "hl": "Planned: virtlockd on every shared disk, so no second copy of a VM can open it"},
+        {"fr": "Verrous des disques sur le stockage partagé", "en": "Disk locks on the shared storage", "status": "parity", "issue": 333, "pve": "QEMU's image locks (vSphere: locks on VMFS and NFS)", "hl": "QEMU's image locks refuse a disk another node runs (checked on NFS 4.2, released 94 s after the node died); planned: each node checks its shares lock across nodes"},
         {"fr": "Priorité de redémarrage HA", "en": "HA restart priority", "status": "parity", "issue": 333, "pve": "None (vSphere: VM restart priority)", "hl": "Planned: high, medium, low per VM"},
         {"fr": "Contrôle d'admission HA", "en": "HA admission control", "status": "parity", "issue": 333, "pve": "None (vSphere: admission control)", "hl": "Planned: checks that the loss of a node leaves room for its HA VMs (warn or strict)"},
         {"fr": "Surveillance des VM (invité figé)", "en": "VM monitoring (hung guest)", "status": "parity", "issue": 333, "pve": "None (vSphere: VM monitoring through VMware Tools)", "hl": "Planned: a guest that stops answering the QEMU guest agent is reset in place"},
@@ -44,7 +44,7 @@
       "en": "Network",
       "rows": [
         {"fr": "Réseaux NAT, isolés, bridge, DHCP", "en": "NAT, isolated, bridged networks, DHCP", "status": "parity", "pve": "Bridges and SDN", "hl": "libvirt networks, DHCP ranges and reservations"},
-        {"fr": "VLAN sur bridges Linux", "en": "VLAN-aware Linux bridges", "status": "partial", "issue": 345, "pve": "Yes", "hl": "VLAN tags on Open vSwitch or SR-IOV only"},
+        {"fr": "VLAN sur bridges Linux", "en": "VLAN-aware Linux bridges", "status": "parity", "issue": 345, "pve": "Yes", "hl": "VLAN-aware Linux bridges made from the dashboard (with a 60 s rollback, set again at boot); VLAN tag and trunks per VM, set on the bridge port at start, migration and change"},
         {"fr": "Interfaces de l'hôte (bridges, bonds)", "en": "Host interfaces (bridges, bonds)", "status": "missing", "issue": 512, "pve": "Edited and applied live", "hl": "Listed only"},
         {"fr": "Pare-feu du cluster et de l'hôte", "en": "Cluster and host firewall", "status": "partial", "issue": 422, "pve": "Datacenter, node and guest levels, security groups, IP sets", "hl": "Per VM (nwfilter) and per network only"},
         {"fr": "SDN (VXLAN, EVPN, IPAM)", "en": "SDN (VXLAN, EVPN, IPAM)", "status": "missing", "issue": 421, "pve": "Yes", "hl": "None"}
@@ -62,7 +62,7 @@
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
         {"fr": "Consoles", "en": "Consoles", "status": "parity", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC, serial console, terminals, and SPICE in virt-viewer through a proxy (TLS, a ticket valid 30 s); no SPICE audio or USB redirection yet"},
         {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
-        {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
+        {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "OVA/OVF exported from VMware imported from the dashboard (settings mapped, disks checked against the manifest); disk import (vmdk and others); no live ESXi connection yet"},
         {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
         {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
         {"fr": "Conteneurs LXC", "en": "LXC containers", "status": "parity", "issue": 424, "pve": "With snapshots", "hl": "Yes, with snapshots of the stopped container (a copy of its directory, each one keeping only what changed)"},

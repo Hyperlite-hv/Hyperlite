@@ -253,6 +253,7 @@ def test_interfaces_report_model_vlan_and_firewall_filter():
             "type_source": "network",
             "model": "e1000e",
             "vlan": 42,
+            "vlan_trunks": None,
             "firewall": "hl-fw-web",
         }
     ]

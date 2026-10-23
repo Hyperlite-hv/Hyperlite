@@ -345,7 +345,7 @@ export async function fetchStoragePools() {
 
 export async function fetchNetworks() {
   const nets = await realList("/networks");
-  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true }));
+  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true, vlanMode: n.vlan_mode ?? null, vlanAware: n.vlan_aware ?? null, vlanAwareByHyperlite: n.vlan_aware_by_hyperlite === true }));
 }
 export async function fetchNetworkDetail(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}`);
@@ -369,6 +369,17 @@ export async function addNetworkReservation(name, payload) {
 }
 export async function deleteNetworkReservation(name, mac) {
   return realFetch(`/networks/${encodeURIComponent(name)}/reservations/${encodeURIComponent(mac)}`, { method: "DELETE" });
+}
+// A network's Linux bridge made VLAN-aware, as a trial the dashboard confirms from a new request (app/core/bridge_vlan.py):
+// undone by the host itself when the confirmation does not come back in time.
+export async function makeBridgeVlanAware(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware`, { method: "POST" });
+}
+export async function confirmBridgeVlanAware(name, token) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware/confirm`, { method: "POST", ...jsonBody({ token }) });
+}
+export async function undoBridgeVlanAware(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware`, { method: "DELETE" });
 }
 export async function startNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}/start`, { method: "POST" });
@@ -507,6 +518,13 @@ export async function fetchVmDisks() {
 }
 export async function deleteVmDisk(filename) {
   return realFetch(`/vm-disks/${encodeURIComponent(filename)}`, { method: "DELETE" });
+}
+// An OVA exported from VMware: its VM mapped to Hyperlite's settings, then its disks copied out as a task.
+export async function readOva(filename) {
+  return realFetch(`/vm-disks/${encodeURIComponent(filename)}/ovf`);
+}
+export async function extractOva(filename) {
+  return realFetch(`/vm-disks/${encodeURIComponent(filename)}/extract?wait=false`, { method: "POST" });
 }
 
 // ---- VM export ----
@@ -890,6 +908,10 @@ export async function testSso() {
 export async function createVM(payload) {
   return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
 }
+// The same creation as a task (202): for large imported disks, whose conversion outlasts a request.
+export async function createVMTask(payload) {
+  return realFetch("/vms?wait=false", { method: "POST", ...jsonBody(payload) });
+}
 export async function updateVM(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
 }
@@ -1051,8 +1073,8 @@ export async function resizeDisk(name, targetDev, sizeGb) {
 export async function fetchVMNetwork(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/network${nodeQs(node)}`);
 }
-export async function attachInterface(name, network, vlanTag = null) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network, vlan_tag: vlanTag }) });
+export async function attachInterface(name, network, vlanTag = null, vlanTrunks = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network, vlan_tag: vlanTag, vlan_trunks: vlanTrunks }) });
 }
 export async function detachInterface(name, mac) {
   return realFetch(`/vms/${encodeURIComponent(name)}/interfaces/${encodeURIComponent(mac)}`, { method: "DELETE" });

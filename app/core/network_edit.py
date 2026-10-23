@@ -19,10 +19,25 @@ import libvirt
 # the VM starts ("vlan tag not supported for this connection type", verified on libvirt 10): a tag written to a stopped
 # VM's definition would keep it from ever starting again.
 VLAN_UNSUPPORTED = (
-    "Network '{name}' cannot carry a VLAN tag: libvirt applies one only on an Open vSwitch bridge or an SR-IOV "
-    "network, and refuses to start the VM otherwise. Attach the VM to a network that sits on the VLAN instead, or "
-    "leave the VLAN empty."
+    "Network '{name}' cannot carry a VLAN tag: it is neither on a VLAN-aware Linux bridge, nor on Open vSwitch or "
+    "SR-IOV. Make its bridge VLAN-aware, attach the VM to a network that sits on the VLAN instead, or leave the VLAN "
+    "empty."
 )
+
+
+def vlan_mode(root):
+    """How VM interfaces on this network (its parsed <network> XML) get a VLAN: "native" (libvirt's <vlan>, Open vSwitch
+    or SR-IOV), "bridge" (a VLAN-aware Linux bridge: Hyperlite sets the ports, app/core/bridge_vlan.py), or None."""
+    if carries_vlan_tags(root):
+        return "native"
+    forward = root.find("forward")
+    bridge = root.find("bridge")
+    if forward is not None and forward.get("mode") == "bridge" and bridge is not None:
+        from app.core import bridge_vlan
+
+        if bridge_vlan.filters_vlans(bridge.get("name")):
+            return "bridge"
+    return None
 
 
 def carries_vlan_tags(root):

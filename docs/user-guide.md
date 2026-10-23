@@ -234,9 +234,21 @@ pools are marked in the list; deleting one removes it from every node that has i
 - **Bridge**: VMs sit on the host's network (an existing bridge, or a network card, bond or VLAN interface through
   macvtap).
 
-A VM interface takes a **VLAN tag** only on a network that can carry one (an Open vSwitch bridge or an SR-IOV
-network); libvirt refuses to start a VM with a tag on any other network, so the field is disabled there. To put a VM on
-a VLAN today, create a **Bridge** network on the VLAN interface (`bond0.20`, `eno1.20`) or on a bridge over it.
+A VM interface takes a **VLAN tag** on a network that can carry one, and the field is disabled on the others:
+
+- a **Bridge** network on a **VLAN-aware** Linux bridge (`vlan_filtering` on, Proxmox VE's "VLAN aware" bridge, whose
+  uplink is a trunk from the switch): the tag is the VM's access VLAN, untagged inside the VM, and **Trunk VLANs**
+  (`10,20-30`) are the ones it sees tagged, for a router or a nested hypervisor. Hyperlite sets them on the VM's port
+  of the bridge when it starts, moves or is changed. Without a tag, the VM is on the bridge's default VLAN (1);
+- an Open vSwitch bridge or an SR-IOV network: libvirt sets the tag itself.
+
+A **Bridge** network on a Linux bridge has a **VLANs** section in its details: **Make the bridge VLAN-aware**
+(administrators) turns VLAN filtering on, with VLANs 2 to 4094 tagged on the bridge's uplink, as Proxmox VE's "VLAN
+aware"; the switch port should be a trunk. Untagged traffic (the host's own address, the VMs) is not changed. The
+dashboard confirms the change from a new request a few seconds later: if the host can no longer be reached, it undoes
+the change by itself within 60 seconds. Kept, it is set again at every boot. **Stop filtering VLANs** undoes it,
+refused while a VM keeps VLANs on the bridge. Otherwise, create a **Bridge** network on the VLAN interface
+(`bond0.20`, `eno1.20`).
 
 A network's **Details**:
 
@@ -256,7 +268,10 @@ network still used by a VM cannot be deleted).
 
 - **ISO images**: upload an ISO, or share one with other nodes. VMs can install from an ISO of another node.
 - **Templates**: deploy a new VM from a template (made with a VM's **Convert to template**).
-- **Imported disks**: disks uploaded to create VMs from ([section 3](#create-a-vm)).
+- **Imported disks**: disks uploaded to create VMs from ([section 3](#create-a-vm)), and VMs exported from VMware as
+  an **OVA** (ESXi, vCenter, Workstation): **Create a VM** on its row reads its settings (vCPUs, memory, disks, BIOS or
+  UEFI, the system's family), copies its disks out, checked against its manifest, and creates the VM, stopped. A VM
+  with several network cards gets the first on the chosen network: add the others in its **Network** tab.
 
 ## 9. Snapshots, backups and restores
 
