@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core import (
     cluster_view,
     error_codes,
+    ha_recovery,
     ha_selffence,
     initial_password,
     inventory_cache,
@@ -527,6 +528,7 @@ def on_startup():
     start_config_copy()
     start_ha_watch()
     ha_selffence.start_selffence()
+    ha_recovery.start()  # acts on the leader only, with the quorum
     start_vm_crash_watch()
     start_replication_scheduler()
     start_auto_cleanup_scheduler()

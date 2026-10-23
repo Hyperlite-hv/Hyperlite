@@ -481,9 +481,13 @@ def _poll_once():
     # HA: resynchronize the cache of protected VMs while their node is reachable. Same cadence as the node poll
     # (POLL_INTERVAL_S), no need for a separate dedicated loop.
     try:
-        from app.core.ha import sync_protected_vms
+        from app.core.ha import forget_moved, sync_protected_vms
 
         sync_protected_vms()
+        # A node back before HA moved its VMs elsewhere (its watchdog reset it, and it rejoined early) undefines them
+        # here, once the move is done; only with the quorum, when the records it reads are the cluster's.
+        if cluster_lead.in_cluster() and not cluster_lead.read_only_reason():
+            forget_moved()
     except Exception as ha_exc:
         print(f"[cluster] HA resynchronization failed: {ha_exc!r}", flush=True)
     return down

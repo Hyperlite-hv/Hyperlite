@@ -1,6 +1,8 @@
 """High-availability endpoints. Logic lives in app/core/ha.py (protection, manual recovery), ha_fencing.py (per-node
-fencing settings, status test only) and ha_watch.py (the dry-run watcher). Recovery stays manual: the watcher only
-says what automatic HA would have done (see docs/design/ha-automatic.md)."""
+fencing settings, power off through a BMC), ha_recovery.py (in a cluster, the leader restarts the HA VMs of a lost
+member once it is fenced) and ha_watch.py (the dry run of hosts driven over SSH). See docs/design/ha-automatic.md."""
+
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
@@ -21,21 +23,29 @@ async def list_protected(user: dict = Depends(get_current_user)):
 
 
 async def _protected():
-    rows = await run_in_threadpool(ha.list_protected)
+    rows = await run_in_threadpool(lambda: [_with_policy(r) for r in ha.list_protected()])
     return [{**row, "node_status": await node_service.status(row["node"])} for row in rows]
 
 
 class EnableRequest(BaseModel):
     node: str | None = None
+    # The order automatic HA restarts the VMs of a lost member in, and where it tries first (4.3).
+    priority: Literal["high", "medium", "low"] = "medium"
+    preferred_nodes: list[str] = Field(default_factory=list, max_length=16)
+
+
+def _with_policy(row):
+    return {**row, **{k: v for k, v in ha.policy(row["vm_name"]).items() if k != "auto_restarts"}} if row else row
 
 
 @router.post("/{vm_name}/enable", status_code=201)
 def enable(vm_name: str, payload: EnableRequest, user: dict = Depends(require_role("admin"))):
     try:
         ha.enable_protection(vm_name, payload.node, user["username"])
+        ha.set_policy(vm_name, payload.priority, payload.preferred_nodes)
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return ha.get_protected(vm_name)
+    return _with_policy(ha.get_protected(vm_name))
 
 
 @router.delete("/{vm_name}")

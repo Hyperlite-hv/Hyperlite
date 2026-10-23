@@ -86,6 +86,9 @@ def protected(database, monkeypatch):
         def XMLDesc(self, flags=0):
             return "<domain><name>web</name></domain>"
 
+        def setAutostart(self, on):
+            pass
+
     class Conn:
         def lookupByName(self, name):
             import libvirt
