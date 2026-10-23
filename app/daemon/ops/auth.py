@@ -1,6 +1,10 @@
 """Sessions (docs/design/privilege-separation.md, section 12): the daemon holds the key pairs that sign them and opens
 one only after checking a proof itself (app/core/sign_in.py); the API verifies (app/core/tickets.py)."""
 
+import hashlib
+import threading
+import time
+from collections import deque
 from typing import Any
 
 from pydantic import Field
@@ -11,6 +15,61 @@ from app.daemon.registry import Args, DaemonError, operation
 SECRET = 4096  # a password, a token: long enough for any, short enough to refuse a flood
 CODE = 64
 NAME = 64
+
+# The daemon's own count of wrong proofs (GHSA-83f3-qj22-m659): the API's locks (app/routers/auth.py) are the first
+# filter, but the API is the process this daemon must not trust, and it could ask at socket speed. Kept in this
+# process's memory, out of the API's reach; looser than the API's, so a person only ever meets the API's.
+FAILURES_MAX = 100  # per account, the API's own ceiling being 50
+FAILURES_PER_TOKEN = 10  # second-factor codes tried with one pre-authentication token
+FAILURES_WINDOW_S = 900
+
+
+class _Failures:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.seen = {}  # key -> deque of monotonic times
+
+    def _recent(self, key, now):
+        times = self.seen.get(key)
+        while times and now - times[0] > FAILURES_WINDOW_S:
+            times.popleft()
+        if times is not None and not times:
+            del self.seen[key]
+            return 0
+        return len(times or ())
+
+    def locked(self, keys):
+        now = time.monotonic()
+        with self.lock:
+            return any(self._recent(key, now) >= limit for key, limit in keys)
+
+    def record(self, keys):
+        now = time.monotonic()
+        with self.lock:
+            for key, _ in keys:
+                self.seen.setdefault(key, deque()).append(now)
+
+
+_failures = _Failures()
+LOCKED = {"result": "locked", "detail": "Too many failed attempts: try again later"}
+
+
+def _account(name):
+    return (f"user:{(name or '').lower()}", FAILURES_MAX)
+
+
+def _token(token):
+    return (f"token:{hashlib.sha256(token.encode()).hexdigest()}", FAILURES_PER_TOKEN)
+
+
+def _checked(keys, check):
+    """`check()`'s answer, unless these keys failed too often; a wrong proof counts against each of them."""
+    if _failures.locked(keys):
+        return LOCKED
+    answer = check()
+    if answer.get("result") == "invalid":
+        _failures.record([*keys, *([_account(answer["user"]["username"])] if answer.get("user") else [])])
+    return answer
 
 
 class PasswordArgs(Args):
@@ -45,17 +104,17 @@ class ChangePasswordArgs(Args):
 def password(args, ctx):
     """The sign-in form: the password checked here (local account, or the LDAP directory), then a session, or a
     pre-authentication token when the account has a second factor."""
-    return sign_in.password(**args.model_dump())
+    return _checked([_account(args.username)], lambda: sign_in.password(**args.model_dump()))
 
 
 @operation("auth.totp", TotpArgs)
 def totp(args, ctx):
-    return sign_in.totp(**args.model_dump())
+    return _checked([_token(args.preauth_token)], lambda: sign_in.totp(**args.model_dump()))
 
 
 @operation("auth.webauthn", WebAuthnArgs)
 def webauthn(args, ctx):
-    return sign_in.webauthn(**args.model_dump())
+    return _checked([_token(args.preauth_token)], lambda: sign_in.webauthn(**args.model_dump()))
 
 
 @operation("auth.sso", SsoArgs)
@@ -65,7 +124,7 @@ def sso(args, ctx):
 
 @operation("auth.change_password", ChangePasswordArgs)
 def change_password(args, ctx):
-    return sign_in.change_password(**args.model_dump())
+    return _checked([_token(args.token)], lambda: sign_in.change_password(**args.model_dump()))
 
 
 class PeerArgs(Args):

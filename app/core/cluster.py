@@ -37,6 +37,7 @@ Architecture decision (two options were weighed):
 """
 
 import logging
+import re
 import subprocess
 import threading
 import time
@@ -106,6 +107,18 @@ def node_ssh_options(extra=None):
     ]
 
 
+# A host name or an IPv4/IPv6 address, and a Unix user name: nothing ssh could read as an option, nor libvirt as a part
+# of its URI (GHSA-x3f5-r8vr-pvgw). Checked before any connection to a node, whatever registered it.
+HOST_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:_-]{0,253}")
+USER_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
+
+
+def check_address(hostname, ssh_user):
+    """Raises ValueError unless `hostname` and `ssh_user` are a plain address and a plain user name."""
+    if not HOST_RE.fullmatch(str(hostname or "")) or not USER_RE.fullmatch(str(ssh_user or "")):
+        raise ValueError("Invalid address or SSH user")
+
+
 def _known_hosts_target(node):
     port = str(node["ssh_port"])
     return node["hostname"] if port == "22" else f"[{node['hostname']}]:{port}"
@@ -118,6 +131,7 @@ def ensure_known_host(node):
     an opaque error; learning the key here (trust on first use) keeps
     existing registrations working after the switch from unchecked host keys.
     A key that is already recorded is never overwritten."""
+    check_address(node["hostname"], node["ssh_user"])
     known = subprocess.run(["ssh-keygen", "-F", _known_hosts_target(node)], capture_output=True, text=True)
     if known.returncode == 0:
         return
@@ -127,6 +141,7 @@ def ensure_known_host(node):
             *node_ssh_options(["-o", "ConnectTimeout=8"]),
             "-p",
             str(node["ssh_port"]),
+            "--",
             f"{node['ssh_user']}@{node['hostname']}",
             "true",
         ],
@@ -186,6 +201,10 @@ def list_nodes():
 def test_node_connection(hostname, ssh_user, ssh_port):
     """Try a real remote libvirt connection and check that it is a QEMU/KVM
     host: not just "the SSH port answers"."""
+    try:
+        check_address(hostname, ssh_user)
+    except ValueError as e:
+        return False, str(e)
     fake_node = {"hostname": hostname, "ssh_user": ssh_user, "ssh_port": ssh_port}
     uri = libvirt_uri_from_here(fake_node)
     try:
@@ -345,6 +364,10 @@ def get_reverse_key_remote_path():
 
 
 def register_node(name, hostname, ssh_user, ssh_port, username):
+    try:
+        check_address(hostname, ssh_user)
+    except ValueError as e:
+        raise RuntimeError(str(e)) from None
     ok, message = test_node_connection(hostname, ssh_user, ssh_port)
     if not ok:
         raise RuntimeError(

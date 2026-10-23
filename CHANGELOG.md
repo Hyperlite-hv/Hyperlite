@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-23
+
+### Added
+
+- LVM-thin storage (#417): an LVM pool can name a thin pool, an existing one of its volume group or one Hyperlite
+  creates over its free space. VMs created there get thin disks, which take room only as they are written, and
+  snapshots: disk only, taken in about a second per disk (a running VM with several disks is paused meanwhile),
+  restored with the VM stopped, and kept after a restore, so a VM can go back to the same snapshot again. A deleted
+  VM takes its thin disks and their snapshots with it. The pool list shows the thin pool's size and fill.
+
+### Security
+
+- An HS256 token signed with the key the members share is accepted only while a member is known to run a version before 1.3.0: never on an error reading the membership or a member's keys, and no longer as a session signed before the update, whose signing time is whatever the token says. Sessions signed before 1.3.0 that were still open must sign in again (GHSA-498v-p9g9-wvr8).
+
+- A session alone no longer enrols a second factor on an SSO account (its identity provider's multi-factor authentication applies), a directory account removes its own with its directory password, and an administrator can remove an account's second factors (POST /auth/users/{name}/second-factor/reset) (GHSA-7wjv-ggfp-7x9c).
+
+- hyperlite-daemon counts wrong passwords and second-factor codes itself, out of the API's reach, and refuses an account or a pre-authentication token that failed too often (GHSA-83f3-qj22-m659).
+
+- LDAP groups are matched by their full DN only: a bare name also matched a group of that name anywhere in the directory. Groups saved as bare names match nothing any more and must be given again by their DN (Administration › LDAP); allowed groups saved that way still restrict sign-in. A directory user name is one account and one sign-in lock whatever its case (GHSA-8qgj-pvwg-xj37).
+
+- A disk image that names another file to read with it (a backing file, an external data file, a VMDK extent) is refused when it is imported, attached, restored or browsed; an attached volume is declared with its real format, and a volume already used by a VM is refused (GHSA-q6pm-r5rj-538c).
+
+- An update from git (a development checkout) is refused unless the service runs with HYPERLITE_GIT_UPDATES=1, and installs Python dependencies by their hashes and npm dependencies without their install scripts; a node that is neither a checkout nor the package is no longer taken for one (GHSA-rm3v-9jj9-7qmj).
+
+- A new VM's disk is never written over a file already in the storage pool, such as another VM's disk: the creation refuses a name whose disk file exists (GHSA-vfmj-3v3j-48fq).
+
+- A node's address and SSH user are checked before any connection to it, on every path that registers or reaches one, and ssh is told where its options end (GHSA-x3f5-r8vr-pvgw).
+
 ## [1.3.1] - 2026-10-23
 
 ### Added
