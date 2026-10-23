@@ -1,0 +1,1 @@
+- An update from git (a development checkout) is refused unless the service runs with HYPERLITE_GIT_UPDATES=1, and installs Python dependencies by their hashes and npm dependencies without their install scripts; a node that is neither a checkout nor the package is no longer taken for one (GHSA-rm3v-9jj9-7qmj).
