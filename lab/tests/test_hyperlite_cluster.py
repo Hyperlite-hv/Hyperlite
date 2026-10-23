@@ -176,7 +176,9 @@ def cluster(lab):
         info = ok(api(1, "POST", "/cluster/adhesion", token=tokens[1]))["information"]
         body = {"information": info, "address": ip(n), "confirmation": CLUSTER}
         before = main_pid(n)
-        status, answer = api(n, "POST", "/cluster/join", body, tokens[n], timeout=300)
+        status, answer = api(
+            n, "POST", "/cluster/join", body, tokens[n], timeout=420
+        )  # the join waits up to 300 s (JOIN_WAIT_S)
         assert status == 200, (
             f"node {n} could not join: {status} {answer}; cluster: {api(1, 'GET', '/cluster', token=tokens[1])}"
         )
