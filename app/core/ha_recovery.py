@@ -7,13 +7,16 @@ that fences itself, app/core/ha_selffence.py):
 1. A member that carries protected VMs is **lost** when its status (app/core/statd.py, sent every 10 s) is older than
    LOST_S. It was last seen when that status was sent; a leader that never held one (it started since) counts from the
    moment it noticed, which only waits longer.
-2. It is **fenced** once its BMC or AMT powered it off and read it off (ha_fencing.power_off), or once its watchdog,
-   armed when it was last seen, has had reset_within_s + WATCHDOG_MARGIN_S to reset it. With neither, its VMs go to
-   manual.
+2. It is **fenced** once its BMC or AMT powered it off and read it off (ha_fencing.power_off, tried BMC_ATTEMPTS
+   times, BMC_RETRY_S apart), or once its watchdog, armed when it was last seen, has had reset_within_s +
+   WATCHDOG_MARGIN_S to reset it. With neither, its VMs go to manual; so they do, and nothing powers it off, when its
+   service published that it stopped normally (an update, a restart: the watchdog is off and its VMs may still run).
 3. Its VMs are restarted one by one, high priority first: on the first of the VM's preferred nodes that can take it,
    else on the online member with the most free memory enough for it, not in maintenance. A start refused because the
    disk is still locked is tried again until the storage's lease is over (LOCK_WAIT_S, NFSv4: 90 s, plus a margin). At
-   most RESTARTS_PER_HOUR automatic restarts of a VM; then it goes to manual.
+   most RESTARTS_PER_HOUR automatic restarts of a VM; then it goes to manual. Each VM started takes its memory out of
+   its node's free memory for the next ones, and a VM an earlier round started without its record being updated is
+   found where it runs, never started twice.
 
 Each step is in the VM's HA record (its state, replicated: every node shows the same), the audit log and a
 notification.
@@ -37,6 +40,8 @@ LOST_S = 60
 WATCHDOG_MARGIN_S = 30
 LOCK_WAIT_S = 120
 RESTARTS_PER_HOUR = 3
+BMC_ATTEMPTS = 3
+BMC_RETRY_S = 60
 PRIORITY = {"high": 0, "medium": 1, "low": 2}
 
 OK, LOST, FENCING, RECOVERING, MANUAL = "ok", "lost", "fencing", "recovering", "manual"
@@ -153,10 +158,20 @@ def _fenced(member, entry):
     """(True, how) once `member` is known to be stopped; (False, why not yet) or (None, why it never will be)."""
     from app.core import ha_fencing, ha_selffence
 
+    published = ha_selffence.published(member) or {}
+    if published.get("stopped"):
+        # Not a failure: its service was stopped normally (an update, a restart) and its VMs may still run there. Never
+        # powered off for it, as Proxmox's CRM leaves a node whose LRM stopped cleanly.
+        return None, "its Hyperlite service was stopped normally (its watchdog with it): its VMs may still run there"
     method = (ha_fencing.get(member) or {}).get("method")
     if method in ha_fencing.AGENTS:
-        if entry.get("bmc") is None:
+        tries = entry.setdefault("bmc_tries", 0)
+        failed = entry.get("bmc") is not None and not entry["bmc"]["fenced"]
+        if entry.get("bmc") is None or (
+            failed and tries < BMC_ATTEMPTS and time.monotonic() - entry["bmc_at"] >= BMC_RETRY_S
+        ):  # a BMC busy or slow to answer once is asked again, BMC_RETRY_S later
             entry["bmc"] = ha_fencing.power_off(member)
+            entry["bmc_tries"], entry["bmc_at"] = tries + 1, time.monotonic()
             log_action(
                 "system", "ha_fence", member, "success" if entry["bmc"]["fenced"] else "failed", entry["bmc"]["detail"]
             )
@@ -164,7 +179,7 @@ def _fenced(member, entry):
         # nothing an agent printed is ever written there.
         if entry["bmc"]["fenced"]:
             return True, f"its {method} powered it off and read it off"
-    published = ha_selffence.published(member) or {}
+    retry = method in ha_fencing.AGENTS and entry["bmc_tries"] < BMC_ATTEMPTS
     reset_within = published.get("reset_within_s")
     if published.get("armed") and reset_within:
         waited = time.monotonic() - entry["last_seen"]
@@ -175,6 +190,8 @@ def _fenced(member, entry):
                 f"its watchdog was armed and {int(waited)} s passed since it was last seen (reset within {reset_within} s)",
             )
         return False, f"waiting for its watchdog to reset it ({int(wait - waited)} s left)"
+    if retry:
+        return False, f"its {method} did not confirm it off yet: asked again within {BMC_RETRY_S} s"
     if method in ha_fencing.AGENTS:
         return None, f"its {method} did not confirm it off (see the audit log) and its watchdog was not armed"
     return None, "no BMC or AMT, and its watchdog was not armed: nothing proves its VMs stopped"
@@ -192,6 +209,27 @@ def _recent_restarts(policy):
     return out
 
 
+def _may_act():
+    """Still the leader, with the quorum: checked again before each restart, as a fence can take minutes."""
+    from app.core import cluster_lead
+
+    return cluster_lead.is_leader() and not cluster_lead.read_only_reason()
+
+
+def _running_elsewhere(row, nodes):
+    """The node among `nodes` where this very VM already runs (an earlier round started it there and could not
+    update its record after), or None. A node that cannot be asked is said in the log and passed over."""
+    from app.core import ha
+
+    for node in nodes:
+        try:
+            if ha.runs_on(row, node):
+                return node
+        except Exception as e:
+            logger.warning("HA %s: whether it runs on %s is unknown: %s", row["vm_name"], node, e)
+    return None
+
+
 LOCKED = re.compile(r"another process using the image|Failed to get .* lock|resource busy|is locked", re.IGNORECASE)
 
 
@@ -200,6 +238,12 @@ def _restart(row, entry, online, lost):
     from app.core import ha
 
     vm = row["vm_name"]
+    where = _running_elsewhere(row, [n for n in online if n not in lost])
+    if where is not None:
+        ha.adopt(row, where)
+        _record(vm, OK, f"runs on {where}, where an earlier attempt started it after {row['node']} was lost")
+        log_action("system", "ha_restarted", vm, "success", f"{row['node']} -> {where} (found running there)")
+        return where
     policy = _store().policy(vm)
     recent = _recent_restarts(policy)
     if len(recent) >= RESTARTS_PER_HOUR:
@@ -230,9 +274,13 @@ def _restart(row, entry, online, lost):
                 return None  # the next round tries again, on the same terms
             ha.forget_on(row, target)
             continue
-        except RuntimeError as e:
+        except Exception as e:  # a conflict, a node not reachable (HTTPException) or a record not written: the next one
             logger.warning("HA %s: not started on %s: %s", vm, target, e)
             last = f"{target}: {e}"
+            if not isinstance(e, RuntimeError) and _running_elsewhere(row, [target]):
+                # Started there, its record not updated: found again at the next round, never started twice.
+                _record(vm, RECOVERING, f"started on {target}, its record not updated yet")
+                return None
             continue
         _store().record_restart(vm, [*recent, _now().isoformat()])
         note = f", its CD-ROM emptied ({', '.join(ejected)})" if ejected else ""
@@ -297,11 +345,7 @@ def tick():
                 log_action("system", "ha_fenced", member, "success", "it answers again and its HA VMs do not run there")
             # Known to be stopped: its VMs are restarted even though it answers again, on another member (as Proxmox
             # VE and vSphere do): whatever made it fail may not be over.
-            online = _online(ages)
-            for r in vms:
-                if (_store().protected_vm(r["vm_name"]) or {}).get("ha_state") == MANUAL:
-                    continue
-                _restart(r, entry, online, set(_lost))
+            _restart_all(vms, entry, _online(ages), set(_lost))
             states[member] = RECOVERING
             continue
         with _lock:
@@ -346,14 +390,23 @@ def tick():
             entry["fenced_at"] = time.monotonic()
             logger.warning("HA: member %s fenced: %s", member, why)
             log_action("system", "ha_fenced", member, "success", why)
-        online = _online(ages)
-        lost = set(_lost)
-        for r in vms:
-            if (_store().protected_vm(r["vm_name"]) or {}).get("ha_state") == MANUAL:
-                continue
-            _restart(r, entry, online, lost)
+        _restart_all(vms, entry, _online(ages), set(_lost))
         states[member] = RECOVERING
     return states
+
+
+def _restart_all(vms, entry, online, lost):
+    """Restart a fenced member's VMs in their order; each one started takes its memory out of its node's free memory
+    (read once for the round) for the next ones."""
+    for r in vms:
+        if not _may_act():
+            logger.warning("HA: no longer the leader with the quorum, the next one acts")
+            return
+        if (_store().protected_vm(r["vm_name"]) or {}).get("ha_state") == MANUAL:
+            continue
+        target = _restart(r, entry, online, lost)
+        if target is not None and online.get(target) is not None:
+            online[target] -= memory_mib(r["domain_xml"] or "")
 
 
 def _loop():
