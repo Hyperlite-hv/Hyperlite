@@ -31,6 +31,7 @@ from app.core import paths, tickets
 logger = logging.getLogger(__name__)
 
 STATE_DIR = "/cluster/authkey"
+RETRY_S = 15  # after a round that failed
 PUBLISH_S = 600
 PEER_LIFETIME_S = 5 * 60
 TASK_LIFETIME_S = 12 * 3600  # the longest rolling update, its own session aside
@@ -337,12 +338,17 @@ def start_publishing():
 
     def loop():
         while True:
+            pause = PUBLISH_S
             try:
                 tickets.ensure_keys()
+                publish()
             except OSError as e:
                 logger.warning("Session keys not made: %s", e)
-            publish()
-            if stop.wait(PUBLISH_S):
+            except Exception:  # the thread must survive anything, or the members would never get this node's keys
+                # Soon, not at the next round: at the first start, the database is made seconds later.
+                pause = min(PUBLISH_S, RETRY_S)
+                logger.exception("Publishing this node's keys failed; trying again in %s s", pause)
+            if stop.wait(pause):
                 return
 
     threading.Thread(target=loop, daemon=True, name="authkey-publish").start()
