@@ -12,6 +12,7 @@ rights then come from ACLs, as for any account). When allowed groups are set, a 
 The local password of such an account is a random secret nobody knows: it can only sign in through the directory.
 """
 
+import logging
 import re
 import secrets
 import ssl
@@ -22,6 +23,8 @@ from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import parse_dn
 
 from app.core import secrets_crypto
+
+logger = logging.getLogger(__name__)
 
 
 def _store():
@@ -110,6 +113,13 @@ def validate(fields):
         raise ValueError("The user filter is an LDAP filter in parentheses that contains {username}")
     if not re.match(r"^[A-Za-z][A-Za-z0-9-]{0,63}$", fields.get("group_attribute") or ""):
         raise ValueError("Invalid group attribute")
+    for key in ("admin_groups", "allowed_groups"):
+        for group in re.split(r"[\n;]", fields.get(key) or ""):
+            if group.strip() and _dn_key(group) is None:
+                raise ValueError(
+                    f"Groups are given by their full DN (for example cn=hyperlite-admins,ou=groups,dc=example,dc=org): "
+                    f"'{group.strip()}' is not one"
+                )
     ca = (fields.get("ca_cert") or "").strip()
     if ca and "BEGIN CERTIFICATE" not in ca:
         raise ValueError("The CA certificate must be in PEM form")
@@ -156,21 +166,34 @@ def _connect(cfg, server, user, password):
     return conn
 
 
+def _dn_key(text):
+    """A DN as a comparable value (attribute names and values lowercased, spacing ignored), or None for what is not
+    a DN with at least two parts (a bare group name)."""
+    try:
+        parts = parse_dn(str(text).strip())
+    except (LDAPException, ValueError):
+        return None
+    if len(parts) < 2:
+        return None
+    return tuple((attr.lower(), value.strip().lower()) for attr, value, _sep in parts)
+
+
 def _names(values):
-    """Group values as DNs and their first RDN value (the CN), lowercased, to compare with what was configured."""
-    out = set()
-    for v in values or []:
-        v = str(v).strip().lower()
-        out.add(v)
-        try:
-            out.add(parse_dn(v)[0][1].lower())
-        except (LDAPException, IndexError):
-            continue
-    return out
+    """The user's groups, by full DN only: a bare name (the CN) would also match a group of that name anywhere in the
+    directory, made by whoever may create one there (GHSA-8qgj-pvwg-xj37)."""
+    return {k for k in (_dn_key(v) for v in values or []) if k is not None}
 
 
 def _configured(text):
-    return {x.strip().lower() for x in re.split(r"[\n;]", text or "") if x.strip()}
+    out = set()
+    for group in (x.strip() for x in re.split(r"[\n;]", text or "") if x.strip()):
+        key = _dn_key(group)
+        if key is None:
+            # Saved before 1.3.2, when a bare name was accepted: it matches nothing any more.
+            logger.warning("LDAP group '%s' is not a full DN: it matches no group, give its DN", group)
+            continue
+        out.add(key)
+    return out
 
 
 def _find_user(cfg, server, username):
@@ -217,7 +240,8 @@ def role_for(cfg, groups):
     admins = _configured(cfg["admin_groups"])
     if admins & have:
         return "admin"
-    if allowed and not allowed & have:
+    # Set, even only with names saved before they had to be DNs: still restricted (none of them matches any more).
+    if (cfg["allowed_groups"] or "").strip() and not allowed & have:
         return None
     return "viewer"
 
@@ -244,7 +268,9 @@ def authenticate(username, password):
     role = role_for(cfg, groups)
     if role is None:
         return None
-    return provision(username, dn, role)
+    # The directory compares names regardless of case: "Bob" and "bob" are one entry, so one account here, never one
+    # per spelling (an account of its own each, its own rights, its own sign-in lock).
+    return provision(username.lower(), dn, role)
 
 
 def test(fields_override=None, username=None, password=None):

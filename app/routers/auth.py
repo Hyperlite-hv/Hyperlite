@@ -58,7 +58,10 @@ LOGIN_IP_MAX_ATTEMPTS = 20
 LOGIN_IP_WINDOW_S = 300
 
 
+# Counted regardless of case: a directory compares names that way, so "Bob", "bob" and "BOB" are one account to
+# guess, never three locks of their own (GHSA-8qgj-pvwg-xj37).
 def _login_locked_out(username, ip):
+    username = username.lower()
     return (
         login_guard.recent_failures("userip", f"{username}|{ip}", LOGIN_WINDOW_S) >= LOGIN_MAX_ATTEMPTS
         or login_guard.recent_failures("user", username, LOGIN_WINDOW_S) >= LOGIN_ACCOUNT_MAX_ATTEMPTS
@@ -66,12 +69,13 @@ def _login_locked_out(username, ip):
 
 
 def _login_record_failure(username, ip):
+    username = username.lower()
     login_guard.record_failure("userip", f"{username}|{ip}")
     login_guard.record_failure("user", username)
 
 
 def _login_clear_failures(username, ip):
-    login_guard.clear_failures("userip", f"{username}|{ip}")
+    login_guard.clear_failures("userip", f"{username.lower()}|{ip}")
 
 
 def _reauth_locked_out(username):
@@ -96,11 +100,16 @@ def _refuse_reauth_if_locked(username, action):
 
 
 def _check_current_password(user, password, action):
-    """The account's password, asked again before a change that weakens or takes over the account. SSO accounts
-    have no usable local password: their sign-in is the identity provider's. 400, not 401, on a wrong password:
-    the session itself is valid (a 401 signs the dashboard out)."""
+    """The account's password, asked again before a change that weakens or takes over the account. 400, not 401, on a
+    wrong password: the session itself is valid (a 401 signs the dashboard out). An SSO account has no password to
+    ask: such a change is refused, as a session alone must never be enough (GHSA-7wjv-ggfp-7x9c); its second factor
+    is its identity provider's, and an administrator resets one enrolled before 1.3.2."""
     if user.get("auth_source") == "sso":
-        return
+        log_action(user["username"], action, user["username"], "failed", "SSO account: no password to confirm it")
+        raise HTTPException(
+            status_code=400,
+            detail="An SSO account's second factor is its identity provider's: set multi-factor authentication up there",
+        )
     username = user["username"]
     _refuse_reauth_if_locked(username, action)
     if user.get("auth_source") == "ldap":
@@ -424,12 +433,11 @@ def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(ge
     a session left open, or a leaked password, is not enough to strip the second factor. Wrong attempts
     count towards the same lock as the sign-in form."""
     username = user["username"]
-    _refuse_reauth_if_locked(username, "disable_2fa")
     # 400, not 401, for a wrong password or code: the session itself is valid (a 401 signs the dashboard out).
-    if not verify_password(payload.password, user["hashed_password"]):
-        _reauth_record_failure(username)
-        log_action(username, "disable_2fa", username, "failed", "Incorrect password")
-        raise HTTPException(status_code=400, detail="Incorrect password")
+    if user.get("auth_source") == "sso":
+        _refuse_reauth_if_locked(username, "disable_2fa")  # no password to ask: the code alone, below
+    else:
+        _check_current_password(user, payload.password, "disable_2fa")  # a directory account's, from the directory
     if user["totp_enabled"] and not verify_code(username, user["totp_secret"], payload.code or ""):
         _reauth_record_failure(username)
         log_action(username, "disable_2fa", username, "failed", "Invalid 2FA code")
@@ -704,3 +712,16 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     delete_acl_for_user(username)
     log_action(user["username"], "delete_user", username, "success")
     return {"message": "User deleted"}
+
+
+@router.post("/users/{username}/second-factor/reset")
+def reset_second_factor(username: str, user: dict = Depends(require_role("admin"))):
+    """An administrator removes an account's second factors (its TOTP and its security keys), as Proxmox VE's
+    administrators may (POST /auth/users/{name}/second-factor/reset): the way back for an owner who lost them, or for an SSO account whose factor someone else
+    enrolled with its session alone (GHSA-7wjv-ggfp-7x9c). The owner signs in with the password alone after."""
+    if not account_service.get(username):
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+    account_service.disable_totp(username)
+    webauthn_keys.delete_all_keys(username)
+    log_action(user["username"], "reset_second_factor", username, "success")
+    return {"message": f"The second factors of '{username}' are removed"}
