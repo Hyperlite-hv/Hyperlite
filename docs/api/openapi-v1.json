@@ -3778,6 +3778,28 @@
       ],
       "title": "Iscsi Target"
      },
+     "lvm_device": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lvm Device"
+     },
+     "lvm_vg": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lvm Vg"
+     },
      "name": {
       "title": "Name",
       "type": "string"
@@ -3923,7 +3945,7 @@
       "type": "string"
      },
      "type": {
-      "pattern": "^(dir|netfs|smb|zfs|iscsi)$",
+      "pattern": "^(dir|netfs|smb|zfs|iscsi|lvm)$",
       "title": "Type",
       "type": "string"
      }

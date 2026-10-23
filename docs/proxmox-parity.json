@@ -26,7 +26,7 @@
       "en": "Storage",
       "rows": [
         {"fr": "Répertoire, NFS, iSCSI", "en": "Directory, NFS, iSCSI", "status": "parity", "pve": "Yes", "hl": "Yes, shared pools created on every node"},
-        {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "missing", "issue": 417, "pve": "Yes", "hl": "None"},
+        {"fr": "LVM et LVM-thin", "en": "LVM and LVM-thin", "status": "partial", "issue": 417, "pve": "Yes", "hl": "LVM pools on an existing volume group or an empty disk; VM disks are logical volumes, grown and deleted with the VM. LVM-thin is listed and protected from the pool's removal, not managed yet; no VM snapshot or live migration on LVM"},
         {"fr": "ZFS sur de vrais disques", "en": "ZFS on real disks", "status": "partial", "issue": 419, "pve": "Mirror, RAIDZ, from the GUI", "hl": "Loopback files only, one node, not live-migratable"},
         {"fr": "SMB/CIFS", "en": "SMB/CIFS", "status": "parity", "issue": 418, "pve": "Yes", "hl": "Yes, shared like NFS (migration, HA, every node); credentials root-only on each node, SMB version negotiated or fixed"},
         {"fr": "Ceph", "en": "Ceph", "status": "missing", "issue": 338, "pve": "Hyperconverged, from the GUI", "hl": "None"},

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { poolFormErrors } from "../next/pages/StoragePage";
 
-const base = { name: "pool-1", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default" };
+const base = { name: "pool-1", type: "dir", node: "local", path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default", lvm_vg: "", lvm_device: "" };
 
 describe("pool form: the same rules as the API, for the fields each kind uses", () => {
   it("a directory pool needs a name only; its path, when given, is absolute", () => {
@@ -43,5 +43,16 @@ describe("pool form: the same rules as the API, for the fields each kind uses", 
     expect(poolFormErrors({ ...ok, smb_domain: "LAB" })).toEqual({});
     expect(poolFormErrors({ ...ok, smb_domain: "L A B" })).toEqual({ smb_domain: "stor.e.smbDomain" });
     expect(poolFormErrors({ ...ok, scope: "choix", chosen: [] })).toEqual({ chosen: "stor.e.nodes" });
+  });
+  it("LVM: a volume group name; the disk to build it on is optional and lies under /dev", () => {
+    const lvm = { ...base, type: "lvm" };
+    expect(poolFormErrors(lvm)).toEqual({ lvm_vg: "stor.e.required" });
+    const ok = { ...lvm, lvm_vg: "vmdata" };
+    expect(poolFormErrors(ok)).toEqual({});
+    expect(poolFormErrors({ ...ok, lvm_vg: "vm data" })).toEqual({ lvm_vg: "stor.e.lvmName" });
+    expect(poolFormErrors({ ...ok, lvm_vg: "-vg" })).toEqual({ lvm_vg: "stor.e.lvmName" });
+    expect(poolFormErrors({ ...ok, lvm_device: "/dev/sdb" })).toEqual({});
+    expect(poolFormErrors({ ...ok, lvm_device: "sdb" })).toEqual({ lvm_device: "stor.e.lvmDevice" });
+    expect(poolFormErrors({ ...ok, lvm_device: "/dev/../etc/passwd" })).toEqual({ lvm_device: "stor.e.lvmDevice" });
   });
 });
