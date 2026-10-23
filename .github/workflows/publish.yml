@@ -18,6 +18,17 @@ on:
       skip_iso:
         type: boolean
         default: false
+    # Named one by one: the caller passes these four, not every secret of the repository. They are secrets of the
+    # `release` environment, which the job below takes.
+    secrets:
+      GPG_PRIVATE_KEY:
+        required: false
+      GPG_PASSPHRASE:
+        required: false
+      MIRROR_DEPLOY_KEY:
+        required: false
+      MIRROR_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       dry_run:

@@ -1,7 +1,7 @@
 {
   "about": "Hyperlite compared with Proxmox VE 9.2, feature by feature. docs/proxmox-parity.html shows it, with the live state of each issue (a closed issue shows as done). Update a row, and checked, in the PR that changes it: it is the project's reference, and tests/test_proxmox_parity.py refuses a release that cites a tracked issue the file was not reviewed for. status: ahead, parity, partial, missing.",
   "proxmox_version": "9.2",
-  "checked": "2026-10-22",
+  "checked": "2026-10-23",
   "categories": [
     {
       "id": "cluster",
@@ -9,7 +9,7 @@
       "en": "Cluster and high availability",
       "rows": [
         {"fr": "Configuration répliquée et quorum", "en": "Replicated configuration and quorum", "status": "parity", "pve": "pmxcfs on Corosync, read-only without quorum", "hl": "hyperlite-cfs on Corosync, read-only without quorum, primary node for two-node clusters"},
-        {"fr": "Gérer depuis n'importe quel nœud", "en": "Manage from any node", "status": "parity", "pve": "Any node serves the API and the GUI", "hl": "Any node serves the dashboard and API v1, same accounts and sessions; a node that is down never holds a list or a call"},
+        {"fr": "Gérer depuis n'importe quel nœud", "en": "Manage from any node", "status": "parity", "pve": "Any node serves the API and the GUI", "hl": "Any node serves the dashboard and API v1, same accounts and sessions, and acts on any member's VMs, templates, networks, storage and ISO images (?node=, done by that member); a node that is down never holds a list or a call"},
         {"fr": "Statut des invités diffusé", "en": "Guest status broadcast", "status": "parity", "pve": "pvestatd", "hl": "Every node sends its VMs' summary every 10 s and at once after a change"},
         {"fr": "Configuration répliquée, seule source de vérité", "en": "Replicated configuration as the only source of truth", "status": "partial", "issue": 416, "pve": "Everything in /etc/pve", "hl": "Most configuration in hyperlite-cfs; hosts driven over SSH still depend on one controller"},
         {"fr": "HA automatique (redémarrage ailleurs)", "en": "Automatic HA (restart elsewhere)", "status": "partial", "issue": 333, "pve": "ha-manager restarts guests on another node", "hl": "Dry run only: shows what it would do, recovery is manual"},
@@ -56,12 +56,12 @@
         {"fr": "UEFI, Secure Boot, TPM 2.0", "en": "UEFI, Secure Boot, TPM 2.0", "status": "parity", "pve": "Yes", "hl": "Yes, Windows 11 / Server 2025 profile"},
         {"fr": "Passthrough PCI et USB", "en": "PCI and USB passthrough", "status": "parity", "pve": "Yes, cluster resource mappings", "hl": "Yes, host-needed devices excluded; per node"},
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
-        {"fr": "Consoles", "en": "Consoles", "status": "partial", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC and terminals; no SPICE"},
+        {"fr": "Consoles", "en": "Consoles", "status": "parity", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC, serial console, terminals, and SPICE in virt-viewer through a proxy (TLS, a ticket valid 30 s); no SPICE audio or USB redirection yet"},
         {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
         {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
         {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
         {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
-        {"fr": "Conteneurs LXC", "en": "LXC containers", "status": "partial", "issue": 424, "pve": "With snapshots", "hl": "Yes, without snapshots"},
+        {"fr": "Conteneurs LXC", "en": "LXC containers", "status": "parity", "issue": 424, "pve": "With snapshots", "hl": "Yes, with snapshots of the stopped container (a copy of its directory, each one keeping only what changed)"},
         {"fr": "Images OCI / Docker", "en": "OCI / Docker images", "status": "ahead", "pve": "Application containers (9.x, preview)", "hl": "Any OCI image, no Docker daemon"},
         {"fr": "Kubernetes", "en": "Kubernetes", "status": "ahead", "pve": "None", "hl": "k3s clusters on VMs, offline, encrypted kubeconfig"}
       ]
@@ -89,7 +89,7 @@
         {"fr": "Certificats ACME", "en": "ACME certificates", "status": "parity", "pve": "Yes", "hl": "Yes"},
         {"fr": "Métriques et notifications", "en": "Metrics and notifications", "status": "parity", "pve": "InfluxDB, Graphite; notification targets", "hl": "Prometheus, InfluxDB, Graphite; webhook, SMTP"},
         {"fr": "API versionnée", "en": "Versioned API", "status": "parity", "pve": "API v2", "hl": "API v1, its contract checked in CI"},
-        {"fr": "Infrastructure as code (Terraform / OpenTofu)", "en": "Infrastructure as code (Terraform / OpenTofu)", "status": "partial", "issue": 330, "pve": "Community providers only (bpg/proxmox, Telmate/proxmox)", "hl": "Official provider built and tested on a real Hyperlite (VMs, templates, networks, storage, ISO images, snapshots, backups, HA, rights), not published yet (vSphere has an official one)"},
+        {"fr": "Infrastructure as code (Terraform / OpenTofu)", "en": "Infrastructure as code (Terraform / OpenTofu)", "status": "ahead", "issue": 330, "pve": "Community providers only (bpg/proxmox, Telmate/proxmox)", "hl": "Official provider, published on the Terraform and OpenTofu registries and tested on a real Hyperlite (VMs, templates, networks, storage, ISO images, snapshots, backups, HA, rights); every member's objects through one node (node), as vSphere's official one does for its hosts"},
         {"fr": "CLI d'administration", "en": "Administration CLI", "status": "missing", "issue": 516, "pve": "qm, pct, pvesh", "hl": "Workstation client only"},
         {"fr": "Mises à jour", "en": "Updates", "status": "ahead", "pve": "apt from the GUI", "hl": "Release notes, channels, offline signed file, nightly security updates; a failed update rolls back by itself, by reinstalling the previous package"},
         {"fr": "Accès depuis le poste", "en": "Workstation access", "status": "ahead", "pve": "None", "hl": "SSH and remote desktop through an HTTPS tunnel, SSO and 2FA"}

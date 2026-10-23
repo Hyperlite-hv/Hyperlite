@@ -31,6 +31,7 @@ from app.core import paths, tickets
 logger = logging.getLogger(__name__)
 
 STATE_DIR = "/cluster/authkey"
+RETRY_S = 15  # after a round that failed
 PUBLISH_S = 600
 PEER_LIFETIME_S = 5 * 60
 TASK_LIFETIME_S = 12 * 3600  # the longest rolling update, its own session aside
@@ -86,26 +87,29 @@ def _own_keys():
 
 
 def publish():
-    """Publish this node's public keys when they changed. Never raises: outside a cluster, or hyperlite-cfs not
-    answering, there is nobody to call."""
+    """Publish this node's public keys when they changed. True once the cluster has them (or there is none to
+    publish); False when they could not be written (outside a cluster, hyperlite-cfs not answering, or refused while
+    the quorum is lost, as when a node joins). Never raises."""
     from app.core import self_node
     from app.core.cfs_client import CfsError, NotFound
 
     try:
         payload = _own_keys()
         if not payload["keys"]:
-            return
+            return True
         client = _client()
         path = _path(self_node.name())
         try:
             if json.loads(client.get(path).data) == payload:
-                return
+                return True
         except (NotFound, ValueError):
             pass
         client.put(path, json.dumps(payload).encode())
         logger.info("Public keys published for the other members")
+        return True
     except (CfsError, OSError, ValueError) as e:
         logger.debug("Public keys not published: %s", e)
+        return False
 
 
 def forget(name):
@@ -337,12 +341,18 @@ def start_publishing():
 
     def loop():
         while True:
+            pause = PUBLISH_S
             try:
                 tickets.ensure_keys()
+                if not publish():  # not written (a node that just joined, while the cluster reloads): soon again
+                    pause = min(PUBLISH_S, RETRY_S)
             except OSError as e:
                 logger.warning("Session keys not made: %s", e)
-            publish()
-            if stop.wait(PUBLISH_S):
+            except Exception:  # the thread must survive anything, or the members would never get this node's keys
+                # Soon, not at the next round: at the first start, the database is made seconds later.
+                pause = min(PUBLISH_S, RETRY_S)
+                logger.exception("Publishing this node's keys failed; trying again in %s s", pause)
+            if stop.wait(pause):
                 return
 
     threading.Thread(target=loop, daemon=True, name="authkey-publish").start()

@@ -25,6 +25,9 @@ from tests.test_cfs_inbound import Cluster
 ADDRESS = "192.0.2.10"
 KEY_A = "ssh-ed25519 " + "A" * 68 + " hyperlite-cluster"
 KEY_B = "ssh-ed25519 " + "B" * 68 + " hyperlite-cluster"
+AUTH_KEYS = {
+    "keys": [{"kid": "3fee8db48546834d", "public": base64.b64encode(b"p" * 32).decode(), "created": 1761200000}]
+}
 
 
 def _certificate(tmp_path):
@@ -135,7 +138,10 @@ def _create(host):
     return cluster_setup.create("prod", ADDRESS, "alice")
 
 
-def test_creating_a_cluster(host):
+def test_creating_a_cluster(host, monkeypatch):
+    from app.core import peer_https
+
+    monkeypatch.setattr(peer_https, "own_fingerprint", lambda: "ab" * 32)
     state = _create(host)
     assert state["in_cluster"] and state["name"] == "prod" and state["quorum"]
     assert state["members"] == [{"name": "hv-test", "nodeid": 1, "address": ADDRESS, "votes": 1}]
@@ -154,6 +160,8 @@ def test_creating_a_cluster(host):
     assert shadow.enabled() and any(p.startswith("/db/groups/") for p in host.files)
     assert base64.b64decode(host.files[cluster_setup.COROSYNC_KEY_ENTRY]) == key.read_bytes()
     assert host.files["/cluster/ssh/hv-test"] == KEY_A.encode()
+    # Its certificate at once: the members call it over HTTPS from the start, and a file can be relayed to it.
+    assert json.loads(host.files["/cluster/tls/hv-test"]) == {"sha256": "ab" * 32}
     with get_conn() as db:  # listed in the shared nodes table, which this node leaves itself out of
         assert db.execute("SELECT name, hostname FROM nodes").fetchall()[0][:] == ("hv-test", ADDRESS)
     with pytest.raises(cluster_setup.ClusterError, match="already in a cluster"):
@@ -238,8 +246,11 @@ def _blob(**over):
 
 
 def test_joining_replaces_this_nodes_configuration_by_the_clusters(host, monkeypatch):
+    from app.core import peer_auth
+
     sent = []
     monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: sent.append((info, body)) or _answer())
+    monkeypatch.setattr(peer_auth, "_own_keys", lambda: AUTH_KEYS)
     cfs_db = cluster_setup.CFS_DB
     cfs_db.parent.mkdir(parents=True)
     cfs_db.write_bytes(b"its own tree")
@@ -261,6 +272,9 @@ def test_joining_replaces_this_nodes_configuration_by_the_clusters(host, monkeyp
         "name": "hv-test",
         "address": "192.0.2.11",
         "ssh_key": KEY_A,
+        # Written by the member while the quorum holds: the others call this node as soon as it is up.
+        "fingerprint": cluster_setup._certificate_fingerprint(),
+        "auth_keys": AUTH_KEYS,
     }
     env = (host.tmp / ".env").read_text()
     assert "HYPERLITE_SECRET_KEY=the-clusters-secret-key-0123456789" in env and "OTHER=1" in env
@@ -323,13 +337,16 @@ def test_removing_a_member(host):
 
 
 class _Member(http.server.BaseHTTPRequestHandler):
+    """A member as the API serves it since 1.0: the old address without /api/v1 answers 410."""
+
     received: ClassVar[list] = []
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
-        _Member.received.append(json.loads(body))
-        data = json.dumps({"ok": True}).encode()
-        self.send_response(200)
+        _Member.received.append((self.path, json.loads(body)))
+        gone = not self.path.startswith("/api/v1/")
+        data = json.dumps({"detail": "This address is gone since Hyperlite 1.0"} if gone else {"ok": True}).encode()
+        self.send_response(410 if gone else 200)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -354,7 +371,7 @@ def test_the_member_is_reached_only_through_the_certificate_of_the_join_informat
         assert _Member.received == []  # nothing was sent to a certificate that does not match
         info["fingerprint"] = cluster_setup.hashlib.sha256(ssl.PEM_cert_to_DER_cert(cert.read_text())).hexdigest()
         assert cluster_setup._call_member(info, {"ticket": "secret"}) == {"ok": True}
-        assert _Member.received == [{"ticket": "secret"}]
+        assert _Member.received == [("/api/v1/cluster/members", {"ticket": "secret"})]
     finally:
         server.shutdown()
 
@@ -560,3 +577,94 @@ def test_setting_the_primary_is_for_administrators(client, auth_headers, host):
     admin = auth_headers("root")
     r = client.post("/cluster/principal", json={"name": "hv-test"}, headers=admin)
     assert r.status_code == 200 and r.json()["members"][0]["votes"] == 2
+
+
+def test_the_new_members_row_is_taken_by_the_cluster_before_the_quorum_is_lost(host, monkeypatch):
+    """Adding the first member raises the votes needed to 2: once this node's Corosync reloads, the cluster takes no
+    change until the new node is up. The nodes row was confirmed after that (with the answer), refused, and the join
+    failed with the cluster left waiting for a node that gave up."""
+    from app.repositories.cfs import confirm, shadow
+
+    _create(host)
+    _info, decoded = _information(host)
+    order = []
+    monkeypatch.setattr(confirm, "settle", lambda: order.append(("settle", len(host.commands))))
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    [(_, commands_before)] = order
+    assert "corosync-cfgtool -R" not in host.commands[:commands_before]  # confirmed while the quorum held
+
+    def refused():
+        raise shadow.NotConfirmed("The cluster refused the change: hyperlite-cfs has no quorum: it is read-only")
+
+    monkeypatch.setattr(confirm, "settle", refused)
+    _info, decoded = _information(host)
+    with pytest.raises(cluster_setup.ClusterError, match="could not record pve-c"):
+        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B)
+    assert all(m["name"] != "pve-c" for m in cluster_setup.shared_conf()["members"])  # not added, nothing to wait for
+    with get_conn() as db:
+        assert "pve-c" not in {r[0] for r in db.execute("SELECT name FROM nodes")}
+
+
+def test_a_joining_node_calls_the_route_the_member_serves(client):
+    """Since 1.0 the API is under /api/v1 and the old addresses answer 410: a join posted to /cluster/members was
+    refused by every member, and no node could join a cluster."""
+    body = {"ticket": "x", "name": "pve-b", "address": "192.0.2.2", "ssh_key": ""}
+    # Absolute addresses: the test client otherwise puts every path under /api/v1 itself.
+    r = client.post("http://testserver" + cluster_setup.MEMBERS_PATH, json=body)
+    assert r.status_code == 403, r.text  # the route answers: the ticket is refused
+    assert client.post("http://testserver/cluster/members", json=body).status_code == 410
+
+
+def test_a_member_older_than_1_0_is_asked_at_its_old_address(monkeypatch):
+    sent = []
+
+    def post(info, path, body):
+        sent.append(path)
+        return (404, {"detail": "Not Found"}) if path.startswith("/api/v1") else (200, {"ok": True})
+
+    monkeypatch.setattr(cluster_setup, "_post_member", post)
+    assert cluster_setup._call_member({}, {}) == {"ok": True}
+    assert sent == ["/api/v1/cluster/members", "/cluster/members"]
+
+
+def test_the_new_members_fingerprint_and_keys_are_written_before_the_quorum_is_lost(host, monkeypatch):
+    """Until the cluster has them, the members can neither check the new node's certificate (no file relayed to it)
+    nor sign a call it accepts: taken for a node before 1.2, it was sent the shared key and refused it (401)."""
+    from app.repositories.cfs import confirm, shadow
+
+    _create(host)
+    _info, decoded = _information(host)
+    reloaded = []
+    monkeypatch.setattr(
+        cluster_setup,
+        "sync",
+        lambda: reloaded.append((host.files.get("/cluster/tls/pve-b"), host.files.get("/cluster/authkey/pve-b"))),
+    )
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B, "CD" * 32, AUTH_KEYS)
+    [(fingerprint, keys)] = reloaded  # both there when this node's Corosync reloads with the new member
+    assert json.loads(fingerprint) == {"sha256": "cd" * 32} and json.loads(keys) == AUTH_KEYS
+
+    for bad in (
+        ("ab" * 31, None),
+        (None, {"keys": [{"kid": "x", "public": "not base64", "created": 1}]}),
+        (None, {"keys": []}),
+    ):
+        _info, decoded = _information(host)
+        with pytest.raises(cluster_setup.ClusterError, match="Invalid"):
+            cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B, *bad)
+
+    def refused():
+        raise shadow.NotConfirmed("The cluster refused the change: hyperlite-cfs has no quorum: it is read-only")
+
+    monkeypatch.setattr(confirm, "settle", refused)
+    _info, decoded = _information(host)
+    with pytest.raises(cluster_setup.ClusterError, match="could not record pve-c"):
+        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B, "ef" * 32, AUTH_KEYS)
+    assert "/cluster/tls/pve-c" not in host.files and "/cluster/authkey/pve-c" not in host.files
+
+
+def test_a_node_before_1_3_joins_without_its_fingerprint_and_keys(host):
+    _create(host)
+    _info, decoded = _information(host)
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)  # it publishes them itself, later
+    assert "/cluster/tls/pve-b" not in host.files and "/cluster/authkey/pve-b" not in host.files

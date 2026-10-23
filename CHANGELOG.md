@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
+### Added
+
+- **An ISO image uploaded to any member** (#330): `POST /isos?node=<member>` sends the upload to that member, as Proxmox VE relays an upload to the node that stores it. The file is read from this node's spool while it is sent, over the members' HTTPS (pinned certificates), never held in memory; where that way is closed the answer is a 502 that says so. The Terraform provider's `hyperlite_iso` takes `node`.
+
+- **`?node=` on everything a node holds** (#330): every route under `/vms`, `/templates`, `/networks`, `/storage` and `/isos`, and a VM's backups, backup schedule and export, sends a request naming another member of the cluster to that member, which does the work itself with its own rights check, locks, task and audit entry, as Proxmox VE's pveproxy does. Only start, stop, `DELETE`, the disk and network reads and a few others took `node` before, reaching the other node through libvirt over SSH; creation, cloning, `PATCH`, disks, interfaces, cloud-init, snapshots, templates and networks acted on the node that answered only. A node registered over SSH only is still reached by the routes that took `node`; any other route refuses it (409) rather than act here on an object of the same name. `GET /tasks/{id}`, its log and its cancellation take `?node=` as well as `?on=`. Console and tunnel tickets stay where their WebSocket opens; an ISO upload goes to the member too. What the Terraform provider's `node` uses. `GET /health` names this node to a signed-in caller (`node`), and the Go library reads it (`Health.Node`).
+
+- Container snapshots (#424): a stopped container's files can be snapshotted, restored and deleted
+  (`GET/POST /containers/{name}/snapshots`, `POST …/{snapshot}/restore`, `DELETE …/{snapshot}`), from its new
+  Snapshots tab. libvirt's LXC driver has no snapshot: each one is an rsync copy of the container's directory, next to
+  it, keeping only the files that changed since the previous one (compared by content). A restore copies the snapshot
+  and swaps it in, and leaves the container's files as they were if it fails. Snapshots follow a renamed container and
+  go with a deleted one; one operation at a time runs on a container's files. The package depends on `rsync`.
+
+- SPICE consoles (#518), as Proxmox VE's: a VM can get a SPICE display next to its VNC one (`POST /vms/{name}/spice-display`,
+  effective at its next start), and the console's SPICE menu downloads a `.vv` file for virt-viewer
+  (`POST /vms/{name}/spice-ticket`). virt-viewer goes through Hyperlite's SPICE proxy on port 3128, which admits only
+  that ticket, for 30 seconds; SPICE is in TLS only, checked against the node's own CA, and listens on 127.0.0.1. The
+  package sets each node up (`scripts/ensure-spice-tls.sh`: certificates, `spice_tls` and a default SPICE password in
+  `qemu.conf`) and depends on `qemu-system-modules-spice`. Checked with `remote-viewer` on libvirt 10.0 and QEMU 8.2.
+
+### Changed
+
+- **The CI no longer downloads the same packages in every job** (#583). The runner's Ubuntu mirror made `apt-get install` take up to 22 minutes, and `playwright install --with-deps` up to 14, in jobs whose tests took 3: a full run took 20 to 50 minutes. The packages a job installs are kept as the `.deb` files of the runner image they were fetched on (`.github/actions/apt-install`), and Chromium per Playwright version; only pushes to test and master write them, a pull request only reads them. The workflows are checked by zizmor in the CI (template injection, permissions, pinned actions, caches), and the publication receives its four secrets by name instead of every secret of the repository. The night's VM lab and hyperlite-cfs soak (eleven runners) run on test, and only when cfs/ or the lab changed there that day: they tested master, unchanged between releases, every night. The public mirror is checked every six hours rather than every hour; each publication still checks it right away. The package job keeps what apt and pip download in its Debian containers (`installer/build-cache.sh`): each kept `.deb` is checked against the signed index before use, since apt itself installs a kept file without checking it.
+
+### Fixed
+
+- **The first node of a new cluster is reached over HTTPS at once** (#330): it published its certificate's fingerprint only at the next round, up to ten minutes after the cluster was created; meanwhile the other members called it over SSH, and an ISO upload could not be relayed to it.
+
+- **A certificate fingerprint copied from a browser is accepted** (#330): `hyperlite-cli` and the Terraform provider pinned a fingerprint only in the dashboard's form (64 hexadecimal digits); the form browsers and `openssl` show, pairs separated by colons, was taken for another certificate and refused. Both forms pin the same certificate.
+
+- **A node can join a cluster again** (#330): since 1.0 the API is under `/api/v1` and the old addresses answer 410, but a joining node still posted to the member's `/cluster/members`: every member refused it ("This address is gone since Hyperlite 1.0"), and no node could join a cluster from the dashboard or the API. It posts to `/api/v1/cluster/members` (the old address only to a member older than 1.0). Found by forming a cluster of three VMs from the package (`lab/tests`).
+
+- **Adding the second node no longer leaves the cluster without quorum** (#330): the member letting a node in recorded it in the shared nodes table through the copy that is confirmed with the answer, after its Corosync had reloaded with the new member; the cluster, without the quorum until that node is up, refused the copy, the join failed, and the cluster stayed read-only waiting for a node that had given up. The row is now confirmed while the quorum holds, and a join that cannot be recorded leaves the cluster as it was. Found by forming a cluster of three VMs from the package (`lab/tests`).
+
+- **A node that has just joined a cluster can be called by the others at once** (#330): until it published its public keys and certificate fingerprint, the members took it for a node before 1.2 and sent it the shared key, which it refused (401), so an ISO upload or a migration to it failed for up to ten minutes. The joining node now sends both with its join, and the member records them before its Corosync reloads, while the cluster still has the quorum. Found by forming a cluster of three VMs from the package (`lab/tests`).
+
+- **A change to another member is never made twice** (#330): when its answer was lost over HTTPS (a timeout, a dropped connection), the change was sent again over SSH and could be made a second time (another snapshot, another VM). It is now sent once, and the 502 says it may have been made; a member that does not answer is reported with its reason.
+
+- **A VM migrates to a node that never used its default storage** (#330): libvirt creates the copied disk on the destination through the pool of its directory, and a fresh node defines its `default` pool (`/var/lib/libvirt/images`) only when something first asks for it; the migration failed with "no storage pool with matching target path", and its check said the destination's space could not be read. Both now make the pool first, as creating a VM does. Found by migrating a VM in a cluster of three VMs from the package (`lab/tests`).
+
+- **A node that joined a cluster is reached over HTTPS within seconds** (#330): it publishes its certificate fingerprint and its public keys as it restarts, while the cluster reloads without the quorum; the refused write was taken for done and tried again only ten minutes later, so a file could not be relayed to it meanwhile. A refused write is now tried again within 15 seconds. Found by forming a cluster of three VMs from the package (`lab/tests`).
+
+- **A node's keys and certificate reach the other members even after a failed first try** (#330): on a fresh installation hyperlite-daemon can start before the API has made the database; the thread publishing the node's public keys then stopped for good on the error, and the members called that node with the older shared key. The same held for the certificate fingerprint. Both threads now log a failed round and try again at the next.
+
+- **A change made as the quorum comes back is no longer refused** (#330): a node kept its "no quorum" answer for two seconds, so the change made right after the quorum returned (the Cluster page already showing it) was still refused; adding the third node failed this way just after the second had joined. A refusal is now asked again each time. Found by forming a cluster of three VMs from the package (`lab/tests`).
+
+- The backup schedule of a VM on another member was read and removed on the node that answered, which keeps none for it (schedules are kept by the node that runs them): an empty answer, and a removal that removed nothing. They go to the VM's node, as setting it did.
+
+- **The service stops cleanly again** (#518): stopping the SPICE proxy called a method the service's event loop (uvloop) does not have, so every stop or restart of `hyperlite` ended with "Application shutdown failed". The proxy now closes the sessions it keeps itself. Found by forming a cluster of three VMs from the package (`lab/tests`).
+
 ## [1.2.0] - 2026-10-22
 
 ### Added

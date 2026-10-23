@@ -92,6 +92,10 @@ def test_health_gives_the_details_to_a_signed_in_caller(client, auth_headers, li
     body = r.json()
     assert body["hostname"] == "hv-01"
     assert body["hyperlite_version"] and body["kernel"] and body["python_version"]
+    # This node's name in its cluster: lists call this node's objects `local`, a client tells them apart by it.
+    from app.core import self_node
+
+    assert body["node"] == self_node.name()
 
 
 def test_health_ignores_an_invalid_token(client, libvirt_up):
