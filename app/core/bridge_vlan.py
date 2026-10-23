@@ -11,14 +11,22 @@ port of the bridge itself:
 
 A port is set as Proxmox VE's tap script does: the access VLAN as its PVID, untagged (VLAN 1 without one), the trunk
 VLANs tagged. If setting it fails, the port is left with no VLAN at all rather than on the bridge's default one.
+
+A bridge is made VLAN-aware as Proxmox VE's `bridge-vlan-aware yes` with `bridge-vids 2-4094` does: vlan_filtering on,
+VLANs 2-4094 tagged on its uplinks (a NIC, a bond, a VLAN interface) and on the bridge itself; what is untagged (the
+host's own address, the VMs and containers) stays on VLAN 1. The change is a trial until the dashboard confirms it from
+a new request (start_trial, confirm_trial), and undone otherwise; confirmed, the bridge is listed in AWARE_FILE and made
+VLAN-aware again at boot, before libvirt (`python -m app.core.bridge_vlan boot`, installer/hyperlite-vlan-bridges.service).
 """
 
 import json
 import logging
 import re
+import secrets
 import shlex
 import subprocess
 import sys
+import threading
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -279,7 +287,145 @@ def hook(argv, stdin):
     return 0
 
 
+# --- Making a bridge VLAN-aware ---
+
+UPLINK_VIDS = "2-4094"
+TRIAL_S = 60
+_trials = {}  # bridge -> (token, timer)
+_trials_lock = threading.Lock()
+
+
+def _aware_file():
+    from app.core import paths
+
+    return paths.ETC / "local" / "vlan-aware-bridges"
+
+
+def is_linux_bridge(bridge):
+    return bool(bridge) and BRIDGE_NAME_RE.fullmatch(bridge) is not None and (SYS_NET / bridge / "bridge").is_dir()
+
+
+def uplinks(bridge):
+    """The bridge's ports that lead off the host: NICs, bonds and VLAN interfaces (not VM taps nor container veths)."""
+    from app.core.host_interfaces import _kind
+
+    brif = SYS_NET / bridge / "brif"
+    try:
+        names = sorted(p.name for p in brif.iterdir())
+    except OSError:
+        return []
+    return [n for n in names if _kind(SYS_NET / n) in ("physical", "bond", "vlan")]
+
+
+def enable(bridge):
+    """vlan_filtering on, VLANs 2-4094 on the uplinks and the bridge itself. A failure undoes what was done."""
+    if not is_linux_bridge(bridge):
+        raise VlanError(f"'{bridge}' is not a Linux bridge of this host")
+    try:
+        _run(["ip", "link", "set", "dev", bridge, "type", "bridge", "vlan_filtering", "1"])
+        for port in uplinks(bridge):
+            _run(["bridge", "vlan", "add", "dev", port, "vid", UPLINK_VIDS])
+        _run(["bridge", "vlan", "add", "dev", bridge, "vid", UPLINK_VIDS, "self"])
+    except (VlanError, OSError, subprocess.TimeoutExpired) as e:
+        disable(bridge)
+        raise VlanError(f"Bridge {bridge} could not be made VLAN-aware: {e}") from e
+
+
+def disable(bridge):
+    """Back to a bridge that does not filter VLANs (every frame passes again, whatever its tag)."""
+    for args in [["bridge", "vlan", "del", "dev", port, "vid", UPLINK_VIDS] for port in uplinks(bridge)] + [
+        ["bridge", "vlan", "del", "dev", bridge, "vid", UPLINK_VIDS, "self"],
+        ["ip", "link", "set", "dev", bridge, "type", "bridge", "vlan_filtering", "0"],
+    ]:
+        try:
+            _run(args)
+        except (VlanError, OSError, subprocess.TimeoutExpired):
+            logger.warning("While undoing VLAN filtering on %s: %s failed", bridge, " ".join(args), exc_info=True)
+
+
+def aware_bridges():
+    """The bridges this node keeps VLAN-aware (confirmed from the dashboard)."""
+    try:
+        lines = _aware_file().read_text().splitlines()
+    except FileNotFoundError:
+        return []
+    return [line.strip() for line in lines if line.strip() and BRIDGE_NAME_RE.fullmatch(line.strip())]
+
+
+def _write_aware(bridges):
+    path = _aware_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("".join(f"{b}\n" for b in sorted(set(bridges))))
+    tmp.replace(path)
+
+
+def start_trial(bridge, seconds=TRIAL_S):
+    """Make the bridge VLAN-aware now, undone after `seconds` unless confirm_trial gets the token back."""
+    with _trials_lock:
+        if bridge in _trials:
+            raise VlanError(f"A change of bridge {bridge} is waiting for its confirmation")
+        if filters_vlans(bridge):
+            raise VlanError(f"Bridge {bridge} is VLAN-aware already")
+        enable(bridge)
+        token = secrets.token_urlsafe(24)
+        timer = threading.Timer(seconds, _expire, args=(bridge, token))
+        timer.daemon = True
+        _trials[bridge] = (token, timer)
+        timer.start()
+    return token
+
+
+def _expire(bridge, token):
+    with _trials_lock:
+        if _trials.get(bridge, (None,))[0] != token:
+            return
+        del _trials[bridge]
+    logger.warning("Bridge %s: VLAN-aware change not confirmed in time, undone", bridge)
+    disable(bridge)
+
+
+def confirm_trial(bridge, token):
+    """Keep the change: from now on the bridge is made VLAN-aware again at every boot."""
+    with _trials_lock:
+        current = _trials.get(bridge)
+        if current is None or not secrets.compare_digest(current[0], str(token)):
+            raise VlanError(f"No change of bridge {bridge} is waiting for this confirmation (it may have been undone)")
+        current[1].cancel()
+        del _trials[bridge]
+    _write_aware([*aware_bridges(), bridge])
+
+
+def turn_off(bridge):
+    """Stop filtering VLANs on a bridge Hyperlite made VLAN-aware, and forget it."""
+    if bridge not in aware_bridges():
+        raise VlanError(f"Bridge {bridge} was not made VLAN-aware by Hyperlite")
+    disable(bridge)
+    _write_aware([b for b in aware_bridges() if b != bridge])
+
+
+def boot():
+    """At boot, before libvirt: the bridges kept VLAN-aware are made so again. Returns the errors."""
+    errors = []
+    for bridge in aware_bridges():
+        if not is_linux_bridge(bridge):
+            errors.append(f"bridge {bridge} is missing")
+            continue
+        if filters_vlans(bridge):
+            continue
+        try:
+            enable(bridge)
+        except VlanError as e:
+            errors.append(str(e))
+    for error in errors:
+        logger.error("VLAN-aware bridges: %s", error)
+    return errors
+
+
 if __name__ == "__main__":
     if sys.argv[1:2] == ["hook"]:
         sys.exit(hook(sys.argv[2:], sys.stdin))
+    if sys.argv[1:2] == ["boot"]:
+        logging.basicConfig(level=logging.INFO)
+        sys.exit(1 if boot() else 0)
     sys.exit(2)

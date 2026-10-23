@@ -128,5 +128,30 @@ holding VLANs 20, 30 and 50):
 | The hook given a broken definition, or any event but `started` | Exits 0 at once, saying why for the former |
 | `vlan_filtering` turned off and on again | The ports keep their VLANs |
 
-**Part 2, making a bridge VLAN-aware from the dashboard**: next pull request, with the 60-second rollback of section
-3.2.
+**Part 2, making a bridge VLAN-aware from the dashboard** (`app/core/bridge_vlan.py`, `POST/DELETE
+/networks/{name}/vlan-aware`), as Proxmox VE's `bridge-vlan-aware yes` with `bridge-vids 2-4094`:
+
+- On: `vlan_filtering` on the bridge, VLANs 2-4094 tagged on its uplinks (its NICs, bonds and VLAN interfaces, never
+  a VM's tap or a container's veth) and on the bridge itself, so that a VLAN interface on top of the bridge
+  (`br0.10`) still works. What is untagged (the host's own address, the VMs, the containers) stays on VLAN 1.
+- A trial first: the API answers with a token and undoes the change by itself after 60 seconds unless the token comes
+  back (`POST .../vlan-aware/confirm`). The dashboard sends it a few seconds later, from a new request: if the change
+  cut the administrator off, the confirmation never arrives and the host is put back.
+- Kept, the bridge is listed in `/etc/hyperlite/local/vlan-aware-bridges`; at boot,
+  `hyperlite-vlan-bridges.service` (after the network, before libvirt) makes it VLAN-aware again, whatever manages the
+  host's network (ifupdown, systemd-networkd, NetworkManager): Hyperlite does not rewrite their files. The service's
+  start-up does the same, for a node where the unit has not run yet.
+- Off (`DELETE`): only on a bridge Hyperlite made VLAN-aware, and refused while a VM keeps VLANs on it.
+
+Checked in the lab (a bridge whose uplink is a bond, the host's address untagged on the bridge and on `br0.10`, a
+"switch" namespace on the other end of the bond):
+
+| What | Result |
+|---|---|
+| The bridge's uplinks | The bond only: not the bond's own slave, not `br0.10` |
+| A trial | The bridge filters, the bond and the bridge carry 2-4094; the host is still reached untagged and on VLAN 10; a second trial is refused |
+| Not confirmed | Undone after the delay; the host reached as before; a late confirmation refused |
+| Confirmed (a wrong token refused first) | Kept after the delay, listed for the boot |
+| A VM with tag 10 on the bridge made VLAN-aware | Its port is on VLAN 10 |
+| Filtering lost, as after a reboot | `python -m app.core.bridge_vlan boot`, then the unit, make it VLAN-aware again; the unit is ordered after `network.target` and before `libvirtd.service` |
+| Turned off | No filtering, no longer listed; the host still reached |

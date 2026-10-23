@@ -1,0 +1,18 @@
+[Unit]
+Description=Hyperlite: the bridges made VLAN-aware from the dashboard, set again at boot
+Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/network.md
+# After the host's network has made its bridges, before libvirt starts the VMs that sit on them: the VMs' VLAN hook
+# needs their bridge to filter VLANs already (app/core/bridge_vlan.py).
+After=network.target
+Before=libvirtd.service virtqemud.service
+ConditionPathExists=/etc/hyperlite/local/vlan-aware-bridges
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/usr/lib/hyperlite
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.core.bridge_vlan boot
+
+[Install]
+WantedBy=multi-user.target

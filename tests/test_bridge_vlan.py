@@ -290,3 +290,188 @@ def test_the_interface_list_shows_bridge_vlans(api):
 
     bridge_vlan.set_port(api, "52:54:00:00:00:01", 20, "30")
     assert _get_interfaces(api)[0]["vlan"] == 20 and _get_interfaces(api)[0]["vlan_trunks"] == "30"
+
+
+# --- Making a bridge VLAN-aware (part 2) ---
+
+
+@pytest.fixture()
+def host(monkeypatch, tmp_path):
+    """A fake /sys/class/net: br0 with a bond, a NIC, a VM tap and a container veth; `ip`/`bridge` recorded."""
+    sys_net = tmp_path / "sys"
+
+    def dev(name, devtype=None, hw=False):
+        d = sys_net / name
+        d.mkdir(parents=True)
+        (d / "uevent").write_text(f"DEVTYPE={devtype}\n" if devtype else "")
+        if hw:
+            (d / "device").mkdir()
+        return d
+
+    br = dev("br0", "bridge")
+    (br / "bridge").mkdir()
+    (br / "bridge" / "vlan_filtering").write_text("0\n")
+    for name in ("bond0", "eno1", "vnet3", "veth5"):
+        (br / "brif").mkdir(exist_ok=True)
+        (br / "brif" / name).mkdir()
+    dev("bond0", "bond")
+    dev("eno1", hw=True)
+    dev("vnet3")
+    dev("veth5")
+    monkeypatch.setattr(bridge_vlan, "SYS_NET", sys_net)
+    from app.core import host_interfaces
+
+    monkeypatch.setattr(host_interfaces, "SYS_NET", sys_net)
+    calls = []
+    fail = set()
+
+    def run(args, node=None):
+        calls.append(args)
+        if tuple(args[:2]) in fail or (args[0] == "bridge" and args[4] in fail):
+            raise bridge_vlan.VlanError("RTNETLINK answers: Operation not supported")
+        if args[:2] == ["ip", "link"] and "vlan_filtering" in args:
+            (sys_net / args[4] / "bridge" / "vlan_filtering").write_text(args[-1] + "\n")
+        return ""
+
+    monkeypatch.setattr(bridge_vlan, "_run", run)
+    aware = tmp_path / "etc" / "local" / "vlan-aware-bridges"
+    monkeypatch.setattr(bridge_vlan, "_aware_file", lambda: aware)
+    yield {"calls": calls, "fail": fail, "aware": aware, "filtering": lambda: bridge_vlan.filters_vlans("br0")}
+    # A trial left waiting must not reach the next test (the module keeps them, as the service does).
+    with bridge_vlan._trials_lock:
+        for _token, timer in bridge_vlan._trials.values():
+            timer.cancel()
+        bridge_vlan._trials.clear()
+
+
+def test_the_uplinks_are_the_nics_bonds_and_vlans_never_the_guests_ports(host):
+    assert bridge_vlan.uplinks("br0") == ["bond0", "eno1"]
+
+
+def test_a_bridge_made_vlan_aware_carries_2_to_4094_on_its_uplinks_and_itself(host):
+    bridge_vlan.enable("br0")
+    assert host["filtering"]()
+    adds = [c for c in host["calls"] if c[:3] == ["bridge", "vlan", "add"]]
+    assert adds == [
+        ["bridge", "vlan", "add", "dev", "bond0", "vid", "2-4094"],
+        ["bridge", "vlan", "add", "dev", "eno1", "vid", "2-4094"],
+        ["bridge", "vlan", "add", "dev", "br0", "vid", "2-4094", "self"],
+    ], "the guests' ports stay on VLAN 1, untagged"
+
+
+def test_a_bridge_that_cannot_be_made_vlan_aware_is_put_back(host):
+    host["fail"].add("eno1")
+    with pytest.raises(bridge_vlan.VlanError, match="br0"):
+        bridge_vlan.enable("br0")
+    assert not host["filtering"]()
+
+
+def test_a_trial_not_confirmed_is_undone(host):
+    import time
+
+    bridge_vlan.start_trial("br0", seconds=0.2)
+    assert host["filtering"]()
+    with pytest.raises(bridge_vlan.VlanError, match="waiting"):
+        bridge_vlan.start_trial("br0")
+    time.sleep(0.6)
+    assert not host["filtering"]() and not host["aware"].exists()
+
+
+def test_a_trial_confirmed_with_its_token_is_kept_for_the_boot(host):
+    import time
+
+    token = bridge_vlan.start_trial("br0", seconds=0.3)
+    with pytest.raises(bridge_vlan.VlanError):
+        bridge_vlan.confirm_trial("br0", "not-the-token")
+    bridge_vlan.confirm_trial("br0", token)
+    time.sleep(0.5)
+    assert host["filtering"]() and host["aware"].read_text() == "br0\n"
+    with pytest.raises(bridge_vlan.VlanError, match="already"):
+        bridge_vlan.start_trial("br0")
+
+
+def test_the_boot_makes_the_listed_bridges_vlan_aware_again(host):
+    host["aware"].parent.mkdir(parents=True)
+    host["aware"].write_text("br0\nbr9\n")
+    errors = bridge_vlan.boot()
+    assert host["filtering"]() and errors == ["bridge br9 is missing"]
+
+
+def test_only_a_bridge_hyperlite_made_vlan_aware_is_turned_off(host):
+    with pytest.raises(bridge_vlan.VlanError, match="not made VLAN-aware by Hyperlite"):
+        bridge_vlan.turn_off("br0")
+    token = bridge_vlan.start_trial("br0")
+    bridge_vlan.confirm_trial("br0", token)
+    bridge_vlan.turn_off("br0")
+    assert not host["filtering"]() and host["aware"].read_text() == ""
+
+
+@pytest.fixture()
+def net_api(monkeypatch, host):
+    from app.routers import network
+
+    domains = []
+
+    class Net:
+        def __init__(self, name, xml):
+            self.name_, self.xml = name, xml
+
+        def name(self):
+            return self.name_
+
+        def XMLDesc(self, flags=0):
+            return self.xml
+
+    nets = {
+        "lan": Net("lan", "<network><name>lan</name><forward mode='bridge'/><bridge name='br0'/></network>"),
+        "nat": Net("nat", "<network><name>nat</name><forward mode='nat'/><bridge name='virbr0'/></network>"),
+    }
+
+    class Conn:
+        def networkLookupByName(self, name):
+            if name not in nets:
+                raise libvirt.libvirtError("no network")
+            return nets[name]
+
+        def listAllNetworks(self, flags=0):
+            return list(nets.values())
+
+        def listAllDomains(self, flags=0):
+            return domains
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(network, "open_conn", lambda *a, **k: Conn())
+    return domains
+
+
+def test_the_api_makes_a_bridge_vlan_aware_on_trial_then_keeps_it(client, auth_headers, net_api, host):
+    admin = auth_headers("admin")
+    r = client.post("/networks/lan/vlan-aware", headers=admin)
+    assert r.status_code == 202, r.text
+    body = r.json()
+    assert body["bridge"] == "br0" and body["expires_in"] == 60 and host["filtering"]()
+    assert client.post("/networks/lan/vlan-aware/confirm", json={"token": "x"}, headers=admin).status_code == 409
+    r = client.post("/networks/lan/vlan-aware/confirm", json={"token": body["token"]}, headers=admin)
+    assert r.status_code == 200 and host["aware"].read_text() == "br0\n"
+    assert client.post("/networks/nat/vlan-aware", headers=admin).status_code == 422, "NAT is libvirt's own bridge"
+    assert client.post("/networks/lan/vlan-aware", headers=auth_headers("eve", role="viewer")).status_code == 403
+
+
+def test_the_api_keeps_a_bridge_vlan_aware_while_a_vm_has_vlans_on_it(client, auth_headers, net_api, host):
+    admin = auth_headers("admin")
+    token = client.post("/networks/lan/vlan-aware", headers=admin).json()["token"]
+    client.post("/networks/lan/vlan-aware/confirm", json={"token": token}, headers=admin)
+    dom = FakeDomain(
+        ["<interface type='network'><mac address='52:54:00:00:00:01'/><source network='lan'/></interface>"],
+        active=False,
+    )
+    dom.name = lambda: "web"
+    bridge_vlan.set_port(dom, "52:54:00:00:00:01", 20, None)
+    net_api.append(dom)
+    r = client.delete("/networks/lan/vlan-aware", headers=admin)
+    assert r.status_code == 409 and "web" in r.json()["detail"] and host["filtering"]()
+    bridge_vlan.set_port(dom, "52:54:00:00:00:01", None, None)
+    assert client.delete("/networks/lan/vlan-aware", headers=admin).status_code == 200
+    assert not host["filtering"]()
