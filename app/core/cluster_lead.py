@@ -88,8 +88,11 @@ def read_only_reason():
     now = time.monotonic()
     with _quorum_lock:
         at, reason = _quorum
-        if now - at < QUORUM_TTL_S:
-            return reason
+        # Only a "yes" is kept: a refusal is asked again, so the change made as the quorum comes back goes through,
+        # as the Cluster page (which asks hyperlite-cfs itself) already shows it. A kept "yes" lets nothing through
+        # that hyperlite-cfs would not refuse itself.
+        if reason is None and now - at < QUORUM_TTL_S:
+            return None
     try:
         reason = None if _shadow()._get_client().status().quorate else NO_QUORUM
     except (CfsError, OSError):
