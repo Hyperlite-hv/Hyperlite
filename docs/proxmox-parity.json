@@ -44,7 +44,7 @@
       "en": "Network",
       "rows": [
         {"fr": "Réseaux NAT, isolés, bridge, DHCP", "en": "NAT, isolated, bridged networks, DHCP", "status": "parity", "pve": "Bridges and SDN", "hl": "libvirt networks, DHCP ranges and reservations"},
-        {"fr": "VLAN sur bridges Linux", "en": "VLAN-aware Linux bridges", "status": "partial", "issue": 345, "pve": "Yes", "hl": "VLAN tags on Open vSwitch or SR-IOV only"},
+        {"fr": "VLAN sur bridges Linux", "en": "VLAN-aware Linux bridges", "status": "partial", "issue": 345, "pve": "Yes", "hl": "VLAN tag and trunks per VM on a VLAN-aware Linux bridge, set by Hyperlite on the bridge port (start, migration, change); the bridge is made VLAN-aware by hand for now"},
         {"fr": "Interfaces de l'hôte (bridges, bonds)", "en": "Host interfaces (bridges, bonds)", "status": "missing", "issue": 512, "pve": "Edited and applied live", "hl": "Listed only"},
         {"fr": "Pare-feu du cluster et de l'hôte", "en": "Cluster and host firewall", "status": "partial", "issue": 422, "pve": "Datacenter, node and guest levels, security groups, IP sets", "hl": "Per VM (nwfilter) and per network only"},
         {"fr": "SDN (VXLAN, EVPN, IPAM)", "en": "SDN (VXLAN, EVPN, IPAM)", "status": "missing", "issue": 421, "pve": "Yes", "hl": "None"}

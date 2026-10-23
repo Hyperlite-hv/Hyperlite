@@ -234,9 +234,16 @@ pools are marked in the list; deleting one removes it from every node that has i
 - **Bridge**: VMs sit on the host's network (an existing bridge, or a network card, bond or VLAN interface through
   macvtap).
 
-A VM interface takes a **VLAN tag** only on a network that can carry one (an Open vSwitch bridge or an SR-IOV
-network); libvirt refuses to start a VM with a tag on any other network, so the field is disabled there. To put a VM on
-a VLAN today, create a **Bridge** network on the VLAN interface (`bond0.20`, `eno1.20`) or on a bridge over it.
+A VM interface takes a **VLAN tag** on a network that can carry one, and the field is disabled on the others:
+
+- a **Bridge** network on a **VLAN-aware** Linux bridge (`vlan_filtering` on, Proxmox VE's "VLAN aware" bridge, whose
+  uplink is a trunk from the switch): the tag is the VM's access VLAN, untagged inside the VM, and **Trunk VLANs**
+  (`10,20-30`) are the ones it sees tagged, for a router or a nested hypervisor. Hyperlite sets them on the VM's port
+  of the bridge when it starts, moves or is changed. Without a tag, the VM is on the bridge's default VLAN (1);
+- an Open vSwitch bridge or an SR-IOV network: libvirt sets the tag itself.
+
+On a Linux bridge that does not filter VLANs, create a **Bridge** network on the VLAN interface (`bond0.20`,
+`eno1.20`) instead, or make the bridge VLAN-aware.
 
 A network's **Details**:
 
