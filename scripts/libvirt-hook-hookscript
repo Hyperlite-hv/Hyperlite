@@ -1,0 +1,16 @@
+#!/bin/sh
+# libvirt's qemu hook, installed as /etc/libvirt/hooks/qemu.d/hyperlite-hookscript by scripts/ensure-libvirt-hooks.sh:
+# runs the hook script attached to a VM (app/core/hookscript.py) at pre-start (prepare), post-start (started) and
+# post-stop (release). A failing pre-start refuses the start. A VM without a script returns at once, without Python.
+case "$2 $3" in
+    "prepare begin" | "started begin" | "release end") ;;
+    *) exit 0 ;;
+esac
+xml=$(cat)
+case "$xml" in
+    *urn:hyperlite:hookscript:1*) ;;
+    *) exit 0 ;;
+esac
+CODE=${HYPERLITE_CODE:-/usr/lib/hyperlite}
+cd "$CODE" || { echo "hyperlite-hookscript: $CODE is missing" >&2; [ "$2" = prepare ] && exit 1; exit 0; }
+printf '%s\n' "$xml" | exec "$CODE/venv/bin/python3" -m app.core.hookscript hook "$@"

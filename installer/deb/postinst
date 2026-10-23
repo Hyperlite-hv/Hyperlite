@@ -86,10 +86,10 @@ if ! bash "$CODE/scripts/ensure-spice-tls.sh"; then
     log "WARNING: SPICE consoles could not be set up on this node: bash $CODE/scripts/ensure-spice-tls.sh"
 fi
 
-# VLANs of VMs on VLAN-aware Linux bridges (docs/design/network.md): libvirt's qemu hook that sets them when a VM
-# starts. A failure leaves those VLANs unset on this node (the ports then carry no traffic), never the installation.
-if ! bash "$CODE/scripts/ensure-vlan-hook.sh"; then
-    log "WARNING: the VLAN hook could not be installed on this node: bash $CODE/scripts/ensure-vlan-hook.sh"
+# libvirt's qemu hooks: the VLANs of VMs on VLAN-aware Linux bridges (docs/design/network.md) and the VMs' hook
+# scripts (docs/design/hook-scripts.md). A failure leaves them unset on this node, never the installation.
+if ! bash "$CODE/scripts/ensure-libvirt-hooks.sh"; then
+    log "WARNING: libvirt's hooks could not be installed on this node: bash $CODE/scripts/ensure-libvirt-hooks.sh"
 fi
 
 log "systemd service"
