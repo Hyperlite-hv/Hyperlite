@@ -12,24 +12,37 @@ LIBVIRT_URI = "qemu:///system"
 LXC_URI = "lxc:///system"
 
 
-def open_lxc_conn():
-    """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
-    SEPARATE from qemu:///system (same libvirtd daemon, purpose VM and container
-    domains do not share the same list: a qemu:///system connection never
-    sees a container, and vice versa). There is no multi-node support for now
-    (unlike open_conn): local containers only in this first version."""
+NO_LXC = "This node has no LXC driver (libvirt-daemon-driver-lxc), so it runs no containers"
+
+
+def _lxc():
     conn = libvirt.open(LXC_URI)
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt (LXC) connection")
     return conn
 
 
+def open_lxc_conn():
+    """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
+    SEPARATE from qemu:///system (same libvirtd daemon, purpose VM and container
+    domains do not share the same list: a qemu:///system connection never
+    sees a container, and vice versa). There is no multi-node support for now
+    (unlike open_conn): local containers only in this first version. A node without the LXC driver answers 501
+    for a container named by the user, not a 500 with libvirt's error."""
+    try:
+        return _lxc()
+    except libvirt.libvirtError as e:
+        logger.info("No LXC connection on this node: %s", e)
+        raise HTTPException(status_code=501, detail=NO_LXC) from None
+
+
 def open_lxc_conn_if_any():
     """The LXC connection, or None when this node has no LXC driver (libvirt installed without it, as on a VM-only
     host or a CI runner): it then simply has no containers. What looks for every guest of the node (a network's, a
-    shutdown's) goes through this; what acts on a container named by the user uses open_lxc_conn."""
+    shutdown's, the list of containers) goes through this; what acts on a container named by the user uses
+    open_lxc_conn."""
     try:
-        return open_lxc_conn()
+        return _lxc()
     except libvirt.libvirtError as e:
         logger.info("No LXC connection on this node, so no containers: %s", e)
         return None
