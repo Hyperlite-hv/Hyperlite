@@ -1,0 +1,1 @@
+- hyperlite-daemon counts wrong passwords and second-factor codes itself, out of the API's reach, and refuses an account or a pre-authentication token that failed too often (GHSA-83f3-qj22-m659).
