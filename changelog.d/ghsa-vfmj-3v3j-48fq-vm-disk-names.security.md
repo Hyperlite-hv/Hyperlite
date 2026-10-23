@@ -1,0 +1,1 @@
+- A new VM's disk is never written over a file already in the storage pool, such as another VM's disk: the creation refuses a name whose disk file exists (GHSA-vfmj-3v3j-48fq).
