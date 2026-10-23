@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core import cloudinit_edit, firmware, lvm_storage, maintenance, vm_locks, zfs_storage
+from app.core import cloudinit_edit, disk_images, firmware, lvm_storage, maintenance, vm_locks, zfs_storage
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
@@ -28,12 +28,14 @@ from app.core.security import get_current_user
 from app.core.tasks import answer_later, create_task
 from app.core.vm_builder import (
     BASE_IMAGE,
+    IMAGES_DIR,
     build_domain_xml,
     create_cloudinit_iso,
     create_cloudinit_reseed_iso,
     create_disk,
     create_disk_from_import,
     create_zvol_disk,
+    disk_file,
     ensure_base_image,
     get_or_create_automation_pubkey,
     validate_name,
@@ -326,6 +328,10 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         if not candidate.exists():
             errors.append(f"Imported disk '{payload.import_disk}' not found")
         else:
+            try:
+                disk_images.check(candidate)  # it names no other file to read (a backing file...)
+            except disk_images.UnsafeImage as e:
+                errors.append(str(e))
             import_disk_path = candidate
 
     # "Installation from an ISO" mode: a blank system disk, and the operating system is installed by hand from the
@@ -433,6 +439,14 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         if iscsi_pool is not None:
             luns, lun_errors = _resolve_luns(conn, iscsi_pool, payload.disks, payload.erase_luns)
             errors.extend(lun_errors)
+
+        if zfs_pool_name is None and iscsi_pool is None and lvm_pool is None:
+            for i in range(len(payload.disks)):
+                path = disk_file(target_dir or IMAGES_DIR, payload.name, i)
+                if path.exists():  # another VM's disk, maybe: never written over (GHSA-vfmj-3v3j-48fq)
+                    errors.append(
+                        f"A disk file '{path.name}' already exists in this storage pool: choose another VM name"
+                    )
 
         if errors:
             if not check_only:

@@ -215,13 +215,28 @@ def _is_dirty():
 # (presence of .git), and ALL the behaviour below stays unchanged there: this path
 # only activates on a machine where `apt install hyperlite` was really run at
 # least once (dpkg knows it as "installed").
+GIT_UPDATES_ENV = "HYPERLITE_GIT_UPDATES"
+
+
 def _install_method():
     if (REPO_DIR / ".git").exists():
         return "git"
     r = _run_c(["dpkg-query", "-W", "-f=${Status}", "hyperlite"])
     if r.returncode == 0 and "install ok installed" in r.stdout:
         return "apt"
-    return "git"  # indeterminate state: fall back to the historical behaviour
+    return "unknown"  # neither a checkout nor the package: nothing to update from
+
+
+def git_updates_allowed():
+    """An update from git applies, as root, whatever the remote branch holds, with no signature to check
+    (GHSA-rm3v-9jj9-7qmj): only on a development checkout whose administrator asked for it."""
+    return _install_method() == "git" and os.environ.get(GIT_UPDATES_ENV) == "1"
+
+
+GIT_UPDATES_REFUSED = (
+    f"Updating from git applies unsigned code as root: it is for development checkouts, with {GIT_UPDATES_ENV}=1 in "
+    "the service's environment. A node installed from the package updates from the mirror."
+)
 
 
 def _raw_installed_version():
@@ -615,13 +630,17 @@ def _run_update_job(task_id, username, branch):
 
         if "requirements.txt" in changed:
             step(45, "Installing Python dependencies (pip install)")
-            pip = _run([str(REPO_DIR / "venv" / "bin" / "pip"), "install", "-r", "requirements.txt"], timeout=300)
+            pip = _run(
+                [str(REPO_DIR / "venv" / "bin" / "pip"), "install", "--require-hashes", "-r", "requirements.txt"],
+                timeout=300,
+            )
             if pip.returncode != 0:
                 raise RuntimeError(f"pip install failed: {pip.stderr.strip()[:400]}")
 
         if "dashboard/package.json" in changed or "dashboard/package-lock.json" in changed:
             step(55, "Installing frontend dependencies (npm install)")
-            npm_i = _run(["npm", "install"], cwd=REPO_DIR / "dashboard", timeout=300)
+            # No dependency's install script runs as root here.
+            npm_i = _run(["npm", "install", "--ignore-scripts"], cwd=REPO_DIR / "dashboard", timeout=300)
             if npm_i.returncode != 0:
                 raise RuntimeError(f"npm install failed: {npm_i.stderr.strip()[:400]}")
 
@@ -902,6 +921,8 @@ def _start_update(user, system=True):
             detail="Working tree is not clean (uncommitted changes): commit or discard them before updating.",
         )
 
+    if not git_updates_allowed():
+        raise HTTPException(status_code=409, detail=GIT_UPDATES_REFUSED)
     task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
     _start_job(user, "git", task_id)
     return {"task_id": task_id, "status": "running"}
