@@ -154,12 +154,19 @@ def enable_protection(vm_name, node, username):
                 f"HA protection impossible: {reason}, so nothing would stop a second copy of the VM on another node"
             )
 
+        admission = None
+        if domain.isActive():  # a stopped VM counts once it starts (the start checks it then)
+            from app.core import ha_admission, ha_recovery
+
+            need = ha_recovery.memory_mib(domain.XMLDesc(0))
+            admission = ha_admission.refuse_if_strict((vm_name, node_label, need, False))
         with contextlib.suppress(libvirt.libvirtError):
             domain.setAutostart(0)  # started at boot by Hyperlite only, which checks the HA record first (4.4)
         _store().protect(vm_name, node_label, _portable_xml(domain.XMLDesc(0)), username, _now())
         log_action(username, "ha_enable", vm_name, "success", f"node {node_label}")
     finally:
         conn.close()
+    return admission
 
 
 NODE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")

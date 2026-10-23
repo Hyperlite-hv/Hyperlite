@@ -44,6 +44,22 @@ def _stopped_networks(conn, domain):
     return stopped
 
 
+def _admit_ha_start(name, node, domain, user, task_id):
+    """An HA VM about to start counts in HA's admission control (app/core/ha_admission.py): refused under "strict"
+    when the loss of a member would then leave no room for its HA VMs; said in the log under "warn"."""
+    from app.core import ha, ha_admission, ha_recovery
+
+    if not ha.get_protected(name):
+        return
+    try:
+        result = ha_admission.refuse_if_strict((name, node, ha_recovery.memory_mib(domain.XMLDesc(0)), True))
+    except RuntimeError as e:
+        log_action(user["username"], "start_vm", name, "failed", str(e), task_id=task_id)
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    if result["detail"]:
+        logger.warning("Starting HA VM %s: %s", name, result["detail"])
+
+
 def _has_hookscript(domain):
     try:
         return hookscript.script_of_domain_xml(ET.fromstring(domain.XMLDesc(0))) is not None
@@ -86,6 +102,7 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
             msg = f"VM '{name}' is busy: {busy} is in progress. Start it once it has finished."
             log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=409, detail=msg)
+        _admit_ha_start(name, node, domain, user, task_id)
         stopped = _stopped_networks(conn, domain)
         if stopped:
             # libvirt's own refusal named no remedy ("network 'default' is not active").

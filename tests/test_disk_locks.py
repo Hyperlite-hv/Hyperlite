@@ -54,6 +54,9 @@ class Domain:
     def setAutostart(self, on):
         pass
 
+    def isActive(self):
+        return False  # stopped: admission control counts it once it starts
+
 
 def disk_xml(path, driver="<driver name='qemu' type='qcow2'/>"):
     return f"<domain><name>web</name><devices><disk type='file' device='disk'>{driver}<source file='{path}'/></disk></devices></domain>"

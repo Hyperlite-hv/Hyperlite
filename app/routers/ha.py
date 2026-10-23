@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import ha, ha_fencing, ha_watch, maintenance
+from app.core import ha, ha_admission, ha_fencing, ha_watch, maintenance
 from app.core.audit import log_action
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
@@ -41,11 +41,14 @@ def _with_policy(row):
 @router.post("/{vm_name}/enable", status_code=201)
 def enable(vm_name: str, payload: EnableRequest, user: dict = Depends(require_role("admin"))):
     try:
-        ha.enable_protection(vm_name, payload.node, user["username"])
+        admission = ha.enable_protection(vm_name, payload.node, user["username"])
         ha.set_policy(vm_name, payload.priority, payload.preferred_nodes)
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return _with_policy(ha.get_protected(vm_name))
+    out = _with_policy(ha.get_protected(vm_name))
+    if admission and admission["detail"]:
+        out["admission"] = admission  # under "warn": accepted, and said
+    return out
 
 
 @router.delete("/{vm_name}")
@@ -75,7 +78,18 @@ def recover(vm_name: str, payload: RecoverRequest, user: dict = Depends(require_
 
 @router.get("/status")
 def watch_status(user: dict = Depends(get_current_user)):
-    return ha_watch.status()
+    return {**ha_watch.status(), "admission": ha_admission.check()}
+
+
+class AdmissionPolicy(BaseModel):
+    policy: Literal["warn", "strict", "off"]
+
+
+@router.put("/admission")
+def put_admission(payload: AdmissionPolicy, user: dict = Depends(require_role("admin"))):
+    ha_admission.set_policy(payload.policy)
+    log_action(user["username"], "ha_admission", "ha", "success", f"policy={payload.policy}")
+    return ha_admission.check()
 
 
 class HaSettings(BaseModel):
