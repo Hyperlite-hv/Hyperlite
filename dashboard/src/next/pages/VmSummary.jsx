@@ -110,7 +110,7 @@ export default function VmSummary({ resource: vm }) {
             <dt>{t("vm.ssh")}</dt><dd className="nx-mono">{vm.ssh_user ? `${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}` : na}</dd>
             <dt>{t("vm.tools")}</dt><dd>{vm.guest_agent ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.guest_agent}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
             <dt>{t("wz.firmware")}</dt><dd>{vm.firmware ? t(`fw.${vm.firmware}`) : na}</dd>
-            <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : "qcow2"}</dd>
+            <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"}</dd>
             <dt>UUID</dt><dd className="nx-mono nx-muted nx-break">{vm.uuid || na}</dd>
           </dl>
         </Card>

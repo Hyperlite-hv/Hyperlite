@@ -12,7 +12,17 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cluster, cluster_view, iscsi, nfs_permissions, renaming, shared_pools, smb_storage, zfs_storage
+from app.core import (
+    cluster,
+    cluster_view,
+    iscsi,
+    lvm_storage,
+    nfs_permissions,
+    renaming,
+    shared_pools,
+    smb_storage,
+    zfs_storage,
+)
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
@@ -47,6 +57,8 @@ NFS_HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.:_-]{0,253})$")
 # Absolute path (server-side NFS export, or the local directory of a "dir"
 # pool): no spaces or special XML/shell characters.
 POOL_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.-]{0,255}$")
+# "lvm" pool built on a disk: a device under /dev (a whole disk or a partition), never a path with "..".
+LVM_DEVICE_RE = re.compile(r"^/dev/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9/_.:-]{0,200}$")
 # Every file in a "dir" pool's directory is listed as a volume, and a volume can be deleted from the dashboard: a
 # pool on /etc (accepted until the audit before 1.0.0) offered /etc/passwd for deletion. Refused, with everything
 # below them.
@@ -133,7 +145,7 @@ def _pool_root(pool):
         return None
 
 
-def _pool_summary(pool):
+def _pool_summary(pool, node=None):
     state, capacity, allocation, available = pool.info()
     if _pool_type(pool) == "iscsi":
         # libvirt counts every LUN as fully allocated, so an iSCSI pool always looked 100 % full. What matters is
@@ -149,7 +161,20 @@ def _pool_summary(pool):
             pass
     root = _pool_root(pool)
     smb = root is not None and smb_storage.is_smb(root)
+    thin = None
+    if _pool_type(pool) == "logical" and root is not None and state == libvirt.VIR_STORAGE_POOL_RUNNING:
+        # VM disks in its thin pool: what the pool holds is that thin pool, filled as LVM reports it (libvirt counts
+        # the thin pool as one volume taking the whole group).
+        try:
+            thin = lvm_storage.thin_pool_of(root.findtext("source/name"), node)
+        except lvm_storage.LvmError as e:
+            logger.warning("Thin pool of %s not read: %s", pool.name(), e)
+        if thin is not None:
+            capacity = thin["size"]
+            allocation = round(thin["size"] * (thin["data_percent"] or 0) / 100)
+            available = capacity - allocation
     return {
+        "lvm_thin_pool": thin["name"] if thin else None,
         # A netfs pool mounts an NFS export or an SMB share: the same shared storage, said apart here.
         "protocol": ("smb" if smb else "nfs") if _pool_type(pool) == "netfs" else None,
         "smb_version": smb_storage.version_of(root) if smb else None,
@@ -190,7 +215,7 @@ def _pools(node):
         for pool in conn.listAllStoragePools():
             # A pool removed while the list is built (another session deleting it) is skipped, not a failed list.
             try:
-                result.append(_pool_summary(pool))
+                result.append(_pool_summary(pool, node))
             except libvirt.libvirtError as e:
                 if e.get_error_code() != libvirt.VIR_ERR_NO_STORAGE_POOL:
                     raise
@@ -219,7 +244,7 @@ class PoolCreate(BaseModel):
     # become VM disks.
     # "smb": an SMB/CIFS share of a Windows server or a NAS, mounted by libvirt as a netfs pool (app/core/smb_storage.py):
     # shared storage as an NFS pool is, and listed as one ("netfs", with protocol "smb").
-    type: str = Field(pattern="^(dir|netfs|smb|zfs|iscsi)$")
+    type: str = Field(pattern="^(dir|netfs|smb|zfs|iscsi|lvm)$")
     path: str | None = None  # pool "dir" : repertoire local (defaut si omis)
     nfs_host: str | None = None  # "netfs" pool: NFS server host
     nfs_export_path: str | None = None  # pool "netfs" : path exporte cote server
@@ -238,6 +263,13 @@ class PoolCreate(BaseModel):
     smb_password: str | None = Field(None, max_length=255)  # kept in a root-only file on each node, never returned
     smb_domain: str | None = None  # "smb" pool: the Windows domain or workgroup, when the server needs it
     smb_version: Literal["default", "3.1.1", "3.0", "2.1", "2.0"] = "default"  # "default": negotiated
+    # "lvm": libvirt's logical pool on a volume group (app/core/lvm_storage.py): an existing one, or one built on an
+    # empty disk (lvm_device), as Proxmox VE's LVM storage.
+    lvm_vg: str | None = None
+    lvm_device: str | None = None
+    # "lvm" pool: the thin pool its VM disks are made in (LVM-thin): an existing one of the group, or one Hyperlite
+    # creates over the group's free space. None: thick volumes.
+    lvm_thin_pool: str | None = None
     # Shared storage (NFS, iSCSI) declared for several nodes at once, as on Proxmox: every node, including the ones
     # registered later (all_nodes), or the nodes listed ("local" is this host). See app/core/shared_pools.py.
     all_nodes: bool = False
@@ -249,8 +281,16 @@ def _build_pool_xml(payload: PoolCreate, target_path: str, cred_path: str | None
     string concatenation: the security audit had found an XML injection in
     bridge-mode network creation for exactly that reason, and the mistake must
     not be repeated here."""
-    pool_el = ET.Element("pool", type="netfs" if payload.type == "smb" else payload.type)
+    pool_el = ET.Element("pool", type={"smb": "netfs", "lvm": "logical"}.get(payload.type, payload.type))
     ET.SubElement(pool_el, "name").text = payload.name
+    if payload.type == "lvm":
+        source_el = ET.SubElement(pool_el, "source")
+        if payload.lvm_device:
+            ET.SubElement(source_el, "device", path=payload.lvm_device)
+        ET.SubElement(source_el, "name").text = payload.lvm_vg
+        ET.SubElement(source_el, "format", type="lvm2")
+        ET.SubElement(ET.SubElement(pool_el, "target"), "path").text = target_path
+        return ET.tostring(pool_el, encoding="unicode")
     if payload.type == "iscsi":
         source_el = ET.SubElement(pool_el, "source")
         ET.SubElement(source_el, "host", name=payload.iscsi_host, port=str(payload.iscsi_port))
@@ -337,6 +377,7 @@ def storage_support(user: dict = Depends(get_current_user)):
         "zfs": zfs_storage.status(),
         "iscsi": "ok" if iscsi.initiator_available() else "no_initiator",
         "smb": "ok" if shutil.which("mount.cifs") else "no_client",
+        "lvm": "ok" if shutil.which("lvm") else "no_tools",
         # The storage side must allow this name (ACL) before it shows any LUN.
         "iscsi_initiator": iscsi.initiator_name(),
     }
@@ -416,6 +457,21 @@ def _create_single(payload, node, user):
                 status_code=422, detail="The iSCSI initiator is not installed on this host (open-iscsi package)"
             )
         target_path = iscsi.BY_PATH
+    elif payload.type == "lvm":
+        try:
+            lvm_storage.check_name(payload.lvm_vg or "")
+        except lvm_storage.LvmError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
+        if payload.lvm_thin_pool is not None:
+            try:
+                lvm_storage.check_name(payload.lvm_thin_pool, "thin pool")
+            except lvm_storage.LvmError as e:
+                raise HTTPException(status_code=422, detail=str(e)) from None
+        if payload.lvm_device and not LVM_DEVICE_RE.match(payload.lvm_device):
+            raise HTTPException(status_code=422, detail="Invalid disk: a device under /dev, such as /dev/sdb")
+        if not node and shutil.which("lvm") is None:
+            raise HTTPException(status_code=422, detail="LVM is not installed on this host (lvm2 package)")
+        target_path = f"/dev/{payload.lvm_vg}"
     elif payload.type == "smb":
         error = smb_storage.validation_error(
             bool(payload.smb_host and NFS_HOST_RE.match(payload.smb_host)),
@@ -487,8 +543,8 @@ def _create_on(payload, node, target_path, user):
             # build() creates the local directory ("dir") or the mount point ("netfs"),
             # needed before create() on a brand new pool. flags=0: no destructive reformatting
             # of an existing medium. An iSCSI pool has nothing to build (the LUNs exist on the
-            # storage side).
-            if payload.type != "iscsi":
+            # storage side), nor an LVM pool on an existing volume group; on a disk, build() makes the group.
+            if payload.type != "iscsi" and not (payload.type == "lvm" and not payload.lvm_device):
                 pool.build(0)
             pool.create(0)
             pool.setAutostart(True)
@@ -522,8 +578,20 @@ def _create_on(payload, node, target_path, user):
                 ) from e
             raise HTTPException(status_code=500, detail=f"Pool creation error: {msg}") from e
 
+        if payload.type == "lvm" and payload.lvm_thin_pool:
+            try:
+                lvm_storage.ensure_thin_pool(payload.lvm_vg, payload.lvm_thin_pool, node)
+            except lvm_storage.LvmError as e:
+                # The pool is not left half made: its group stays as it is (a group built on a disk included).
+                with contextlib.suppress(libvirt.libvirtError):
+                    pool.destroy()
+                with contextlib.suppress(libvirt.libvirtError):
+                    pool.undefine()
+                log_action(user["username"], "create_storage_pool", payload.name, "failed", str(e))
+                raise HTTPException(status_code=422, detail=f"Thin pool: {e}") from e
+
         log_action(user["username"], "create_storage_pool", payload.name, "success")
-        summary = _pool_summary(pool)
+        summary = _pool_summary(pool, node)
         if payload.type == "netfs" and not node:
             # Mounted fine is not enough: QEMU must be able to own its disk files there (root_squash).
             perm = nfs_permissions.check(target_path, export=payload.nfs_export_path)
@@ -782,7 +850,7 @@ def _rename_on(pool_name, new, node, user):
             raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
         renaming.storage_pool_records(pool_name, new, node or "local")
         log_action(user["username"], "rename_storage_pool", pool_name, "success", f"-> {new} on {node or 'local'}")
-        return _pool_summary(renamed)
+        return _pool_summary(renamed, node)
     finally:
         conn.close()
 
@@ -892,6 +960,14 @@ def _delete_single(pool_name, node, detach, user):
         pool.refresh(0)
         volumes = pool.listAllVolumes()
         pool_root = ET.fromstring(pool.XMLDesc(0))
+        if pool_root.get("type") == "logical":
+            # libvirt does not see thin volumes nor thin pools: it would call a group holding only those empty and
+            # stop the pool under them. LVM itself is asked; libvirt's pool deletion (the whole group) is never used.
+            try:
+                lvm_storage.refuse_removal_if_not_empty(pool_root.findtext("source/name"), node)
+            except lvm_storage.LvmError as e:
+                log_action(user["username"], "delete_storage_pool", pool_name, "failed", str(e))
+                raise HTTPException(status_code=409, detail=str(e)) from e
         # The base image Hyperlite copied into the pool for the VMs built on it (vm_builder.ensure_pool_base_image)
         # is its own copy, not a file of the user's: it does not keep the pool from being removed. A pool where it
         # is the last file therefore said "still contains 1 file" for a pool the user had emptied.
@@ -999,6 +1075,26 @@ def _volumes(pool_name):
                     "used": vol.path() in in_use,
                 }
             )
+        root = ET.fromstring(pool.XMLDesc(0))
+        if root.get("type") == "logical":
+            # What libvirt does not list: thin volumes and thin pools, read from LVM.
+            seen = {v["name"] for v in result}
+            try:
+                extra = [v for v in lvm_storage.logical_volumes(root.findtext("source/name")) if v["name"] not in seen]
+            except lvm_storage.LvmError as e:
+                logger.warning("Thin volumes of pool %s not listed: %s", pool_name, e)
+                extra = []
+            for v in extra:
+                result.append(
+                    {
+                        "name": v["name"],
+                        "path": v["path"],
+                        "capacity_gb": round(v["size"] / 1024**3, 3),
+                        "allocation_gb": None,
+                        "used": v["path"] in in_use,
+                        "lvm_kind": v["kind"],
+                    }
+                )
         return result
     finally:
         conn.close()

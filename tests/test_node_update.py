@@ -43,7 +43,7 @@ def job(database, monkeypatch, tmp_path):
     monkeypatch.setattr(update.version, "STARTUP_VERSION", "1.0.0")
     monkeypatch.setattr(host_system, "REBOOT_REQUIRED", tmp_path / "reboot-required")
 
-    def run(versions, reboot=False):
+    def run(versions, reboot=False, system=True):
         seq = iter(versions)
         monkeypatch.setattr(update, "_dpkg_installed_version", lambda: next(seq))
 
@@ -56,7 +56,7 @@ def job(database, monkeypatch, tmp_path):
 
         monkeypatch.setattr(host_system, "run_upgrade", upgrade)
         task_id = create_task("hyperlite_update", "hyperlite", username="alice")
-        update._run_update_job_apt(task_id, "alice")
+        update._run_update_job_apt(task_id, "alice", system=system)
         with database.get_conn() as conn:
             return conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()[0]
 
@@ -83,3 +83,23 @@ def test_the_upgrade_command_answers_debian_prompts_and_keeps_hyperlite_from_res
     cmd = update._full_upgrade_command()
     assert cmd[-1] == "full-upgrade" and "HYPERLITE_SKIP_RESTART=1" in cmd and "DEBIAN_FRONTEND=noninteractive" in cmd
     assert "Dpkg::Options::=--force-confold" in cmd
+
+
+def test_hyperlite_alone_is_installed_without_a_time_limit(job, monkeypatch):
+    """Hyperlite alone (system=False), as the full upgrade: apt-get runs to its end, its output in the task's log. A
+    300 s limit killed it in the middle of dpkg on a loaded node (a new dependency still unpacking), leaving packages
+    unpacked and not configured."""
+    run, calls = job
+
+    real_run = update.subprocess.run
+
+    def no_timeout(cmd, *args, **kwargs):
+        if "install" in cmd:  # dpkg runs under an install: never killed (a download may keep its limit)
+            raise AssertionError(f"apt-get install run with a time limit: {cmd}")
+        return real_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(update, "_keep_previous", lambda task_id: None)
+    monkeypatch.setattr(update.subprocess, "run", no_timeout)
+    assert run(["1.0.0", "1.0.1"], system=False) == "succeeded"
+    [cmd] = calls["upgrade"]
+    assert cmd[-3:] == ["install", "--only-upgrade", "hyperlite"] and "HYPERLITE_SKIP_RESTART=1" in cmd
