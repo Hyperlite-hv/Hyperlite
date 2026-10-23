@@ -6,6 +6,7 @@ decrypts it.
 """
 
 import asyncio
+import json
 
 from app.core import self_node
 from app.core.database import get_conn
@@ -54,6 +55,7 @@ class SqliteHaStore:
 
     def unprotect(self, vm_name):
         _write("DELETE FROM ha_protected_vms WHERE vm_name = ?", (vm_name,))
+        self.drop_policy(vm_name)
 
     def sync_definition(self, vm_name, domain_xml, now, node=None):
         """A fresher copy of the VM's definition; `node` too after a recovery onto another node."""
@@ -76,6 +78,37 @@ class SqliteHaStore:
             _write("UPDATE ha_protected_vms SET node = ? WHERE vm_name = ?", (self_node.to_db(node), vm_name)).rowcount
             > 0
         )
+
+    # ---- Automatic HA per VM (ha_policies) ----
+
+    def policy(self, vm_name):
+        """{"priority", "preferred_nodes", "auto_restarts"}: the defaults for a VM that has no row."""
+        row = _one("SELECT * FROM ha_policies WHERE vm_name = ?", (vm_name,))
+        if not row:
+            return {"priority": "medium", "preferred_nodes": [], "auto_restarts": []}
+        return {
+            "priority": row["priority"],
+            "preferred_nodes": json.loads(row["preferred_nodes"] or "[]"),
+            "auto_restarts": json.loads(row["auto_restarts"] or "[]"),
+        }
+
+    def set_policy(self, vm_name, priority, preferred_nodes):
+        _write(
+            "INSERT INTO ha_policies (vm_name, priority, preferred_nodes) VALUES (?, ?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET priority = excluded.priority, preferred_nodes = excluded.preferred_nodes",
+            (vm_name, priority, json.dumps(list(preferred_nodes))),
+        )
+
+    def record_restart(self, vm_name, restarts):
+        """The VM's automatic restarts within the last hour, the newest included."""
+        _write(
+            "INSERT INTO ha_policies (vm_name, auto_restarts) VALUES (?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET auto_restarts = excluded.auto_restarts",
+            (vm_name, json.dumps(list(restarts))),
+        )
+
+    def drop_policy(self, vm_name):
+        _write("DELETE FROM ha_policies WHERE vm_name = ?", (vm_name,))
 
     def record_watch(self, vm_name, state, action, now):
         _write(

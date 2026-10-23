@@ -81,6 +81,13 @@ VM restart priority; `medium` by default), and in each priority in the order the
    the next candidate once. A start refused because its disk is still locked (4.7) is tried again every 10 s for the
    storage's lock lease (90 s on NFSv4), plus 30 s: a node powered off by its BMC may still hold it that long.
 3. **Limit**: at most 3 automatic restarts of a VM per hour; then it goes to **manual**.
+4. **What the VM carries off a dead node**, which cannot be asked anything: its definition as last stored, with its
+   CD-ROMs emptied (an ISO of the lost node's own library would keep it from starting anywhere else); its networks
+   started on the target when they exist there stopped; its tags, notes and start at boot, as after a migration. What
+   stays behind: its snapshots' records (in the lost node's libvirt), its UEFI variables (recreated from the firmware's
+   template: keys enrolled since are lost), its TPM state (a new one), its address reservation on the lost node's NAT
+   network. The member that was lost is never a target of its own VMs, even back: whatever made it fail may not be
+   over (Proxmox VE and vSphere recover elsewhere too).
 
 ### 4.4 The node that comes back
 
