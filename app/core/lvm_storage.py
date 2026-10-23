@@ -122,4 +122,46 @@ def extend(vg, lv, size_bytes, node=None):
         raise LvmError(f"Volume '{lv}' not found in '{vg}'")
     if size_bytes <= current["size"]:
         raise LvmError("A logical volume is only grown here: the new size must be larger")
-    _run(["lvm", "lvextend", "-L", f"{int(size_bytes)}b", f"{vg}/{lv}"], node)
+    _run(["lvm", "lvextend", "-L", f"{-(-int(size_bytes) // 2**20)}m", f"{vg}/{lv}"], node)
+
+
+def lv_of_path(path, node=None):
+    """(group, volume) when `path` is a volume of a volume group (/dev/<group>/<volume>), else None."""
+    parts = str(path).split("/")
+    if len(parts) != 4 or parts[:2] != ["", "dev"] or parts[2] in ("zvol", "disk", "mapper"):
+        return None
+    vg, lv = parts[2], parts[3]
+    if not LVM_NAME_RE.fullmatch(vg) or not LVM_NAME_RE.fullmatch(lv):
+        return None
+    try:
+        names = {v["name"] for v in logical_volumes(vg, node)}
+    except LvmError:
+        return None
+    return (vg, lv) if lv in names else None
+
+
+def create_vm_disk(pool, vm_name, index, disk_gb, base_image=None, import_source=None):
+    """A VM disk on a libvirt logical pool, as create_zvol_disk does on ZFS: a thick volume made through libvirt, the
+    base cloud image or an imported disk written into it raw. Returns its device path, attached as a block disk. A
+    failure removes the volume."""
+    name = vm_name if index == 0 else f"{vm_name}-{index + 1}"
+    check_name(name, "volume")
+    source = import_source or base_image
+    if import_source is not None:
+        info = subprocess.run(
+            ["qemu-img", "info", "--output=json", str(import_source)], check=True, capture_output=True, text=True
+        )
+        disk_gb = max(1, -(-json.loads(info.stdout)["virtual-size"] // 2**30))
+    vol = pool.createXML(f"<volume><name>{name}</name><capacity unit='GiB'>{int(disk_gb)}</capacity></volume>", 0)
+    try:
+        if source is not None:
+            subprocess.run(
+                ["qemu-img", "convert", "-O", "raw", str(source), vol.path()],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+    except BaseException:
+        vol.delete(0)
+        raise
+    return vol.path()

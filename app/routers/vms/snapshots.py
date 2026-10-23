@@ -168,6 +168,13 @@ def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(req
                 raise
             return {"task_id": task_id, "name": payload.name, "status": "running"}
 
+        # A raw block disk left (zvols took the branch above, iSCSI was refused): a logical volume of an LVM pool.
+        # libvirt's internal snapshots need qcow2: the task would fail after the fact with libvirt's own message.
+        if ET.fromstring(domain.XMLDesc(0)).find("devices/disk[@type='block'][@device='disk']") is not None:
+            msg = "This VM's disks are LVM logical volumes: its snapshots are not available yet on an LVM pool"
+            log_action(user["username"], "create_snapshot", name, "failed", msg)
+            raise HTTPException(status_code=422, detail=msg)
+
         # QEMU cannot save a running VM's state while its firmware is in pflash (every UEFI VM): libvirt would fail
         # the task after the fact with "internal snapshots of a VM with pflash based firmware are not supported".
         if domain.isActive() and firmware.is_pflash(ET.fromstring(domain.XMLDesc(0))):

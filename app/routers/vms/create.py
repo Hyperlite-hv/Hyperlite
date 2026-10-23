@@ -10,7 +10,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.core import cloudinit_edit, firmware, maintenance, vm_locks, zfs_storage
+from app.core import cloudinit_edit, firmware, lvm_storage, maintenance, vm_locks, zfs_storage
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
@@ -396,6 +396,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         # same limit as list_pools/delete_pool in app/routers/storage.py).
         zfs_pool_name = None
         iscsi_pool = None
+        lvm_pool = None
         if not payload.storage_pool or payload.storage_pool == "default":
             try:
                 ensure_default_pool(conn)
@@ -416,9 +417,12 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
                     pool_type, pool_path = pool_type_and_target_path(pool)
                     if pool_type == "iscsi":
                         iscsi_pool = pool
+                    elif pool_type == "logical":
+                        # LVM: each disk a logical volume, attached as a raw block device as zvols are.
+                        lvm_pool = pool
                     elif pool_type not in ("dir", "netfs"):
                         errors.append(
-                            f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi only)"
+                            f"Storage pool '{payload.storage_pool}' of type '{pool_type}' is not supported for VM creation (dir/netfs/iscsi/lvm only)"
                         )
                     elif not pool_path:
                         errors.append(f"Storage pool '{payload.storage_pool}': its path cannot be read")
@@ -483,6 +487,29 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
                         )
                         for i, disk in enumerate(payload.disks)
                     ]
+            elif lvm_pool is not None:
+                # Thick logical volumes made through libvirt, the image written raw into disk 0 (app/core/lvm_storage.py).
+                if import_mode:
+                    system_source = import_disk_path
+                elif install_mode:
+                    system_source = None
+                else:
+                    ensure_base_image()
+                    system_source = BASE_IMAGE
+                disk_paths = [
+                    (
+                        lvm_storage.create_vm_disk(
+                            lvm_pool,
+                            payload.name,
+                            i,
+                            disk.size_gb,
+                            base_image=system_source if i == 0 and not import_mode else None,
+                            import_source=import_disk_path if i == 0 and import_mode else None,
+                        ),
+                        "block",
+                    )
+                    for i, disk in enumerate(payload.disks)
+                ]
             elif import_mode:
                 # Disk 0 = conversion of the imported file (qemu-img detects the source format by
                 # itself); any additional disks are always blank as usual.
@@ -533,6 +560,11 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         except zfs_storage.ZfsError as e:
             log_action(user["username"], "create_vm", payload.name, "failed", e.message, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"ZFS error while preparing the disk: {e.message}") from e
+        except (lvm_storage.LvmError, libvirt.libvirtError) as e:
+            # LVM: a full volume group, or a volume name already taken in it.
+            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+            log_action(user["username"], "create_vm", payload.name, "failed", msg, task_id=task_id)
+            raise HTTPException(status_code=500, detail=f"Error while preparing the disk: {msg}") from e
         except ValueError as e:
             log_action(user["username"], "create_vm", payload.name, "failed", str(e), task_id=task_id)
             raise HTTPException(status_code=422, detail=str(e)) from e
