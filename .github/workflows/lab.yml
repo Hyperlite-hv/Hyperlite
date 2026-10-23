@@ -218,6 +218,8 @@ jobs:
           key: debian-13-generic-v1
       - name: A cluster of three Hyperlite nodes
         run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/lab"
           sudo systemctl start libvirtd
           pip install pytest==9.1.1
           sudo iptables -P FORWARD ACCEPT
@@ -225,12 +227,18 @@ jobs:
           deb=$(ls "$PWD"/installer/hyperlite_*_amd64.deb)
           sudo env PATH="$RUNNER_TEMP/bin:$PATH" HYPERLITE_LAB_DEB="$deb" HYPERLITE_LAB_PROVIDER="$RUNNER_TEMP/provider" \
             HYPERLITE_LAB_DIR="$RUNNER_TEMP/lab" HYPERLITE_LAB_CACHE=/tmp/hyperlite-lab-cache \
-            "$(which python)" -m pytest -q -s -rs -p no:cacheprovider lab/tests
+            "$(which python)" -m pytest -q -s -rs -p no:cacheprovider lab/tests 2>&1 | tee "$RUNNER_TEMP/lab/pytest.log"
       - if: always()
         run: sudo chmod -R a+rX /tmp/hyperlite-lab-cache "$RUNNER_TEMP/lab" || true
+      # The end of each log as an annotation too: the checks' API gives them to whoever cannot open the logs.
+      - if: failure()
+        name: Say why
+        run: python3 lab/annotate.py "$RUNNER_TEMP/lab"
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hyperlite-cluster-logs
-          path: ${{ runner.temp }}/lab/n*/*.log
+          path: |
+            ${{ runner.temp }}/lab/pytest.log
+            ${{ runner.temp }}/lab/n*/*.log
           retention-days: 7
