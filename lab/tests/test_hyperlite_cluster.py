@@ -215,10 +215,10 @@ def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
     finished(1, t[1], started["task_id"], node=b)
     assert api(2, "GET", "/vms/labvm", token=t[2])[0] == 200
     assert api(1, "GET", "/vms/labvm", token=t[1])[0] == 404
-    vm = ok(api(1, "GET", f"/vms/labvm?node={b}", token=t[1]))
-    if vm["state"] != "stopped":
-        api(1, "POST", f"/vms/labvm/stop?node={b}&force_after=0", token=t[1])
-        wait("labvm stopped", lambda: ok(api(1, "GET", f"/vms/labvm?node={b}", token=t[1]))["state"] == "stopped")
+    # A live migration (the only kind there is; a stopped VM goes by export and import), its disk copied along.
+    if ok(api(1, "GET", f"/vms/labvm?node={b}", token=t[1]))["state"] != "active":
+        ok(api(1, "POST", f"/vms/labvm/start?node={b}", token=t[1]))
+        wait("labvm running", lambda: ok(api(1, "GET", f"/vms/labvm?node={b}", token=t[1]))["state"] == "active")
     moved = ok(api(1, "POST", f"/vms/labvm/migrate?node={b}", {"target_node": c}, t[1]))
     if moved.get("task_id"):
         finished(1, t[1], moved["task_id"], node=b)
