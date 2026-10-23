@@ -382,3 +382,72 @@ resource "hyperlite_vm" "moved" {{
         api(1, "DELETE", f"/isos/tfboot.iso?node={b}&confirm=true", token=t[1])
     assert destroyed.returncode == 0, destroyed.stdout + destroyed.stderr
     assert api(3, "GET", "/vms/tfvm", token=t[3])[0] == 404
+
+
+def test_an_ha_vm_is_restarted_elsewhere_when_its_node_is_cut_off(cluster):
+    """#333 step 4 (docs/design/ha-automatic.md, 4): an HA VM on node 2, its disk on an NFS share; node 2 cut from
+    Corosync loses the quorum, its watchdog resets it; the leader restarts the VM on another member, once; node 2,
+    back, has the VM no more."""
+    t, names = cluster["tokens"], cluster["names"]
+    b = names[2]
+    if not nested(2):
+        pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
+    on(1, "sh", "-c", "DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-kernel-server >/dev/null 2>&1")
+    on(
+        1,
+        "sh",
+        "-c",
+        "mkdir -p /srv/ha && chmod 777 /srv/ha && echo '/srv/ha 192.0.2.0/24(rw,sync,no_root_squash,no_subtree_check)' > /etc/exports && exportfs -ra && systemctl restart nfs-kernel-server",
+    )
+    pool = {"name": "hapool", "type": "netfs", "nfs_host": ip(1), "nfs_export_path": "/srv/ha", "all_nodes": True}
+    ok(api(1, "POST", "/storage", pool, t[1]), 200, 201, 202)
+    form, content_type = multipart("haboot.iso", b"\0" * (1 << 20))
+    ok(api(1, "POST", f"/isos?node={b}", form=form, content_type=content_type, token=t[1]))
+    spec = {
+        "name": "havm",
+        "vcpu": 1,
+        "memory_mb": 256,
+        "disks": [{"size_gb": 1}],
+        "iso": "haboot.iso",
+        "storage_pool": "hapool",
+    }
+    finished(1, t[1], ok(api(1, "POST", f"/vms?node={b}&wait=false", spec, t[1]))["task_id"], node=b)
+    if ok(api(1, "GET", f"/vms/havm?node={b}", token=t[1]))["state"] != "active":
+        ok(api(1, "POST", f"/vms/havm/start?node={b}", token=t[1]))
+    wait("havm running", lambda: ok(api(1, "GET", f"/vms/havm?node={b}", token=t[1]))["state"] == "active")
+    ok(api(1, "POST", "/ha/havm/enable", {"node": b, "priority": "high"}, t[1]), 201)
+    # Node 2 arms its watchdog: it hosts a running HA VM, in a cluster (app/core/ha_selffence.py).
+    wait(
+        "node 2's watchdog armed",
+        lambda: (
+            "softdog" in on(2, "sh", "-c", "lsmod | grep -o softdog || true")
+            or on(2, "sh", "-c", "fuser /dev/watchdog 2>/dev/null || true").strip()
+        ),
+        timeout=90,
+        every=5,
+    )
+    subprocess.run(["bash", str(LAB), "cut", "2"], check=True)
+    began = time.monotonic()
+
+    def running_elsewhere():
+        where = [
+            n
+            for n in (1, 3)
+            if api(n, "GET", "/vms/havm", token=t[n])[0] == 200
+            and ok(api(n, "GET", "/vms/havm", token=t[n]))["state"] == "active"
+        ]
+        return where or None
+
+    where = wait("havm restarted on another member", running_elsewhere, timeout=420, every=10)
+    print(f"[lab] havm restarted on node {where} {time.monotonic() - began:.0f} s after node 2 was cut off")
+    assert len(where) == 1, where  # one copy
+    subprocess.run(["bash", str(LAB), "heal", "2"], check=False)  # its reset cleared the cut already
+    tokens2 = wait("node 2 back", lambda: signed_in(2, PASSWORD), timeout=420, every=10)
+    wait("havm undefined on node 2", lambda: api(2, "GET", "/vms/havm", token=tokens2)[0] == 404, timeout=180, every=5)
+    record = next(r for r in ok(api(1, "GET", "/ha", token=t[1]))["items"] if r["vm_name"] == "havm")
+    assert record["node"] == names[where[0]] and record["ha_state"] == "ok" and record["priority"] == "high", record
+    n = where[0]
+    ok(api(1, "DELETE", "/ha/havm", token=t[1]))
+    ok(api(1, "POST", f"/vms/havm/stop?node={names[n]}&force=true", token=t[1]))
+    wait("havm stopped", lambda: ok(api(1, "GET", f"/vms/havm?node={names[n]}", token=t[1]))["state"] == "stopped")
+    ok(api(1, "DELETE", f"/vms/havm?node={names[n]}&confirm=true", token=t[1]))
