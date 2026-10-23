@@ -2,16 +2,17 @@ import logging
 import re
 import threading
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import quoteattr
 
 import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import checkpoints, disk_move, disk_resize, network_edit, passthrough, vm_locks
+from app.core import checkpoints, disk_images, disk_move, disk_resize, network_edit, passthrough, vm_locks
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import lookup_pool, lookup_volume, open_conn, pool_for_path
+from app.core.libvirt_utils import get_disk_paths_in_use, lookup_pool, lookup_volume, open_conn, pool_for_path
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
@@ -62,10 +63,34 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
                 status_code=404, detail=f"Volume '{payload.volume_name}' not found in pool '{payload.pool}'"
             ) from None
 
+        path = vol.path()
+        if path in get_disk_paths_in_use(conn):
+            log_action(user["username"], "attach_disk", name, "failed", "Volume already used by a VM")
+            raise HTTPException(status_code=409, detail=f"Volume '{payload.volume_name}' is already used by a VM")
+        kind = vol.info()[0]
+        if kind == libvirt.VIR_STORAGE_VOL_BLOCK:
+            disk_type, source, fmt = "block", "dev", "raw"  # a logical volume, a LUN, a zvol
+        elif kind == libvirt.VIR_STORAGE_VOL_FILE:
+            # Declared with the format it really has, and only once it names no other file to read
+            # (app/core/disk_images.py): QEMU reads what the definition says it is.
+            try:
+                fmt = disk_images.check(path)
+            except disk_images.UnsafeImage as e:
+                log_action(user["username"], "attach_disk", name, "failed", str(e))
+                raise HTTPException(status_code=422, detail=str(e)) from None
+            if fmt not in ("qcow2", "raw"):
+                detail = f"Volume '{payload.volume_name}' is a {fmt} image: convert it to qcow2 to attach it"
+                log_action(user["username"], "attach_disk", name, "failed", detail)
+                raise HTTPException(status_code=422, detail=detail)
+            disk_type, source = "file", "file"
+        else:
+            raise HTTPException(
+                status_code=422, detail=f"Volume '{payload.volume_name}' is neither a file nor a device"
+            )
         disk_xml = f"""
-        <disk type='file' device='disk'>
-          <driver name='qemu' type='qcow2'/>
-          <source file='{vol.path()}'/>
+        <disk type='{disk_type}' device='disk'>
+          <driver name='qemu' type='{fmt}'/>
+          <source {source}={quoteattr(path)}/>
           <target dev='{payload.target_dev}' bus='{bus}'/>
         </disk>
         """
