@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork, fetchNetworkFirewall, setNetworkFirewall, fetchHostInterfaces, startNetwork, stopNetwork, setNetworkAutostart, renameNetwork } from "../../api/client";
+import { fetchNetworks, fetchNetworkDetail, createNetwork, deleteNetwork, fetchNetworkFirewall, setNetworkFirewall, fetchHostInterfaces, startNetwork, stopNetwork, setNetworkAutostart, renameNetwork, makeBridgeVlanAware, confirmBridgeVlanAware, undoBridgeVlanAware } from "../../api/client";
 import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -30,6 +30,47 @@ function FirewallSection({ name, isAdmin }) {
   const saveConfig = useCallback((config) => setNetworkFirewall(name, config), [name]);
   const t = useT();
   return <FirewallCard title={t("net.firewall")} fetchConfig={fetchConfig} saveConfig={saveConfig} isAdmin={isAdmin} />;
+}
+
+// How long the dashboard waits before confirming a bridge change from a new request: long enough for the host's links to
+// settle, well inside the host's own 60 s before it undoes the change.
+const CONFIRM_AFTER_MS = 3000;
+
+// A bridge network on a Linux bridge: make the bridge VLAN-aware (as Proxmox VE's "VLAN aware"), or stop it. The change
+// is confirmed from a new request: if the dashboard can no longer reach the host, the host undoes it by itself.
+function VlanAwareSection({ net, isAdmin, onChange }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [step, setStep] = useState(null);
+  async function enable() {
+    if (!(await confirmAction({ title: t("net.vlanAwareTitle", { bridge: net.bridge }), message: t("net.vlanAwareMsg", { bridge: net.bridge }), confirmLabel: t("net.vlanAwareDo") }))) return;
+    setStep("trial");
+    try {
+      const { token } = await makeBridgeVlanAware(net.name);
+      setStep("confirm");
+      await new Promise((r) => setTimeout(r, CONFIRM_AFTER_MS));
+      await confirmBridgeVlanAware(net.name, token);
+      pushToast({ kind: "success", title: t("net.vlanAwareDone", { bridge: net.bridge }) });
+    } catch (e) { pushToast({ kind: "error", title: t("net.vlanAwareFailed"), message: errorMessage(e), duration: Infinity }); }
+    finally { setStep(null); onChange(); }
+  }
+  async function disable() {
+    if (!(await confirmAction({ title: t("net.vlanUnawareTitle", { bridge: net.bridge }), message: t("net.vlanUnawareMsg"), confirmLabel: t("net.vlanUnawareDo"), danger: true }))) return;
+    try { await undoBridgeVlanAware(net.name); pushToast({ kind: "success", title: t("net.vlanUnawareDone", { bridge: net.bridge }) }); }
+    catch (e) { pushToast({ kind: "error", title: t("net.vlanUnawareFailed"), message: errorMessage(e) }); }
+    finally { onChange(); }
+  }
+  return (
+    <section className="nx-card2" aria-label={t("net.vlans")}>
+      <div className="nx-card2-b">
+        <b>{t("net.vlans")}</b>
+        <p className="nx-muted" style={{ margin: "var(--space-2) 0" }}>{t(net.vlanAware ? "net.vlanAwareOn" : "net.vlanAwareOff", { bridge: net.bridge })}</p>
+        {step && <p role="status" aria-live="polite">{t(step === "trial" ? "net.vlanAwareTrial" : "net.vlanAwareChecking")}</p>}
+        {isAdmin && !net.vlanAware && <button type="button" className="nx-btn nx-btn--sm" disabled={!!step} onClick={enable}>{t("net.vlanAwareDo")}</button>}
+        {isAdmin && net.vlanAware && net.vlanAwareByHyperlite && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={disable}>{t("net.vlanUnawareDo")}</button>}
+      </div>
+    </section>
+  );
 }
 
 // Virtual networks: list, details (subnet, DHCP leases, firewall), create and delete, with the same API
@@ -147,7 +188,7 @@ export default function NetworkPage() {
                       <td><StatusIndicator override={{ key: n.active ? "state.active" : "state.inactive", shape: n.active ? "dot" : "square", tone: n.active ? "success" : "offline" }} /></td>
                       <th scope="row" className="nx-nm">{n.name}<small>{n.autostart ? t("net.autostart") : t("net.manualStart")}</small></th>
                       <td><Chip>{t(`net.mode.${n.type}`)}</Chip></td>
-                      <td className="nx-mono">{n.bridge || "—"}</td>
+                      <td className="nx-mono">{n.bridge || "—"}{n.vlanAware && <> <Chip>{t("net.vlanAwareChip")}</Chip></>}</td>
                       <td className="nx-mono">{cidr(n.network)}</td>
                       <td>{n.dhcp ? t("net.on") : <span className="nx-muted">{t("net.off")}</span>}</td>
                       <td className="nx-num nx-mono">{n.vms ?? "—"}</td>
@@ -162,6 +203,7 @@ export default function NetworkPage() {
                         {!detail ? <span className="nx-muted">{t("loading")}</span> : (
                           <div className="nx-ns">
                             <NetworkIpam name={n.name} detail={{ ...detail, vms: n.vms }} isAdmin={caps.admin} onChange={() => refresh(n.name)} />
+                            {n.vlanAware !== null && <VlanAwareSection net={n} isAdmin={caps.admin} onChange={() => refresh(n.name)} />}
                             <FirewallSection name={n.name} isAdmin={caps.admin} />
                           </div>
                         )}
