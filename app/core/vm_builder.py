@@ -126,7 +126,7 @@ def ensure_pool_base_image(pool_dir):
 
 def disk_file(target_dir, vm_name, index):
     """Where a VM's disk `index` goes in a directory pool: <name>.qcow2, then <name>-2.qcow2..."""
-    return Path(target_dir) / (f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
+    return safe_child(target_dir, f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
 
 
 def _new_file(path):
