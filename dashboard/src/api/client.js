@@ -519,6 +519,13 @@ export async function fetchVmDisks() {
 export async function deleteVmDisk(filename) {
   return realFetch(`/vm-disks/${encodeURIComponent(filename)}`, { method: "DELETE" });
 }
+// An OVA exported from VMware: its VM mapped to Hyperlite's settings, then its disks copied out as a task.
+export async function readOva(filename) {
+  return realFetch(`/vm-disks/${encodeURIComponent(filename)}/ovf`);
+}
+export async function extractOva(filename) {
+  return realFetch(`/vm-disks/${encodeURIComponent(filename)}/extract?wait=false`, { method: "POST" });
+}
 
 // ---- VM export ----
 export async function fetchVmExports() {
@@ -900,6 +907,10 @@ export async function testSso() {
 
 export async function createVM(payload) {
   return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
+}
+// The same creation as a task (202): for large imported disks, whose conversion outlasts a request.
+export async function createVMTask(payload) {
+  return realFetch("/vms?wait=false", { method: "POST", ...jsonBody(payload) });
 }
 export async function updateVM(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
