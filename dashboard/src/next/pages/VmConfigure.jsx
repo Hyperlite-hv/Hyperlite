@@ -430,6 +430,16 @@ export function VmHardwarePage({ resource: vm }) {
   );
 }
 
+// Trunk VLANs as the API takes them (app/core/bridge_vlan.py): numbers and ranges from 1 to 4094, "10,20-30" or "10;20-30".
+export function trunksValid(text) {
+  const t = String(text ?? "").trim();
+  if (!/^\d{1,4}(-\d{1,4})?(\s*[,;]\s*\d{1,4}(-\d{1,4})?)*$/.test(t)) return false;
+  return t.split(/\s*[,;]\s*/).every((part) => {
+    const [a, b = a] = part.split("-").map(Number);
+    return a >= 1 && a <= b && b <= 4094;
+  });
+}
+
 function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
@@ -437,6 +447,7 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
   const [networksError, setNetworksError] = useState(null);
   const [net, setNet] = useState("");
   const [vlan, setVlan] = useState("");
+  const [trunks, setTrunks] = useState("");
   const [busy, setBusy] = useState(false);
   const loadNetworks = useCallback(() => {
     setNetworksError(null);
@@ -447,23 +458,28 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
     }).catch((e) => { setNetworks([]); setNetworksError(errorMessage(e)); });
   }, []);
   useEffect(() => { if (open) loadNetworks(); }, [open, loadNetworks]);
-  // Only an Open vSwitch or SR-IOV network carries a tag: libvirt refuses to start a VM with a tag on any other one.
-  const tagged = networks.find((n) => n.name === net)?.vlan === true;
+  // A tag on Open vSwitch or SR-IOV (libvirt's own), or on a VLAN-aware Linux bridge (Hyperlite sets the port, with
+  // trunks too, as Proxmox VE); any other network carries none.
+  const chosen = networks.find((n) => n.name === net);
+  const tagged = chosen?.vlan === true;
+  const bridgeVlans = chosen?.vlanMode === "bridge";
   const vlanBad = tagged && vlan !== "" && (!Number.isInteger(Number(vlan)) || Number(vlan) < 1 || Number(vlan) > 4094);
+  const trunksBad = bridgeVlans && trunks.trim() !== "" && !trunksValid(trunks);
   async function add() {
-    if (!net || vlanBad) return;
+    if (!net || vlanBad || trunksBad) return;
     setBusy(true);
-    try { await attachInterface(vmName, net, tagged && vlan ? Number(vlan) : null); pushToast({ kind: "success", title: t("vh.ifAdded"), message: net }); setVlan(""); onDone(); onClose(); }
+    try { await attachInterface(vmName, net, tagged && vlan ? Number(vlan) : null, bridgeVlans && trunks.trim() ? trunks.trim() : null); pushToast({ kind: "success", title: t("vh.ifAdded"), message: net }); setVlan(""); setTrunks(""); onDone(); onClose(); }
     catch (er) { pushToast({ kind: "error", title: t("sec.addFailed"), message: errorMessage(er) }); } finally { setBusy(false); }
   }
   return (
     <SideDrawer open={open} title={t("vh.addIf")} onClose={onClose} busy={busy} footer={<>
       <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
-      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !net || vlanBad} onClick={add}>{t("vh.addIfBtn")}</button>
+      <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !net || vlanBad || trunksBad} onClick={add}>{t("vh.addIfBtn")}</button>
     </>}>
       <Field label={t("vh.network")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.network_to_attach")} value={net} onChange={(e) => setNet(e.target.value)}>{networks.map((n) => <option key={n.name} value={n.name}>{n.name} ({t(`net.mode.${n.type}`)}{n.active === false ? ` · ${t("wz.netStopped")}` : ""})</option>)}</select>}</Field>
       {networksError && <InlineError message={networksError} onRetry={loadNetworks} />}
-      <Field label="VLAN" error={vlanBad ? t("vh.vlanRule") : null} hint={tagged ? t("vh.vlanHint") : t("vh.vlanNone", { name: net })}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vlan_optional")} type="number" min={1} max={4094} value={tagged ? vlan : ""} disabled={!tagged} placeholder={t("vh.optional")} onChange={(e) => setVlan(e.target.value)} />}</Field>
+      <Field label="VLAN" error={vlanBad ? t("vh.vlanRule") : null} hint={bridgeVlans ? t("vh.vlanHintBridge") : tagged ? t("vh.vlanHint") : t("vh.vlanNone", { name: net })}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.vlan_optional")} type="number" min={1} max={4094} value={tagged ? vlan : ""} disabled={!tagged} placeholder={t("vh.optional")} onChange={(e) => setVlan(e.target.value)} />}</Field>
+      {bridgeVlans && <Field label={t("vh.trunks")} error={trunksBad ? t("vh.trunksRule") : null} hint={t("vh.trunksHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={trunks} placeholder={t("vh.optional")} onChange={(e) => setTrunks(e.target.value)} />}</Field>}
     </SideDrawer>
   );
 }
@@ -515,7 +531,7 @@ export function VmNetworkPage({ resource: vm }) {
                       <th scope="row" className="nx-nm">{i.network || <span className="nx-muted">{i.type_source || t("ns.notReported")}</span>}{n && <small>{[t(`net.mode.${n.type}`), n.network?.address].filter(Boolean).join(" · ")}</small>}</th>
                       <td>{i.model ? <Chip>{i.model}</Chip> : <span className="nx-muted">—</span>}</td>
                       <td className="nx-mono">{i.mac}</td>
-                      <td className="nx-mono">{i.vlan ?? <span className="nx-muted">—</span>}</td>
+                      <td className="nx-mono">{i.vlan ?? (i.vlan_trunks ? null : <span className="nx-muted">—</span>)}{i.vlan_trunks && <small className="nx-muted">{t("vh.trunksOf", { v: i.vlan_trunks })}</small>}</td>
                       <td>{i.firewall ? <span className="nx-st nx-tone-success"><span className="nx-dot" data-tone="success" aria-hidden="true" />{t("state.active")}</span> : <span className="nx-muted">{t("vh.noFirewall")}</span>}</td>
                       <td><div className="nx-ra">{admin && ifaces.length > 1 && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={busy} aria-label={t("a11y.remove_interface_x", { v: i.mac })} title={t("sec.remove")} onClick={() => detach(i)}><Trash2 size={15} aria-hidden="true" /></button>}</div></td>
                     </tr>

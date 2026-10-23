@@ -7,12 +7,13 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import checkpoints, disk_move, disk_resize, network_edit, passthrough, vm_locks
+from app.core import bridge_vlan, checkpoints, disk_move, disk_resize, network_edit, passthrough, vm_locks
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import lookup_pool, lookup_volume, open_conn, pool_for_path
 from app.core.listing import listing
+from app.core.network_alloc import generate_mac
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
 from app.core.vm_limits import validate_vm_resources
@@ -276,9 +277,12 @@ def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depend
 def _get_interfaces(domain):
     xml_desc = domain.XMLDesc(0)
     root = ET.fromstring(xml_desc)
+    # VLANs on a VLAN-aware Linux bridge are in the VM's metadata, not in <vlan> (app/core/bridge_vlan.py).
+    bridge_ports = bridge_vlan.ports_of_domain_xml(root)
     result = []
     for iface in root.findall(".//devices/interface"):
         mac_elem = iface.find("mac")
+        port = bridge_ports.get((mac_elem.get("address") or "").lower()) if mac_elem is not None else None
         source_elem = iface.find("source")
         model_elem = iface.find("model")
         vlan_elem = iface.find("vlan/tag")
@@ -291,7 +295,8 @@ def _get_interfaces(domain):
                 "model": model_elem.get("type") if model_elem is not None else None,
                 "vlan": int(vlan_elem.get("id"))
                 if vlan_elem is not None and (vlan_elem.get("id") or "").isdigit()
-                else None,
+                else (port["tag"] if port else None),
+                "vlan_trunks": port["trunks"] if port else None,
                 # The per-VM firewall is an nwfilter referenced by the interface.
                 "firewall": filter_elem.get("filter") if filter_elem is not None else None,
             }
@@ -375,17 +380,43 @@ def get_vm_network(name: str, node: str | None = None, user: dict = Depends(get_
         conn.close()
 
 
-def _lookup_network(conn, username, action, name, network, vlan_tag):
-    """The network a VM interface is moved to or added on; 404 when missing, 422 when it cannot take the VLAN tag."""
+def _lookup_network(conn, username, action, name, network, vlan_tag, vlan_trunks=None):
+    """The network a VM interface is moved to or added on, and how it takes VLANs (network_edit.vlan_mode); 404 when
+    missing, 422 when it cannot take the VLANs asked for."""
     try:
         net = conn.networkLookupByName(network)
     except libvirt.libvirtError:
         log_action(username, action, name, "failed", "Network not found")
         raise HTTPException(status_code=404, detail=f"Network '{network}' not found") from None
-    if vlan_tag is not None and not network_edit.carries_vlan_tags(ET.fromstring(net.XMLDesc(0))):
+    mode = network_edit.vlan_mode(ET.fromstring(net.XMLDesc(0)))
+    if (vlan_tag is not None or vlan_trunks) and mode is None:
         log_action(username, action, name, "failed", "VLAN tag unsupported by the network")
         raise HTTPException(status_code=422, detail=network_edit.VLAN_UNSUPPORTED.format(name=network))
-    return net
+    if vlan_trunks:
+        if mode != "bridge":
+            msg = f"Network '{network}': trunk VLANs are set on a VLAN-aware Linux bridge only"
+            log_action(username, action, name, "failed", msg)
+            raise HTTPException(status_code=422, detail=msg)
+        try:
+            bridge_vlan.parse_trunks(vlan_trunks)
+        except bridge_vlan.VlanError as e:
+            log_action(username, action, name, "failed", str(e))
+            raise HTTPException(status_code=422, detail=str(e)) from None
+    return net, mode
+
+
+def _set_bridge_vlans(domain, mac, mode, tag, trunks):
+    """Record the interface's VLANs in the VM's metadata when its network is a VLAN-aware Linux bridge (forgotten
+    otherwise), and set them on its port at once on a running VM. Raises VlanError when the port could not be set:
+    it is then left with no traffic."""
+    if mode == "bridge":
+        bridge_vlan.set_port(domain, mac, tag, trunks)
+    elif mac.lower() in bridge_vlan.ports_of_domain_xml(ET.fromstring(domain.XMLDesc(0))):
+        bridge_vlan.set_port(domain, mac, None, None)
+    if mode == "bridge" and domain.isActive():
+        errors = bridge_vlan.apply_domain(ET.fromstring(domain.XMLDesc(0)))
+        if errors:
+            raise bridge_vlan.VlanError("; ".join(errors))
 
 
 class NetworkUpdate(BaseModel):
@@ -394,7 +425,14 @@ class NetworkUpdate(BaseModel):
         None,
         ge=1,
         le=4094,
-        description="802.1Q tag, only on a network that carries tags (Open vSwitch or SR-IOV, `vlan` in GET /networks)",
+        description="802.1Q tag, only on a network that carries tags (`vlan` in GET /networks): the interface's "
+        "access VLAN, untagged in the VM",
+    )
+    vlan_trunks: str | None = Field(
+        None,
+        max_length=200,
+        description="Trunk VLANs the VM sees tagged, such as `10,20-30`, on a VLAN-aware Linux bridge only "
+        "(`vlan_mode` 'bridge' in GET /networks)",
     )
 
 
@@ -413,7 +451,9 @@ def set_vm_network(
             log_action(user["username"], "set_vm_network", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        _lookup_network(conn, user["username"], "set_vm_network", name, payload.network, payload.vlan_tag)
+        _net, mode = _lookup_network(
+            conn, user["username"], "set_vm_network", name, payload.network, payload.vlan_tag, payload.vlan_trunks
+        )
 
         xml_desc = domain.XMLDesc(0)
         root = ET.fromstring(xml_desc)
@@ -445,9 +485,10 @@ def set_vm_network(
         vlan_el = iface.find("vlan")
         if vlan_el is not None:
             iface.remove(vlan_el)
-        if payload.vlan_tag is not None:
+        if payload.vlan_tag is not None and mode == "native":
             vlan_el = ET.SubElement(iface, "vlan")
             ET.SubElement(vlan_el, "tag", {"id": str(payload.vlan_tag)})
+        iface_mac = iface.find("mac").get("address") if iface.find("mac") is not None else None
 
         iface_xml = ET.tostring(iface, encoding="unicode")
         flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
@@ -459,6 +500,13 @@ def set_vm_network(
             msg = describe_exception(e)
             log_action(user["username"], "set_vm_network", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Network update error: {msg}") from e
+        if iface_mac:
+            try:
+                _set_bridge_vlans(domain, iface_mac, mode, payload.vlan_tag, payload.vlan_trunks)
+            except (bridge_vlan.VlanError, libvirt.libvirtError) as e:
+                msg = describe_exception(e)
+                log_action(user["username"], "set_vm_network", name, "failed", msg)
+                raise HTTPException(status_code=500, detail=f"VLAN error: {msg}") from e
 
         log_action(user["username"], "set_vm_network", name, "success")
         return {"message": f"VM '{name}' attached to network '{payload.network}'"}
@@ -472,6 +520,7 @@ MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 class InterfaceAttach(BaseModel):
     network: str
     vlan_tag: int | None = Field(None, ge=1, le=4094)
+    vlan_trunks: str | None = Field(None, max_length=200)
 
 
 @router.post("/{name}/interfaces", status_code=201)
@@ -485,14 +534,21 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
             log_action(user["username"], "attach_interface", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        _lookup_network(conn, user["username"], "attach_interface", name, payload.network, payload.vlan_tag)
+        _net, mode = _lookup_network(
+            conn, user["username"], "attach_interface", name, payload.network, payload.vlan_tag, payload.vlan_trunks
+        )
 
-        vlan_xml = f"<vlan><tag id='{payload.vlan_tag}'/></vlan>" if payload.vlan_tag is not None else ""
+        vlan_xml = (
+            f"<vlan><tag id='{payload.vlan_tag}'/></vlan>" if payload.vlan_tag is not None and mode == "native" else ""
+        )
+        # On a VLAN-aware bridge, chosen here rather than by libvirt: the interface's VLANs are recorded by its MAC.
+        new_mac = generate_mac(conn) if mode == "bridge" else None
         root = ET.fromstring(domain.XMLDesc(0))
         model = root.find("./devices/interface/model")
         interface_model = "e1000e" if model is not None and model.get("type") == "e1000e" else "virtio"
         iface_xml = f"""
         <interface type='network'>
+          {f"<mac address='{new_mac}'/>" if new_mac else ""}
           <source network='{payload.network}'/>
           {vlan_xml}
           <model type='{interface_model}'/>
@@ -507,6 +563,13 @@ def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(r
             msg = describe_exception(e)
             log_action(user["username"], "attach_interface", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Interface attach error: {msg}") from e
+        if mode == "bridge":
+            try:
+                _set_bridge_vlans(domain, new_mac, mode, payload.vlan_tag, payload.vlan_trunks)
+            except (bridge_vlan.VlanError, libvirt.libvirtError) as e:
+                msg = describe_exception(e)
+                log_action(user["username"], "attach_interface", name, "failed", msg)
+                raise HTTPException(status_code=500, detail=f"VLAN error: {msg}") from e
 
         log_action(user["username"], "attach_interface", name, "success")
         return {"message": f"Interface added on network '{payload.network}' for '{name}'"}
@@ -554,6 +617,11 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
             msg = describe_exception(e)
             log_action(user["username"], "detach_interface", name, "failed", msg)
             raise HTTPException(status_code=500, detail=f"Detach error: {msg}") from e
+        try:
+            if mac.lower() in bridge_vlan.ports_of_domain_xml(root):
+                bridge_vlan.set_port(domain, mac, None, None)
+        except libvirt.libvirtError:
+            logger.warning("VLANs of the detached interface %s of %s left in its metadata", mac, name, exc_info=True)
 
         log_action(user["username"], "detach_interface", name, "success")
         return {"message": f"Interface '{mac}' detached from '{name}'"}
