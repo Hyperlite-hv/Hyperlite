@@ -24,6 +24,7 @@ TICKETS = {}
 HEADER_LIMIT = 4096
 HEADER_TIMEOUT_S = 10
 _server = None
+_clients = set()  # the writers of the connections open now, closed at stop()
 
 
 def issue(vm_name, node, port, ttl_s=spice.TICKET_TTL_S):
@@ -87,6 +88,14 @@ async def _refuse(writer, status):
 
 
 async def _handle(client_reader, client_writer):
+    _clients.add(client_writer)
+    try:
+        await _serve(client_reader, client_writer)
+    finally:
+        _clients.discard(client_writer)
+
+
+async def _serve(client_reader, client_writer):
     peer = client_writer.get_extra_info("peername")
     try:
         head = await asyncio.wait_for(client_reader.readuntil(b"\r\n\r\n"), HEADER_TIMEOUT_S)
@@ -140,7 +149,9 @@ async def stop():
     global _server
     if _server is not None:
         _server.close()
-        _server.close_clients()
+        # The sessions this proxy keeps itself: the service runs on uvloop, whose server has no close_clients().
+        for writer in list(_clients):
+            writer.close()
         try:
             await asyncio.wait_for(_server.wait_closed(), 5)
         except TimeoutError:

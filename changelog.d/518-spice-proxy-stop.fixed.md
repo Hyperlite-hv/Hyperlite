@@ -1,0 +1,1 @@
+- **The service stops cleanly again** (#518): stopping the SPICE proxy called a method the service's event loop (uvloop) does not have, so every stop or restart of `hyperlite` ended with "Application shutdown failed". The proxy now closes the sessions it keeps itself. Found by forming a cluster of three VMs from the package (`lab/tests`).
