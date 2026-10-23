@@ -46,6 +46,7 @@ TEST_TIMEOUT_S = 40
 OFF_TIMEOUT_S = 90  # the agent's own "off": it powers off, then waits for the BMC to say so
 OFF_CONFIRM_S = 60  # then the power state is read again until off, at most this long
 OFF_POLL_S = 5
+IPMI_PASSWORD_MAX = 20  # bytes, IPMI 2.0
 
 
 class FencingError(Exception):
@@ -97,6 +98,9 @@ def save(node, method, address=None, port=None, user=None, secret=None, tls_unve
     error = validate(method, address, port, user)
     if error:
         raise FencingError(error)
+    if method == "ipmi" and secret and len(secret.encode()) > IPMI_PASSWORD_MAX:
+        # ipmitool refuses it ("password is longer than 20 bytes"): the fence would fail only when it is needed.
+        raise FencingError(f"An IPMI password is {IPMI_PASSWORD_MAX} bytes at most (IPMI 2.0)")
     now = datetime.now(UTC).isoformat()
     existing = _store().fencing(node)
     stored = secrets_crypto.encrypt(secret) if secret else (existing["secret"] if existing else None)

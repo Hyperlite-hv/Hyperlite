@@ -58,6 +58,7 @@ def test_fencing_settings_keep_the_password_encrypted_and_never_return_it(databa
         (("ipmi", "10.0.0.1", 70000, "a", "p"), "port"),
         (("ipmi", "10.0.0.1", None, "a b", "p"), "user name"),
         (("amt", "10.0.0.1", None, "admin", None), "password is needed"),
+        (("ipmi", "10.0.0.1", None, "admin", "p" * 21), "20 bytes at most"),  # ipmitool would refuse it at fence time
     ],
 )
 def test_invalid_fencing_settings_are_refused(database, args, text):
