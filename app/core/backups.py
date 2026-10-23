@@ -43,6 +43,7 @@ from app.core import (
     checkpoints,
     cluster_lead,
     db_health,
+    disk_images,
     disk_space,
     firmware,
     guest_agent,
@@ -522,8 +523,16 @@ def _disk_formats(domain):
 def _convert(source, dest, fmt, task_id, base_pct, span_pct):
     """qemu-img convert to `fmt`: a backup image is always qcow2, and writing it as is into a raw disk would leave
     the VM with a disk it reads as garbage."""
+    try:
+        # A backup may come from another site's share: it names no file outside its VM's points.
+        source_fmt = disk_images.check(source, within=Path(source).parent.parent)
+    except disk_images.UnsafeImage as e:
+        raise RuntimeError(str(e)) from None
     proc = subprocess.run(
-        ["qemu-img", "convert", "-O", fmt, str(source), str(dest)], capture_output=True, text=True, check=False
+        ["qemu-img", "convert", "-f", source_fmt, "-O", fmt, str(source), str(dest)],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"qemu-img convert failed: {(proc.stderr or proc.stdout).strip()[:400]}")

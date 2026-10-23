@@ -24,10 +24,12 @@ def domain(monkeypatch):
     domain.isActive.return_value = False
     conn = Mock()
     conn.lookupByName.return_value = domain
-    conn.storagePoolLookupByName.return_value.storageVolLookupByName.return_value.path.return_value = (
-        "/images/data.qcow2"
-    )
+    vol = conn.storagePoolLookupByName.return_value.storageVolLookupByName.return_value
+    vol.path.return_value = "/images/data.qcow2"
+    vol.info.return_value = [0, 1 << 30, 0]  # a file volume
     monkeypatch.setattr(devices, "open_conn", lambda: conn)
+    monkeypatch.setattr(devices, "get_disk_paths_in_use", lambda conn: set())
+    monkeypatch.setattr(devices.disk_images, "check", lambda path: "qcow2")
     monkeypatch.setattr(devices, "log_action", Mock())
     return domain
 
@@ -36,6 +38,38 @@ def test_extra_disk_inherits_sata_controller(domain):
     devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
     xml, _ = domain.attachDeviceFlags.call_args.args
     assert ET.fromstring(xml).find("target").attrib == {"dev": "sdb", "bus": "sata"}
+
+
+def test_a_volume_is_attached_with_its_own_format_once_checked(domain, monkeypatch):
+    monkeypatch.setattr(devices.disk_images, "check", lambda path: "raw")
+    devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
+    xml, _ = domain.attachDeviceFlags.call_args.args
+    assert ET.fromstring(xml).find("driver").get("type") == "raw"  # never declared qcow2 when it is not
+
+
+def test_a_volume_naming_another_file_or_in_use_is_refused(domain, monkeypatch):
+    from app.core import disk_images
+
+    def unsafe(path):
+        raise disk_images.UnsafeImage("based on another file")
+
+    monkeypatch.setattr(devices.disk_images, "check", unsafe)
+    with pytest.raises(HTTPException) as error:
+        devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
+    assert error.value.status_code == 422
+    monkeypatch.setattr(devices, "get_disk_paths_in_use", lambda conn: {"/images/data.qcow2"})
+    with pytest.raises(HTTPException) as error:
+        devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
+    assert error.value.status_code == 409
+    domain.attachDeviceFlags.assert_not_called()
+
+
+def test_a_device_volume_is_attached_as_a_block_disk(domain, monkeypatch):
+    vol = devices.open_conn().storagePoolLookupByName.return_value.storageVolLookupByName.return_value
+    vol.path.return_value, vol.info.return_value = "/dev/vg0/data", [1, 1 << 30, 0]
+    devices.attach_disk("win", devices.DiskAttach(volume_name="data"), {"username": "admin", "role": "admin"})
+    disk = ET.fromstring(domain.attachDeviceFlags.call_args.args[0])
+    assert disk.get("type") == "block" and disk.find("source").get("dev") == "/dev/vg0/data"
 
 
 def test_sata_disk_attach_requires_shutdown(domain):
