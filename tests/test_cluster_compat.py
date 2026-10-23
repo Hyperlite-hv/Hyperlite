@@ -26,6 +26,12 @@ class FakePool:
     def info(self):
         return [0, 0, 0, self._available]
 
+    def isActive(self):
+        return True
+
+    def setAutostart(self, on):
+        pass
+
 
 class FakeConn:
     def __init__(
@@ -172,6 +178,21 @@ def test_block_device_disks_are_not_migratable():
 def test_insufficient_destination_disk_space_blocks():
     dest = FakeConn(networks=["default"], disk_gib=5)
     assert "disk_space" in blocking(cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM)))
+
+
+def test_the_space_of_a_fresh_destination_is_checked_too(monkeypatch):
+    """A fresh node defines the 'default' pool only when something first asks for it: the check said "unavailable"
+    instead of comparing the space, and the migration then failed on the missing pool."""
+    from app.core import libvirt_utils
+
+    class FreshConn(FakeConn):
+        def storagePoolLookupByName(self, name):
+            raise libvirt.libvirtError("Storage pool not found: no storage pool with matching name 'default'")
+
+    dest = FreshConn(networks=["default"], disk_gib=5)
+    monkeypatch.setattr(libvirt_utils, "ensure_default_pool", lambda conn: FakePool(5))
+    checks = cc.check_vm_migration(FakeConn(), dest, FakeDomain(SIMPLE_VM))
+    assert "disk_space" in blocking(checks)
 
 
 def test_insufficient_destination_memory_blocks():
