@@ -251,11 +251,14 @@ def _local_root(payload: dict):
     """The account of a root ticket, when it names root of the node that signed it: this node for its own ticket, the
     issuer of a peer ticket (app/core/peer_auth.py verified that issuer's signature). A ticket for root@n1 that n2
     signed is refused."""
-    from app.core import self_node
+    from app.core import admin_cli, self_node
 
     node = payload.get("iss") or self_node.name()
     if payload.get("sub") != local_root_name(node):
         raise _credentials_exception()
+    # A session signed before the lockdown was turned on ends with it, not up to five minutes later.
+    if admin_cli.locked():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=admin_cli.REASON)
     return {
         "id": None,
         "username": payload["sub"],
