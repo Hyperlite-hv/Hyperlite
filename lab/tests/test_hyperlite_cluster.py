@@ -98,6 +98,14 @@ def login(n, password):
     return status, body
 
 
+def signed_in(n, password):
+    """A session token on node n, or None while its API is still starting (the connection refused)."""
+    try:
+        return (login(n, password)[1] or {}).get("access_token")
+    except OSError:
+        return None
+
+
 def multipart(name, data):
     boundary = secrets.token_hex(12)
     head = (
@@ -182,7 +190,7 @@ def cluster(lab):
     wait("a cluster of three", lambda: quorate(3))
     # Each joining node restarted on the cluster's configuration: sign in again where the session ended.
     for n in NODES:
-        tokens[n] = wait(f"node {n} after joining", lambda n=n: (login(n, PASSWORD)[1] or {}).get("access_token"))
+        tokens[n] = wait(f"node {n} after joining", lambda n=n: signed_in(n, PASSWORD), timeout=120, every=1)
     return {"tokens": tokens, "names": names}
 
 
