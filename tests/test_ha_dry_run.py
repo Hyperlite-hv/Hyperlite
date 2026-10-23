@@ -112,8 +112,10 @@ def test_a_failed_test_reports_the_agent_message_without_the_password(database, 
 
 def test_a_missing_agent_says_which_package_to_install(database, monkeypatch):
     monkeypatch.setattr(ha_fencing.shutil, "which", lambda name: None)
+    ha_fencing.save("node2", "ipmi", "bmc2.example.lan", None, "admin", "pw")
+    assert "apt install fence-agents-ipmilan" in ha_fencing.test("node2")["detail"]
     ha_fencing.save("node2", "amt", "pc2.example.lan", None, "admin", "pw")
-    assert "apt install fence-agents" in ha_fencing.test("node2")["detail"]
+    assert "not packaged by Debian 13" in ha_fencing.test("node2")["detail"]  # no fence_amt_ws in Debian
 
 
 # --- The watcher -----------------------------------------------------------------------------------------------------
