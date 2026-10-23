@@ -208,6 +208,15 @@ def test_an_ova_without_manifest_is_extracted_as_it_is(tmp_path):
     assert ova.extract_disks(path, out, "vm") == ["vm-disk1.vmdk"]
 
 
+def test_a_stem_leaving_the_directory_is_refused_by_the_extraction_itself(tmp_path):
+    path = make_ova(tmp_path / "vm.ova", descriptor(), {"disk1.vmdk": b"x" * 10})
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(ova.OvaError, match="Invalid disk name"):
+        ova.extract_disks(path, out, "../vm")
+    assert list(tmp_path.glob("vm-disk*")) == []
+
+
 # --- The API ---
 
 

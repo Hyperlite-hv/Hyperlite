@@ -18,6 +18,8 @@ import tarfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from app.core.safe_paths import safe_child
+
 NS = {
     "ovf": "http://schemas.dmtf.org/ovf/envelope/1",
     "rasd": "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData",
@@ -216,7 +218,11 @@ def extract_disks(path, dest_dir, stem):
             members = _members(tar)
             manifest = _manifest(tar, members)
             for n, disk in enumerate(info["disks"], start=1):
-                target = dest_dir / f"{stem}-disk{n}{Path(disk['file']).suffix.lower()}"
+                # The stem and the suffix are checked by the callers and MEMBER_RE; this keeps the core safe on its own.
+                try:
+                    target = safe_child(dest_dir, f"{stem}-disk{n}{Path(disk['file']).suffix.lower()}")
+                except ValueError as e:
+                    raise OvaError(f"Invalid disk name: {e}") from None
                 if target.exists():
                     raise OvaError(f"An imported disk {target.name} exists already")
                 algorithm, expected = manifest.get(disk["file"], (None, None))
