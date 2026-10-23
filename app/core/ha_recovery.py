@@ -129,12 +129,24 @@ def candidates(row, policy, online, lost):
     return preferred + others
 
 
+def _running(vms):
+    return {v.get("name") for v in vms if v.get("state") in ("active", "running")}
+
+
 def _running_on(member):
-    """The VMs `member`'s own status says are running there."""
+    """The VMs `member`'s own status says are running there now."""
     from app.core import statd
 
-    vms = (statd.table().get(member) or {}).get("vms") or []
-    return {v.get("name") for v in vms if v.get("state") in ("active", "running")}
+    return _running((statd.table().get(member) or {}).get("vms") or [])
+
+
+def _ran_when_lost(member):
+    """The VMs running on `member` in its last status before it was lost, or None when none is held (a leader that
+    started since): then every HA VM of it counts, as nothing says one of them was stopped on purpose."""
+    from app.core import statd
+
+    last = statd.latest().get(member)
+    return None if last is None else _running(last[1])
 
 
 def _fenced(member, entry):
@@ -269,7 +281,8 @@ def tick():
                 # Back before it was known to be stopped: a network cut its VMs ran through, or a reset (its watchdog)
                 # they did not survive. Its own status says which: a VM still running there is left there.
                 running = _running_on(member)
-                stopped = [r for r in vms if r["vm_name"] not in running]
+                ran = entry["ran"]
+                stopped = [r for r in vms if r["vm_name"] not in running and (ran is None or r["vm_name"] in ran)]
                 for r in vms:
                     if r["vm_name"] in running:
                         _record(r["vm_name"], OK, f"{member} answers again, the VM runs there")
@@ -295,6 +308,7 @@ def tick():
             entry = _lost.get(member)
             if entry is None:
                 entry = _lost[member] = {
+                    "ran": _ran_when_lost(member),
                     "noticed": now,
                     "last_seen": now - age if age is not None else now,
                     "bmc": None,
@@ -303,6 +317,14 @@ def tick():
                 first = True
             else:
                 first = False
+        if entry["ran"] is not None:
+            # A VM stopped on purpose before its node was lost stays stopped, on that node, as Proxmox's requested
+            # state keeps it.
+            idle = [r for r in vms if r["vm_name"] not in entry["ran"]]
+            vms = [r for r in vms if r["vm_name"] in entry["ran"]]
+            if first:
+                for r in idle:
+                    _record(r["vm_name"], OK, f"stopped when {member} was lost: not restarted")
         if first:
             for r in vms:
                 _record(r["vm_name"], LOST, f"{member} not seen for more than {LOST_S} s")
