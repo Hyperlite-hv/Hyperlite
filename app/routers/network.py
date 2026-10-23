@@ -111,6 +111,7 @@ def _network_summary(net):
         bridge_name = macvtap.get("dev")
     ip_elem = root.find("ip")
     dhcp = ip_elem is not None and ip_elem.find("dhcp") is not None
+    vlan_mode = network_edit.vlan_mode(root)
     subnet = None
     if ip_elem is not None:
         subnet = {"address": ip_elem.get("address"), "netmask": ip_elem.get("netmask")}
@@ -124,7 +125,9 @@ def _network_summary(net):
         "type": FORWARD_MODE_LABELS.get(mode, "isolated" if mode is None else mode),
         "network": subnet,
         "dhcp": dhcp,
-        "vlan": network_edit.carries_vlan_tags(root),
+        # "native": libvirt's <vlan> (Open vSwitch, SR-IOV); "bridge": a VLAN-aware Linux bridge, with trunks too.
+        "vlan": vlan_mode is not None,
+        "vlan_mode": vlan_mode,
     }
 
 

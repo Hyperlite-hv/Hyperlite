@@ -7,7 +7,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import disk_space, firmware, iscsi, maintenance, vm_locks
+from app.core import bridge_vlan, disk_space, firmware, iscsi, maintenance, vm_locks
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
@@ -194,6 +194,9 @@ def _clone_vm(name, payload, user, task_id=None):
                 iface.remove(old_mac)
             new_mac = generate_mac(conn)
             ET.SubElement(iface, "mac", {"address": new_mac})
+            if old_mac is not None and old_mac.get("address"):
+                # VLANs on a VLAN-aware bridge are recorded by MAC address: the clone's interface keeps them.
+                bridge_vlan.remap_mac(root, old_mac.get("address"), new_mac)
             source_el = iface.find("source")
             iface_network = source_el.get("network") if source_el is not None else None
             if iface_network:

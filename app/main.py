@@ -543,5 +543,10 @@ def on_startup():
     conn = open_conn()
     try:
         reapply_network_firewalls(conn)
+        # VMs started while the service was not running (a host boot runs libvirt's hook too; a VLAN changed by hand
+        # would be set back here): their ports on VLAN-aware bridges get their VLANs (app/core/bridge_vlan.py).
+        from app.core import bridge_vlan
+
+        bridge_vlan.apply_running(conn)
     finally:
         conn.close()
