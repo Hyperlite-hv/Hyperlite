@@ -106,17 +106,22 @@ says so. A QDevice makes both directions work, as on Proxmox.
 ### 4.7 Disk locks on the shared storage (every VM, not only HA)
 
 The fences above prove a node stopped; a lock on the disk makes a second copy **impossible** even if a proof was wrong
-(a softdog stopped by a hung kernel, a bug), as vSphere's locks on VMFS and NFS do. libvirt's `lockd` lock manager
-(`virtlockd`) takes a lock on each disk a VM opens, and QEMU is refused a disk another node holds:
+(a softdog stopped by a hung kernel, a bug), as vSphere's locks on VMFS and NFS do.
 
-- every node of a cluster gets `lock_manager = "lockd"` in `qemu.conf` with `auto_disk_leases = 1`, so every disk on a
-  shared pool is locked, for every VM: a migration gone wrong, or a VM started by hand on the wrong node, is refused
-  too. Hyperlite's package sets it, and the setting takes effect for each VM at its next start;
-- on NFSv4 the lock is the server's: a node that dies loses it when its lease expires (90 s by default), which 4.3
-  waits for;
-- a pool whose storage does not lock across nodes (checked at its creation and in preflight: a lock taken from two
-  members, the second refused) cannot hold HA VMs, with the reason. QEMU's own image locks may already act across NFS
-  clients; the lab checks both, and only `virtlockd` is relied on.
+**QEMU's own image locks already do it** on a share that locks across nodes: the lab (three nodes, an NFS 4.2 share)
+refused a disk that another node ran ("Is another process using the image?"), for every VM, with no libvirt lock
+manager; released it once the VM stopped; and, the node killed hard, released it 94 s later, when the server's NFSv4
+lease expired. So libvirt's `virtlockd` is not added: it would restart libvirt on every node for a second barrier of
+the same kind. What Hyperlite makes sure of:
+
+- **The share locks across nodes**: a lock on an NFS mount with `nolock` or `local_lock=` other than `none`, or on an
+  SMB mount with `nobrl`, stays on the node that took it, and QEMU's lock then protects nothing between nodes. Each
+  node checks the mounts of its shared pools (its preflight, the pool list): a pool whose mount does not lock across
+  nodes cannot hold HA VMs, and the dashboard says why.
+- **QEMU's locks are never turned off**: no definition Hyperlite writes sets `locking=off` on a disk, and turning on HA
+  refuses a VM whose definition does.
+- 4.3 waits for the storage's lease (90 s on NFSv4, plus 30 s) before it counts a start refused for a locked disk as a
+  failure.
 
 ### 4.8 Admission control
 
@@ -140,7 +145,7 @@ guest. It is the node's own work, with no failover: the VM stays where it is.
 | Who decides | an elected primary host (FDM) | the cluster manager, with quorum | the leader, with quorum |
 | A host that is lost | network and datastore heartbeats | Corosync quorum | status every 10 s, lost after 60 s |
 | Proof the old copy stopped | locks on the datastore | watchdog self-fence | watchdog self-fence, or the BMC/AMT powered it off |
-| Second barrier | the same locks | locks on the storage | `virtlockd` locks on every shared disk |
+| Second barrier | the same locks | QEMU's image locks | QEMU's image locks, on shares checked to lock across nodes |
 | Restart order | VM restart priority | through HA groups | restart priority |
 | Capacity kept for a failure | admission control | no | admission control (`warn` by default) |
 | A hung guest | VM monitoring (VMware Tools) | no | VM monitoring (QEMU guest agent) |
@@ -150,8 +155,8 @@ guest. It is the node's own work, with no failover: the VM stays where it is.
 
 | Risk | Mitigation |
 |---|---|
-| Double start on the shared disk | Restart only after a confirmed fence (power off confirmed, or watchdog delay passed); the leader acts only with the quorum; the returning node undefines moved VMs before anything starts; and `virtlockd` refuses a disk another node holds |
-| A storage that does not lock across nodes | Checked at pool creation and in preflight; such a pool cannot hold HA VMs |
+| Double start on the shared disk | Restart only after a confirmed fence (power off confirmed, or watchdog delay passed); the leader acts only with the quorum; the returning node undefines moved VMs before anything starts; and QEMU refuses a disk another node holds |
+| A storage that does not lock across nodes | Each node checks its shared pools' mount options; such a pool cannot hold HA VMs |
 | Admission control refusing too much | `warn` by default; `strict` only when the administrator asks for it |
 | VM monitoring resetting a healthy guest | Only a VM whose agent answered before, 3 missed rounds of 30 s, 3 resets an hour, off by default |
 | The watchdog does not reset a hung node | Hardware watchdog where there is one; softdog otherwise, which a hard kernel hang can stop: stated in the UI next to the node's watchdog type |
@@ -169,8 +174,9 @@ guest. It is the node's own work, with no failover: the VM stays where it is.
    `fence_amt` (amtterm) speaks the older interface that AMT 11 and later dropped. Hyperlite powers an AMT PC off
    itself, over WS-MAN (`CIM_PowerManagementService.RequestPowerStateChange`, digest authentication, port 16993 in
    TLS), and reads `CIM_AssociatedPowerManagementService.PowerState` until off.
-3. **Disk locks** (4.7): `virtlockd` set up by the package on every node of a cluster, the cross-node lock check at pool
-   creation and in preflight. Lab: a VM on the NFS share started on node 2, the same disk refused on node 3.
+3. **Disk locks** (4.7): each node checks that the mounts of its shared pools lock across nodes; HA refuses a pool that
+   does not, and a definition with QEMU's locks turned off. Lab: a disk on the NFS share run on node 2, refused on
+   node 3; the same share mounted with `local_lock=all`, not refused, and reported.
 4. **Recovery by the leader**, with the restart priority: detection, fence decision, target, restart, limit, the
    returning node, states, audit and notifications; replaces `ha_watch`'s dry run. Lab: three nodes on an NFS share,
    HA VMs on node 2, node 2 cut from the network (`lab/vm.sh cut`): it resets within its watchdog delay, a single copy
