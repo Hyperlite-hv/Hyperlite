@@ -230,8 +230,9 @@ def test_the_provider_manages_every_members_objects_through_one_node(cluster, tm
     t, names = cluster["tokens"], cluster["names"]
     b, c = names[2], names[3]
     token = ok(api(1, "POST", "/auth/tokens", {"name": "terraform-lab", "expires_days": 1}, t[1]))["token"]
-    fingerprint = on(1, "openssl", "x509", "-in", "/etc/hyperlite/local/hyperlite.crt", "-noout", "-fingerprint",
-                     "-sha256").split("=", 1)[1].strip()  # fmt: skip
+    # The form the dashboard shows and the provider takes: hexadecimal, no colons.
+    fingerprint = on(1, "sh", "-c", "openssl x509 -in /etc/hyperlite/local/hyperlite.crt -outform DER | sha256sum")
+    fingerprint = fingerprint.split()[0].upper()
     (tmp_path / "image.iso").write_bytes(os.urandom(2 << 20))
     (tmp_path / "rc").write_text(f'provider_installation {{\n  dev_overrides {{\n    "hyperlite-hv/hyperlite" = "{PROVIDER}"\n  }}\n  direct {{}}\n}}\n')  # fmt: skip
     (tmp_path / "main.tf").write_text(f"""

@@ -24,6 +24,11 @@ def main(directory):
             continue
         lines = log.read_text(errors="replace").splitlines()
         title = escape(str(log.relative_to(root))).replace(",", "%2C").replace(":", "%3A")
+        if log.name == "pytest.log":
+            # Which tests failed and why, whatever the length of their tracebacks.
+            why = [line for line in lines if line.startswith(("E ", "FAILED", "ERROR", "_____"))][:80]
+            if why:
+                print(f"::error title=pytest failures::{escape(chr(10).join(why)[:LIMIT])}")
         # A traceback earlier in the log: its start says where, the tail only what followed.
         first = next((i for i, line in enumerate(lines) if "Traceback" in line), None)
         if first is not None and first < len(lines) - LINES:

@@ -227,7 +227,7 @@ jobs:
           deb=$(ls "$PWD"/installer/hyperlite_*_amd64.deb)
           sudo env PATH="$RUNNER_TEMP/bin:$PATH" HYPERLITE_LAB_DEB="$deb" HYPERLITE_LAB_PROVIDER="$RUNNER_TEMP/provider" \
             HYPERLITE_LAB_DIR="$RUNNER_TEMP/lab" HYPERLITE_LAB_CACHE=/tmp/hyperlite-lab-cache \
-            "$(which python)" -m pytest -q -s -rs -p no:cacheprovider lab/tests 2>&1 | tee "$RUNNER_TEMP/lab/pytest.log"
+            "$(which python)" -m pytest -q -s -rfEs -p no:cacheprovider lab/tests 2>&1 | tee "$RUNNER_TEMP/lab/pytest.log"
       - if: always()
         run: sudo chmod -R a+rX /tmp/hyperlite-lab-cache "$RUNNER_TEMP/lab" || true
       # The end of each log as an annotation too: the checks' API gives them to whoever cannot open the logs.
