@@ -148,8 +148,10 @@ def _fenced(member, entry):
             log_action(
                 "system", "ha_fence", member, "success" if entry["bmc"]["fenced"] else "failed", entry["bmc"]["detail"]
             )
+        # The agent's own words go to the audit entry above only: the reasons below reach the service's log, and
+        # nothing an agent printed is ever written there.
         if entry["bmc"]["fenced"]:
-            return True, entry["bmc"]["detail"]
+            return True, f"its {method} powered it off and read it off"
     published = ha_selffence.published(member) or {}
     reset_within = published.get("reset_within_s")
     if published.get("armed") and reset_within:
@@ -162,7 +164,7 @@ def _fenced(member, entry):
             )
         return False, f"waiting for its watchdog to reset it ({int(wait - waited)} s left)"
     if method in ha_fencing.AGENTS:
-        return None, f"its {method} did not confirm it off ({entry['bmc']['detail']}) and its watchdog was not armed"
+        return None, f"its {method} did not confirm it off (see the audit log) and its watchdog was not armed"
     return None, "no BMC or AMT, and its watchdog was not armed: nothing proves its VMs stopped"
 
 
