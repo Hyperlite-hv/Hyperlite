@@ -96,6 +96,12 @@ def run_sequence(node=None, sleep=time.sleep):
             if domain.isActive():
                 results.append((name, "already_enabled"))
                 continue
+            from app.core import ha
+
+            if ha.moved_away(name):  # HA restarted it on another member while this one was down
+                logger.warning("Start at boot: VM %s runs on another member now (HA), not started here", name)
+                results.append((name, "moved"))
+                continue
             busy = vm_locks.running(name, None if _node_key(node) == LOCAL else node)
             if busy:  # its disks are being copied or replaced: started meanwhile, it would write to them
                 logger.warning("Start at boot: VM %s is busy (%s), not started", name, busy)
@@ -162,6 +168,12 @@ def _boot_when_writable():
 
     while cluster_lead.paused("Start at boot"):
         time.sleep(QUORUM_WAIT_S)
+    from app.core import ha
+
+    try:
+        ha.forget_moved()  # before anything starts: the VMs HA moved while this node was down
+    except Exception:
+        logger.exception("The VMs HA moved away could not be undefined: they are not started here anyway")
     boot_if_new(LOCAL, _local_boot_id())
 
 

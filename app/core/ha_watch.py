@@ -265,7 +265,9 @@ def _loop():
 
     while True:
         try:
-            if cluster_lead.is_leader():  # in a cluster, one node watches for all of them
+            # In a cluster the leader restarts HA VMs itself (app/core/ha_recovery.py): this dry run is for hosts
+            # driven over SSH from one controller only.
+            if not cluster_lead.in_cluster():
                 tick()
         except Exception:
             logger.exception("HA watcher round failed")
