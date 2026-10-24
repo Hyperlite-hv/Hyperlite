@@ -75,19 +75,19 @@ goes away (#337).
   Replication's checkpoints and the backups' are distinct and coexist (libvirt keeps several bitmaps).
 - **Reading and writing in parallel**: the NBD reads, the digests, compression and encryption (`hashlib`,
   `cryptography`, zstd, all releasing Python's lock) in a few threads, with a bandwidth limit per job as today.
-- **The helper**: libnbd's Python binding is the distribution's (`python3-libnbd`), so the reading runs in a helper
-  under the system Python, as file restore runs its libguestfs helper (`file_restore_helper.py`).
+- **The reading**: `nbdcopy` streams each export to a pipe, cut into chunks by the service (step 1). Step 2 reads only
+  the changed regions, which libnbd's Python binding gives (`python3-libnbd`, the distribution's), in a helper under
+  the system Python as file restore runs its libguestfs helper.
 
 ## 5. Restoring
 
-A backup served as a disk: **nbdkit** with a small Python plugin reads the index and the chunks (decrypting when the
-store is encrypted) and exports the image, read-only, on a Unix socket. Then:
-
-- **to a new VM or over the old disks**: `qemu-img convert` from that export to the disk of the pool chosen (qcow2,
-  raw, zvol, LVM), zero chunks skipped;
-- **file restore**: libguestfs opens the export (`nbd://` on the socket) instead of a qcow2 file, the rest unchanged;
-- **live restore** (#513): the VM starts at once on a copy-on-read overlay whose backing is the export, its disk filled
-  in the background, as PBS's live restore. #513's design settles it; this design gives it the export.
+- **To a new VM or over the old disks**: `qemu-nbd` opens the disk to write (a new qcow2 or raw file, or an existing
+  zvol, LVM volume or LUN) and `nbdcopy` writes into it what Hyperlite reads from the store, decrypted when the store
+  is; the zero chunks of a new file are skipped. No Python of another version is embedded anywhere (changed during
+  step 1: nbdkit's Python plugin runs the distribution's Python, which is not the service's on every system).
+- **A backup served as a disk** (step 5): an NBD export of a backup, read-only, for **file restore** (libguestfs opens
+  it instead of a qcow2 file) and **live restore** (#513: the VM starts at once on a copy-on-read overlay whose backing
+  is the export, as PBS's). #513's design settles how it is served.
 
 ## 6. Encryption
 
@@ -128,8 +128,10 @@ store is encrypted) and exports the image, read-only, on a Unix socket. Then:
   step.
 - **The API**: new routes for the stores (`/backup-stores`), new optional fields on jobs and backups (`store`); no
   field removed, as API v1 requires.
-- **Packaging**: `nbdkit`, `nbdkit-plugin-python`, `python3-libnbd` (Debian 13), and the `zstandard` wheel; nothing
-  else.
+- **Packaging**: `libnbd-bin` (`nbdcopy`, `nbdinfo`; `qemu-nbd` comes with `qemu-utils`) and the `zstandard` wheel;
+  `python3-libnbd` with step 2 (the dirty bitmaps' extents). QEMU's AppArmor profile gets one local rule, for the
+  export's socket (`scripts/ensure-backup-apparmor.sh`): libvirt adds a backup's scratch files to a VM's profile, not
+  that socket.
 
 ## 9. Steps
 
