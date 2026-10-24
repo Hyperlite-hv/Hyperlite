@@ -113,8 +113,9 @@ def cluster_of_three(database, monkeypatch, daemon_libvirt):
             db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES (?, ?, 'now')", (name, f"{name}.lan"))
         db.commit()
     hosts = {"local": _Host(), "n2": _Host(), "n3": _Host(reachable=False)}
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: hosts[node or "local"])
-    daemon_libvirt(hosts["local"])  # this node's pools are hyperlite-daemon's, in this process in the tests
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: hosts[node or "local"])
+    # Every node's pools are hyperlite-daemon's, the other nodes' reached with the cluster's key, in this process here.
+    daemon_libvirt(hosts["local"], nodes=hosts)
     monkeypatch.setattr(storage.shutil, "which", lambda name: "/sbin/mount.nfs")
     monkeypatch.setattr(storage.iscsi, "initiator_available", lambda: True)
     monkeypatch.setattr(storage_pools.nfs_permissions, "check", lambda path, export=None: {"ok": True, "message": None})

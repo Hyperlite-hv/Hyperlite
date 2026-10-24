@@ -13,6 +13,9 @@ from app.daemon.ops.network import FirewallConfig
 from app.daemon.registry import Args, DaemonError, operation
 
 VM_NAME = 64
+# A node registered over SSH only, whose libvirt the daemon opens with the cluster's key (libvirt_utils.node_conn);
+# absent: this node (docs/design/privilege-separation.md, section 13, the cluster domain, part 2).
+NODE = Field(default=None, min_length=1, max_length=63)
 TASK_ID = 64
 
 
@@ -45,6 +48,7 @@ def _domain(conn, vm):
 class PowerArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     action: Literal["start", "shutdown", "stop", "reboot", "reset"]
+    node: str | None = NODE
 
 
 @operation("vm.power", PowerArgs)
@@ -54,7 +58,7 @@ def power(args, ctx):
     plug; reset stops and starts again. Returns {"method"}: "agent" or "acpi" for a shutdown or a reboot."""
     from app.core import guest_agent, libvirt_utils
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         domain = _domain(conn, args.vm)
         running = bool(domain.isActive())
         if args.action == "start":
@@ -77,6 +81,7 @@ def power(args, ctx):
 class AutostartArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     autostart: bool
+    node: str | None = NODE
 
 
 @operation("vm.autostart", AutostartArgs)
@@ -85,12 +90,13 @@ def autostart(args, ctx):
     """libvirt's own autostart flag; Hyperlite's start at boot turns it off for the VMs it starts (app/core/vm_boot.py)."""
     from app.core import libvirt_utils
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         _domain(conn, args.vm).setAutostart(1 if args.autostart else 0)
 
 
 class PreStopArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
 
 
 @operation("vm.pre_stop", PreStopArgs)
@@ -104,8 +110,14 @@ def pre_stop(args, ctx):
 
     from app.core import hookscript, libvirt_utils
 
-    with libvirt_utils.local_conn() as conn:
-        xml = _domain(conn, args.vm).XMLDesc(0)
+    with libvirt_utils.node_conn(args.node) as conn:
+        domain = _domain(conn, args.vm)
+        if args.node:  # run there, from that node's own library, over SSH with the cluster's key
+            try:
+                return hookscript.pre_stop(domain, args.node)
+            except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError) as e:
+                return {"ok": False, "exit_code": None, "phase": "pre-stop", "output": str(e), "seconds": 0}
+        xml = domain.XMLDesc(0)
     script = hookscript.script_of_domain_xml(ET.fromstring(xml))
     if not script:
         return None
@@ -135,6 +147,7 @@ def _agent_domains(names):
 class AgentArgs(Args):
     vms: list[str] = Field(max_length=4096)
     wait_s: float = Field(0.5, ge=0, le=5)
+    node: str | None = NODE
 
 
 @operation("vm.agent_ipv4", AgentArgs)
@@ -142,10 +155,23 @@ class AgentArgs(Args):
 def agent_ipv4(args, ctx):
     """{uuid: address or None} of the running VMs named, from their guest agents, waiting at most `wait_s` for them
     all: asking an agent needs a connection that may write, which the API will not keep."""
+    import libvirt
+
     from app.core import guest_agent
 
     if any(len(name) > VM_NAME for name in args.vms):
         raise DaemonError("invalid_arguments", "A VM's name is too long")
+    if args.node:  # another node's agents, over its libvirt: the questions end with the call
+        from app.core import libvirt_utils
+
+        with libvirt_utils.node_conn(args.node) as conn:
+            domains = []
+            for name in args.vms:
+                try:
+                    domains.append(conn.lookupByName(name))
+                except libvirt.libvirtError:
+                    continue
+            return guest_agent.ipv4_many(domains, wait=args.wait_s)
     return guest_agent.ipv4_many(_agent_domains(args.vms), wait=args.wait_s)
 
 
@@ -164,7 +190,7 @@ def _definition(fn):
         from app.core import cpu_pinning, libvirt_utils, vm_devices
         from app.core import vm_hardware_opts as opts
 
-        with libvirt_utils.local_conn() as conn:
+        with libvirt_utils.node_conn(getattr(args, "node", None)) as conn:
             domain = _domain(conn, args.vm)
             try:
                 return fn(args, conn, domain)
@@ -478,6 +504,7 @@ def set_firewall(args, conn, domain):
 class HookScriptArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     script: str | None = Field(None, max_length=100)
+    node: str | None = NODE
 
 
 @operation("vm.set_hookscript", HookScriptArgs)
@@ -489,7 +516,7 @@ def set_hookscript(args, conn, domain):
 
     try:
         if args.script:
-            hookscript.check(args.script)
+            hookscript.check_on(args.node, args.script)  # another node's library, checked there
         hookscript.set_script(domain, args.script)
     except hookscript.HookError as e:
         raise DaemonError("refused", str(e)) from e
@@ -498,6 +525,7 @@ def set_hookscript(args, conn, domain):
 class RenameArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     new_name: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
 
 
 @operation("vm.rename", RenameArgs)
@@ -512,7 +540,7 @@ def rename(args, conn, domain):
     if error:
         raise DaemonError("refused", error)
     try:
-        return {"dropped": vm_rename.rename(conn, domain, args.vm, args.new_name)}
+        return {"dropped": vm_rename.rename(conn, domain, args.vm, args.new_name, args.node)}
     except vm_rename.RenameError as e:
         raise DaemonError(e.kind, e.message) from e
 
@@ -595,6 +623,7 @@ def create(args, ctx):
 
 class DeleteArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
 
 
 @operation("vm.delete", DeleteArgs)
@@ -604,9 +633,9 @@ def delete(args, ctx):
     Hyperlite generated for it and its DHCP reservations (vm_delete.delete). {"kept": {path: reason}}."""
     from app.core import libvirt_utils, vm_delete
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         try:
-            return {"kept": vm_delete.delete(conn, args.vm)}
+            return {"kept": vm_delete.delete(conn, args.vm, args.node)}
         except vm_delete.DeleteError as e:
             raise DaemonError(e.kind, e.detail) from e
 

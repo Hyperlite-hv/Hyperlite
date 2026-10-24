@@ -22,7 +22,7 @@ from app.core import (
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, open_conn
+from app.core.libvirt_utils import get_disk_paths_in_use, open_conn
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
@@ -54,21 +54,11 @@ def _node(node):
     return None if not node or node == "local" else node
 
 
-def _pool_work(node, op, user, action, target, remote, refused=422, **args):
-    """A pool's root work, with the same answers on any node: this node's by hyperlite-daemon (`op` with `args`);
-    another node's (`node`: registered over SSH only, or a shared pool's member) by `remote(conn)` over that node's
-    libvirt, until the cluster domain moves it (docs/design/privilege-separation.md, section 13). The failure is in
+def _pool_work(node, op, user, action, target, refused=422, **args):
+    """A pool's root work, by hyperlite-daemon (`op` with `args`), on this node or on another (`node`: registered over
+    SSH only, or a shared pool's member), whose libvirt the daemon reaches with the cluster's key. The failure is in
     the audit log."""
-    if node is None:
-        return privileged.ask(op, user, action, target, refused=refused, **args)
-    conn = open_conn(node)
-    try:
-        return remote(conn)
-    except storage_pools.PoolError as e:
-        log_action(user["username"], action, target, "failed", e.message)
-        raise privileged.http_error(DaemonError(e.kind, e.message), refused=refused) from None
-    finally:
-        conn.close()
+    return privileged.ask(op, user, action, target, refused=refused, node=node, **args)
 
 
 def _pool_type(pool):
@@ -103,12 +93,9 @@ def _pool_root(pool):
 
 
 def _refresh(pool, node):
-    """libvirt's list of the pool's volumes read again: this node's by hyperlite-daemon (a refresh needs a connection
-    that may write), another node's over its own libvirt. Raises libvirt.libvirtError or DaemonError."""
-    if _node(node) is None:
-        privileged.run("storage.pool_refresh", pool=pool.name())
-    else:
-        pool.refresh(0)
+    """libvirt's list of the pool's volumes read again, by hyperlite-daemon (a refresh needs a connection that may
+    write), here or on the pool's node. Raises DaemonError."""
+    privileged.run("storage.pool_refresh", pool=pool.name(), node=_node(node))
 
 
 def _lookup_volume(pool, name):
@@ -125,12 +112,10 @@ def _lookup_volume(pool, name):
 
 
 def _lvm_volumes(vg, node):
-    """lvm_storage.logical_volumes: this node's by hyperlite-daemon (LVM reads the disks, which only root may),
-    another node's over SSH. Raises lvm_storage.LvmError."""
-    if _node(node) is not None:
-        return lvm_storage.logical_volumes(vg, node)
+    """lvm_storage.logical_volumes, by hyperlite-daemon (LVM reads the disks, which only root may), here or on the
+    pool's node over SSH. Raises lvm_storage.LvmError."""
     try:
-        return privileged.run("storage.lvm_volumes", vg=vg)
+        return privileged.run("storage.lvm_volumes", vg=vg, node=_node(node))
     except DaemonError as e:
         raise lvm_storage.LvmError(e.detail) from None
 
@@ -198,12 +183,8 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
 
 
 def _ensure_default(conn, node):
-    """The 'default' pool, made and started where it is missing: by hyperlite-daemon on this node, only when it is
-    missing, stopped or not started at boot, so a listing costs no call to the daemon; on another node over its
-    libvirt, as before."""
-    if _node(node) is not None:
-        ensure_default_pool(conn)
-        return
+    """The 'default' pool, made and started where it is missing, by hyperlite-daemon (here or on `node`), only when it
+    is missing, stopped or not started at boot, so a listing costs no call to the daemon."""
     try:
         pool = conn.storagePoolLookupByName("default")
         if pool.isActive() and pool.autostart():
@@ -211,7 +192,7 @@ def _ensure_default(conn, node):
     except libvirt.libvirtError:
         pass
     try:
-        privileged.run("storage.ensure_default_pool")
+        privileged.run("storage.ensure_default_pool", node=_node(node))
     except DaemonError as e:
         logger.error("The 'default' storage pool could not be made: %s", e.detail)
 
@@ -225,7 +206,7 @@ def _read_pool(conn, name):
 
 
 def _pools(node):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         _ensure_default(conn, node)
         result = []
@@ -363,11 +344,10 @@ def _create_single(payload, node, user):
         user,
         "create_storage_pool",
         payload.name,
-        lambda conn: storage_pools.create(conn, payload, node),
         **payload.model_dump(exclude={"size_gb", "all_nodes", "nodes"}),
     )
     log_action(user["username"], "create_storage_pool", payload.name, "success")
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         summary = _pool_summary(conn.storagePoolLookupByName(payload.name), node)
     finally:
@@ -389,7 +369,7 @@ def _shared_targets(payload):
 
 
 def _exists_on(pool_name, node_key):
-    conn = open_conn(None if node_key == "local" else node_key)
+    conn = open_conn(None if node_key == "local" else node_key, readonly=True)
     try:
         conn.storagePoolLookupByName(pool_name)
         return True
@@ -496,14 +476,13 @@ def _rename_on(pool_name, new, node, user):
         user,
         "rename_storage_pool",
         pool_name,
-        lambda conn: storage_pools.rename(conn, pool_name, new),
         refused=409,
         pool=pool_name,
         new_name=new,
     )
     renaming.storage_pool_records(pool_name, new, node or "local")
     log_action(user["username"], "rename_storage_pool", pool_name, "success", f"-> {new} on {node or 'local'}")
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         return _pool_summary(conn.storagePoolLookupByName(new), node)
     finally:
@@ -608,7 +587,6 @@ def _delete_single(pool_name, node, detach, user):
         user,
         "delete_storage_pool",
         pool_name,
-        lambda conn: storage_pools.delete(conn, pool_name, detach, node),
         refused=409,
         pool=pool_name,
         detach=detach,

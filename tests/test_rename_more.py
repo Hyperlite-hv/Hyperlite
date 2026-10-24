@@ -109,8 +109,8 @@ def hosts(database, monkeypatch, daemon_libvirt):
     from app.routers import storage
 
     hosts = {"local": _Host()}
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: hosts[node or "local"])
-    daemon_libvirt(hosts["local"])  # this node's pools are hyperlite-daemon's, in this process in the tests
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: hosts[node or "local"])
+    daemon_libvirt(hosts["local"], nodes=hosts)  # every node's pools are hyperlite-daemon's, in this process here
     monkeypatch.setattr(storage.zfs_storage, "pool_exists", lambda name: name == "tank")
     return hosts
 
@@ -267,7 +267,7 @@ def nets(database, monkeypatch, daemon_libvirt):
 
     qemu, lxc = _NetHost(), _NetHost()
     qemu.nets["lab"] = _Net(qemu, "<network><name>lab</name><bridge name='virbr7'/><ip address='10.9.0.1'/></network>")
-    monkeypatch.setattr(network, "open_conn", lambda node=None: qemu)
+    monkeypatch.setattr(network, "open_conn", lambda node=None, **_k: qemu)
     monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda: lxc)
     # hyperlite-daemon renames the network with connections of its own, in this process in the tests.
     daemon_libvirt(qemu)
@@ -378,7 +378,7 @@ def test_a_template_takes_its_new_name(client, auth_headers, tmp_path, monkeypat
 
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tmp_path)
     # A libvirt without VMs: no linked clone reads the template's disk, so its rename is allowed.
-    monkeypatch.setattr(templates, "open_conn", lambda node=None: _Host())
+    monkeypatch.setattr(templates, "open_conn", lambda node=None, **_k: _Host())
     daemon_libvirt(_Host())  # hyperlite-daemon renames the files, in this process in the tests
     for ext, content in (("json", json.dumps({"name": "deb"})), ("xml", "<domain/>"), ("qcow2", "disk")):
         (tmp_path / f"deb.{ext}").write_text(content)
@@ -396,7 +396,7 @@ def test_an_iso_is_renamed_unless_a_vm_has_it_in_its_drive(client, auth_headers,
     monkeypatch.setattr(disk_library, "ISOS", tmp_path)
     monkeypatch.setattr(libvirt_utils, "refresh_pools_for_paths", lambda conn, paths: None)
     host = _Host()
-    monkeypatch.setattr(isos, "open_conn", lambda node=None: host)
+    monkeypatch.setattr(isos, "open_conn", lambda node=None, **_k: host)
     daemon_libvirt(host)  # hyperlite-daemon renames, and checks the CD-ROM drives again, in this process in the tests
     (tmp_path / "debian.iso").write_text("iso")
     (tmp_path / "used.iso").write_text("iso")

@@ -68,3 +68,43 @@ def test_a_rename_never_names_a_file_outside_the_reverse_keys(monkeypatch, old, 
 def test_the_public_key_is_given_the_private_one_never(monkeypatch):
     monkeypatch.setattr(cluster, "get_cluster_pubkey", lambda: "ssh-ed25519 AAAA hyperlite-cluster")
     assert privileged.run("cluster.pubkey") == {"public_key": "ssh-ed25519 AAAA hyperlite-cluster"}
+
+
+def test_a_node_the_registry_does_not_hold_is_never_reached(database):
+    """The daemon opens a node's libvirt, its tunnel or its SSH only for a registered node: the API names one, never
+    an address."""
+    for op, args in (
+        ("node.tunnel", {}),
+        ("node.capabilities", {}),
+        ("node.hookscripts", {}),
+        ("vm.power", {"vm": "web", "action": "start"}),
+        ("vm.delete", {"vm": "web"}),
+        ("storage.pool_refresh", {"pool": "nas"}),
+        ("storage.lvm_volumes", {"vg": "vg0"}),
+    ):
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, node="ghost", **args)
+        assert e.value.kind == "not_found", op
+
+
+def test_a_tunnel_names_its_socket_after_a_valid_node_only():
+    from app.core import node_tunnel
+
+    assert node_tunnel.socket_path("n2").name == "n2.sock"
+    for bad in ("../etc", "a/b", "-x"):
+        with pytest.raises(ValueError):
+            node_tunnel.socket_path(bad)
+
+
+def test_the_api_reads_another_node_through_the_daemons_tunnel(registered, monkeypatch):
+    """open_conn(node, readonly=True): no key in the API, a read-only libvirt over the tunnel the daemon opened."""
+    import libvirt
+
+    from app.core import libvirt_utils, node_tunnel
+
+    opened = []
+    monkeypatch.setattr(node_tunnel, "ensure", lambda node: opened.append(node["name"]) or "/run/hyperlite/n2.sock")
+    monkeypatch.setattr(libvirt, "openReadOnly", lambda uri: opened.append(uri) or "conn")
+    monkeypatch.setattr(libvirt, "open", lambda uri: pytest.fail("a connection that may write"))
+    assert libvirt_utils.open_conn("n2", readonly=True) == "conn"
+    assert opened == ["n2", "qemu+unix:///system?socket=" + str(node_tunnel.socket_path("n2"))]

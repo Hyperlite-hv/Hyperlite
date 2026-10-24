@@ -84,7 +84,7 @@ def run_sequence(node=None, sleep=time.sleep):
     if not steps:
         return []
     results = []
-    conn = open_conn(None if _node_key(node) == LOCAL else node)
+    conn = open_conn(None if _node_key(node) == LOCAL else node, readonly=True)
     try:
         for step in steps:
             name = step["name"]
@@ -110,13 +110,11 @@ def run_sequence(node=None, sleep=time.sleep):
                 results.append((name, "busy"))
                 continue
             try:
-                if _node_key(node) == LOCAL:
-                    # Started by hyperlite-daemon (app/daemon/ops/vm.py); another node's VM over its own libvirt.
-                    from app.core import privileged
+                # Started by hyperlite-daemon (app/daemon/ops/vm.py), here or on the node registered over SSH only.
+                from app.core import privileged
 
-                    privileged.run("vm.power", user="system", vm=name, action="start")
-                else:
-                    domain.create()
+                remote = None if _node_key(node) == LOCAL else node
+                privileged.run("vm.power", user="system", vm=name, action="start", node=remote)
             except (libvirt.libvirtError, DaemonError) as e:
                 reason = e.detail if isinstance(e, DaemonError) else str(e)
                 logger.error("Start at boot: VM %s did not start on %s: %s", name, _node_key(node), reason)

@@ -80,7 +80,9 @@ def test_in_a_cluster_each_node_refreshes_only_the_protected_vms_it_hosts(databa
     rows = [{"vm_name": "mine", "node": "local"}, {"vm_name": "theirs", "node": "pve-b"}]
     opened = []
     monkeypatch.setattr(ha, "list_protected", lambda: rows)
-    monkeypatch.setattr(ha, "open_conn", lambda key=None: opened.append(key) or (_ for _ in ()).throw(RuntimeError()))
+    monkeypatch.setattr(
+        ha, "open_conn", lambda key=None, **_k: opened.append(key) or (_ for _ in ()).throw(RuntimeError())
+    )
     monkeypatch.setattr(cluster_lead, "in_cluster", lambda: True)
     ha.sync_protected_vms()
     assert opened == [None]  # its own libvirt, for its own VM only
