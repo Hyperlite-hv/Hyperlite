@@ -93,7 +93,7 @@ def test_no_operation_takes_an_interface_from_the_api(host, iptables):
         ("network.firewall_apply", {"network": "lan", "config": RULES, "bridge": "eth0"}),
         ("network.firewall_remove", {"network": "lan", "bridge": "eth0"}),
         ("network.vlan_aware_start", {"network": "lan", "bridge": "eth0"}),
-        ("network.vlan_apply_vm", {"vm": "web", "tap": "eth0"}),
+        ("vm.set_interface", {"vm": "web", "network": "lan", "tap": "eth0"}),
     ]:
         with pytest.raises(DaemonError) as e:
             privileged.run(op, **args)
@@ -167,13 +167,13 @@ def test_a_vms_vlans_are_set_from_the_ports_the_daemon_reads(host, monkeypatch):
     monkeypatch.setattr(bridge_vlan, "filters_vlans", lambda bridge, node=None: bridge == "br0")
     monkeypatch.setattr(bridge_vlan, "apply_port", lambda tap, tag, trunks, node=None: applied.append((tap, tag)))
     host.domains = {"web": Domain("web", WEB_XML, active=True), "off": Domain("off", WEB_XML, active=False)}
-    assert privileged.run("network.vlan_apply_vm", vm="web") == {"errors": []}
+    # What hyperlite-daemon runs once a VM's interface changed (app/core/vm_devices.py), reading the ports itself.
+    assert bridge_vlan.apply_vm("web") == []
     assert applied == [("vnet7", 20)]
-    assert privileged.run("network.vlan_apply_vm", vm="off") == {"errors": []}  # the hook sets it when it starts
+    assert bridge_vlan.apply_vm("off") == []  # the hook sets it when it starts
     assert applied == [("vnet7", 20)]
-    with pytest.raises(DaemonError) as e:
-        privileged.run("network.vlan_apply_vm", vm="nobody")
-    assert e.value.kind == "refused"
+    with pytest.raises(bridge_vlan.VlanError):
+        bridge_vlan.apply_vm("nobody")
 
 
 def test_the_service_start_sets_the_vlans_of_the_running_vms(host, monkeypatch):
