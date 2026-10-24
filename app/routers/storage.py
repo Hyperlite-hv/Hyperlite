@@ -22,7 +22,7 @@ from app.core import (
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
+from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, open_conn
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
@@ -102,6 +102,39 @@ def _pool_root(pool):
         return None
 
 
+def _refresh(pool, node):
+    """libvirt's list of the pool's volumes read again: this node's by hyperlite-daemon (a refresh needs a connection
+    that may write), another node's over its own libvirt. Raises libvirt.libvirtError or DaemonError."""
+    if _node(node) is None:
+        privileged.run("storage.pool_refresh", pool=pool.name())
+    else:
+        pool.refresh(0)
+
+
+def _lookup_volume(pool, name):
+    """libvirt_utils.lookup_volume for this node's pool, its refresh on a miss done by hyperlite-daemon. Raises
+    libvirt.libvirtError when the volume really does not exist."""
+    try:
+        return pool.storageVolLookupByName(name)
+    except libvirt.libvirtError:
+        try:
+            _refresh(pool, None)
+        except DaemonError as e:
+            logger.warning("Pool %s not refreshed: %s", pool.name(), e.detail)
+    return pool.storageVolLookupByName(name)
+
+
+def _lvm_volumes(vg, node):
+    """lvm_storage.logical_volumes: this node's by hyperlite-daemon (LVM reads the disks, which only root may),
+    another node's over SSH. Raises lvm_storage.LvmError."""
+    if _node(node) is not None:
+        return lvm_storage.logical_volumes(vg, node)
+    try:
+        return privileged.run("storage.lvm_volumes", vg=vg)
+    except DaemonError as e:
+        raise lvm_storage.LvmError(e.detail) from None
+
+
 def _pool_summary(pool, node=None):
     state, capacity, allocation, available = pool.info()
     if _pool_type(pool) == "iscsi":
@@ -110,12 +143,12 @@ def _pool_summary(pool, node=None):
         try:
             # LUNs appear and disappear on the storage server: the cached list would count stale ones.
             if pool.isActive():
-                pool.refresh(0)
+                _refresh(pool, node)
             in_use = get_disk_paths_in_use(pool.connect())
             allocation = sum(v.info()[1] for v in pool.listAllVolumes() if v.path() in in_use)
             available = capacity - allocation
-        except libvirt.libvirtError:
-            pass
+        except (libvirt.libvirtError, DaemonError) as e:
+            logger.debug("LUNs of %s not counted: %s", pool.name(), e)
     root = _pool_root(pool)
     smb = root is not None and smb_storage.is_smb(root)
     thin = None
@@ -123,7 +156,7 @@ def _pool_summary(pool, node=None):
         # VM disks in its thin pool: what the pool holds is that thin pool, filled as LVM reports it (libvirt counts
         # the thin pool as one volume taking the whole group).
         try:
-            thin = lvm_storage.thin_pool_of(root.findtext("source/name"), node)
+            thin = lvm_storage.thin_pool_in(_lvm_volumes(root.findtext("source/name"), node))
         except lvm_storage.LvmError as e:
             logger.warning("Thin pool of %s not read: %s", pool.name(), e)
         if thin is not None:
@@ -605,7 +638,7 @@ def _volumes(pool_name):
             pool = _read_pool(conn, pool_name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
-        pool.refresh(0)
+        _refresh(pool, None)
         in_use = get_disk_paths_in_use(conn)
         result = []
         for vol in pool.listAllVolumes():
@@ -624,7 +657,7 @@ def _volumes(pool_name):
             # What libvirt does not list: thin volumes and thin pools, read from LVM.
             seen = {v["name"] for v in result}
             try:
-                extra = [v for v in lvm_storage.logical_volumes(root.findtext("source/name")) if v["name"] not in seen]
+                extra = [v for v in _lvm_volumes(root.findtext("source/name"), None) if v["name"] not in seen]
             except lvm_storage.LvmError as e:
                 logger.warning("Thin volumes of pool %s not listed: %s", pool_name, e)
                 extra = []
@@ -694,7 +727,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(ge
             log_action(user["username"], "create_volume", payload.name, "failed", e.message)
             raise HTTPException(status_code=422, detail=e.message) from None
         try:
-            lookup_volume(pool, filename)
+            _lookup_volume(pool, filename)
             log_action(user["username"], "create_volume", filename, "failed", "Volume already exists")
             raise HTTPException(status_code=422, detail=f"A volume '{filename}' already exists in this pool")
         except libvirt.libvirtError:
@@ -749,7 +782,7 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
                 status_code=422, detail="An iSCSI pool's LUNs are deleted on the storage server, not here"
             )
         try:
-            vol = lookup_volume(pool, volume_name)
+            vol = _lookup_volume(pool, volume_name)
         except libvirt.libvirtError:
             log_action(user["username"], "delete_volume", volume_name, "failed", "Volume not found")
             raise HTTPException(status_code=404, detail=f"Volume '{volume_name}' not found") from None

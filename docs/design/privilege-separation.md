@@ -362,8 +362,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Storage, part 1: the ZFS pools and volumes of the storage routes (`app/daemon/ops/storage.py`: names checked again, a volume a VM uses never deleted) | done |
 | Storage, part 2a: the libvirt pools of the storage routes on this node: create (directory, NFS, SMB, iSCSI, LVM), rename, delete, with the SMB credentials file, the iSCSI CHAP secret and the LVM thin pool (`storage.pool_create`, `storage.pool_rename`, `storage.pool_delete`; the daemon writes a pool's definition itself from checked fields, `app/core/storage_pools.py`) | done |
 | Storage, part 2b: the volumes of the storage routes' libvirt pools (`storage.volume_create`, `storage.volume_delete`; the daemon writes a volume's definition from its checked name and size and never deletes one a VM uses). A VM's own disks (resize, move, snapshots) move with the VM domain | done |
-| Storage, part 2c: what the routes read that needs root or write access: the LVM reports (`vgs`, `lvs`) and a pool's refresh (`virStoragePoolRefresh` is refused on libvirt's read-only connection) | next |
-| Disks, VMs, containers, cluster, consoles | |
+| Storage, part 2c: what the storage routes read that needs root or a connection that may write: the LVM report of a group (`storage.lvm_volumes`) and a pool's refresh (`storage.pool_refresh`; `virStoragePoolRefresh` is refused on libvirt's read-only connection). The ZFS listings need neither (`/dev/zfs` is open to every user) | done |
+| Disks, VMs, containers, cluster, consoles | next: disks |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 

@@ -79,6 +79,7 @@ def test_a_volume_is_created_in_the_default_pool_of_a_fresh_node(
 
     def define(xml):
         pool = Pool()
+        pool.name = lambda: "default"
         pool.storageVolLookupByName = lambda name: (_ for _ in ()).throw(libvirt.libvirtError("no volume"))
         pool.refresh = lambda flags=0: None
         pool.XMLDesc = lambda flags=0: (

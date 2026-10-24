@@ -265,3 +265,37 @@ def volume_delete(args, ctx):
 
     with libvirt_utils.local_conn() as conn:
         storage_pools.volume_delete(conn, args.pool, args.name)
+
+
+# --- Part 2c: what the storage routes read that needs root or a connection that may write ---
+
+
+@operation("storage.pool_refresh", LibvirtPoolArgs)
+@_pools
+def pool_refresh(args, ctx):
+    """libvirt's list of the pool's volumes read again (files written outside libvirt, LUNs that came or went): a
+    refresh is refused on libvirt's read-only connection, the one the API will keep."""
+    from app.core import libvirt_utils, storage_pools
+
+    with libvirt_utils.local_conn() as conn:
+        storage_pools.refresh(conn, args.pool)
+
+
+class VolumeGroupArgs(Args):
+    vg: str = Field(min_length=1, max_length=128)
+
+
+@operation("storage.lvm_volumes", VolumeGroupArgs)
+def lvm_volumes(args, ctx):
+    """Every volume of the group, thin ones and thin pools included (lvm_storage.logical_volumes): LVM reads the
+    disks, which only root may."""
+    from app.core import lvm_storage
+
+    try:
+        lvm_storage.check_name(args.vg)
+    except lvm_storage.LvmError as e:
+        raise DaemonError("refused", str(e)) from e
+    try:
+        return lvm_storage.logical_volumes(args.vg)
+    except lvm_storage.LvmError as e:
+        raise DaemonError("failed", str(e)) from e
