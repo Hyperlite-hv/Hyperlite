@@ -49,6 +49,7 @@ def test_the_table_keeps_current_and_stale_statuses_and_drops_gone_or_unreadable
         "api": 0,
         "features": [],
         "mem_free_mb": None,
+        "load": None,
     }
     assert table["pve-b"]["stale"] is True
 
@@ -121,3 +122,23 @@ def test_this_nodes_vms_come_from_its_own_status_when_current(client, auth_heade
     body = client.get("/vms?cluster=true", headers=auth_headers("ana")).json()
     assert ("mine-from-status", "local") in [(v["name"], v["node"]) for v in body["items"]]
     assert cluster["asked"] == []  # nothing asked of anyone
+
+
+def test_a_status_carries_the_nodes_and_its_vms_load_as_the_collector_last_measured_it(cfs, monkeypatch):
+    # Load balancing reads it from the statuses (docs/design/drs.md, 3.1): measured once, by the collector.
+    from app.core import metrics
+
+    load = {"cpu_pct": 42.0, "mem_used_mb": 3000.0, "mem_total_mb": 8000.0}
+    vms = {"web": {"cpu_pct": 80.0, "vcpus": 2, "mem_used_mb": 900.0, "mem_total_mb": 1024.0}}
+    clock = [1000.0]
+    monkeypatch.setattr(metrics.time, "time", lambda: clock[0])
+    metrics._record_load(clock[0], load, vms)
+    got = metrics.latest_load()
+    assert got["host"]["cpu_pct"] == 42.0 and got["host"]["cpus"] >= 1 and got["vms"] == vms
+    clock[0] += metrics.LOAD_FRESH_S + 1
+    assert metrics.latest_load() is None  # a collector that stopped is no current load
+    clock[0] -= metrics.LOAD_FRESH_S + 1
+    cfs.statuses = [
+        NodeStatus(node=2, age_ms=1000, data=statd.encode({"node": "pve-a", "at": 0, "vms": [], "load": got}))
+    ]
+    assert statd.table()["pve-a"]["load"] == got
