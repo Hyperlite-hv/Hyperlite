@@ -273,7 +273,7 @@ def test_another_members_vms_come_from_it_in_one_call(client, auth_headers, peer
     Tailscale); the member answers from its own inventory cache."""
     from app.routers.vms import inventory
 
-    def no_libvirt(node=None):
+    def no_libvirt(node=None, **_k):
         raise AssertionError("another member's VMs must not be read through libvirt here")
 
     monkeypatch.setattr(inventory, "open_conn", no_libvirt)
@@ -288,7 +288,7 @@ def test_a_node_that_does_not_answer_is_named_not_an_error_500(client, auth_head
 
     from app.routers.vms import inventory
 
-    def unreachable(node=None):
+    def unreachable(node=None, **_k):
         raise libvirt.libvirtError("Cannot recv data: kex_exchange_identification: Connection reset by peer")
 
     monkeypatch.setattr(inventory, "open_conn", unreachable)

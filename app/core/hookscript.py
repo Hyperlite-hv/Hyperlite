@@ -28,6 +28,7 @@ from pathlib import Path
 
 from app.core import paths
 from app.core.safe_paths import safe_child
+from app.daemon.registry import DaemonError
 
 METADATA_NS = "urn:hyperlite:hookscript:1"
 METADATA_KEY = "hlhook"
@@ -376,12 +377,31 @@ def log_run(task_id, run_):
         task_log(task_id, run_["output"].strip()[-2000:])
 
 
+def runs_via(node, vm):
+    """The API's read of the VM's runs: this node's here, another node's asked of hyperlite-daemon, which alone reaches
+    it over SSH with the cluster's key (node.hookscripts, app/daemon/ops/cluster.py)."""
+    if not node:
+        return runs(vm)
+    from app.core import privileged
+
+    return privileged.run("node.hookscripts", node=node, vm=vm)["runs"]
+
+
+def library_via(node):
+    """The API's read of a node's library of scripts (runs_via)."""
+    if not node:
+        return list_scripts()
+    from app.core import privileged
+
+    return privileged.run("node.hookscripts", node=node)["library"]
+
+
 def log_runs_since(task_id, vm, since, node=None):
     """Write into the task log the runs of the VM's script recorded since `since` (a start's pre-start and
     post-start, run by libvirt's hook)."""
     try:
-        recent = [r for r in runs_on(node, vm) if r.get("at", 0) >= int(since)]
-    except (HookError, OSError, ValueError, subprocess.SubprocessError):
+        recent = [r for r in runs_via(node, vm) if r.get("at", 0) >= int(since)]
+    except (HookError, OSError, ValueError, subprocess.SubprocessError, DaemonError):
         return
     for r in recent:
         log_run(task_id, r)

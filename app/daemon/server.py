@@ -73,7 +73,11 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 def serve(path=None):
     """Listen on the socket until stopped: 0660, owned by root and the API's group when it exists."""
     import app.daemon.ops  # noqa: F401  (registers the operations)
+    from app.core.privileged import INPROCESS_ENV
 
+    # The daemon's own code that asks for an operation (another node's read-only connection opening its tunnel) runs
+    # it here, through the same registry, never through its own socket.
+    os.environ[INPROCESS_ENV] = "1"
     path = Path(path or os.environ.get(SOCKET_ENV) or DEFAULT_SOCKET)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)

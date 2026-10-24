@@ -33,6 +33,9 @@ SSH_DIR = PRIV / "ssh"  # the key this node uses to reach the others and its VMs
 INITIAL_PASSWORD_FILE = PRIV / "initial-admin-password.txt"
 TLS_DIR = ETC / "local"  # the web interface's certificate and key
 
+# /run/hyperlite: what lasts as long as the services (hyperlite-daemon's socket, its tunnels to the other nodes).
+RUN = Path(os.environ.get("HYPERLITE_RUN_DIR") or "/run/hyperlite")
+
 # /var/lib/hyperlite
 DB = VAR / "hyperlite.db"
 ISOS = VAR / "template" / "iso"

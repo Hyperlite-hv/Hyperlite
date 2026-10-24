@@ -74,7 +74,7 @@ def protecting(database, mounts, monkeypatch):
             def close(self):
                 pass
 
-        monkeypatch.setattr(ha, "open_conn", lambda key=None: Conn())
+        monkeypatch.setattr(ha, "open_conn", lambda key=None, **_k: Conn())
         monkeypatch.setattr(ha, "uses_shared_storage", lambda *a: True)
         ha.enable_protection("web", None, "admin")
         return ha.get_protected("web")

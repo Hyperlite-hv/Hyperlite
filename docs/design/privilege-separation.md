@@ -376,7 +376,11 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Containers, part 1: start, stop, settings, rename and deletion (`container.*`, `app/core/container_ops.py`), the filesystem found in the definition and accepted in Hyperlite's container directories only (below) | done |
 | Containers, part 2: creation and clone (`container.create`, `container.clone`, `app/core/container_create.py`): the specification of POST /containers checked again (its unknown fields refused), the directory chosen from the pool's own definition, the image pulled and the filesystem prepared by the daemon; the API keeps the image's required variables (asked of the registry) and the records | done |
 | Containers, part 3: snapshots and the console log (`container.snapshot_*`, `container.log`): read and written beside the filesystem the definition names, every check first with `check_only` | done |
-| Cluster, consoles; then backups | next: the cluster |
+| Cluster, part 1: the keys (`cluster.pubkey`, `cluster.test_node`, `cluster.trust`, `cluster.forget`, `cluster.rename_trust`): a node tested, registered, renamed and removed, its host key and its reverse trust, the node poller's checks; HA's own checks (`ha_watch.py`) stay with HA's owner | done |
+| Cluster, part 2: a node registered over SSH only: its VMs' power, pre-stop, start at boot, autostart flag, agents, rename, hook script and deletion, its pools, LVM report and host details by the daemon's operations with `node` (`libvirt_utils.node_conn`); the API's reads through a read-only tunnel the daemon opens (`app/core/node_tunnel.py`, `open_conn(node, readonly=True)`) | done |
+| Cluster, part 3: migration (`vm.migrate`, `vm.migrate_finish`, `vm.migrate_cancel`, `app/core/vm_migrate.py`): the move and its progress by the daemon; the API writes where the VM runs (HA first), then the daemon cleans the source up from what it kept, never from paths the API gives | done |
+| Cluster, part 4: the copies and the commands (`iso.list`, `iso.size`, `iso.copy`, `iso.delete_remote`, `config.copy`, `node.facts`, `node.probe`, `node.peer_call`): an ISO, the configuration (built by the daemon, keys included), a boot id and a host name, the fixed probes, the peer calls' SSH fallback; the remaining reads of another node through the read-only tunnel. What still reads the cluster's key in the API: the consoles' tunnels (the consoles domain) and HA's own calls (`ha*.py`, with HA's owner) | done |
+| Consoles; then backups | next: the consoles |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -500,10 +504,10 @@ holds the cluster's keys**, and the API asks it for named work on a named node, 
 
 | Part | What moves | Operations |
 |---|---|---|
-| Cluster, part 1: the keys | The cluster's key pair, root's `known_hosts`, the reverse trust a node is given into this one (`authorized_keys`), and their changes when a node is registered, renamed or removed (`app/core/cluster.py`) | `cluster.key`, `cluster.trust`, `cluster.forget` |
+| Cluster, part 1: the keys | The cluster's key pair, root's `known_hosts`, the reverse trust a node is given into this one (`authorized_keys`), and their changes when a node is registered, renamed or removed (`app/core/cluster.py`) | `cluster.pubkey`, `cluster.test_node`, `cluster.trust`, `cluster.forget`, `cluster.rename_trust` |
 | Cluster, part 2: a node registered over SSH only | Its VMs' power, definition and deletion, its pools and volumes, its inventory and its host's details, through the daemon's own connection to it | the domains' operations with `node`, `node.inventory`, `node.capabilities`, `node.stats` |
-| Cluster, part 3: migration | The pre-checks, the disks created and the files copied on the target, `migrateToURI3`, its progress, the cleanup on the source (`app/routers/vms/migration.py`) | `vm.migrate`, `vm.migrate_cancel` |
-| Cluster, part 4: the copies and the commands | An ISO copied to a node (`iso_share`), the configuration copied (`config_copy`), a member's boot id (`vm_boot`), the peer calls' SSH fallback (`rolling_update`) | `iso.copy`, `config.copy`, `node.boot_id`, `node.api` |
+| Cluster, part 3: migration | The pre-checks, the disks created and the files copied on the target, `migrateToURI3`, its progress, the cleanup on the source (`app/routers/vms/migration.py`) | `vm.migrate`, `vm.migrate_finish`, `vm.migrate_cancel` |
+| Cluster, part 4: the copies and the commands | An ISO copied to a node (`iso_share`), the configuration copied (`config_copy`), a member's boot id (`vm_boot`), the peer calls' SSH fallback (`rolling_update`) | `iso.list`, `iso.size`, `iso.copy`, `iso.delete_remote`, `config.copy`, `node.facts`, `node.probe`, `node.peer_call` |
 
 HA's own calls (`app/core/ha*.py`, its fencing over SSH included) move with HA's owner through #298, onto these
 operations. The consoles' tunnels to another node (`spice.py`, `console.py`) move with the consoles.

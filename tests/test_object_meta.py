@@ -23,7 +23,7 @@ class _Conn:
 def hosts(monkeypatch):
     from app.routers import meta
 
-    monkeypatch.setattr(meta, "open_conn", lambda node=None: _Conn({"web", "db"} if not node else {"far"}))
+    monkeypatch.setattr(meta, "open_conn", lambda node=None, **_k: _Conn({"web", "db"} if not node else {"far"}))
     monkeypatch.setattr(meta, "open_lxc_conn_if_any", lambda: _Conn({"cache"}))
 
 

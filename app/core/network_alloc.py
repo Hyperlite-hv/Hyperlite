@@ -109,7 +109,7 @@ def cluster_used_ips(network_name):
 
     def of(name):
         try:
-            conn = open_conn(name)
+            conn = open_conn(name, readonly=True)
         except Exception:
             logger.debug("cluster_used_ips: node %s unreachable", name, exc_info=True)
             return set()

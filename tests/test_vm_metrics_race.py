@@ -34,7 +34,7 @@ class _Conn:
 
 
 def test_a_vm_stopping_during_sampling_is_reported_stopped_not_a_500(monkeypatch):
-    monkeypatch.setattr(runtime, "open_conn", lambda: _Conn(_Domain()))
+    monkeypatch.setattr(runtime, "open_conn", lambda **_k: _Conn(_Domain()))
     monkeypatch.setattr(runtime, "log_action", lambda *a, **k: None)
     result = runtime.get_vm_metrics("vm1", user={"username": "tester"})
     assert result["state"] == "stopped"

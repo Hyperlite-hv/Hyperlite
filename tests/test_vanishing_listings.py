@@ -78,7 +78,7 @@ class _Conn:
 def test_a_vanished_snapshot_does_not_break_the_list(database, client, auth_headers, monkeypatch):
     from app.routers.vms import snapshots
 
-    monkeypatch.setattr(snapshots, "open_conn", lambda node=None: _Conn())
+    monkeypatch.setattr(snapshots, "open_conn", lambda node=None, **_k: _Conn())
     r = client.get("/vms/vm1/snapshots", headers=auth_headers("admin"))
     assert r.status_code == 200, r.text
     assert [s["name"] for s in r.json()["items"]] == ["kept"]
@@ -87,7 +87,7 @@ def test_a_vanished_snapshot_does_not_break_the_list(database, client, auth_head
 def test_a_vanished_pool_does_not_break_the_list(database, client, auth_headers, monkeypatch):
     from app.routers import storage
 
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: _Conn())
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: _Conn())
     monkeypatch.setattr(storage, "_ensure_default", lambda conn, node: None)
     monkeypatch.setattr(storage.zfs_storage, "list_pools", lambda: [])
     r = client.get("/storage", headers=auth_headers("admin"))

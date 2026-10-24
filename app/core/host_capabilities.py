@@ -289,15 +289,14 @@ def get_remote_capabilities(node_name):
     not go through libvirt (memory, binaries, Secure Boot, disk usage). The
     same known limits as the rest of the cluster apply: the cluster SSH trust
     must already be established, see app/core/cluster.py."""
+    from app.core import libvirt_utils
     from app.core.cluster import get_node, node_ssh_options
-    from app.core.libvirt_utils import open_conn
 
     node = get_node(node_name)
     if not node:
         raise ValueError(f"Node '{node_name}' not found")
 
-    conn = open_conn(node_name)
-    try:
+    with libvirt_utils.node_conn(node_name) as conn:
         libvirt_part = {
             "cpu": _cpu_capabilities_local(
                 conn
@@ -308,8 +307,6 @@ def get_remote_capabilities(node_name):
                 "interfaces": None,
             },  # OS interfaces are not available without SSH, see below
         }
-    finally:
-        conn.close()
 
     ssh_part = {
         "memory": {"total_mb": None, "available_mb": None},
@@ -382,4 +379,12 @@ def get_capabilities(node_name=None):
     of the project)."""
     if not node_name or node_name == "local":
         return get_local_capabilities()
-    return get_remote_capabilities(node_name)
+    return remote_capabilities(node_name)
+
+
+def remote_capabilities(node_name):
+    """get_remote_capabilities, run by hyperlite-daemon: its libvirt connection and its SSH probe need the cluster's
+    key, which only the daemon reads."""
+    from app.core import privileged
+
+    return privileged.run("node.capabilities", node=node_name)
