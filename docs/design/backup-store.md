@@ -169,6 +169,9 @@ Each one ships with its tests (unit, the e2e suite, the package lab) and keeps t
    token of a dedicated account there that holds only `backup_store.read` on the stores it copies (Antho: a dedicated
    read-only right). The source serves a store read-only, as it is on disk; the copy keeps **no key** of an encrypted
    store until the day it is restored from (Antho), when the administrator unlocks it with the key's code.
+   **Done, part 3**: the import of today's backups, on demand (`POST /backups/{id}/import`, *Into a store…* in a VM's
+   backups): verified first, each image read through qemu-nbd (a replication point with its chain), its files kept,
+   its time kept; the backup itself stays, never rewritten (decided: readable for ever).
 5. **File restore** from a store, and the export for **live restore** (with #513).
 
 ## 10. Tests

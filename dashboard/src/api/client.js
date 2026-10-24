@@ -486,6 +486,10 @@ export async function restoreBackup(id, mode, newName = null, on) {
   return realFetch(`/backups/${id}/restore${backupQs("on", on)}`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
 }
 // Recompute every checksum of a backup and check its images (a task, held by the same node as the backup).
+// A backup of the directory format copied into a backup store (a task); the backup stays as it is.
+export async function importBackupIntoStore(id, store, on) {
+  return realFetch(`/backups/${id}/import${backupQs("on", on)}`, { method: "POST", ...jsonBody({ store }) });
+}
 export async function verifyBackup(id, on) {
   return realFetch(`/backups/${id}/verify${backupQs("on", on)}`, { method: "POST" });
 }
