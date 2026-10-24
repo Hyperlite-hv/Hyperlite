@@ -364,8 +364,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Storage, part 2b: the volumes of the storage routes' libvirt pools (`storage.volume_create`, `storage.volume_delete`; the daemon writes a volume's definition from its checked name and size and never deletes one a VM uses). A VM's own disks (resize, move, snapshots) move with the VM domain | done |
 | Storage, part 2c: what the storage routes read that needs root or a connection that may write: the LVM report of a group (`storage.lvm_volumes`) and a pool's refresh (`storage.pool_refresh`; `virStoragePoolRefresh` is refused on libvirt's read-only connection). The ZFS listings need neither (`/dev/zfs` is open to every user) | done |
 | Disks, part 1: the libraries (below) | done |
-| Disks, part 2: a VM's disk (below) | next |
-| VMs, containers, cluster, consoles; then backups | |
+| Disks, part 2: a VM's disk (below): `disk.resize`, `disk.move` (one call that waits, its progress written into the task) and `disk.cancel` (the copy is stopped in the daemon, which keeps the copies running by task); the replication checkpoints dropped by the daemon (`checkpoints.drop`), the chain forgotten by the API (`checkpoints.forget`) | done |
+| VMs, containers, cluster, consoles; then backups | next: VMs |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 

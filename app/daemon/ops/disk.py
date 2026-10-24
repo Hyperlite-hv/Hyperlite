@@ -1,10 +1,12 @@
 """The disks' root work (docs/design/privilege-separation.md, section 13, the disks domain). Part 1: this node's
-libraries, the ISOs and the disks to import (app/core/disk_library.py, app/core/ova.py). An upload is taken from the
-spool by its name, never a path; a library's files are named, checked again here. The routes keep who may ask, the
-reads, the audit log, the tasks and their answers."""
+libraries, the ISOs and the disks to import (app/core/disk_library.py, app/core/ova.py). Part 2: a VM's disk grown or
+moved to another pool (app/core/disk_resize.py, app/core/disk_move.py), asked by the VM's name and the disk's target.
+An upload is taken from the spool by its name, never a path; a library's files are named, checked again here. The
+routes keep who may ask, the reads, the audit log, the tasks and their answers."""
 
 import functools
 import logging
+import threading
 from typing import Literal
 
 from pydantic import Field
@@ -122,3 +124,113 @@ def ova_extract(args, ctx):
         from app.core.error_messages import describe_exception
 
         raise DaemonError("failed", f"The disks could not be extracted: {describe_exception(e)}") from e
+
+
+# --- Part 2: a VM's disk, grown or moved to another pool, asked by the VM's name and the disk's target ---
+
+TARGET = r"^[a-z]{2,4}[0-9]{0,2}$"  # the routes' own rule (app/routers/vms/_shared.py, TARGET_DEV_RE)
+VM_NAME = 64
+TASK_ID = 64
+MAX_GB = 1 << 20
+
+# The copies running in this process, by task: what disk.cancel stops.
+_moves = {}
+_moves_lock = threading.Lock()
+
+
+def _kind(status):
+    """disk_resize's and disk_move's statuses, as the daemon's kinds (the routes give back the same statuses)."""
+    return {404: "not_found", 409: "in_use", 422: "refused"}.get(status, "failed")
+
+
+def _domain(conn, vm):
+    import libvirt
+
+    try:
+        return conn.lookupByName(vm)
+    except libvirt.libvirtError:
+        raise DaemonError("not_found", f"VM '{vm}' not found") from None
+
+
+class ResizeArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    target: str = Field(pattern=TARGET)
+    size_gb: int = Field(ge=1, le=MAX_GB)
+
+
+@operation("disk.resize", ResizeArgs)
+def resize(args, ctx):
+    """The disk grown (disk_resize.grow: only growing, never an iSCSI LUN, not under a block job), its replication
+    checkpoints dropped once every check passed. The API forgets the replication chain when `checkpoints_dropped`."""
+    from app.core import checkpoints, disk_resize, libvirt_utils
+
+    dropped = []
+    with libvirt_utils.local_conn() as conn:
+        domain = _domain(conn, args.vm)
+        try:
+            old_bytes, new_bytes, live = disk_resize.grow(
+                conn, domain, args.target, args.size_gb, before_change=lambda: dropped.append(checkpoints.drop(domain))
+            )
+        except disk_resize.ResizeError as e:
+            raise DaemonError(_kind(e.status), e.message) from e
+    return {"old_bytes": old_bytes, "new_bytes": new_bytes, "live": live, "checkpoints_dropped": sum(dropped)}
+
+
+class MoveArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    target: str = Field(pattern=TARGET)
+    pool: str = Field(min_length=1, max_length=64)
+    delete_source: bool = False
+    task_id: str = Field(min_length=1, max_length=TASK_ID)
+
+
+@operation("disk.move", MoveArgs)
+def move(args, ctx):
+    """The disk copied into another directory or NFS pool and the VM switched to it, live or stopped (disk_move):
+    checked again here, its replication checkpoints dropped, its progress written into the task. One call that waits;
+    disk.cancel stops it. Returns where it went and `checkpoints_dropped`."""
+    from app.core import checkpoints, disk_move, libvirt_utils
+    from app.core.tasks import task_log, update_task_progress
+
+    stop = threading.Event()
+    with _moves_lock:
+        if args.task_id in _moves:
+            raise DaemonError("in_use", "This task already moves a disk")
+        _moves[args.task_id] = stop
+    try:
+        with libvirt_utils.local_conn() as conn:
+            domain = _domain(conn, args.vm)
+            try:
+                how = disk_move.plan(conn, domain, args.target, args.pool)
+                dropped = checkpoints.drop(domain)
+                task_log(
+                    args.task_id, f"Copying {args.target} to {args.pool} ({'live' if how['live'] else 'VM stopped'})"
+                )
+                result = disk_move.move(
+                    domain,
+                    args.target,
+                    how,
+                    args.delete_source,
+                    progress=lambda pct: update_task_progress(args.task_id, pct),
+                    stop=stop,
+                )
+            except disk_move.MoveError as e:
+                raise DaemonError(_kind(e.status), e.message) from e
+    finally:
+        with _moves_lock:
+            _moves.pop(args.task_id, None)
+    return {**result, "live": how["live"], "checkpoints_dropped": dropped}
+
+
+class CancelArgs(Args):
+    task_id: str = Field(min_length=1, max_length=TASK_ID)
+
+
+@operation("disk.cancel", CancelArgs)
+def cancel(args, ctx):
+    """Stop the copy of this task, if one runs: the partial copy is removed, the VM stays on its source disk."""
+    with _moves_lock:
+        stop = _moves.get(args.task_id)
+    if stop is not None:
+        stop.set()
+    return {"cancelled": stop is not None}
