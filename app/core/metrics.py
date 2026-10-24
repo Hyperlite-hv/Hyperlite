@@ -280,7 +280,7 @@ def _sample_remote_node(node, ts, now):
         )
     conn = None
     try:
-        conn = open_conn(name)
+        conn = open_conn(name, readonly=True)
         for domain in conn.listAllDomains():
             target = f"{name}:{domain.name()}"
             s = _sample_vm(domain, target, now)

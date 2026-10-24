@@ -62,6 +62,14 @@ class FakeCluster:
         return {"migratable": ["web"], "not_migratable": ["db"] if label in self.blocked else []}
 
 
+@pytest.fixture(autouse=True)
+def registered(monkeypatch):
+    """hyperlite-daemon reads the nodes' addresses from the node registry: these ones."""
+    monkeypatch.setattr(
+        rolling_update.cluster, "get_node", lambda name: next((dict(n) for n in NODES if n["name"] == name), None)
+    )
+
+
 @pytest.fixture()
 def cluster(database, monkeypatch):
     def make(**kw):

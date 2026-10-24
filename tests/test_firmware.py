@@ -156,7 +156,7 @@ def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path, d
     domain.isActive.return_value = True
     conn = Mock()
     conn.lookupByName.return_value = domain
-    monkeypatch.setattr(runtime, "open_conn", lambda: conn)
+    monkeypatch.setattr(runtime, "open_conn", lambda **_k: conn)
     daemon_libvirt(conn)  # hyperlite-daemon changes the drive, in this process in the tests
     monkeypatch.setattr(runtime, "log_action", Mock())
     monkeypatch.setattr(runtime, "ISOS_DIR", tmp_path)

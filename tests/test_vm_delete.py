@@ -103,7 +103,7 @@ def test_the_daemon_checks_the_vm_again(daemon_libvirt, images):
 def test_the_answer_and_the_audit_say_what_stays(client, auth_headers, daemon_libvirt, images, monkeypatch):
     web = _Dom("web", images / "web.qcow2", images / "shared.qcow2")
     conn = daemon_libvirt(_Conn(web, _Dom("db", images / "shared.qcow2")))
-    monkeypatch.setattr(lifecycle, "open_conn", lambda node=None: _Kept(conn))
+    monkeypatch.setattr(lifecycle, "open_conn", lambda node=None, **_k: _Kept(conn))
     logged = []
     monkeypatch.setattr(lifecycle, "log_action", lambda *a, **k: logged.append(a))
     r = client.delete("/vms/web?confirm=true", headers=auth_headers("root"))

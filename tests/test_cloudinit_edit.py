@@ -112,7 +112,7 @@ def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_header
             pass
 
     written = []
-    monkeypatch.setattr(settings, "open_conn", lambda node=None: Conn())
+    monkeypatch.setattr(settings, "open_conn", lambda node=None, **_k: Conn())
     daemon_libvirt(Conn())  # hyperlite-daemon writes the drive (write_drive); the API keeps the state
     monkeypatch.setattr(
         cloudinit_edit,

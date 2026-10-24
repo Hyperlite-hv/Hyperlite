@@ -3,7 +3,9 @@ external snapshot, scheduling) lives in app/core/backups.py; this file only
 validates input, checks permissions and orchestrates the background task."""
 
 import logging
+import re
 import threading
+import uuid
 
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException
@@ -547,3 +549,171 @@ def run_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
 
     threading.Thread(target=work, daemon=True).start()
     return {"task_id": task_id}
+
+
+# ---- A store read by another cluster's copy of it (app/core/backup_remotes.py, docs/design/backup-store.md) ----
+#
+# Read-only, as they are on disk (encrypted chunks stay sealed: the reader needs no key), for an account that holds
+# backup_store.read on the store (the role "Backup store reader"), as Proxmox Backup Server's DatastoreReader.
+
+_EXPORT_STAMP = re.compile(r"^[0-9A-Za-z:._-]{1,40}$")
+_EXPORT_DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _exported(name, user):
+    from app.core import permissions
+
+    if not permissions.has_scoped_privilege(user, "backup_store", name, "backup_store.read"):
+        raise HTTPException(status_code=403, detail=f"Reading the backup store '{name}' needs backup_store.read on it")
+    try:
+        return backup_stores.open_store(name, raw=True)
+    except backup_stores.StoreError as e:
+        raise _store_error(e) from None
+
+
+@router.get("/backup-stores/{name}/export")
+def export_store(name: str, user: dict = Depends(get_current_user)):
+    """The store's configuration (its chunks' size and seal, never its key) and its backups' manifests."""
+    store = _exported(name, user)
+    config = {k: store.config.get(k) for k in ("format", "id", "chunk_size", "encrypted", "key_fingerprint")}
+    backups = [{"vm_uuid": vm, "time": stamp, "manifest": manifest} for vm, stamp, manifest in store.backups()]
+    log_action(user["username"], "backup_store_export", name, "success", f"{len(backups)} backups listed")
+    return {"config": config, "backups": backups}
+
+
+@router.get("/backup-stores/{name}/export/backups/{vm_uuid}/{stamp}/{file}")
+def export_backup_file(name: str, vm_uuid: str, stamp: str, file: str, user: dict = Depends(get_current_user)):
+    """One file of a backup as it is on disk: its manifest, an index, a sealed file."""
+    from fastapi.responses import Response
+
+    from app.core.safe_paths import safe_child
+
+    store = _exported(name, user)
+    try:
+        uuid.UUID(vm_uuid)
+        if not _EXPORT_STAMP.match(stamp) or ".." in stamp:
+            raise ValueError(stamp)
+        path = safe_child(
+            store.backup_dir(vm_uuid, stamp), backup_store._safe(file) if file != "manifest.json" else file
+        )
+        data = path.read_bytes()
+    except (ValueError, OSError):
+        raise HTTPException(status_code=404, detail="No such file in this backup") from None
+    return Response(content=data, media_type="application/octet-stream")
+
+
+@router.get("/backup-stores/{name}/export/chunks/{digest}")
+def export_chunk(name: str, digest: str, user: dict = Depends(get_current_user)):
+    """One chunk as it is on disk, sealed when the store is encrypted."""
+    from fastapi.responses import Response
+
+    store = _exported(name, user)
+    if not _EXPORT_DIGEST.match(digest):
+        raise HTTPException(status_code=404, detail="No such chunk")
+    try:
+        data = store.chunk_path(bytes.fromhex(digest)).read_bytes()
+    except OSError:
+        raise HTTPException(status_code=404, detail="No such chunk") from None
+    return Response(content=data, media_type="application/octet-stream")
+
+
+# ---- Other clusters whose stores are copied here (app/core/backup_remotes.py) ----
+
+
+class RemoteProbe(BaseModel):
+    address: str
+    port: int = Field(8000, ge=1, le=65535)
+
+
+class RemoteCreate(RemoteProbe):
+    name: str
+    fingerprint: str = Field(description="SHA-256 of the remote's HTTPS certificate, as its own dashboard shows it")
+    token: str = Field(description="An API token of the remote's dedicated account (backup_store.read on its stores)")
+
+
+class StoreUnlock(BaseModel):
+    key: str = Field(description="The store key's code, as the source showed it once")
+
+
+def _remote_error(e):
+    return HTTPException(status_code=e.status, detail=e.message)
+
+
+@router.get("/backup-remotes/this-node")
+def this_node_certificate(user: dict = Depends(require_role("admin"))):
+    """What another cluster pins to copy this one's stores: this node's HTTPS certificate fingerprint."""
+    from app.core import peer_https
+
+    try:
+        return {"fingerprint": peer_https.own_fingerprint()}
+    except (OSError, ValueError):  # no certificate of its own (a node served over plain HTTP behind a proxy)
+        return {"fingerprint": None}
+
+
+@router.post("/backup-remotes/probe")
+def probe_remote(payload: RemoteProbe, user: dict = Depends(require_role("admin"))):
+    """The certificate fingerprint an address presents, to be compared with the one its dashboard shows."""
+    from app.core import backup_remotes
+
+    try:
+        return {"fingerprint": backup_remotes.probe(payload.address, payload.port)}
+    except backup_remotes.RemoteError as e:
+        raise _remote_error(e) from None
+
+
+@router.get("/backup-remotes")
+def list_remotes(user: dict = Depends(require_role("admin"))):
+    from app.core import backup_remotes
+
+    return listing([backup_remotes.describe(r) for r in backup_service.list_remotes()])
+
+
+@router.post("/backup-remotes", status_code=201)
+def create_remote(payload: RemoteCreate, user: dict = Depends(require_role("admin"))):
+    """Record another cluster once its certificate matches the fingerprint and its token is accepted."""
+    from app.core import backup_remotes
+
+    try:
+        remote = backup_remotes.save(
+            payload.name, payload.address, payload.port, payload.fingerprint, payload.token, user["username"]
+        )
+    except backup_remotes.RemoteError as e:
+        log_action(user["username"], "create_backup_remote", payload.name, "failed", e.message)
+        raise _remote_error(e) from None
+    log_action(user["username"], "create_backup_remote", payload.name, "success", f"{payload.address}:{payload.port}")
+    return remote
+
+
+@router.get("/backup-remotes/{name}/stores")
+def remote_stores(name: str, user: dict = Depends(require_role("admin"))):
+    """The remote's backup stores, to make a copy of one here."""
+    from app.core import backup_remotes
+
+    try:
+        return listing(backup_remotes.stores(name))
+    except backup_remotes.RemoteError as e:
+        raise _remote_error(e) from None
+
+
+@router.delete("/backup-remotes/{name}")
+def delete_remote(name: str, user: dict = Depends(require_role("admin"))):
+    from app.core import backup_remotes
+
+    try:
+        backup_remotes.remove(name)
+    except backup_remotes.RemoteError as e:
+        raise _remote_error(e) from None
+    log_action(user["username"], "delete_backup_remote", name, "success")
+    return {"message": f"Remote '{name}' removed"}
+
+
+@router.post("/backup-stores/{name}/unlock")
+def unlock_store(name: str, payload: StoreUnlock, user: dict = Depends(require_role("admin"))):
+    """Give an encrypted copy its key, the day its backups are restored here (it kept none until then)."""
+    try:
+        row = backup_stores.unlock(name, payload.key, user["username"])
+    except backup_stores.StoreError as e:
+        log_action(user["username"], "unlock_backup_store", name, "failed", e.message)
+        raise _store_error(e) from None
+    log_action(user["username"], "unlock_backup_store", name, "success")
+    return backup_stores.describe(row)

@@ -143,7 +143,7 @@ class NoLibrary(Exception):
     pass
 
 
-def remote_isos(node):
+def _remote_isos(node):
     r = _ssh(node, ["sh", "-c", _LIST, "sh", *LIBRARY_DIRS], LIST_TIMEOUT_S)
     if r.returncode == 3:
         raise NoLibrary()
@@ -195,12 +195,49 @@ def resolve_node(node_id):
 
 
 def iso_size(node, name):
-    """Size in bytes of an image in a node's library, None if it is not there."""
+    """Size in bytes of an image in a node's library, None if it is not there. Another node's is read by
+    hyperlite-daemon, over SSH with the cluster's key (iso.size)."""
     if not valid_iso_name(name):
         return None
     if node is None:
         p = _iso_path(name)
         return p.stat().st_size if p.is_file() else None
+    return _daemon("iso.size", node=node["name"], name=name)["size"]
+
+
+def remote_isos(node):
+    """Another node's library, read by hyperlite-daemon (iso.list). NoLibrary when that node has none."""
+    from app.daemon.registry import DaemonError
+
+    try:
+        return _daemon("iso.list", node=node["name"])["isos"]
+    except DaemonError as e:
+        if e.kind == "not_found" and e.detail == NO_LIBRARY:
+            raise NoLibrary() from None
+        raise RuntimeError(e.detail) from None
+
+
+def delete_remote(node, name):
+    """An image of another node's library deleted there by hyperlite-daemon (iso.delete_remote)."""
+    from app.daemon.registry import DaemonError
+
+    if not valid_iso_name(name):
+        raise ValueError(f"Invalid ISO name '{name}'")
+    try:
+        _daemon("iso.delete_remote", node=node["name"], name=name)
+    except DaemonError as e:
+        raise RuntimeError(e.detail) from None
+
+
+def _daemon(op, **args):
+    from app.core import privileged
+
+    return privileged.run(op, **args)
+
+
+def _remote_size(node, name):
+    if not valid_iso_name(name):
+        return None
     r = _ssh(node, ["stat", "-c", "%s", str(_remote_path(node, name))], LIST_TIMEOUT_S)
     if r.returncode != 0:
         return None
@@ -309,7 +346,16 @@ def start_copy(name, source_id, target_ids, username, after=None):
         def job(key=key, node=node, task_id=task_id):
             ok = False
             try:
-                _copy(name, source, node, task_id, total)
+                # Copied by hyperlite-daemon, over SSH with the cluster's key; it writes the progress into the task.
+                _daemon(
+                    "iso.copy",
+                    name=name,
+                    source=None if source is None else source["name"],
+                    target=None if node is None else node["name"],
+                    task_id=task_id,
+                    total=total,
+                    timeout=TRANSFER_TIMEOUT_S + 60,
+                )
                 finish_task(task_id, "succeeded")
                 log_action(username, "copy_iso", f"{name} {source_key} -> {key}", "success", task_id=task_id)
                 ok = True
@@ -327,7 +373,7 @@ def start_copy(name, source_id, target_ids, username, after=None):
     return tasks
 
 
-def delete_remote(node, name):
+def _delete_remote(node, name):
     r = _ssh(node, ["rm", "-f", "--", str(_remote_path(node, name))], LIST_TIMEOUT_S)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip()[:300] or "deletion failed")
