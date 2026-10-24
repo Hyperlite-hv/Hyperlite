@@ -52,6 +52,7 @@ def probe(address, port=DEFAULT_PORT):
     dashboard shows, before it is pinned."""
     address, port = _check_address(address, port)
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # what is checked is the fingerprint, by a person, then pinned
     try:
