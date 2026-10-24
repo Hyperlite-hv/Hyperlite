@@ -138,3 +138,22 @@ def test_a_clone_is_made_from_a_stopped_container_in_a_directory_hyperlite_manag
     with pytest.raises(DaemonError) as e:
         privileged.run("container.clone", container="evil", new_name="evil2")
     assert e.value.kind == "refused" and not (node["elsewhere"].parent / "evil2").exists()
+
+
+@pytest.mark.parametrize("snapshot", ["../web", "a/b", ".hidden"])
+def test_a_snapshot_name_never_leads_out_of_the_snapshots_directory(node, snapshot):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("container.snapshot_create", container="web", snapshot=snapshot, check_only=True)
+    assert e.value.kind == "refused"
+    for op in ("container.snapshot_restore", "container.snapshot_delete"):
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, container="web", snapshot=snapshot)
+        assert e.value.kind == "not_found"
+    assert (node["default"] / "web").is_dir()
+
+
+def test_the_snapshots_and_the_log_of_a_filesystem_hyperlite_does_not_manage_are_never_read(node):
+    for op, args in (("container.snapshot_list", {}), ("container.log", {"lines": 10})):
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, container="evil", **args)
+        assert e.value.kind == "refused"
