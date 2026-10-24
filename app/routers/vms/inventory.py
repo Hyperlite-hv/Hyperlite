@@ -97,7 +97,7 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
         # every request, the largest cost of this list under load (docs/scale-results.md).
         return JSONResponse(result)
     try:
-        conn = open_conn(node)
+        conn = open_conn(node, readonly=True)
     except libvirt.libvirtError as e:
         # A node that does not answer is named, and the dashboard still lists the others (no unhandled 500).
         raise HTTPException(status_code=502, detail=f"{node or 'This node'} does not answer: {e}") from None
@@ -114,7 +114,7 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
 @router.get("/{name}")
 def get_vm(name: str, node: str | None = None, user: dict = Depends(get_current_user)):
     """node: the registered node the VM runs on (the local host by default), as for GET /vms."""
-    conn = open_conn(None if node == "local" else node)
+    conn = open_conn(None if node == "local" else node, readonly=True)
     try:
         domain = conn.lookupByName(name)
     except libvirt.libvirtError:

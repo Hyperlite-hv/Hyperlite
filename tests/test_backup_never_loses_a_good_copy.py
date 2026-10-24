@@ -40,7 +40,7 @@ def vm(database, tmp_path, monkeypatch):
     src = tmp_path / "pool" / "web.qcow2"
     src.parent.mkdir()
     src.write_bytes(b"disk")
-    monkeypatch.setattr(backups, "open_conn", lambda *a: FakeConn(FakeDomain(src)))
+    monkeypatch.setattr(backups, "open_conn", lambda *a, **_k: FakeConn(FakeDomain(src)))
     monkeypatch.setattr(backups, "_write_vm_config", lambda domain, dest: None)
     monkeypatch.setattr(backup_integrity, "save_firmware_state", lambda domain, dest: None)
     monkeypatch.setattr(firmware, "of_domain", lambda root: "bios")

@@ -377,7 +377,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Containers, part 2: creation and clone (`container.create`, `container.clone`, `app/core/container_create.py`): the specification of POST /containers checked again (its unknown fields refused), the directory chosen from the pool's own definition, the image pulled and the filesystem prepared by the daemon; the API keeps the image's required variables (asked of the registry) and the records | done |
 | Containers, part 3: snapshots and the console log (`container.snapshot_*`, `container.log`): read and written beside the filesystem the definition names, every check first with `check_only` | done |
 | Cluster, part 1: the keys (`cluster.pubkey`, `cluster.test_node`, `cluster.trust`, `cluster.forget`, `cluster.rename_trust`): a node tested, registered, renamed and removed, its host key and its reverse trust, the node poller's checks; HA's own checks (`ha_watch.py`) stay with HA's owner | done |
-| Cluster, parts 2 to 4; consoles; then backups | next: cluster, part 2 |
+| Cluster, part 2: a node registered over SSH only: its VMs' power, pre-stop, start at boot, autostart flag, agents, rename, hook script and deletion, its pools, LVM report and host details by the daemon's operations with `node` (`libvirt_utils.node_conn`); the API's reads through a read-only tunnel the daemon opens (`app/core/node_tunnel.py`, `open_conn(node, readonly=True)`) | done |
+| Cluster, parts 3 and 4; consoles; then backups | next: cluster, part 3 |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 

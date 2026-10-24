@@ -26,7 +26,7 @@ def domain(monkeypatch, tmp_path, daemon_libvirt):
     domain.isActive.return_value = True
     conn = Mock()
     conn.lookupByName.return_value = domain
-    monkeypatch.setattr(runtime, "open_conn", lambda: conn)
+    monkeypatch.setattr(runtime, "open_conn", lambda **_k: conn)
     daemon_libvirt(conn)  # hyperlite-daemon changes the drives, in this process in the tests
     monkeypatch.setattr(runtime, "log_action", Mock())
     monkeypatch.setattr("app.core.privileged.log_action", Mock())

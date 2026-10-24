@@ -108,8 +108,8 @@ def hosts(database, monkeypatch, daemon_libvirt):
         )
         db.commit()
     hosts = {"local": _Host(), "n2": _Host()}
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: hosts[node or "local"])
-    daemon_libvirt(hosts["local"])  # this node's pools are hyperlite-daemon's, in this process in the tests
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: hosts[node or "local"])
+    daemon_libvirt(hosts["local"], nodes=hosts)  # every node's pools are hyperlite-daemon's, in this process here
     monkeypatch.setattr(storage.shutil, "which", lambda name: f"/sbin/{name}")
     monkeypatch.setattr(storage.smb_storage, "check", lambda path: {"ok": True, "message": None})
     sent = []

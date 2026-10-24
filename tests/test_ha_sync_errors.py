@@ -30,7 +30,7 @@ def _error(code):
 def test_only_a_vm_libvirt_does_not_know_loses_its_protection(database, monkeypatch, code, disabled):
     off = []
     monkeypatch.setattr(ha, "list_protected", lambda: [{"vm_name": "web", "node": "local"}])
-    monkeypatch.setattr(ha, "open_conn", lambda key=None: _Conn(_error(code)))
+    monkeypatch.setattr(ha, "open_conn", lambda key=None, **_k: _Conn(_error(code)))
     monkeypatch.setattr(ha, "disable_protection", lambda vm, by: off.append(vm))
     monkeypatch.setattr(cluster_lead, "in_cluster", lambda: True)
     ha.sync_protected_vms()

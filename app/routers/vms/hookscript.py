@@ -13,6 +13,7 @@ from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn
 from app.core.security import require_role, require_vm_privilege
+from app.daemon.registry import DaemonError
 from app.routers.vms._shared import router
 
 
@@ -27,17 +28,23 @@ def _domain(conn, name):
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
 
+def _remote(node):
+    return node if node and node != "local" else None
+
+
 @router.get("/{name}/hookscript")
 def get_vm_hookscript(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
     """The VM's script, its last runs on its node and, for an administrator, the scripts of that node's library."""
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         script = hookscript.get_script(_domain(conn, name))
     finally:
         conn.close()
     try:
-        runs = hookscript.runs_on(node, name)[-20:]
-        library = hookscript.list_scripts_on(node) if user["role"] == "admin" else None
+        runs = hookscript.runs_via(_remote(node), name)[-20:]
+        library = hookscript.library_via(_remote(node)) if user["role"] == "admin" else None
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
     except hookscript.HookError as e:
         raise HTTPException(status_code=502, detail=f"The node's hook scripts could not be read: {e}") from None
     except (OSError, ValueError, subprocess.SubprocessError) as e:
@@ -51,38 +58,23 @@ def set_vm_hookscript(
     name: str, payload: HookScriptChoice, node: str | None = None, user: dict = Depends(require_role("admin"))
 ):
     """Attach a script of the VM's node library to the VM, or detach its script (null)."""
+    # Checked again and attached by hyperlite-daemon (app/daemon/ops/vm.py), from that node's own library: a script
+    # runs as root.
     script = payload.script or None
+    conn = open_conn(node, readonly=True)
     try:
-        if script:
-            hookscript.check_on(node, script)
-    except hookscript.HookError as e:
-        log_action(user["username"], "set_vm_hookscript", name, "failed", str(e))
-        raise HTTPException(status_code=422, detail=str(e)) from None
-    except (OSError, ValueError, subprocess.SubprocessError) as e:
-        msg = describe_exception(e)
-        raise HTTPException(status_code=502, detail=f"The node's hook scripts could not be read: {msg}") from None
-    conn = open_conn(node)
-    try:
-        domain = _domain(conn, name)
-        if node and node != "local":
-            try:
-                hookscript.set_script(domain, script)
-            except libvirt.libvirtError as e:
-                msg = describe_exception(e)
-                log_action(user["username"], "set_vm_hookscript", name, "failed", msg)
-                raise HTTPException(status_code=500, detail=f"The hook script could not be set: {msg}") from e
-        else:
-            # Checked again and attached by hyperlite-daemon (app/daemon/ops/vm.py): a script runs as root.
-            privileged.ask(
-                "vm.set_hookscript",
-                user,
-                "set_vm_hookscript",
-                name,
-                failed="The hook script could not be set: {}",
-                vm=name,
-                script=script,
-            )
+        _domain(conn, name)
     finally:
         conn.close()
+    privileged.ask(
+        "vm.set_hookscript",
+        user,
+        "set_vm_hookscript",
+        name,
+        failed="The hook script could not be set: {}",
+        vm=name,
+        script=script,
+        node=_remote(node),
+    )
     log_action(user["username"], "set_vm_hookscript", name, "success", script or "none")
     return {"script": script}

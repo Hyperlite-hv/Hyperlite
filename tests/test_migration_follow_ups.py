@@ -32,7 +32,7 @@ class FakeConn:
 
 @pytest.fixture()
 def migrate(database, monkeypatch):
-    monkeypatch.setattr(migration, "open_conn", lambda node=None: FakeConn())
+    monkeypatch.setattr(migration, "open_conn", lambda node=None, **_k: FakeConn())
     monkeypatch.setattr(migration, "_ensure_networks_active", lambda conn, names: None)
     monkeypatch.setattr(migration, "domain_disk_paths", lambda domain: [])
     monkeypatch.setattr(migration, "uses_shared_storage", lambda *a: True)

@@ -136,7 +136,7 @@ def test_an_existing_nfs_pool_can_be_checked(database, client, auth_headers, mon
     from app.routers import storage
 
     calls = []
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: _Conn())
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: _Conn())
     daemon_libvirt(_Conn())  # the check writes into the share: hyperlite-daemon's, in this process in the tests
     monkeypatch.setattr(
         nfs_permissions,
