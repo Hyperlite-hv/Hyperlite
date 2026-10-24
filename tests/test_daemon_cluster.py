@@ -108,3 +108,18 @@ def test_the_api_reads_another_node_through_the_daemons_tunnel(registered, monke
     monkeypatch.setattr(libvirt, "open", lambda uri: pytest.fail("a connection that may write"))
     assert libvirt_utils.open_conn("n2", readonly=True) == "conn"
     assert opened == ["n2", "qemu+unix:///system?socket=" + str(node_tunnel.socket_path("n2"))]
+
+
+def test_a_migration_names_registered_nodes_and_its_task(database):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.migrate", vm="web", source_node="ghost", target_node="n3", task_id="t1")
+    assert e.value.kind == "not_found"
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.migrate", vm="web", target_node="qemu+ssh://evil/system", task_id="t1")
+    assert e.value.kind == "invalid_arguments"  # a node's name, never a URI
+    # Nothing to stop or to clean up for a task the daemon does not run: the API names a task, never what to delete.
+    assert privileged.run("vm.migrate_cancel", task_id="t1") == {"cancelled": False}
+    assert privileged.run("vm.migrate_finish", task_id="t1") == {"warnings": []}
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.migrate_finish", task_id="t1", paths=["/etc/shadow"])
+    assert e.value.kind == "invalid_arguments"

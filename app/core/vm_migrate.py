@@ -18,12 +18,11 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import checkpoints, network_alloc, snapshot_carry
+from app.core import checkpoints, libvirt_utils, network_alloc, snapshot_carry
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     domain_disk_paths,
     ensure_default_pool,
-    node_conn,
     refresh_pools_for_paths,
     uses_shared_storage,
 )
@@ -244,7 +243,7 @@ def _progress(stop, task_id, node, vm_name):
     """The copy's progress written into the task, from libvirt's job, through a connection of its own (a Domain
     object is never shared between threads). jobInfo fails between two jobs: ignored."""
     try:
-        with node_conn(node) as conn:
+        with libvirt_utils.node_conn(node) as conn:
             domain = conn.lookupByName(vm_name)
             while not stop.is_set():
                 try:
@@ -284,7 +283,7 @@ def migrate(task_id, vm_name, source_node, target_node, aborts):
     Event}). Returns ({"shared", "warnings", "checkpoints_dropped"}, finish): `finish()` cleans the source up and
     returns its warnings (vm.migrate_finish). The steps after the move never fail it, each failure is a warning."""
     source, dest = _remote(source_node), _remote(target_node)
-    with node_conn(source) as src_conn, node_conn(dest) as dest_conn:
+    with libvirt_utils.node_conn(source) as src_conn, libvirt_utils.node_conn(dest) as dest_conn:
         try:
             domain = src_conn.lookupByName(vm_name)
         except libvirt.libvirtError:
@@ -380,7 +379,7 @@ def migrate(task_id, vm_name, source_node, target_node, aborts):
         addresses there, and its copied disks and CD-ROM files (never on shared storage, the same file on both)."""
         done = []
         task_log(task_id, "Migration done, cleaning up")
-        with node_conn(source) as src_conn, node_conn(dest) as dest_conn:
+        with libvirt_utils.node_conn(source) as src_conn, libvirt_utils.node_conn(dest) as dest_conn:
             release = lambda: network_alloc.release_reservations(src_conn, moved)  # noqa: E731
             _step(done, task_id, vm_name, target_node, "releasing its addresses on the source node", release)
             if not shared:
