@@ -13,6 +13,7 @@ import hashlib
 import logging
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -92,29 +93,59 @@ def log_path(rootfs):
     return Path(rootfs) / LOG.lstrip("/")
 
 
-def trim(rootfs):
-    path = log_path(rootfs)
+def _open_log(rootfs, flags):
+    """The log opened as a file descriptor, never through a link: the container's own root owns rootfs/.hyperlite and
+    could replace it, or the log, by a link to a host file while this process, root, reads or truncates it
+    (GHSA-fvvw-286q-82jj). Each component is opened with O_NOFOLLOW, relative to the one before. None when there is no
+    regular log there."""
+    base = os.open(rootfs, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size <= MAX_BYTES:
-            return
-        with open(path, "rb+") as f:
+        folder = os.open(IN_CONTAINER.lstrip("/"), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=base)
+    except OSError:
+        return None
+    finally:
+        os.close(base)
+    try:
+        fd = os.open(Path(LOG).name, flags | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    except OSError:
+        return None
+    finally:
+        os.close(folder)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        return None
+    return fd
+
+
+def trim(rootfs):
+    try:
+        fd = _open_log(rootfs, os.O_RDWR)
+    except OSError as e:
+        logger.warning("Could not trim the console log of %s: %s", rootfs, e)
+        return
+    if fd is None:
+        return
+    try:
+        with os.fdopen(fd, "rb+") as f:
+            if os.fstat(f.fileno()).st_size <= MAX_BYTES:
+                return
             f.seek(-KEEP_BYTES, os.SEEK_END)
             tail = f.read()
             f.seek(0)
             f.truncate()
             f.write(b"--- hyperlite: older lines removed (log over 8 MB)\n" + tail)
     except OSError as e:
-        logger.warning("Could not trim %s: %s", path, e)
+        logger.warning("Could not trim the console log of %s: %s", rootfs, e)
 
 
 def read_tail(rootfs, lines=300):
     """The last lines of the log, or None when this container has none (created before logs existed, or on a
     host without the launcher)."""
-    path = log_path(rootfs)
-    if path.is_symlink() or not path.is_file():
-        return None
     trim(rootfs)
-    with open(path, "rb") as f:
+    fd = _open_log(rootfs, os.O_RDONLY)
+    if fd is None:
+        return None
+    with os.fdopen(fd, "rb") as f:
         f.seek(0, os.SEEK_END)
         size = f.tell()
         f.seek(max(0, size - 512 * 1024))
