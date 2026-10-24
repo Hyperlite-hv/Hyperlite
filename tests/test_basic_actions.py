@@ -3,6 +3,7 @@ environment variables some images need. libvirt and /proc are replaced by fakes.
 
 import json
 import xml.etree.ElementTree as ET
+from unittest.mock import Mock
 
 import libvirt
 import pytest
@@ -268,7 +269,9 @@ class _Conn:
 
     def defineXML(self, xml):
         self.defined.append(xml)
-        return _Domain(ET.fromstring(xml).findtext("name"), xml=xml)
+        domain = _Domain(ET.fromstring(xml).findtext("name"), xml=xml)
+        self.domains.setdefault(domain.name(), domain)
+        return domain
 
     def close(self):
         pass
@@ -346,12 +349,13 @@ def test_the_vm_own_files_take_its_new_name(tmp_path, monkeypatch):
     ]
 
 
-def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, monkeypatch):
+def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, monkeypatch, daemon_lxc):
     from app.core.container_meta import set_container_app
     from app.routers import containers
 
     domain = _Domain("pg", active=True)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(domain))
+    daemon_lxc(_Conn(domain))  # hyperlite-daemon stops it
     started = []
     real_thread = containers.threading.Thread
 
@@ -370,13 +374,14 @@ def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, 
     assert started == [("pg", 4242, containers.STOP_GRACE_S["application"])]  # forced after the grace period
 
 
-def test_the_forced_stop_leaves_a_container_restarted_meanwhile(monkeypatch):
+def test_the_forced_stop_leaves_a_container_restarted_meanwhile(monkeypatch, database, daemon_lxc):
     from app.routers import containers
 
     domain = _Domain("pg", active=True)
     destroyed = []
     domain.destroy = lambda: destroyed.append(True)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(domain))
+    daemon_lxc(_Conn(domain))  # hyperlite-daemon stops it by force, checking the run again
     monkeypatch.setattr(containers.time, "sleep", lambda s: None)
     containers._force_stop_later("pg", 1111, 0.01)  # another run: ID 4242
     assert destroyed == []
@@ -384,21 +389,29 @@ def test_the_forced_stop_leaves_a_container_restarted_meanwhile(monkeypatch):
     assert destroyed == [True]
 
 
-def test_a_container_rename_moves_its_filesystem(client, auth_headers, monkeypatch, tmp_path):
-    from app.core import container_builder
+def test_a_container_rename_moves_its_filesystem(
+    client, auth_headers, monkeypatch, tmp_path, daemon_libvirt, daemon_lxc
+):
+    from app.core import container_builder, container_ops
     from app.routers import containers
 
     monkeypatch.setattr(container_builder, "CONTAINERS_DIR", tmp_path)
+    monkeypatch.setattr(container_ops, "CONTAINERS_DIR", tmp_path)
+    daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
     rootfs = tmp_path / "web"
     (rootfs / "etc").mkdir(parents=True)
     (rootfs / "etc" / "hostname").write_text("web\n")
     (rootfs / "etc" / "hosts").write_text("127.0.0.1\tlocalhost\n127.0.1.1\tweb\n")
-    xml = f"<domain type='lxc'><name>web</name><devices><filesystem><source dir='{rootfs}'/></filesystem></devices></domain>"
+    xml = (
+        f"<domain type='lxc'><name>web</name><devices><filesystem><source dir='{rootfs}'/><target dir='/'/>"
+        "</filesystem></devices></domain>"
+    )
     domain = _Domain("web", xml=xml)
     domain.autostart = lambda: 1
     domain.undefine = lambda: None
     conn = _Conn(domain)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: conn)
+    daemon_lxc(conn)
     monkeypatch.setattr(containers, "_summary", lambda d: {"name": d.name()})
     autostart = []
     monkeypatch.setattr(_Domain, "setAutostart", lambda self, v: autostart.append(v), raising=False)
@@ -412,10 +425,12 @@ def test_a_container_rename_moves_its_filesystem(client, auth_headers, monkeypat
     assert autostart == [1]
 
 
-def test_a_running_container_is_not_renamed(client, auth_headers, monkeypatch):
+def test_a_running_container_is_not_renamed(client, auth_headers, monkeypatch, daemon_libvirt, daemon_lxc):
     from app.routers import containers
 
+    daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(_Domain("web", active=True)))
+    daemon_lxc(_Conn(_Domain("web", active=True)))
     r = client.post("/containers/web/rename", json={"new_name": "shop"}, headers=auth_headers("alice"))
     assert r.status_code == 409
 
@@ -482,12 +497,15 @@ def test_files_of_a_remote_vm_are_renamed_with_quoted_paths(monkeypatch):
     ]
 
 
-def test_starting_a_running_or_stopping_a_stopped_container_is_a_conflict(client, auth_headers, monkeypatch):
+def test_starting_a_running_or_stopping_a_stopped_container_is_a_conflict(
+    client, auth_headers, monkeypatch, daemon_lxc
+):
     """libvirt's own refusal surfaced as a 500, in the host's language; an unknown name as a 500 too."""
     from app.routers import containers
 
     running, stopped = _Domain("web", active=True), _Domain("db", active=False)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(running, stopped))
+    daemon_lxc(_Conn(running, stopped))  # hyperlite-daemon checks the state again
     admin = auth_headers("alice")
     r = client.post("/containers/web/start", headers=admin)
     assert r.status_code == 409 and "already running" in r.json()["detail"]
