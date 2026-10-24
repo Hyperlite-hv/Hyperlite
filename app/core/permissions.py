@@ -44,7 +44,7 @@ ALL_PRIVILEGES = {
     # though `has_container_privilege` reuses the SAME predefined roles below).
     "container.view": "View (state, IP)",
     "container.power": "Start / stop",
-    "container.console": "Terminal SSH web",
+    "container.console": "Console log (the web terminal is for administrators)",
     "container.options": "Options (notes and tags)",
 }
 
