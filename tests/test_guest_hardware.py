@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.core import vm_devices
 from app.core.guest_hardware import detect_windows, guest_profile
 
 devices = importlib.import_module("app.routers.vms.devices")
@@ -15,7 +16,7 @@ creation = importlib.import_module("app.routers.vms.create")
 
 
 @pytest.fixture()
-def domain(monkeypatch):
+def domain(monkeypatch, daemon_libvirt):
     domain = Mock()
     domain.XMLDesc.return_value = """<domain><devices>
       <disk device='disk'><target dev='sda' bus='sata'/></disk>
@@ -28,8 +29,9 @@ def domain(monkeypatch):
     vol.path.return_value = "/images/data.qcow2"
     vol.info.return_value = [0, 1 << 30, 0]  # a file volume
     monkeypatch.setattr(devices, "open_conn", lambda: conn)
-    monkeypatch.setattr(devices, "get_disk_paths_in_use", lambda conn: set())
-    monkeypatch.setattr(devices.disk_images, "check", lambda path: "qcow2")
+    daemon_libvirt(conn)  # hyperlite-daemon attaches, in this process in the tests (app/core/vm_devices.py)
+    monkeypatch.setattr(vm_devices, "get_disk_paths_in_use", lambda conn: set())
+    monkeypatch.setattr(vm_devices.disk_images, "check", lambda path: "qcow2")
     monkeypatch.setattr(devices, "log_action", Mock())
     return domain
 
@@ -41,7 +43,7 @@ def test_extra_disk_inherits_sata_controller(domain):
 
 
 def test_a_volume_is_attached_with_its_own_format_once_checked(domain, monkeypatch):
-    monkeypatch.setattr(devices.disk_images, "check", lambda path: "raw")
+    monkeypatch.setattr(vm_devices.disk_images, "check", lambda path: "raw")
     devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
     xml, _ = domain.attachDeviceFlags.call_args.args
     assert ET.fromstring(xml).find("driver").get("type") == "raw"  # never declared qcow2 when it is not
@@ -53,11 +55,11 @@ def test_a_volume_naming_another_file_or_in_use_is_refused(domain, monkeypatch):
     def unsafe(path):
         raise disk_images.UnsafeImage("based on another file")
 
-    monkeypatch.setattr(devices.disk_images, "check", unsafe)
+    monkeypatch.setattr(vm_devices.disk_images, "check", unsafe)
     with pytest.raises(HTTPException) as error:
         devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
     assert error.value.status_code == 422
-    monkeypatch.setattr(devices, "get_disk_paths_in_use", lambda conn: {"/images/data.qcow2"})
+    monkeypatch.setattr(vm_devices, "get_disk_paths_in_use", lambda conn: {"/images/data.qcow2"})
     with pytest.raises(HTTPException) as error:
         devices.attach_disk("win", devices.DiskAttach(volume_name="data.qcow2"), {"username": "admin", "role": "admin"})
     assert error.value.status_code == 409
