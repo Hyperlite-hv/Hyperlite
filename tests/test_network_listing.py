@@ -46,7 +46,7 @@ class _Conn:
 
 def test_a_network_deleted_during_listing_is_skipped_not_a_500(database, monkeypatch):
     conn = _Conn([_Net("kept"), _Net("vanished", gone=True), _Net("also-kept")])
-    monkeypatch.setattr(network, "open_conn", lambda: conn)
+    monkeypatch.setattr(network, "open_conn", lambda **_k: conn)
     monkeypatch.setattr(network, "_ensure_isolated", lambda _c, _u: None)
     monkeypatch.setattr(network, "log_action", lambda *a, **k: None)
     result = network.list_networks(user={"username": "tester"})

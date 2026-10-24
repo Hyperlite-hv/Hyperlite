@@ -98,7 +98,7 @@ def test_api_reports_pending_changes_of_a_running_vm(client, auth_headers, monke
 
     conn = _Conn(_Dom(nxt=LIVE.replace(">2</vcpu>", ">3</vcpu>")))
     opened = []
-    monkeypatch.setattr(settings, "open_conn", lambda node=None: opened.append(node) or conn)
+    monkeypatch.setattr(settings, "open_conn", lambda node=None, **_k: opened.append(node) or conn)
     admin = auth_headers("root", "admin")
     r = client.get("/vms/web/pending-changes?node=n2", headers=admin).json()
     assert r == {"running": True, "changes": [{"key": "vcpu", "object": None, "current": "2", "next": "3"}]}

@@ -102,7 +102,7 @@ def _add_node(database, name):
 def cluster(client, auth_headers, database, monkeypatch, compat):
     _add_node(database, "n2")
     conns = {None: source_conn(), "n2": FakeConn(FakeDomain("twin", active=False))}
-    monkeypatch.setattr(nodes, "open_conn", lambda key=None: conns[key])
+    monkeypatch.setattr(nodes, "open_conn", lambda key=None, **_k: conns[key])
     # The drain runs in the test's own thread, so its outcome can be checked right away.
     monkeypatch.setattr(nodes, "_run_in_background", lambda target, *args: target(*args))
     migrated = []

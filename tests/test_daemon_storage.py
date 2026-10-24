@@ -114,8 +114,8 @@ def pools(database, monkeypatch, daemon_libvirt):
     from tests.test_shared_pools import _Host
 
     hosts = {"local": _Host(), "n2": _Host()}
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: hosts[node or "local"])
-    daemon_libvirt(hosts["local"])
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: hosts[node or "local"])
+    daemon_libvirt(hosts["local"], nodes={"n2": hosts["n2"]})
     with database.get_conn() as db:
         db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('n2', 'n2.lan', 'now')")
         db.commit()
@@ -171,7 +171,7 @@ def test_the_default_pool_stays_whatever_the_api_checked(pools, op, args):
     assert e.value.kind == "refused"
 
 
-def test_this_nodes_pool_is_the_daemons_and_another_nodes_keeps_its_connection(pools, client, auth_headers):
+def test_every_nodes_pool_is_the_daemons(pools, client, auth_headers):
     admin = auth_headers("root")
     nfs = {"name": "nas", "type": "netfs", "nfs_host": "192.168.1.10", "nfs_export_path": "/srv/vms"}
     r = client.post("/storage", json=nfs, headers=admin)
@@ -182,7 +182,8 @@ def test_this_nodes_pool_is_the_daemons_and_another_nodes_keeps_its_connection(p
     pools["asked"].clear()
     r = client.post("/storage?node=n2", json=nfs, headers=admin)
     assert r.status_code == 201, r.text
-    assert "warning" not in r.json() and pools["asked"] == []  # n2 is reached over its own libvirt, as before
+    # n2 is reached by the daemon too, with the cluster's key, which the API does not hold
+    assert "warning" not in r.json() and pools["asked"] == ["storage.pool_create"]
     assert "nas" in pools["n2"].pools
 
 
@@ -325,13 +326,13 @@ def test_a_refresh_names_a_pool_of_this_node(pools):
     assert e.value.kind == "not_found"
 
 
-def test_this_nodes_lvm_report_is_the_daemons_and_another_nodes_keeps_ssh(monkeypatch):
-    from app.core import lvm_storage
+def test_every_nodes_lvm_report_is_the_daemons(monkeypatch):
     from app.routers import storage
 
-    asked, over_ssh = [], []
+    asked = []
     monkeypatch.setattr(privileged, "run", lambda op, **k: asked.append((op, k)) or [])
-    monkeypatch.setattr(lvm_storage, "logical_volumes", lambda vg, node=None: over_ssh.append((vg, node)) or [])
     assert storage._lvm_volumes("vg0", None) == [] and storage._lvm_volumes("vg0", "local") == []
-    assert asked == [("storage.lvm_volumes", {"vg": "vg0"})] * 2 and over_ssh == []
-    assert storage._lvm_volumes("vg0", "n2") == [] and over_ssh == [("vg0", "n2")]
+    assert storage._lvm_volumes("vg0", "n2") == []  # read over SSH by the daemon, which holds the key
+    assert asked == [("storage.lvm_volumes", {"vg": "vg0", "node": None})] * 2 + [
+        ("storage.lvm_volumes", {"vg": "vg0", "node": "n2"})
+    ]

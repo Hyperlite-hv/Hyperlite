@@ -38,14 +38,15 @@ STATE_NAMES = {
 
 def _agent_ips(domains, node=None):
     """{uuid: address or None} from the guest agents of these running VMs (guest_agent.ipv4_many): asking an agent
-    needs a connection that may write, hyperlite-daemon's on this node (app/daemon/ops/vm.py); another node's VMs
-    over their own libvirt. Without an answer, no address: the DHCP lease is read instead."""
+    needs a connection that may write, hyperlite-daemon's (app/daemon/ops/vm.py), on this node or on the VMs' node.
+    Without an answer, no address: the DHCP lease is read instead."""
     if not domains:
         return {}
-    if node and node != "local":
-        return guest_agent.ipv4_many(domains)
+    remote = node if node and node != "local" else None
     try:
-        return privileged.run("vm.agent_ipv4", vms=[d.name() for d in domains], wait_s=guest_agent.LIST_WAIT_S)
+        return privileged.run(
+            "vm.agent_ipv4", vms=[d.name() for d in domains], wait_s=guest_agent.LIST_WAIT_S, node=remote
+        )
     except DaemonError as e:
         logger.warning("The guest agents' addresses were not read: %s", e.detail)
         return {}

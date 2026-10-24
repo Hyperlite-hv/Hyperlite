@@ -81,7 +81,7 @@ def cluster(cfs, monkeypatch):
 
     monkeypatch.setattr(cluster_view, "forward", forward)
     conn = types.SimpleNamespace(close=lambda: None)
-    monkeypatch.setattr(inventory, "open_conn", lambda node=None: conn)
+    monkeypatch.setattr(inventory, "open_conn", lambda node=None, **_k: conn)
     monkeypatch.setattr(inventory, "_domain_summaries", lambda c, node: [{"name": "mine"}])
     return {"members": members, "asked": asked}
 
@@ -109,7 +109,7 @@ def test_a_member_without_a_status_that_does_not_answer_is_named(client, auth_he
 def test_this_nodes_vms_come_from_its_own_status_when_current(client, auth_headers, cfs, cluster, monkeypatch):
     """Antho, 2026-10-18: as Proxmox, this node's VMs are read from its status too; live only without a current one."""
 
-    def no_libvirt(node=None):
+    def no_libvirt(node=None, **_k):
         raise AssertionError("this node's VMs must come from its status")
 
     cfs.statuses = [

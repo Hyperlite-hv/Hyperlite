@@ -17,7 +17,7 @@ from app.core.cluster import (
     register_node,
 )
 from app.core.error_messages import describe_exception
-from app.core.host_capabilities import get_remote_capabilities
+from app.core.host_capabilities import remote_capabilities
 from app.core.libvirt_utils import open_conn
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role
@@ -32,6 +32,7 @@ from app.core.tasks import (
     update_task_progress,
 )
 from app.core.tasks import requester as _cancel_requester
+from app.daemon.registry import DaemonError
 from app.routers.vms.migration import _migrate_vm_job
 from app.services import node_service
 
@@ -235,9 +236,9 @@ async def get_node_capabilities(name: str, user: dict = Depends(get_current_user
     and is degraded to `null` otherwise rather than failing)."""
     await _require(name)
     try:
-        return await run_in_threadpool(get_remote_capabilities, name)
-    except HTTPException:  # the node seen down (503) or not answering (502), already said
-        raise
+        return await run_in_threadpool(remote_capabilities, name)
+    except DaemonError as e:  # the node seen down (503) or not answering (502), said by the daemon
+        raise privileged.http_error(e, failed="Node unreachable: {}") from None
     except Exception as e:
         msg = describe_exception(e)
         raise HTTPException(status_code=502, detail=f"Node unreachable: {msg}") from e

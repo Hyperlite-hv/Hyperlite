@@ -9,10 +9,8 @@ import libvirt
 from fastapi import Depends, HTTPException
 
 from app.core import (
-    guest_agent,
     hookscript,
     privileged,
-    vm_delete,
     vm_locks,
     vm_records,
 )
@@ -33,22 +31,11 @@ logger = logging.getLogger(__name__)
 
 
 def _power(domain, node, action, username):
-    """A VM started, shut down, stopped, rebooted or reset: by hyperlite-daemon on this node (app/daemon/ops/vm.py),
-    over another node's own libvirt otherwise, until the cluster domain. Returns the method of a shutdown or a reboot
-    ("agent" or "acpi"). Raises libvirt.libvirtError or DaemonError, which _power_failure turns into an answer."""
-    if node and node != "local":
-        if action == "start":
-            domain.create()
-        elif action == "shutdown":
-            return guest_agent.shutdown(domain)
-        elif action == "reboot":
-            return guest_agent.reboot(domain)
-        else:
-            domain.destroy()
-            if action == "reset":
-                domain.create()
-        return None
-    return privileged.run("vm.power", user=username, vm=domain.name(), action=action)["method"]
+    """A VM started, shut down, stopped, rebooted or reset by hyperlite-daemon (app/daemon/ops/vm.py), on this node or
+    on a node registered over SSH only. Returns the method of a shutdown or a reboot ("agent" or "acpi"). Raises
+    DaemonError, which _power_failure turns into an answer."""
+    remote = node if node and node != "local" else None
+    return privileged.run("vm.power", user=username, vm=domain.name(), action=action, node=remote)["method"]
 
 
 def _power_failure(e):
@@ -102,13 +89,12 @@ def _pre_stop(domain, name, node, task_id, username, action_name, force):
     """The VM's pre-stop hook script, before Hyperlite stops it (libvirt has no hook there). A failure refuses the
     shutdown or the stop; a forced one goes on, as an administrator must always be able to stop a VM."""
     try:
-        if node and node != "local":
-            run = hookscript.pre_stop(domain, node, task_id)
-        else:
-            # Run as root by hyperlite-daemon (app/daemon/ops/vm.py); its output goes into the task here.
-            run = privileged.run("vm.pre_stop", user=username, vm=domain.name())
-            if run is not None:
-                hookscript.log_run(task_id, run)
+        # Run as root by hyperlite-daemon (app/daemon/ops/vm.py), here or on the VM's node; its output goes into the
+        # task here.
+        remote = node if node and node != "local" else None
+        run = privileged.run("vm.pre_stop", user=username, vm=domain.name(), node=remote)
+        if run is not None:
+            hookscript.log_run(task_id, run)
     except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError, DaemonError) as e:
         run = {"ok": False, "exit_code": None, "phase": "pre-stop", "output": str(e), "seconds": 0}
         hookscript.log_run(task_id, run)
@@ -121,7 +107,7 @@ def _pre_stop(domain, name, node, task_id, username, action_name, force):
 
 @router.post("/{name}/start")
 def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     task_id = create_task("start_vm", name, node=node, username=user["username"])
     try:
         try:
@@ -189,7 +175,7 @@ def _watch_stop(name, node, username, force_after=None):
     start = time.monotonic()
     while time.monotonic() - start < end:
         time.sleep(2)
-        conn = _open(node)
+        conn = _open(node, readonly=True)
         try:
             domain = conn.lookupByName(name)
             if not domain.isActive():
@@ -204,7 +190,7 @@ def _watch_stop(name, node, username, force_after=None):
             conn.close()
     if not force_after:
         return
-    conn = _open(node)
+    conn = _open(node, readonly=True)
     try:
         domain = conn.lookupByName(name)
         if domain.isActive():
@@ -230,7 +216,7 @@ def stop_vm(
         raise HTTPException(
             status_code=422, detail=f"force_after: between {FORCE_AFTER_RANGE[0]} and {FORCE_AFTER_RANGE[1]} seconds"
         )
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     action_name = "force_stop_vm" if force else "stop_vm"
     task_id = create_task(action_name, name, node=node, username=user["username"])
     try:
@@ -264,7 +250,7 @@ def stop_vm(
 def restart_vm(
     name: str, force: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.power"))
 ):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     task_id = create_task("restart_vm", name, node=node, username=user["username"])
     try:
         try:
@@ -306,41 +292,11 @@ def _perform_vm_deletion(conn, domain, name, node=None, username="system"):
     its DHCP reservations, then its records), shared by DELETE /vms/{name} and the automatic clean-up of inactive VMs
     (app/core/vm_cleanup.py), so the two never diverge. Returns {path: reason} of the disks kept.
 
-    hyperlite-daemon deletes a VM of this node. Another node's (`conn` over qemu+ssh) is deleted over its libvirt and
-    the cluster's SSH key until the cluster domain: its disk paths are paths on that node, which a local unlink() would
-    miss, or worse. Raises DaemonError or libvirt.libvirtError, which the caller turns into an answer."""
-    if not node or node == "local":
-        keep = privileged.run("vm.delete", user=username, timeout=DELETE_TIMEOUT_S, vm=name)["kept"]
-    else:
-        keep = _delete_on_node(conn, domain, name, node)
+    hyperlite-daemon deletes it, on this node or on a node registered over SSH only, whose libvirt and files it reaches
+    with the cluster's key. Raises DaemonError or libvirt.libvirtError, which the caller turns into an answer."""
+    remote = node if node and node != "local" else None
+    keep = privileged.run("vm.delete", user=username, timeout=DELETE_TIMEOUT_S, vm=name, node=remote)["kept"]
     vm_records.forget(name, node)
-    return keep
-
-
-def _delete_on_node(conn, domain, name, node):
-    from app.core.cluster import get_node, node_ssh_options
-
-    found = vm_delete.leftovers(domain, name)
-    # The qcow2 headers of another node's disks are not read from here: its linked disks are not looked for.
-    keep = vm_delete.kept(conn, name, found, local=False)
-    vm_delete.undefine(domain, found)
-    vm_records.release_addresses(conn, found.reservations)
-    remote = get_node(node)
-    if remote:
-        target = f"{remote['ssh_user']}@{remote['hostname']}"
-        for path in found.files:
-            if str(path) in keep:
-                continue
-            result = subprocess.run(
-                ["ssh", *node_ssh_options(), "-p", str(remote["ssh_port"]), target, "rm", "-f", str(path)],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if result.returncode != 0:
-                logger.warning("Disk %s of the deleted VM %s left on %s: %s", path, name, node, result.stderr.strip())
-    found.devices = [dev for dev in found.devices if dev not in keep]
-    vm_delete.delete_logical_volumes(conn, found, name, node)
     return keep
 
 
@@ -358,7 +314,7 @@ def delete_vm(
 
 
 def _delete_vm(name, confirm, node, user):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     task_id = create_task("delete_vm", name, node=node, username=user["username"])
     try:
         try:

@@ -66,7 +66,7 @@ def k8s(database, monkeypatch, tmp_path):
     from app.core import k8s_cluster, libvirt_utils, vm_limits
 
     conn = _Conn()
-    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: conn)
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: conn)
     monkeypatch.setattr(vm_limits, "validate_vm_resources", lambda *a, **k: [])
     monkeypatch.setattr(k8s_cluster, "ARTIFACTS_DIR", tmp_path / "k3s")
     calls = []

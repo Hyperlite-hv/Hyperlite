@@ -262,7 +262,7 @@ def _lookup(conn, name):
 
 @router.get("/{name}/boot")
 def get_vm_boot(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         domain = _lookup(conn, name)
         # A libvirt autostart flag set outside Hyperlite (virsh autostart) starts the VM in no order: say so.
@@ -275,17 +275,15 @@ def get_vm_boot(name: str, node: str | None = None, user: dict = Depends(require
 def set_vm_boot(
     name: str, payload: BootSetting, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.options"))
 ):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         domain = _lookup(conn, name)
         vm_boot.set_setting(name, payload.autostart, payload.position, payload.delay_s, node)
         if payload.autostart and domain.autostart():
             # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over. The flag is
-            # libvirt's, written by hyperlite-daemon on this node (app/daemon/ops/vm.py).
-            if node and node != "local":
-                domain.setAutostart(0)
-            else:
-                privileged.ask("vm.autostart", user, "set_vm_boot", name, vm=name, autostart=False)
+            # libvirt's, written by hyperlite-daemon (app/daemon/ops/vm.py), here or on the VM's node.
+            remote = node if node and node != "local" else None
+            privileged.ask("vm.autostart", user, "set_vm_boot", name, vm=name, autostart=False, node=remote)
         detail = (
             f"on, order {payload.position if payload.position is not None else '-'}, delay {payload.delay_s} s"
             if payload.autostart
@@ -369,7 +367,7 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
 @router.get("/{name}/pending-changes")
 def get_vm_pending_changes(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
     """Settings changed on a running VM that wait for its next start (app/core/vm_pending.py)."""
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         domain = _lookup(conn, name)
         try:

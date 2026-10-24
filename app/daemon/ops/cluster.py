@@ -91,3 +91,57 @@ def rename_trust(args, ctx):
         if not cluster.NODE_NAME_RE.fullmatch(name):
             raise DaemonError("refused", "Invalid node name")
     cluster.rename_reverse_trust(args.node, args.new_name)
+
+
+@operation("node.tunnel", NodeArgs)
+def tunnel(args, ctx):
+    """The tunnel to a registered node's read-only libvirt, opened when it is not (app/core/node_tunnel.py), for the
+    API's reads of that node: {"socket"}."""
+    from app.core import node_health, node_tunnel
+
+    node = _registered(args.node)
+    try:
+        node_health.check(node)
+        return {"socket": str(node_tunnel.ensure(node))}
+    except node_health.NodeDown as e:
+        raise DaemonError("unavailable", f"Node '{args.node}' is down") from e
+    except (OSError, ValueError) as e:
+        raise DaemonError("unreachable", str(e)) from e
+
+
+class HookscriptsArgs(NodeArgs):
+    vm: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+@operation("node.hookscripts", HookscriptsArgs)
+def hookscripts(args, ctx):
+    """A node's library of hook scripts and, `vm`, that VM's last runs there: read over SSH with the cluster's key
+    (app/core/hookscript.py). {"library", "runs"}."""
+    import subprocess
+
+    from app.core import hookscript
+
+    _registered(args.node)
+    try:
+        return {
+            "library": hookscript.list_scripts_on(args.node),
+            "runs": hookscript.runs_on(args.node, args.vm) if args.vm else None,
+        }
+    except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError) as e:
+        raise DaemonError("unreachable", f"The node's hook scripts could not be read: {e}") from e
+
+
+@operation("node.capabilities", NodeArgs)
+def capabilities(args, ctx):
+    """A registered node's capability profile (host_capabilities.get_remote_capabilities): its libvirt opened, and a
+    fixed probe run over SSH, with the cluster's key."""
+    import libvirt
+
+    from app.core import host_capabilities
+    from app.core.error_messages import describe_exception
+
+    _registered(args.node)
+    try:
+        return host_capabilities.get_remote_capabilities(args.node)
+    except libvirt.libvirtError as e:
+        raise DaemonError("unreachable", f"Node unreachable: {describe_exception(e)}") from e
