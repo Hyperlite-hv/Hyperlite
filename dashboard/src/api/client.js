@@ -425,8 +425,21 @@ export async function fetchAllBackups() {
 export async function fetchVMBackups(name, node) {
   return realList(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`);
 }
-export async function createBackup(name, targetDir = null, node) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
+export async function createBackup(name, targetDir = null, node, store = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`, { method: "POST", ...jsonBody({ target_dir: targetDir, store }) });
+}
+// Backup stores (docs/design/backup-store.md): chunk stores in a directory of a storage pool, as PBS datastores.
+export async function fetchBackupStores() {
+  return realList("/backup-stores");
+}
+export async function createBackupStore(payload) {
+  return realFetch("/backup-stores", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteBackupStore(name) {
+  return realFetch(`/backup-stores/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function cleanUpBackupStore(name) {
+  return realFetch(`/backup-stores/${encodeURIComponent(name)}/gc`, { method: "POST" });
 }
 export async function deleteBackup(id, on) {
   return realFetch(`/backups/${id}${backupQs("on", on, "confirm=true")}`, { method: "DELETE" });

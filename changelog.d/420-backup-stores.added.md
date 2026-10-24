@@ -4,5 +4,6 @@
   chain. VMs with ZFS, LVM or iSCSI disks can be backed up into a store, running or stopped; a running VM's disks are
   read as they were when the backup began, while it keeps writing. Restores over the VM (file disks swapped in at
   once, block devices written in place) or to a new VM; verification, retention, deletion as for every backup, and a
-  weekly garbage collection, one node at a time in a cluster. Through the API for now (`/backup-stores`, `store` on
-  backups, schedules and grouped jobs); the dashboard comes next.
+  weekly garbage collection, one node at a time in a cluster. In the dashboard, **Backups › Backup stores** makes,
+  cleans up and removes them, and a VM's schedule, **Back up now** and the grouped jobs choose their **Destination**;
+  through the API, `/backup-stores` and `store` on backups, schedules and grouped jobs.

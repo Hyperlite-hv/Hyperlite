@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import BackupFileBrowser from "../components/BackupFileBrowser";
 import RetentionFields, { retentionForm, retentionPayload, retentionProblems } from "../components/RetentionFields";
+import { DestinationField } from "../components/BackupStores";
 import {
   fetchSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, fetchTaskDetail,
   fetchVMBackups, createBackup, deleteBackup, restoreBackup, verifyBackup, fetchBackupSchedule, setBackupSchedule, deleteBackupSchedule,
@@ -160,7 +161,7 @@ export function VmBackupPage({ resource: vm }) {
   const [backups, setBackups] = useState(null);
   const [error, setError] = useState(null);
   const [schedule, setSchedule] = useState(null);
-  const [form, setForm] = useState({ frequency: "daily", time: "02:00", ...retentionForm(null) });
+  const [form, setForm] = useState({ frequency: "daily", time: "02:00", store: null, ...retentionForm(null) });
   const [busy, setBusy] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [browsing, setBrowsing] = useState(null);
@@ -174,7 +175,7 @@ export function VmBackupPage({ resource: vm }) {
   const reload = useCallback(async () => {
     if (!vmName) return;
     try { const b = await fetchVMBackups(vmName, vmNode); setBackups(Array.isArray(b) ? b : []); setError(null); } catch (e) { setError(errorMessage(e)); }
-    fetchBackupSchedule(vmName).then((s) => { setSchedule(s || null); if (s) setForm({ frequency: s.frequency, time: s.time, ...retentionForm(s) }); }).catch(() => {});
+    fetchBackupSchedule(vmName).then((s) => { setSchedule(s || null); if (s) setForm({ frequency: s.frequency, time: s.time, store: s.store || null, ...retentionForm(s) }); }).catch(() => {});
   }, [vmName, vmNode]);
   useEffect(() => { reload(); }, [reload]);
   const running = Boolean(backups?.some((b) => b.status !== "succeeded" && b.status !== "failed"));
@@ -191,14 +192,14 @@ export function VmBackupPage({ resource: vm }) {
   const stopped = vm.state !== "active";
   const retention = retentionPayload(form);
   const problems = { time: !TIME_RE.test(form.time || ""), retention: Object.keys(retentionProblems(form)).length > 0 };
-  const dirty = !schedule || schedule.frequency !== form.frequency || schedule.time !== form.time
+  const dirty = !schedule || schedule.frequency !== form.frequency || schedule.time !== form.time || (schedule.store || null) !== (form.store || null)
     || ["retention_count", "keep_days", "keep_weeks", "keep_months"].some((k) => (schedule[k] ?? null) !== retention[k]);
   const fail = (title) => (e) => pushToast({ kind: "error", title, message: errorMessage(e) });
 
   async function now() {
     setBusy(true);
     try {
-      await createBackup(vm.name, null, vmNode);
+      await createBackup(vm.name, null, vmNode, form.store);
       pushToast({ kind: "success", title: t("vb.started"), message: vm.name });
       setWaiting({ known: new Set(list.map((b) => b.id)), since: Date.now() });
       reload();
@@ -208,7 +209,7 @@ export function VmBackupPage({ resource: vm }) {
     e?.preventDefault();
     if (problems.time || problems.retention) return;
     setBusy(true);
-    try { const s = await setBackupSchedule(vm.name, { frequency: form.frequency, time: form.time, ...retention }, vmNode); setSchedule(s); setEnabling(false); pushToast({ kind: "success", title: t("vb.scheduleSaved"), message: `${t(`vb.f.${form.frequency}`)} · ${form.time} UTC` }); }
+    try { const s = await setBackupSchedule(vm.name, { frequency: form.frequency, time: form.time, store: form.store || null, ...retention }, vmNode); setSchedule(s); setEnabling(false); pushToast({ kind: "success", title: t("vb.scheduleSaved"), message: `${t(`vb.f.${form.frequency}`)} · ${form.time} UTC` }); }
     catch (er) { fail(t("vb.scheduleFailed"))(er); } finally { setBusy(false); }
   }
   async function disable() {
@@ -278,7 +279,7 @@ export function VmBackupPage({ resource: vm }) {
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
-                        {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.name, on: vmNode })}>{t("fr.browse")}</button>}
+                        {caps.admin && b.status === "succeeded" && !b.store && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.name, on: vmNode })}>{t("fr.browse")}</button>}
                         {caps.admin && (b.status === "succeeded" || b.status === "failed") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}
                       </div></td>
                     </tr>
@@ -297,6 +298,7 @@ export function VmBackupPage({ resource: vm }) {
             <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.backup_frequency")} disabled={!caps.admin} value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}><option value="daily">{t("vb.f.daily")}</option><option value="weekly">{t("vb.f.weekly")}</option><option value="monthly">{t("vb.f.monthly")}</option></select>}</Field>
             <Field label={t("vb.time")} hint={t("vb.utc")} error={problems.time ? t("vb.timeRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.backup_time")} type="time" disabled={!caps.admin} value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />}</Field>
           </div>
+          <DestinationField value={form.store} disabled={!caps.admin} hint={t("bst.destinationHint")} onChange={(store) => setForm({ ...form, store })} />
           <RetentionFields value={form} disabled={!caps.admin} onChange={(v) => setForm({ ...form, ...v })} />
           {caps.admin && (
             <div className="nx-fa">
