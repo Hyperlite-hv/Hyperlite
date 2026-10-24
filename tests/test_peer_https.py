@@ -29,6 +29,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(out)))
+        if "/closing" in self.path:  # as uvicorn on an error or at its shutdown
+            self.send_header("Connection", "close")
+            self.close_connection = True
         self.end_headers()
         self.wfile.write(out)
 
@@ -55,7 +58,7 @@ def server(tmp_path, monkeypatch):
     monkeypatch.setattr(peer_https, "fingerprint_of", lambda name: published.get(name))
     monkeypatch.setattr(peer_https, "_pools", {})
     Handler.seen = []
-    yield {"node": {"name": "pve-a", "hostname": "127.0.0.1"}, "published": published}
+    yield {"node": {"name": "pve-a", "hostname": "127.0.0.1"}, "published": published, "port": httpd.server_address[1]}
     httpd.shutdown()
 
 
@@ -218,3 +221,16 @@ def test_an_export_is_read_while_it_arrives_on_a_connection_of_its_own(server):
         peer_https.stream(server["node"], "tok", "/api/v1/tasks/export.csv")
     with pytest.raises(peer_https.Unavailable):
         peer_https.stream({"name": "pve-b", "hostname": "127.0.0.1"}, "tok", "/api/v1/tasks/export.csv")
+
+
+def test_a_connection_the_peer_closed_is_never_reopened_unchecked(server):
+    # http.client reopens a connection closed by Connection: close on its own, on the next request, and that connect
+    # skipped the pinning: the call sent its peer ticket to whatever answered there (GHSA-mv7v-9gqp-797f).
+    assert peer_https.call(server["node"], "tok", "GET", "/closing")[0] == 200
+    assert all(pool.empty() for pool in peer_https._pools.values())  # not kept
+    conn = peer_https._connect("127.0.0.1", server["port"], server["published"]["pve-a"], 5)
+    conn.close()  # as the peer closing it
+    conn.fingerprint = "0" * 64  # what answers there now is not the member
+    with pytest.raises(peer_https.Unavailable, match="does not match"):
+        conn.request("GET", "/vms", headers={"Authorization": "Bearer tok"})
+    assert [s[1] for s in Handler.seen] == ["/closing"]  # nothing sent to it

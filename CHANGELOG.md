@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-10-24
+
+### Security
+
+- The workstation tunnel connects only to an address the host binds to the VM's own network cards (its DHCP lease or the host's ARP entry for its MAC), never to one the guest agent alone reports (GHSA-4vfp-w7wf-jv75).
+
+- A container's web terminal takes the administrator role, as a VM's: it signs in as an account with passwordless sudo, and a container's root has the host's capabilities. An operator of the container keeps its console log (GHSA-527j-fwg2-7646).
+
+- Approving a `hyperlite login` takes typing the code printed in the terminal: the approval page no longer takes it from its link, where one click on a link someone else sent approved their workstation (GHSA-fvhx-jrg7-hgxm).
+
+- A container's console log is opened without following links at any level: a link put there by the container's root can no longer have the service read or truncate a host file (GHSA-fvvw-286q-82jj).
+
+- The `hyperlite` CLI opens or prints only a sign-in page of the server it signs in to, and refuses an http:// server address but for this very computer, so its token never travels in clear (GHSA-m44w-x95g-jp7m).
+
+- Calls between cluster members check the peer's certificate fingerprint on every connection, a connection reopened after the peer closed it included, and a closed connection is no longer kept (GHSA-mv7v-9gqp-797f).
+
+- A WebAuthn challenge, an SSO state and an SSO hand-off code are each taken by one statement: presented twice at the same instant, they are accepted once (GHSA-xp4w-9555-wj48).
+
 ## [1.3.2] - 2026-10-23
 
 ### Added
