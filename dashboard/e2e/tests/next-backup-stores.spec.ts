@@ -136,3 +136,52 @@ test("off-site copies: a copy job from a store into its copy store, run, then de
     for (const pool of [here, there]) await request.delete(`/storage/${pool}?confirm=true&detach=true`, { headers: auth() }).catch(() => {});
   }
 });
+
+test("a remote cluster: its certificate read, compared, then saved with a reader's token", async ({ page }) => {
+  // The other cluster is served by the test: the e2e backend has no second cluster to read.
+  const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
+  const remotes: Array<Record<string, unknown>> = [];
+  const fingerprint = "ab".repeat(32);
+  const sent: Array<Record<string, unknown>> = [];
+  await page.route(/\/backup-remotes\/probe$/, (r) => r.fulfill(json({ fingerprint })));
+  await page.route(/\/backup-remotes\/this-node$/, (r) => r.fulfill(json({ fingerprint: "cd".repeat(32) }))); // the e2e backend has no certificate
+  await page.route(/\/backup-remotes$/, (r) => {
+    if (r.request().method() === "POST") {
+      const body = r.request().postDataJSON() as Record<string, unknown>;
+      sent.push(body);
+      const made = { name: body.name, address: body.address, port: body.port, fingerprint: body.fingerprint, created_by: "admin", created_at: "2026-10-24T20:00:00+00:00" };
+      remotes.push(made);
+      return r.fulfill(json(made, 201));
+    }
+    return r.fulfill(json({ items: remotes, total: remotes.length }));
+  });
+  await uiLogin(page);
+  await page.goto("/datacenter?tab=backups");
+  const main = page.getByRole("main");
+  await expect(main.getByLabel("This node's certificate fingerprint")).toHaveText(/^[0-9a-f]{4}( [0-9a-f]{4}){15}$/);
+  await main.getByRole("button", { name: "Add a remote cluster" }).click();
+  const drawer = page.getByRole("dialog", { name: "Add a remote cluster" });
+  await drawer.getByLabel("Name", { exact: true }).fill("site-a");
+  await drawer.getByLabel("Address").fill("203.0.113.10");
+  await drawer.getByRole("button", { name: "Read its certificate" }).click();
+  await expect(drawer.getByLabel("Certificate fingerprint (SHA-256)")).toHaveValue(/^abab abab/);
+  await drawer.getByLabel("API token of the dedicated account").fill("hl_reader_token");
+  await expect(drawer.getByRole("button", { name: "Save" })).toBeDisabled(); // not compared yet
+  await drawer.getByLabel("It is the same as the other dashboard shows").check();
+  await drawer.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Remote cluster added")).toBeVisible();
+  expect(sent[0]).toMatchObject({ name: "site-a", address: "203.0.113.10", port: 8000, fingerprint, token: "hl_reader_token" });
+  await expect(main.getByRole("row", { name: /site-a/ })).toContainText("203.0.113.10:8000");
+});
+
+test("a backup store is offered as what a permission is given on", async ({ page }) => {
+  await uiLogin(page);
+  await page.goto("/datacenter?tab=permissions");
+  const main = page.getByRole("main");
+  await main.getByRole("tab", { name: /^Assignments/ }).click();
+  await main.getByRole("button", { name: "Assign a role" }).click();
+  const drawer = page.getByRole("dialog", { name: "Assign a role" });
+  await drawer.getByLabel("On", { exact: true }).selectOption("backup_store");
+  await expect(drawer.getByLabel("On", { exact: true })).toHaveValue("backup_store");
+  await expect(drawer.getByLabel("Role", { exact: true }).locator("option", { hasText: "Backup store reader" })).toHaveCount(1);
+});

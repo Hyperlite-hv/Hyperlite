@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Database, Eraser, Plus, Trash2 } from "lucide-react";
-import { fetchBackupStores, createBackupStore, deleteBackupStore, cleanUpBackupStore, fetchStoragePools } from "../../api/client";
+import { fetchBackupStores, createBackupStore, deleteBackupStore, cleanUpBackupStore, fetchStoragePools, fetchBackupRemotes, fetchRemoteStores, unlockBackupStore } from "../../api/client";
+import { promptText } from "../../store/usePromptStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
@@ -12,7 +13,7 @@ import { Card, Chip, Empty, Field, Loading, Meter, SideDrawer, TableWrap } from 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 // Pools of files: a store keeps files, which ZFS, LVM and iSCSI pools (disks) do not.
 const FILE_POOLS = new Set(["dir", "netfs", "fs"]);
-const EMPTY = { name: "", pool: "", directory: "hyperlite-store", encrypted: false, master_key: "none", master_public_key: "", key: "", copy_of: "" };
+const EMPTY = { name: "", pool: "", directory: "hyperlite-store", encrypted: false, master_key: "none", master_public_key: "", key: "", copy_of: "", remote: "", remote_store: "" };
 
 function download(name, text, type = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -34,18 +35,35 @@ export default function BackupStores({ onChange }) {
   const [busy, setBusy] = useState(false);
   // The keys of a store just made: shown once, never again (the API does not keep them readable).
   const [shown, setShown] = useState(null);
+  const [remotes, setRemotes] = useState([]);
+  const [remoteStores, setRemoteStores] = useState(null);
   const [saved, setSaved] = useState(false);
   const load = useCallback(async () => {
     try { const s = await fetchBackupStores(); setStores(s); setError(null); onChange?.(s); } catch (e) { setError(errorMessage(e)); }
   }, [onChange]);
   useEffect(() => { load(); }, [load]);
+  const formOpen = Boolean(form);
   useEffect(() => {
-    if (form) fetchStoragePools().then((p) => setPools(p.filter((x) => x.node === "local" && FILE_POOLS.has(x.type)))).catch(() => setPools([]));
-  }, [form]);
+    if (!formOpen) return;
+    fetchStoragePools().then((p) => setPools(p.filter((x) => x.node === "local" && FILE_POOLS.has(x.type)))).catch(() => setPools([]));
+    fetchBackupRemotes().then(setRemotes).catch(() => setRemotes([]));
+  }, [formOpen]);
+  const remote = form?.remote;
+  useEffect(() => {
+    setRemoteStores(null);
+    if (remote) fetchRemoteStores(remote).then(setRemoteStores).catch((e) => setRemoteStores({ error: errorMessage(e) }));
+  }, [remote]);
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+  const set = (k) => (e) => setForm((f) => {
+    const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    // "Copy of": a store of this cluster, or a remote, whose store is then chosen from the list it gives.
+    if (k === "copy_of") return { ...f, copy_of: value.startsWith("remote:") ? "" : value, remote: value.startsWith("remote:") ? value.slice(7) : "", remote_store: "" };
+    if (k === "remote_store") return { ...f, remote_store: value, copy_of: value ? `${f.remote}:${value}` : "" };
+    return { ...f, [k]: value };
+  });
   const bad = form ? { name: !NAME_RE.test(form.name), pool: !form.pool, directory: !NAME_RE.test(form.directory),
-    master: form.encrypted && form.master_key === "own" && !form.master_public_key.includes("BEGIN PUBLIC KEY") } : {};
+    master: form.encrypted && form.master_key === "own" && !form.master_public_key.includes("BEGIN PUBLIC KEY"),
+    remote: Boolean(form.remote) && !form.remote_store } : {};
   const invalid = Object.values(bad).some(Boolean);
 
   async function save() {
@@ -66,6 +84,12 @@ export default function BackupStores({ onChange }) {
     try { await cleanUpBackupStore(s.name); pushToast({ kind: "success", title: t("bst.cleanStarted"), message: s.name }); }
     catch (e) { pushToast({ kind: "error", title: t("bst.cleanFailed"), message: errorMessage(e) }); }
   }
+  async function unlock(s) {
+    const code = await promptText({ title: t("bst.unlockTitle", { name: s.name }), label: t("bst.keyCode"), confirmLabel: t("bst.unlock"), validate: (v) => (v.trim().length < 20 ? t("bst.keyCodeRule") : "") });
+    if (!code) return;
+    try { await unlockBackupStore(s.name, code.trim()); pushToast({ kind: "success", title: t("bst.unlocked"), message: s.name }); await load(); }
+    catch (e) { pushToast({ kind: "error", title: t("bst.unlockFailed"), message: errorMessage(e) }); }
+  }
   async function remove(s) {
     if (!(await confirmAction({ title: t("bst.removeTitle", { name: s.name }), message: t("bst.removeMsg", { path: s.path || `${s.pool}/${s.directory}` }), confirmLabel: t("vx.delete"), danger: true }))) return;
     try { await deleteBackupStore(s.name); pushToast({ kind: "success", title: t("bst.removed"), message: s.name }); await load(); }
@@ -82,12 +106,13 @@ export default function BackupStores({ onChange }) {
               <thead><tr><th scope="col">{t("bst.name")}</th><th scope="col">{t("bst.where")}</th><th scope="col">{t("bst.space")}</th><th scope="col" className="nx-num">{t("bst.backups")}</th><th scope="col">{t("bst.lastClean")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>{stores.map((s) => (
                 <tr key={s.name}>
-                  <th scope="row">{s.name}{s.encrypted && <> <Chip tone="info">{t("bst.encrypted")}</Chip></>}{s.copy_of && <> <Chip>{t("bst.copyChip", { name: s.copy_of })}</Chip></>}{!s.available && <> <Chip tone="danger">{t("bst.unreachable")}</Chip></>}</th>
+                  <th scope="row">{s.name}{s.encrypted && <> <Chip tone="info">{t("bst.encrypted")}</Chip></>}{s.copy_of && <> <Chip>{t("bst.copyChip", { name: s.copy_of })}</Chip></>}{s.locked && <> <Chip tone="warning">{t("bst.locked")}</Chip></>}{!s.available && <> <Chip tone="danger">{t("bst.unreachable")}</Chip></>}</th>
                   <td className="nx-wrapcell"><span className="nx-mono">{s.pool}/{s.directory}</span>{!s.available && s.problem && <div className="nx-f-h is-error">{s.problem}</div>}</td>
                   <td>{s.available ? <><Meter value={((s.total_bytes - s.free_bytes) / s.total_bytes) * 100} label={`${t("bst.space")} ${s.name}`} /><div className="nx-f-h">{t("bst.free", { free: gb(s.free_bytes), total: gb(s.total_bytes) })}</div></> : "—"}</td>
                   <td className="nx-num nx-mono">{s.available ? s.backups : "—"}</td>
                   <td className="nx-mono">{s.last_gc ? formatDateTime(s.last_gc.at, lang) : <span className="nx-muted">{t("bst.never")}</span>}</td>
                   <td><div className="nx-ra">
+                    {s.locked && <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("bst.unlockX", { name: s.name })} onClick={() => unlock(s)}>{t("bst.unlock")}</button>}
                     <button type="button" className="nx-btn nx-btn--ghost" disabled={!s.available} aria-label={t("bst.cleanX", { name: s.name })} onClick={() => cleanUp(s)}><Eraser size={14} aria-hidden="true" />{t("bst.clean")}</button>
                     <button type="button" className="nx-btn nx-btn--ghost nx-btn--icon" aria-label={t("bst.removeX", { name: s.name })} onClick={() => remove(s)}><Trash2 size={15} aria-hidden="true" /></button>
                   </div></td>
@@ -108,12 +133,17 @@ export default function BackupStores({ onChange }) {
             <option value="">{t("sec.choose")}</option>{pools.map((x) => <option key={x.name} value={x.name}>{x.name}{x.protocol ? ` (${x.protocol.toUpperCase()})` : ""}</option>)}
           </select>}</Field>
           <Field label={t("bst.directory")} hint={t("bst.directoryHint")} error={bad.directory ? t("bst.nameRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.directory} onChange={set("directory")} />}</Field>
-          <Field label={t("bst.copyOf")} hint={t("bst.copyOfHint")}>{(p) => <select {...p} className="nx-inp" value={form.copy_of} onChange={set("copy_of")}>
-            <option value="">{t("bst.copyOf.none")}</option>{(stores || []).filter((s) => !s.copy_of).map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+          <Field label={t("bst.copyOf")} hint={t("bst.copyOfHint")}>{(p) => <select {...p} className="nx-inp" value={form.remote ? `remote:${form.remote}` : form.copy_of} onChange={set("copy_of")}>
+            <option value="">{t("bst.copyOf.none")}</option>
+            {(stores || []).filter((s) => !s.copy_of).map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+            {remotes.length > 0 && <optgroup label={t("bst.copyOf.remotes")}>{remotes.map((r) => <option key={r.name} value={`remote:${r.name}`}>{t("bst.copyOf.remote", { name: r.name })}</option>)}</optgroup>}
           </select>}</Field>
-          {!form.copy_of && <label className="nx-check"><input type="checkbox" checked={form.encrypted} onChange={set("encrypted")} /> {t("bst.encrypt")}</label>}
-          {!form.copy_of && <p className="nx-f-h" style={{ margin: 0 }}>{t("bst.encryptHelp")}</p>}
-          {form.encrypted && !form.copy_of && <>
+          {form.remote && <Field label={t("bst.remoteStore")} hint={remoteStores?.error || (remoteStores ? t("bst.remoteStoreHint") : t("bst.remoteStoreLoading"))}>{(p) => <select {...p} className="nx-inp" disabled={!Array.isArray(remoteStores)} value={form.remote_store} onChange={set("remote_store")}>
+            <option value="">{t("sec.choose")}</option>{(Array.isArray(remoteStores) ? remoteStores : []).map((s) => <option key={s.name} value={s.name}>{s.name}{s.encrypted ? ` (${t("bst.encrypted")})` : ""}</option>)}
+          </select>}</Field>}
+          {!form.copy_of && !form.remote && <label className="nx-check"><input type="checkbox" checked={form.encrypted} onChange={set("encrypted")} /> {t("bst.encrypt")}</label>}
+          {!form.copy_of && !form.remote && <p className="nx-f-h" style={{ margin: 0 }}>{t("bst.encryptHelp")}</p>}
+          {form.encrypted && !form.copy_of && !form.remote && <>
             <Field label={t("bst.master")} hint={t("bst.masterHint")}>{(p) => <select {...p} className="nx-inp" value={form.master_key} onChange={set("master_key")}>
               <option value="none">{t("bst.master.none")}</option><option value="generate">{t("bst.master.generate")}</option><option value="own">{t("bst.master.own")}</option>
             </select>}</Field>
