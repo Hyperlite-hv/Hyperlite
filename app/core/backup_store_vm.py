@@ -225,7 +225,7 @@ def _firmware_files(domain):
         return {name: (Path(tmp) / name).read_bytes() for name in names}
 
 
-def backup_vm(domain, store, mode="live", disks=None, progress=None, files=None):
+def backup_vm(domain, store, mode="live", disks=None, progress=None, files=None, manifest_extra=None):
     """Back the VM up into `store`: every disk (or `disks`, a subset of disks_of), its definition, its firmware state
     and `files` ({name: bytes}, kept whole). Returns the backup's directory. A running VM keeps running; a stopped one
     must stay stopped meanwhile (the caller holds its lock)."""
@@ -253,6 +253,7 @@ def backup_vm(domain, store, mode="live", disks=None, progress=None, files=None)
         files = {**(files or {}), **_firmware_files(domain)}
         files["domain.xml"] = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE | libvirt.VIR_DOMAIN_XML_SECURE).encode()
         manifest = {
+            **(manifest_extra or {}),
             "vm": domain.name(),
             "mode": mode,
             "running": bool(running),
@@ -335,20 +336,46 @@ def restore_disk(store, vm_uuid, stamp, dev, target, target_format="qcow2", prog
 
 
 def store_backup_of(path):
-    """(Store, vm uuid, time) when `path` is a backup in a store (<store>/vm/<uuid>/<time>), else None."""
+    """(Store, vm uuid, time) when `path` is a backup in a store (<store>/vm/<uuid>/<time>), else None. An encrypted
+    store is opened with its key from the cluster's secrets."""
+    from app.core import backup_stores
+
     path = Path(path)
     if len(path.parents) < 3 or not (path.parents[2] / backup_store.CONFIG).is_file():
         return None
-    return backup_store.Store(path.parents[2]), path.parent.name, path.name
+    return backup_stores.open_root(path.parents[2]), path.parent.name, path.name
+
+
+@contextlib.contextmanager
+def files_of(found):
+    """A temporary directory holding a store backup's files decrypted (vm-config.json, the NVRAM, the TPM state), as
+    a directory backup holds them: what the restore reads."""
+    store, vm_uuid, stamp = found
+    manifest = json.loads((store.backup_dir(vm_uuid, stamp) / "manifest.json").read_text())
+    with tempfile.TemporaryDirectory(dir=_workdir()) as tmp:
+        names = manifest.get("files") or {
+            p.name: {}
+            for p in store.backup_dir(vm_uuid, stamp).iterdir()
+            if p.suffix != ".fidx" and p.name != "manifest.json"
+        }
+        for name in names:
+            (Path(tmp) / name).write_bytes(store.read_file(vm_uuid, stamp, name))
+        yield Path(tmp)
 
 
 def verify(path):
     """(status, problems, disks checked) of a backup in a store, in backup_integrity's terms."""
     store, vm_uuid, stamp = store_backup_of(path)
     try:
-        disks = len(json.loads((Path(path) / "manifest.json").read_text())["disks"])
+        manifest = json.loads((Path(path) / "manifest.json").read_text())
+        disks = len(manifest["disks"])
         bad = store.verify(vm_uuid, stamp)
     except (OSError, ValueError, KeyError) as e:
         return backup_integrity.CORRUPT, [f"The backup cannot be read: {e}"], 0
     problems = [f"chunk {d.hex()[:16]}... is damaged or missing" for d in bad]
-    return (backup_integrity.CORRUPT if bad else backup_integrity.VERIFIED), problems, disks
+    for name in manifest.get("files") or {}:
+        try:
+            store.read_file(vm_uuid, stamp, name)
+        except (OSError, backup_store.DamagedChunk) as e:
+            problems.append(f"{name}: {e}")
+    return (backup_integrity.CORRUPT if problems else backup_integrity.VERIFIED), problems, disks

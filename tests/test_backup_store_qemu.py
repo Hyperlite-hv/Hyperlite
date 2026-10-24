@@ -146,7 +146,8 @@ def test_a_damaged_chunk_stops_the_restore_and_leaves_no_disk(vm):
     assert not target.exists()
 
 
-def test_a_backup_job_into_a_store_and_its_restores(vm, monkeypatch):
+@pytest.mark.parametrize("encrypted", [False, True])
+def test_a_backup_job_into_a_store_and_its_restores(vm, monkeypatch, encrypted):
     """The whole path Hyperlite takes: run_backup into a named store, then restore_backup over the VM (its file
     disks swapped in, its block device written in place) and to a new VM."""
     import libvirt
@@ -155,7 +156,11 @@ def test_a_backup_job_into_a_store_and_its_restores(vm, monkeypatch):
 
     domain, store = vm["domain"], vm["store"]
     monkeypatch.setattr(backup_stores, "_pool_dir", lambda name: store.root.parent)
-    backup_stores.create("e2e", "pool", store.root.name)
+    if encrypted:  # a new encrypted store beside the fixture's, with a master recovery key
+        _, public = backup_store.new_master_key()
+        backup_stores.create("e2e", "pool", f"{VM}-enc", encrypted=True, master_public_key=public.decode())
+    else:
+        backup_stores.create("e2e", "pool", store.root.name)
     domain.create()
     backup_id = backups.run_backup(VM, store="e2e", username="ana")
     domain.destroy()
@@ -187,3 +192,4 @@ def test_a_backup_job_into_a_store_and_its_restores(vm, monkeypatch):
         except libvirt.libvirtError:
             pass
         conn.close()
+        shutil.rmtree(store.root.parent / f"{VM}-enc", ignore_errors=True)

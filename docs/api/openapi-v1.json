@@ -3267,6 +3267,43 @@
       "description": "Its directory inside the pool (default: hyperlite-store)",
       "title": "Directory"
      },
+     "encrypted": {
+      "default": false,
+      "description": "A new store: its chunks and files encrypted, the key shown once",
+      "title": "Encrypted",
+      "type": "boolean"
+     },
+     "key": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Taking over an encrypted store: its key's code",
+      "title": "Key"
+     },
+     "master_key": {
+      "default": "none",
+      "description": "A master recovery key: none, made here (shown once), own",
+      "pattern": "^(none|generate|own)$",
+      "title": "Master Key",
+      "type": "string"
+     },
+     "master_public_key": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "master_key 'own': the public half, PEM (RSA 3072+)",
+      "title": "Master Public Key"
+     },
      "name": {
       "description": "The store's name",
       "title": "Name",
@@ -6987,7 +7024,7 @@
     ]
    },
    "post": {
-    "description": "Make a store in a directory of a storage pool, or take over the store already there.",
+    "description": "Make a store in a directory of a storage pool, or take over the store already there. An encrypted store's key,\nand a master recovery key made here, are in this answer only: Hyperlite never shows them again.",
     "operationId": "create_backup_store_api_v1_backup_stores_post",
     "requestBody": {
      "content": {

@@ -180,15 +180,28 @@ class SqliteBackupStore:
     def get_store(self, name):
         return _one("SELECT * FROM backup_stores WHERE name = ?", (name,))
 
-    def save_store(self, name, pool, directory, store_id, encrypted, created_by, created_at):
+    def save_store(self, name, pool, directory, store_id, encrypted, created_by, created_at, master_public_key=None):
         _write(
-            "INSERT INTO backup_stores (name, pool, directory, store_id, encrypted, created_by, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (name, pool, directory, store_id, encrypted, created_by, created_at),
+            "INSERT INTO backup_stores (name, pool, directory, store_id, encrypted, created_by, created_at, "
+            "master_public_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, pool, directory, store_id, encrypted, created_by, created_at, master_public_key),
         )
 
     def delete_store(self, name):
-        _write("DELETE FROM backup_stores WHERE name = ?", (name,))
+        with get_conn() as db:
+            db.execute("DELETE FROM backup_store_keys WHERE name = ?", (name,))
+            db.execute("DELETE FROM backup_stores WHERE name = ?", (name,))
+            db.commit()
+
+    def save_store_key(self, name, key_encrypted, created_at):
+        _write(
+            "INSERT OR REPLACE INTO backup_store_keys (name, key_encrypted, created_at) VALUES (?, ?, ?)",
+            (name, key_encrypted, created_at),
+        )
+
+    def get_store_key(self, name):
+        row = _one("SELECT key_encrypted FROM backup_store_keys WHERE name = ?", (name,))
+        return row["key_encrypted"] if row else None
 
     # ---- Grouped jobs ----
 
