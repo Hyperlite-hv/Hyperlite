@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import libvirt
 import pytest
 
-from app.core import disk_space, templates_store
+from app.core import disk_space, templates_store, vm_templates
 from app.routers import templates
 
 
@@ -44,7 +44,7 @@ class _Conn:
 
 
 @pytest.fixture()
-def node(database, tmp_path, monkeypatch):
+def node(database, tmp_path, monkeypatch, daemon_libvirt):
     images, tpl_dir = tmp_path / "images", tmp_path / "templates"
     images.mkdir()
     tpl_dir.mkdir()
@@ -60,10 +60,11 @@ def node(database, tmp_path, monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tpl_dir)
-    monkeypatch.setattr(templates, "IMAGES_DIR", images)
-    monkeypatch.setattr(templates, "open_conn", lambda *a: _Conn(domain))
-    monkeypatch.setattr(templates, "refresh_pools_for_paths", lambda *a: None)
-    monkeypatch.setattr(templates.subprocess, "run", qemu_img)
+    monkeypatch.setattr(vm_templates, "IMAGES_DIR", images)
+    conn_ = daemon_libvirt(_Conn(domain))
+    monkeypatch.setattr(templates, "open_conn", lambda *a: conn_)
+    monkeypatch.setattr(vm_templates, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_templates.subprocess, "run", qemu_img)
     monkeypatch.setattr(disk_space, "ensure_room", lambda *a: None)
     monkeypatch.setattr(disk_space, "allocated_bytes", lambda path: 13)
     return {"disk": disk, "domain": domain, "tpl_dir": tpl_dir, "copies": copies}
@@ -98,7 +99,7 @@ def test_a_copy_that_fails_leaves_no_template_and_the_vm_untouched(node, client,
         (node["tpl_dir"] / ".base.qcow2.part").write_bytes(b"half")
         raise subprocess.CalledProcessError(1, cmd, "", "No space left on device")
 
-    monkeypatch.setattr(templates.subprocess, "run", broken)
+    monkeypatch.setattr(vm_templates.subprocess, "run", broken)
     r = _make(client, auth_headers("root"), keep_vm=True)
     assert r.status_code == 500
     assert templates_store.list_templates() == [] and list(node["tpl_dir"].iterdir()) == []
