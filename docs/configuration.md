@@ -30,7 +30,7 @@ Installer and build-time variables:
 | `HYPERLITE_APT_URL` | `installer/build-iso.sh`, `installer/postinstall.sh` | APT repository baked into the appliance ISO (default: the public mirror). |
 | `HYPERLITE_SKIP_RESTART` | package `postinst` | Set by the update endpoint so the package does not restart the service it is running inside. |
 
-Profile and policy names are French wire values (see [api.md](api.md)).
+Profile and policy names are the API's English wire values (see [api.md](api.md)).
 
 ## Files
 
