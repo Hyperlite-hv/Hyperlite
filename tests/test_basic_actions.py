@@ -275,13 +275,15 @@ class _Conn:
 
 
 @pytest.fixture()
-def vm_routes(monkeypatch):
+def vm_routes(monkeypatch, daemon_libvirt):
+    from app.core import vm_rename
     from app.routers.vms import rename
 
     def install(conn):
         monkeypatch.setattr(rename, "open_conn", lambda node=None: conn)
+        daemon_libvirt(conn)  # hyperlite-daemon renames, in this process in the tests (app/core/vm_rename.py)
         monkeypatch.setattr(rename, "_domain_summary", lambda d: {"name": d.renamed_to or d.name()})
-        monkeypatch.setattr(rename, "refresh_pools_for_paths", lambda conn, paths: None)
+        monkeypatch.setattr(vm_rename, "refresh_pools_for_paths", lambda conn, paths: None)
         return conn
 
     return install
@@ -320,10 +322,10 @@ def test_a_kubernetes_vm_keeps_its_name(client, auth_headers, vm_routes, databas
 
 
 def test_the_vm_own_files_take_its_new_name(tmp_path, monkeypatch):
-    from app.routers.vms import rename
+    from app.core import vm_rename
 
-    monkeypatch.setattr(rename, "NVRAM_DIR", str(tmp_path / "nvram"))
-    monkeypatch.setattr(rename, "refresh_pools_for_paths", lambda conn, paths: None)
+    monkeypatch.setattr(vm_rename, "NVRAM_DIR", str(tmp_path / "nvram"))
+    monkeypatch.setattr(vm_rename, "refresh_pools_for_paths", lambda conn, paths: None)
     (tmp_path / "nvram").mkdir()
     (tmp_path / "web-cloudinit.iso").write_text("seed")
     (tmp_path / "debian.iso").write_text("library")
@@ -332,7 +334,7 @@ def test_the_vm_own_files_take_its_new_name(tmp_path, monkeypatch):
       <disk device='cdrom'><source file='{tmp_path}/web-cloudinit.iso'/></disk>
       <disk device='cdrom'><source file='{tmp_path}/debian.iso'/></disk></devices></domain>"""
     conn = _Conn()
-    rename._rename_own_files(conn, _Domain("web", xml=xml), "web", "shop", None)
+    vm_rename.rename_own_files(conn, _Domain("web", xml=xml), "web", "shop", None)
     assert (tmp_path / "shop-cloudinit.iso").read_text() == "seed"
     assert (tmp_path / "debian.iso").exists()  # a library ISO is never renamed
     assert (tmp_path / "nvram" / "shop_VARS.fd").read_text() == "vars"
@@ -460,14 +462,14 @@ def test_the_container_shell_is_for_administrators(client, auth_headers, monkeyp
 
 
 def test_files_of_a_remote_vm_are_renamed_with_quoted_paths(monkeypatch):
-    from app.routers.vms import rename
+    from app.core import vm_rename
 
     calls = []
-    monkeypatch.setattr(rename, "get_node", lambda name: {"name": name})
+    monkeypatch.setattr(vm_rename, "get_node", lambda name: {"name": name})
     monkeypatch.setattr(
-        rename, "_run_ssh", lambda node, args: calls.append(args) or type("R", (), {"returncode": 0, "stderr": ""})()
+        vm_rename, "_run_ssh", lambda node, args: calls.append(args) or type("R", (), {"returncode": 0, "stderr": ""})()
     )
-    files = rename._Files("n2")
+    files = vm_rename.Files("n2")
     files.rename("/var/lib/libvirt/images/a b;x-cloudinit.iso", "/var/lib/libvirt/images/shop-cloudinit.iso")
     assert calls == [
         [
