@@ -140,9 +140,31 @@ def run_probe(node=None):
     return run_probe_script(PROBE_SCRIPT, node)
 
 
+def _probes():
+    """The fixed scripts hyperlite-daemon runs on another node, by name: the API names one, never sends a script."""
+    from app.core import node_hardware
+
+    return {"stats": PROBE_SCRIPT, "hardware": node_hardware.PROBE_SCRIPT}
+
+
 def run_probe_script(script, node=None):
-    """Runs a read-only shell script on the local host or, over the cluster SSH trust,
-    on a registered remote node. The script is fixed code, never user input."""
+    """Runs a read-only shell script on the local host or, through hyperlite-daemon over the cluster SSH trust
+    (node.probe), on a registered remote node. The script is fixed code, never user input."""
+    if node is None:
+        return run_script_on(script, None)
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    name = next(k for k, v in _probes().items() if v == script)
+    try:
+        return privileged.run("node.probe", node=node["name"], probe=name)["output"]
+    except DaemonError as e:
+        logger.debug("Probe of %s failed: %s", node["name"], e.detail)
+        return None
+
+
+def run_script_on(script, node=None):
+    """run_probe_script's work, hyperlite-daemon's for another node."""
     if node is None:
         cmd = ["bash", "-s"]
     else:

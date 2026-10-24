@@ -224,27 +224,52 @@ def copy_now(force=False, username="system"):
             due.append(node)
     if not due:
         return []
+    # Built and sent by hyperlite-daemon: the bundle holds the node's keys, and goes out with the cluster's SSH key.
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        sent = privileged.run("config.copy", user=username, nodes=[n["name"] for n in due], timeout=len(due) * 330 + 60)
+    except DaemonError as e:
+        sent = [{"node": n["name"], "status": "failed", "error": e.detail} for n in due]
+    results = []
+    for entry in sent:
+        if entry["status"] == "ok":
+            _record(entry["node"], "ok", entry["size"], entry["fingerprint"])
+            results.append({"node": entry["node"], "status": "ok"})
+            continue
+        _record(entry["node"], "failed", error=entry["error"])
+        log_action(username, "config_copy", entry["node"], "failed", entry["error"])
+        results.append({"node": entry["node"], "status": "failed", "error": entry["error"]})
+    return results
+
+
+def send(nodes):
+    """hyperlite-daemon's part of copy_now: one bundle built, then sent to each registered node of `nodes`.
+    [{"node", "status", "size", "fingerprint", "error"}]."""
+    from app.core.cluster import get_node
+
     staging = paths.CONFIG_COPY_STAGING
     staging.mkdir(parents=True, exist_ok=True)
     staging.chmod(0o700)
     bundle, meta = build_bundle(staging)
     results = []
     try:
-        for node in due:
+        for name in nodes:
+            node = get_node(name)
+            entry = {"node": name, "status": "failed", "size": None, "fingerprint": None, "error": None}
             try:
+                if node is None:
+                    raise CopyError(f"Node '{name}' not found")
                 push(node, bundle)
-                _record(node["name"], "ok", bundle.stat().st_size, meta["fingerprint"])
-                results.append({"node": node["name"], "status": "ok"})
-                continue
+                entry.update(status="ok", size=bundle.stat().st_size, fingerprint=meta["fingerprint"])
             except CopyError as e:
-                error = e.message[:300]
+                entry["error"] = e.message[:300]
             except (OSError, subprocess.SubprocessError):
-                # The OS error text stays in the service log; the API gets a sentence.
-                logger.warning("Configuration copy to %s failed", node["name"], exc_info=True)
-                error = "ssh or scp could not run or timed out (see the service log)"
-            _record(node["name"], "failed", error=error)
-            log_action(username, "config_copy", node["name"], "failed", error)
-            results.append({"node": node["name"], "status": "failed", "error": error})
+                # The OS error text stays in the daemon's log; the API gets a sentence.
+                logger.warning("Configuration copy to %s failed", name, exc_info=True)
+                entry["error"] = "ssh or scp could not run or timed out (see the service log)"
+            results.append(entry)
     finally:
         bundle.unlink(missing_ok=True)
     return results
