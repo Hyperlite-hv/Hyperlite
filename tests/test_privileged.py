@@ -51,6 +51,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"container.create", "container.clone"} <= named
     assert {"container.snapshot_list", "container.snapshot_create", "container.snapshot_restore"} <= named
     assert {"container.snapshot_delete", "container.log"} <= named
+    assert {"cluster.pubkey", "cluster.test_node", "cluster.trust", "cluster.forget", "cluster.rename_trust"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
