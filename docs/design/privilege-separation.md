@@ -363,7 +363,7 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Storage, part 2a: the libvirt pools of the storage routes on this node: create (directory, NFS, SMB, iSCSI, LVM), rename, delete, with the SMB credentials file, the iSCSI CHAP secret and the LVM thin pool (`storage.pool_create`, `storage.pool_rename`, `storage.pool_delete`; the daemon writes a pool's definition itself from checked fields, `app/core/storage_pools.py`) | done |
 | Storage, part 2b: the volumes of the storage routes' libvirt pools (`storage.volume_create`, `storage.volume_delete`; the daemon writes a volume's definition from its checked name and size and never deletes one a VM uses). A VM's own disks (resize, move, snapshots) move with the VM domain | done |
 | Storage, part 2c: what the storage routes read that needs root or a connection that may write: the LVM report of a group (`storage.lvm_volumes`) and a pool's refresh (`storage.pool_refresh`; `virStoragePoolRefresh` is refused on libvirt's read-only connection). The ZFS listings need neither (`/dev/zfs` is open to every user) | done |
-| Disks, VMs, containers, cluster, consoles | next: disks |
+| Disks (four parts, below), VMs, containers, cluster, consoles; then backups | next: disks, part 1 |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -399,6 +399,30 @@ through the daemon and another node's keeps its SSH connection from the API, wit
 answers. The cluster domain moves the second: a member is asked through its own API (`app/core/cluster_view.py`,
 which already forwards `?node=`), whose daemon does the work; a node registered over SSH only is reached by the
 daemon, which then holds the SSH keys.
+
+**The disks domain (proposed, 2026-10-24).** `qemu-img` and the image files are used by 16 modules: the libraries
+(ISOs, disks to import), a VM's disk growth and move, VM creation, clones, templates and linked clones, backups,
+restores, replication, exports and OVA. Once the API runs as `hyperlite` (step 4), it can neither write nor read the
+pools' files (owned by root or by QEMU, mode 0600). It moves in four parts, each in its own pull request:
+
+| Part | What moves | Operations |
+|---|---|---|
+| Disks, part 1: the libraries | The ISOs and the disks to import (`app/routers/isos.py`, `app/routers/vm_disks.py`): an upload is stored, renamed, deleted; an image Hyperlite did not write is checked (`app/core/disk_images.py`, `qemu-img info`) | `disk.library_store`, `disk.library_rename`, `disk.library_delete`, `disk.image_info` |
+| Disks, part 2: a VM's disk | Growing a disk (`app/core/disk_resize.py`) and moving it to another pool (`app/core/disk_move.py`): asked by the VM's name and the disk's target, never a path | `disk.resize`, `disk.move` (one call that waits, its progress written into the task) |
+| With the VM domain | The disks VM creation, clones, templates and linked clones make (`app/core/vm_builder.py`, `app/core/linked_disks.py`): they are made with the domain that uses them | moved with `vm.*` |
+| A domain of its own: backups | Backups, restores, replication, exports and OVA (`app/core/backups.py`, `replication.py`, `vm_export.py`, `ova.py`, `checkpoints.py`, `backup_integrity.py`): added after the VMs to section 5's list, with the live restore of #513 | `backup.*` |
+
+**An upload goes through a spool, as on Proxmox VE.** pveproxy writes an upload into a temporary file it owns, and
+pvedaemon copies it into the storage. Hyperlite does the same. The API streams the upload into
+`/var/lib/hyperlite/spool`, a directory it owns. `disk.library_store` takes that file's name in the spool, never a
+path. It checks the image (an ISO's size; a disk's format and the files it would name, `disk_images.check`), moves it
+into the library under the name the API checked, and gives it the owner and mode QEMU needs. The spool is emptied of
+anything older than a day at start-up. Until step 4, the API still runs as root and the spool is only a directory:
+nothing changes for the user.
+
+**What the API keeps.** It keeps listing the libraries (their directories made readable to the API's group at step 4) and
+the checks that need no file (the name, an upload's size, a VM that has the ISO in its drive). It also keeps the audit log, the tasks and
+`?node=`. Sharing an ISO with another node (`app/core/iso_share.py`, over SSH) moves with the cluster domain.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of
