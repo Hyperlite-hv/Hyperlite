@@ -1,6 +1,6 @@
 # The cluster configuration as files in /etc/hyperlite (#525)
 
-Status: **proposal** (2026-10-24). The choices of section 2 are the maintainer's; the code starts after the privilege
+Status: **accepted (maintainer, 2026-10-24).** The choices of section 2 are the maintainer's; the code starts after the privilege
 separation (#511), as decided on 2026-10-21 (`docs/design/privilege-separation.md`, section 11).
 
 ## 1. Goal
