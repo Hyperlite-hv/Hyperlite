@@ -3297,6 +3297,18 @@
    },
    "StoreCreate": {
     "properties": {
+     "copy_of": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A new store made as the copy of this store (copy jobs)",
+      "title": "Copy Of"
+     },
      "directory": {
       "anyOf": [
        {
@@ -3362,6 +3374,86 @@
      "pool"
     ],
     "title": "StoreCreate",
+    "type": "object"
+   },
+   "StoreSync": {
+    "properties": {
+     "active": {
+      "default": true,
+      "title": "Active",
+      "type": "boolean"
+     },
+     "frequency": {
+      "description": "'daily' | 'weekly' | 'monthly'",
+      "title": "Frequency",
+      "type": "string"
+     },
+     "keep_days": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Keep Days"
+     },
+     "keep_months": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Keep Months"
+     },
+     "keep_weeks": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Keep Weeks"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "retention_count": {
+      "default": 7,
+      "title": "Retention Count",
+      "type": "integer"
+     },
+     "source": {
+      "description": "The store copied",
+      "title": "Source",
+      "type": "string"
+     },
+     "target": {
+      "description": "The store made as its copy (copy_of), on a pool at the other site",
+      "title": "Target",
+      "type": "string"
+     },
+     "time": {
+      "description": "HH:MM, UTC",
+      "title": "Time",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "source",
+     "target",
+     "frequency",
+     "time"
+    ],
+    "title": "StoreSync",
     "type": "object"
    },
    "SyslogSettings": {
@@ -7036,6 +7128,261 @@
      }
     ],
     "summary": "List Backup Schedules",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-store-syncs": {
+   "get": {
+    "operationId": "list_store_syncs_api_v1_backup_store_syncs_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Store Syncs",
+    "tags": [
+     "backups"
+    ]
+   },
+   "post": {
+    "description": "A copy of a store into another, pulled on its own schedule, with its own retention.",
+    "operationId": "create_store_sync_api_v1_backup_store_syncs_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StoreSync"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Store Sync",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-store-syncs/{job_id}": {
+   "delete": {
+    "description": "The job only: the copies it made stay in the target store.",
+    "operationId": "delete_store_sync_api_v1_backup_store_syncs__job_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "job_id",
+      "required": true,
+      "schema": {
+       "title": "Job Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Store Sync",
+    "tags": [
+     "backups"
+    ]
+   },
+   "get": {
+    "operationId": "get_store_sync_api_v1_backup_store_syncs__job_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "job_id",
+      "required": true,
+      "schema": {
+       "title": "Job Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Store Sync",
+    "tags": [
+     "backups"
+    ]
+   },
+   "put": {
+    "operationId": "update_store_sync_api_v1_backup_store_syncs__job_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "job_id",
+      "required": true,
+      "schema": {
+       "title": "Job Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StoreSync"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Store Sync",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-store-syncs/{job_id}/run": {
+   "post": {
+    "description": "Run a copy job now, in the background (a task).",
+    "operationId": "run_store_sync_api_v1_backup_store_syncs__job_id__run_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "job_id",
+      "required": true,
+      "schema": {
+       "title": "Job Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Run Store Sync",
     "tags": [
      "backups"
     ]

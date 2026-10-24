@@ -1074,6 +1074,9 @@ def _scheduler_loop():
             from app.core import backup_stores
 
             backup_stores.collect_due()
+            from app.core import backup_store_sync
+
+            backup_store_sync.run_due(now)
             db_health.succeeded("backup-scheduler")
         except Exception as e:
             logger.exception("Backup scheduler tick failed")
