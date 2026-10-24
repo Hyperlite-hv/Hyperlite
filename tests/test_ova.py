@@ -222,9 +222,11 @@ def test_a_stem_leaving_the_directory_is_refused_by_the_extraction_itself(tmp_pa
 
 @pytest.fixture()
 def disks_dir(monkeypatch, tmp_path):
+    from app.core import disk_library
     from app.routers import vm_disks
 
     monkeypatch.setattr(vm_disks, "IMPORTED_DISKS_DIR", tmp_path)
+    monkeypatch.setattr(disk_library, "IMPORTS", tmp_path)  # the library hyperlite-daemon writes
     return tmp_path
 
 
