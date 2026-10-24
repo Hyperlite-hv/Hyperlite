@@ -2,6 +2,8 @@
 
 import pytest
 
+import app.daemon.ops.network as ops_network
+
 
 class _Net:
     def __init__(self, name, active=False, autostart=False, fail=None):
@@ -76,6 +78,7 @@ def conn(database, monkeypatch):
 
     c = _Conn()
     monkeypatch.setattr(network, "open_conn", lambda node=None: c)
+    monkeypatch.setattr(ops_network, "_connect", lambda: c)  # hyperlite-daemon's own connection, in this process
     return c
 
 
