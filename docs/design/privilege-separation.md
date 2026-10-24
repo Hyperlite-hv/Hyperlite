@@ -374,7 +374,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | VMs, part 3c: clones (`vm.clone`, `app/core/vm_clone.py`) and templates (`template.make`, `template.deploy`, `template.rename`, `template.delete`, `app/core/vm_templates.py`): the copies, the new definitions and the template files are the daemon's, which checks the source's state, the names, the room and a template's linked clones again; the Kubernetes clusters' VMs started and stopped through `vm.power` | done |
 | VMs, part 4: snapshots (`vm.snapshot_create`, `vm.snapshot_restore`, `vm.snapshot_delete`, `vm.lvm_snapshots`, `app/core/vm_snapshots.py`): libvirt's, ZFS's and LVM-thin's, checked again by the daemon (a rollback only under a stopped VM, a name ZFS would read as a list or a range refused); every check runs first with `check_only`, so the route answers a refusal before it starts the task | done |
 | Containers, part 1: start, stop, settings, rename and deletion (`container.*`, `app/core/container_ops.py`), the filesystem found in the definition and accepted in Hyperlite's container directories only (below) | done |
-| Containers, parts 2 and 3; cluster, consoles; then backups | next: containers, part 2 |
+| Containers, part 2: creation and clone (`container.create`, `container.clone`, `app/core/container_create.py`): the specification of POST /containers checked again (its unknown fields refused), the directory chosen from the pool's own definition, the image pulled and the filesystem prepared by the daemon; the API keeps the image's required variables (asked of the registry) and the records | done |
+| Containers, part 3; cluster, consoles; then backups | next: containers, part 3 |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
