@@ -92,6 +92,17 @@ def local_conn():
         conn.close()
 
 
+@contextlib.contextmanager
+def local_lxc_conn():
+    """This node's own LXC driver, closed on the way out: the containers hyperlite-daemon's operations act on
+    (app/daemon/ops/container.py). Called as libvirt_utils.local_lxc_conn(), faked by the daemon_lxc fixture."""
+    conn = libvirt.open(LXC_URI)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def open_local():
     """This node's own libvirt, left open: for a caller whose work outlives the call (the guest agents' questions in
     flight, app/daemon/ops/vm.py); libvirt closes it once nothing holds it any more."""

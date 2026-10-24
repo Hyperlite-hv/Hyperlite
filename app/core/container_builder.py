@@ -333,7 +333,7 @@ def bootstrap_os_container(rootfs):
     return family
 
 
-def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
+def create_container_rootfs(name, image=None, bootstrap=True, home=None):
     """Fast clone (local copy, no network) of the base image, either the local one
     (debootstrap, the default) or one pulled from an external registry
     (`image`, e.g. "ubuntu:22.04", "alpine:3.19", "ghcr.io/foo/bar:tag"), for a
@@ -341,6 +341,7 @@ def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
     reimplementing a faithful recursive copy (permissions, symbolic links,
     special /dev devices) by hand in Python.
 
+    `home`: the directory it goes in (app/core/container_create.py), the default one when None.
     Returns (rootfs_path, family): the family ("apt" or "apk") is passed as is
     to configure_container_rootfs, which needs it for the network/service
     configuration (systemd vs OpenRC)."""
@@ -358,13 +359,9 @@ def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
         base = ensure_base_rootfs()
         family = "apt"
 
-    if storage:
-        # storage: {"pool": name, "base_dir": directory}, see resolve_container_storage in the containers router.
-        from app.core.container_meta import set_container_storage
-
-        Path(storage["base_dir"]).mkdir(mode=0o711, parents=True, exist_ok=True)
-        set_container_storage(name, storage["pool"], storage["base_dir"])
-    dest = container_rootfs_path(name)
+    home = Path(home) if home else CONTAINERS_DIR
+    home.mkdir(mode=0o711, parents=True, exist_ok=True)
+    dest = safe_child(home, name)
     if dest.exists():
         raise ValueError(f"Container '{name}' already has a filesystem on disk")
     subprocess.run(["cp", "-a", str(base), str(dest)], check=True, capture_output=True, text=True)
@@ -390,31 +387,21 @@ def delete_container_rootfs(name):
 #   rather than a qcow2 disk).
 
 
-def clone_container_rootfs(name, new_name):
-    """Complete copy of the rootfs (cp -a, with the same guarantees as
+def clone_container_rootfs(src, dest):
+    """Complete copy of the filesystem `src` to `dest` (cp -a, with the same guarantees as
     create_container_rootfs: permissions, symbolic links, special devices), THEN
     reset whatever must never be shared between original and clone, the same
     reasoning as VM cloning: SSH host keys and machine-id identical between the
     two as long as nothing forces their regeneration. It does keep the existing
     user account and password (the copied rootfs already has them), exactly as
     VM cloning does not recreate the account either."""
-    from app.core.container_meta import get_container_storage, set_container_storage
-
-    src = container_rootfs_path(name)
+    src, dest = Path(src), Path(dest)
     if not src.exists():
-        raise ValueError(f"Filesystem of container '{name}' not found")
-    storage = get_container_storage(name)
-    if storage:  # a clone stays in its source's storage pool
-        set_container_storage(new_name, storage["pool"], storage["base_dir"])
-    dest = container_rootfs_path(new_name)
-    if dest.exists():
-        if storage:
-            from app.core.container_meta import delete_container_storage
-
-            delete_container_storage(new_name)
-        raise ValueError(f"Container '{new_name}' already has a filesystem on disk")
+        raise ValueError(f"Filesystem of container '{src.name}' not found")
+    if os.path.lexists(dest):
+        raise ValueError(f"Container '{dest.name}' already has a filesystem on disk")
     subprocess.run(["cp", "-a", str(src), str(dest)], check=True, capture_output=True, text=True)
-    _reset_container_identity(dest, new_name)
+    _reset_container_identity(dest, dest.name)
     return dest
 
 
@@ -787,11 +774,11 @@ def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=No
   <devices>
     <console type='pty'/>
     <filesystem type='mount' accessmode='passthrough'>
-      <source dir='{rootfs}'/>
+      <source dir={quoteattr(str(rootfs))}/>
       <target dir='/'/>
     </filesystem>
     <interface type='network'>
-      <source network='{network}'/>{mac_xml}{ip_xml}
+      <source network={quoteattr(network)}/>{mac_xml}{ip_xml}
     </interface>
   </devices>
 </domain>
