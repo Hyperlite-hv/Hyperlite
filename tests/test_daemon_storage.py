@@ -2,6 +2,9 @@
 (app/daemon/ops/storage.py, docs/design/privilege-separation.md section 13). The daemon checks the names again and
 refuses to delete a volume a VM uses, whatever the API checked; the routes answer as before."""
 
+import xml.etree.ElementTree as ET
+
+import libvirt
 import pytest
 
 import app.daemon.ops.storage as ops_storage
@@ -212,3 +215,88 @@ def test_a_listing_asks_the_daemon_only_for_a_missing_default_pool(pools, client
     ran.clear()
     assert client.get("/storage", headers=viewer).status_code == 200
     assert ran == []
+
+
+# --- Part 2b: the volumes of this node's libvirt pools ---
+
+
+class _Vol:
+    def __init__(self, pool, name):
+        self.pool, self._name = pool, name
+
+    def name(self):
+        return self._name
+
+    def path(self):
+        return f"/srv/fast/{self._name}"
+
+    def info(self):
+        return [0, 2 * 1024**3, 0]
+
+    def delete(self, flags=0):
+        self.pool.vols.pop(self._name)
+
+
+@pytest.fixture()
+def volumes(pools, monkeypatch):
+    """A directory pool of this node with one volume, "web.qcow2", that a VM uses."""
+    from tests.test_shared_pools import _Pool
+
+    pool = _Pool("<pool type='dir'><name>fast</name><target><path>/srv/fast</path></target></pool>")
+    pool.host, pool.active, pool.vols, pool.made = pools["local"], True, {}, []
+
+    def lookup(name):
+        if name not in pool.vols:
+            raise libvirt.libvirtError("no volume")
+        return pool.vols[name]
+
+    def create_xml(xml, flags=0):
+        pool.made.append(xml)
+        name = ET.fromstring(xml).findtext("name")
+        pool.vols[name] = _Vol(pool, name)
+        return pool.vols[name]
+
+    pool.storageVolLookupByName, pool.createXML = lookup, create_xml
+    pool.vols["web.qcow2"] = _Vol(pool, "web.qcow2")
+    pools["local"].pools["fast"] = pool
+    monkeypatch.setattr(zfs_storage, "pool_exists", lambda name: False)
+    monkeypatch.setattr("app.core.libvirt_utils.get_disk_paths_in_use", lambda conn: {"/srv/fast/web.qcow2"})
+    monkeypatch.setattr("app.routers.storage.get_disk_paths_in_use", lambda conn: {"/srv/fast/web.qcow2"})
+    return pool
+
+
+def test_a_libvirt_volume_a_vm_uses_is_kept_whatever_the_api_checked(volumes):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("storage.volume_delete", pool="fast", name="web.qcow2")
+    assert e.value.kind == "in_use"
+    assert "web.qcow2" in volumes.vols
+
+
+def test_a_volumes_definition_is_written_by_the_daemon_from_its_name_and_size(volumes):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("storage.volume_create", pool="fast", name="../../etc/x", size_gb=1)
+    assert e.value.kind == "refused"
+    with pytest.raises(DaemonError) as e:
+        privileged.run("storage.volume_create", pool="fast", name="data", size_gb=1, xml="<volume/>")
+    assert e.value.kind == "invalid_arguments"
+    assert volumes.made == []
+    made = privileged.run("storage.volume_create", pool="fast", name="data", size_gb=3)
+    assert made["name"] == "data.qcow2"
+    root = ET.fromstring(volumes.made[0])
+    assert root.findtext("name") == "data.qcow2" and root.findtext("capacity") == str(3 * 1024**3)
+    assert root.find("target/format").get("type") == "qcow2"
+
+
+def test_the_volume_routes_answer_as_before(volumes, pools, client, auth_headers):
+    admin = auth_headers("root")
+    r = client.post("/storage/fast/volumes", json={"name": "data", "size_gb": 1}, headers=admin)
+    assert (r.status_code, r.json()["name"]) == (201, "data.qcow2")
+    r = client.post("/storage/fast/volumes", json={"name": "data", "size_gb": 1}, headers=admin)
+    assert (r.status_code, r.json()["detail"]) == (422, "A volume 'data.qcow2' already exists in this pool")
+    r = client.delete("/storage/fast/volumes/web.qcow2?confirm=true", headers=admin)
+    assert r.status_code == 409
+    r = client.delete("/storage/fast/volumes/data.qcow2", headers=admin)
+    assert r.status_code == 400 and "data.qcow2" in volumes.vols  # no confirmation, nothing asked
+    r = client.delete("/storage/fast/volumes/data.qcow2?confirm=true", headers=admin)
+    assert r.status_code == 200 and "data.qcow2" not in volumes.vols
+    assert pools["asked"] == ["storage.volume_create", "storage.volume_delete"]
