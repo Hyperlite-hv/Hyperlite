@@ -300,3 +300,38 @@ def test_the_volume_routes_answer_as_before(volumes, pools, client, auth_headers
     r = client.delete("/storage/fast/volumes/data.qcow2?confirm=true", headers=admin)
     assert r.status_code == 200 and "data.qcow2" not in volumes.vols
     assert pools["asked"] == ["storage.volume_create", "storage.volume_delete"]
+
+
+# --- Part 2c: the reads that need root or a connection that may write ---
+
+
+def test_an_lvm_report_takes_a_checked_group_name_only(monkeypatch):
+    from app.core import lvm_storage
+
+    ran = []
+    monkeypatch.setattr(lvm_storage, "_run", lambda args, node=None: ran.append(args) or '{"report": [{"lv": []}]}')
+    for vg in ("../etc", "-ofoo", "vg0 vg1"):
+        with pytest.raises(DaemonError) as e:
+            privileged.run("storage.lvm_volumes", vg=vg)
+        assert e.value.kind == "refused", vg
+    assert ran == []
+    assert privileged.run("storage.lvm_volumes", vg="vg0") == []
+    assert ran[0][:2] == ["lvm", "lvs"] and ran[0][-1] == "vg0"
+
+
+def test_a_refresh_names_a_pool_of_this_node(pools):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("storage.pool_refresh", pool="nowhere")
+    assert e.value.kind == "not_found"
+
+
+def test_this_nodes_lvm_report_is_the_daemons_and_another_nodes_keeps_ssh(monkeypatch):
+    from app.core import lvm_storage
+    from app.routers import storage
+
+    asked, over_ssh = [], []
+    monkeypatch.setattr(privileged, "run", lambda op, **k: asked.append((op, k)) or [])
+    monkeypatch.setattr(lvm_storage, "logical_volumes", lambda vg, node=None: over_ssh.append((vg, node)) or [])
+    assert storage._lvm_volumes("vg0", None) == [] and storage._lvm_volumes("vg0", "local") == []
+    assert asked == [("storage.lvm_volumes", {"vg": "vg0"})] * 2 and over_ssh == []
+    assert storage._lvm_volumes("vg0", "n2") == [] and over_ssh == [("vg0", "n2")]
