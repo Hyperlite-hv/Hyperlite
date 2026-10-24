@@ -360,8 +360,10 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Network, part 2a: libvirt's networks from the network routes: create, start, stop, autostart, edit, rename, delete, the isolated network (`app/daemon/ops/network.py`; the daemon writes a new network's definition itself from checked fields, `app/core/network_create.py`, never XML from the API) | done |
 | Network, part 2b: the DHCP reservations of the network routes (`network.reservation_add`, `network.reservation_delete`). The reservations VM creation, clones, containers and migration make (`app/core/network_alloc.py`) move with the VM and container domains, which own those calls (migration across two nodes included) | done |
 | Storage, part 1: the ZFS pools and volumes of the storage routes (`app/daemon/ops/storage.py`: names checked again, a volume a VM uses never deleted) | done |
-| Storage, part 2: LVM pools and volumes; then the NFS and SMB mounts | next |
-| Storage, disks, VMs, containers, cluster, consoles | |
+| Storage, part 2a: the libvirt pools of the storage routes on this node: create (directory, NFS, SMB, iSCSI, LVM), rename, delete, with the SMB credentials file, the iSCSI CHAP secret and the LVM thin pool (`storage.pool_create`, `storage.pool_rename`, `storage.pool_delete`; the daemon writes a pool's definition itself from checked fields, `app/core/storage_pools.py`) | done |
+| Storage, part 2b: the volumes of the storage routes (create, delete, resize) | next |
+| Storage, part 2c: the LVM reports the routes read (`vgs`, `lvs` need root) | |
+| Disks, VMs, containers, cluster, consoles | |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -388,6 +390,15 @@ claimed on #511 with `.github/scripts/claim.py`:
   and handles `DaemonError` itself; one that escapes a route gets the same answer from the handler in `app/main.py`.
 - **The answers do not change**: same statuses, same sentences, checked by the route's existing tests. A long operation
   (an apt run) is one call that waits, its output written into the task by the daemon.
+
+**Another node's work stays with the cluster domain.** Some storage routes act on another node from this one: a
+`?node=` naming a node registered over SSH only, and the shared pools created, renamed or removed on every node
+(`app/core/shared_pools.py`), through that node's libvirt over SSH. The daemon's operations act on this node only, as
+pvedaemon's do. The work itself is one function of `app/core` taking the libvirt connection, so this node's goes
+through the daemon and another node's keeps its SSH connection from the API, with the same checks and the same
+answers. The cluster domain moves the second: a member is asked through its own API (`app/core/cluster_view.py`,
+which already forwards `?node=`), whose daemon does the work; a node registered over SSH only is reached by the
+daemon, which then holds the SSH keys.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of

@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 def _named_operations():
     """Every operation name the API asks for: privileged.run("op", ...), the routes' privileged.ask("op", ...) and
-    network_firewall's _daemon("op", ...)."""
+    network_firewall's _daemon("op", ...) and the storage routes' _pool_work(node, "op", ...)."""
     names = set()
     for path in (ROOT / "app").rglob("*.py"):
         if "daemon" in path.parts:
@@ -23,6 +23,7 @@ def _named_operations():
         text = path.read_text()
         names |= set(re.findall(r'privileged\.(?:run|ask)\(\s*"([a-z_]+\.[a-z_]+)"', text))
         names |= set(re.findall(r'_daemon\(\s*"([a-z_]+\.[a-z_]+)"', text))
+        names |= set(re.findall(r'_pool_work\(\s*\w+,\s*"([a-z_]+\.[a-z_]+)"', text))
     return names
 
 
@@ -31,6 +32,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"host.set_dns", "host.upgrade", "host.schedule_power"} <= named  # the scan finds them
     assert {"network.firewall_apply", "network.vlan_aware_start", "network.vlan_apply_vm", "network.vlan_boot"} <= named
     assert {"network.create", "storage.zfs_pool_create", "storage.zfs_volume_delete", "tls.import"} <= named
+    assert {"storage.pool_create", "storage.pool_rename", "storage.pool_delete", "storage.pool_check"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
@@ -87,6 +89,7 @@ def test_no_operation_has_an_argument_the_client_takes_for_itself():
         ("invalid_arguments", 409),
         ("not_found", 404),
         ("in_use", 409),
+        ("unreachable", 502),
         ("unavailable", 503),
         ("failed", 500),
         ("forbidden", 500),
@@ -99,6 +102,15 @@ def test_a_route_answers_each_kind_with_the_status_of_the_api(kind, status):
     e = privileged.http_error(DaemonError(kind, "why"), refused=409, failed="It failed: {}")
     assert e.status_code == status
     assert e.detail == ("It failed: why" if status == 500 else "why")
+
+
+def test_every_kind_has_its_answer():
+    """A kind added to KINDS without its answer would be a 500 by default: each is named in http_error."""
+    import inspect
+
+    source = inspect.getsource(privileged.http_error)
+    for kind in KINDS - {"unknown_operation", "bad_request", "forbidden", "failed"}:
+        assert kind in privileged.STATUS or f'"{kind}"' in source, kind
 
 
 def test_a_route_writes_the_daemons_refusal_into_the_audit_log(client, auth_headers, monkeypatch, database):

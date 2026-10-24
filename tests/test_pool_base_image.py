@@ -40,9 +40,10 @@ class _PoolWithFiles(_Pool):
 
 
 @pytest.fixture()
-def host(database, monkeypatch):
+def host(database, monkeypatch, daemon_libvirt):
     host = _Host()
     monkeypatch.setattr(storage, "open_conn", lambda node=None: host)
+    daemon_libvirt(host)  # this node's pools are hyperlite-daemon's, in this process in the tests
     return host
 
 
