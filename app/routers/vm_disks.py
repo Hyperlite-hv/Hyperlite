@@ -12,25 +12,29 @@ An OVA exported from VMware is uploaded the same way: GET .../ovf maps its VM to
 POST .../extract copies its disks out as imported disks, from which the VM is created (app/core/ova.py)."""
 
 import re
-import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
-from app.core import ova, paths
+from app.core import disk_library, ova, privileged
 from app.core.audit import log_action
-from app.core.error_messages import describe_exception
 from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import answer_later, create_task, finish_task
+from app.daemon.registry import DaemonError
+from app.routers.isos import store_upload
 
 router = APIRouter(prefix="/vm-disks", tags=["vm-disks"])
 
-IMPORTED_DISKS_DIR = paths.IMPORTED_DISKS
+# This node's disks to import, written by hyperlite-daemon (app/core/disk_library.py); VM creation reads them here.
+IMPORTED_DISKS_DIR = disk_library.IMPORTS
 IMPORTED_DISKS_DIR.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_EXTENSIONS = (".qcow2", ".img", ".raw", ".vmdk", ".vdi", ".vhd", ".vhdx", ".ova")
+ALLOWED_EXTENSIONS = disk_library.IMPORT_EXTENSIONS
+
+# An OVA's disks are copied out in one call that waits: hours for the largest, as a backup's copy.
+EXTRACT_TIMEOUT_S = 6 * 3600
 
 
 @router.get("")
@@ -47,29 +51,17 @@ async def upload_vm_disk(file: UploadFile = File(...), user: dict = Depends(requ
     filename = Path(file.filename or "").name
     task_id = create_task("upload_vm_disk", filename, username=user["username"])
 
-    if not filename.lower().endswith(ALLOWED_EXTENSIONS):
-        finish_task(task_id, "failed", "Extension non reconnue")
-        raise HTTPException(
-            status_code=422, detail=f"Unrecognized extension (expected: {', '.join(ALLOWED_EXTENSIONS)})"
-        )
-
-    dest = safe_child(IMPORTED_DISKS_DIR, filename)
     try:
-        try:
-            with open(dest, "wb") as out:
-                shutil.copyfileobj(file.file, out)
-        finally:
-            await file.close()
-    except OSError as e:
-        # Safety net: without it, a failing write (disk full, permissions...) would
-        # leave the task stuck in "running" forever (same trap as in isos.py).
-        msg = describe_exception(e)
-        finish_task(task_id, "failed", msg)
-        raise HTTPException(status_code=500, detail=f"Failed to write the disk: {msg}") from e
+        disk_library.check_name("import", filename)
+    except disk_library.LibraryError as e:
+        finish_task(task_id, "failed", e.message)
+        raise HTTPException(status_code=422, detail=e.message) from None
 
+    # A disk of the same name is replaced, as an upload always did: it is a copy's source, never a VM's own disk.
+    size = await store_upload(file, "import", filename, user, task_id, "Failed to write the disk: {}", replace=True)
     finish_task(task_id, "succeeded")
     log_action(user["username"], "upload_vm_disk", filename, "success")
-    return {"name": filename, "size_mb": round(dest.stat().st_size / (1024 * 1024), 1)}
+    return {"name": filename, "size_mb": round(size / (1024 * 1024), 1)}
 
 
 @router.delete("/{filename}")
@@ -78,7 +70,7 @@ def delete_vm_disk(filename: str, user: dict = Depends(require_role("admin"))):
     path = safe_child(IMPORTED_DISKS_DIR, filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Disk '{filename}' not found")
-    path.unlink()
+    privileged.ask("disk.library_delete", user, "delete_vm_disk", filename, library="import", name=filename)
     log_action(user["username"], "delete_vm_disk", filename, "success")
     return {"name": filename, "deleted": True}
 
@@ -115,20 +107,23 @@ def read_ova(filename: str, user: dict = Depends(get_current_user)):
 @router.post("/{filename}/extract")
 def extract_ova(filename: str, wait: bool = True, user: dict = Depends(require_role("admin"))):
     """Copy the OVA's disks out as imported disks (checked against its manifest). wait=false: a task, 202."""
-    filename, path = _ova_path(filename)
+    filename, _ = _ova_path(filename)  # an OVA of the library: 422 or 404 before any task
     task_id = create_task("extract_ova", filename, username=user["username"])
     result = {}
 
     def work():
+        # Copied out by hyperlite-daemon, which writes the imported disks (app/daemon/ops/disk.py).
         try:
-            result["disks"] = ova.extract_disks(path, IMPORTED_DISKS_DIR, _disk_stem(filename))
-        except ova.OvaError as e:
-            log_action(user["username"], "extract_ova", filename, "failed", str(e), task_id=task_id)
-            raise HTTPException(status_code=422, detail=str(e)) from None
-        except OSError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "extract_ova", filename, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"The disks could not be extracted: {msg}") from e
+            result["disks"] = privileged.run(
+                "disk.ova_extract",
+                user=user["username"],
+                timeout=EXTRACT_TIMEOUT_S,
+                ova=filename,
+                stem=_disk_stem(filename),
+            )["disks"]
+        except DaemonError as e:
+            log_action(user["username"], "extract_ova", filename, "failed", e.detail, task_id=task_id)
+            raise privileged.http_error(e) from None
         log_action(user["username"], "extract_ova", filename, "success", ", ".join(result["disks"]), task_id=task_id)
 
     if not wait:
