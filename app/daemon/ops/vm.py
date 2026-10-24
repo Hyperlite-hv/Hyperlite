@@ -4,10 +4,11 @@ it up in this node's libvirt itself. The routes keep who may ask, the locks, the
 and their answers; another node's VM keeps its own connection until the cluster domain."""
 
 import functools
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
+from app.core.vm_create import VMCreate
 from app.daemon.ops.network import FirewallConfig
 from app.daemon.registry import Args, DaemonError, operation
 
@@ -556,3 +557,34 @@ def cloudinit_write(args, conn, domain):
         # The file is written: the change applies anyway once the VM is powered off and on again.
         logging.getLogger(__name__).warning("Could not reload the cloud-init drive of %s live: %s", args.vm, e)
     return {"keys": keys, "custom": custom, "reloaded": reloaded}
+
+
+# --- Part 3a: a VM made on this node (app/core/vm_create.py) ---
+
+
+class CreateArgs(Args):
+    spec: VMCreate  # the API's own model of POST /vms, checked again here
+    # Images another node is copying here: they pass the existence check of a check_only call.
+    pending: list[Annotated[str, Field(max_length=255)]] = Field(default_factory=list, max_length=4)
+    check_only: bool = False
+
+    @field_validator("spec", mode="before")
+    @classmethod
+    def _as_sent(cls, spec):
+        # The route's model ignores a field it does not know, as an HTTP API does; the API sends the daemon its own
+        # dump, so an unknown field here, at any depth (a disk's path), is refused.
+        return VMCreate.model_validate(spec, extra="forbid") if isinstance(spec, dict) else spec
+
+
+@operation("vm.create", CreateArgs)
+@_libvirt
+def create(args, ctx):
+    """Every check of the VM's specification run here, then its disks, its cloud-init drive, its DHCP reservation and
+    its definition made from it (vm_create.create); check_only makes nothing. One call that waits (a disk's copy)."""
+    from app.core import libvirt_utils, vm_create
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            return vm_create.create(conn, args.spec, pending=frozenset(args.pending), check_only=args.check_only)
+        except vm_create.CreateError as e:
+            raise DaemonError(e.kind, e.detail) from e
