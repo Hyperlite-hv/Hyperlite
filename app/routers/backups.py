@@ -114,7 +114,7 @@ def _store_for(name, target_dir):
     try:
         backup_stores.open_store(name)
     except backup_stores.StoreError as e:
-        raise HTTPException(status_code=e.status, detail=str(e)) from None
+        raise HTTPException(status_code=e.status, detail=e.message) from None
     return name
 
 
@@ -351,7 +351,7 @@ class StoreCreate(BaseModel):
 
 
 def _store_error(e):
-    return HTTPException(status_code=e.status, detail=str(e))
+    return HTTPException(status_code=e.status, detail=e.message)
 
 
 @router.get("/backup-stores")
@@ -374,7 +374,7 @@ def create_backup_store(payload: StoreCreate, user: dict = Depends(require_role(
     try:
         row = backup_stores.create(payload.name, payload.pool, payload.directory, user["username"])
     except backup_stores.StoreError as e:
-        log_action(user["username"], "create_backup_store", payload.name, "failed", str(e))
+        log_action(user["username"], "create_backup_store", payload.name, "failed", e.message)
         raise _store_error(e) from None
     log_action(user["username"], "create_backup_store", payload.name, "success", f"pool {payload.pool}")
     return backup_stores.describe(row)

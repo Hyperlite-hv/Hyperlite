@@ -20,6 +20,7 @@ import libvirt
 
 from app.core import backup_store
 from app.core.libvirt_utils import open_conn
+from app.core.safe_paths import safe_child
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class StoreError(Exception):
 
     def __init__(self, message, status=422):
         super().__init__(message)
-        self.status = status
+        self.message, self.status = message, status
 
 
 def _repo():
@@ -81,7 +82,7 @@ def _check_directory(directory):
 
 
 def path_of(row):
-    return _pool_dir(row["pool"]) / row["directory"]
+    return safe_child(_pool_dir(row["pool"]), _check_directory(row["directory"]))
 
 
 def get(name):
@@ -99,7 +100,7 @@ def open_store(name):
     try:
         store = backup_store.Store(path)
     except backup_store.StoreError as e:
-        raise StoreError(f"Backup store '{name}' cannot be read on this node: {e}", 409) from None
+        raise StoreError(f"Backup store '{name}' cannot be read on this node: {e.message}", 409) from None
     if store.id != row["store_id"]:
         raise StoreError(
             f"{path} holds another backup store than '{name}': the pool is not the same share on this node", 409
@@ -115,19 +116,19 @@ def create(name, pool, directory=None, username="system"):
     if _repo().get_store(name):
         raise StoreError(f"A backup store '{name}' already exists", 409)
     directory = _check_directory(directory or DEFAULT_DIRECTORY)
-    path = _pool_dir(pool) / directory
+    path = safe_child(_pool_dir(pool), directory)
     if (path / backup_store.CONFIG).exists():
         try:
             store = backup_store.Store(path)
         except backup_store.StoreError as e:
-            raise StoreError(str(e)) from None
+            raise StoreError(e.message) from None
         if any(r["store_id"] == store.id for r in _repo().list_stores()):
             raise StoreError(f"{path} is already a store of this cluster", 409)
     else:
         try:
             store = backup_store.create(path)
         except backup_store.StoreError as e:
-            raise StoreError(str(e)) from None
+            raise StoreError(e.message) from None
     _repo().save_store(name, pool, directory, store.id, 1 if store.encrypted else 0, username, _now())
     return get(name)
 
@@ -158,7 +159,7 @@ def describe(row):
     try:
         store = open_store(row["name"])
     except StoreError as e:
-        return {**out, "available": False, "problem": str(e)}
+        return {**out, "available": False, "problem": e.message}
     usage = shutil.disk_usage(store.root)
     return {
         **out,
@@ -227,7 +228,7 @@ def collect_garbage(name):
         except BlockingIOError:
             raise StoreError("This store's garbage is already being collected on this node", 409) from None
         except backup_store.StoreError as e:
-            raise StoreError(str(e), 409) from None
+            raise StoreError(e.message, 409) from None
     record = {"at": _now(), "node": self_node.name(), **result}
     backup_store._write_atomic(store.root / LAST_GC, json.dumps(record).encode())
     return result
