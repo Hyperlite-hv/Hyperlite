@@ -149,7 +149,7 @@ def test_without_kvm_the_support_is_read_for_qemu_and_without_either_nothing_is_
     assert support["uefi"] is False and support["uefi_secure"] is False and "q35" in support["reason"]
 
 
-def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path):
+def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path, daemon_libvirt):
     root = build(firmware.UEFI_SECURE, disk_bus="sata")
     domain = Mock()
     domain.XMLDesc.return_value = ET.tostring(root, encoding="unicode")
@@ -157,8 +157,10 @@ def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path):
     conn = Mock()
     conn.lookupByName.return_value = domain
     monkeypatch.setattr(runtime, "open_conn", lambda: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon changes the drive, in this process in the tests
     monkeypatch.setattr(runtime, "log_action", Mock())
     monkeypatch.setattr(runtime, "ISOS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.disk_library.ISOS", tmp_path)  # the library the daemon reads
     (tmp_path / "virtio.iso").touch()
     runtime.set_vm_cdrom("win", runtime.CdromRequest(iso="virtio.iso", target_dev="hdd"), {"username": "admin"})
     xml, _ = domain.updateDeviceFlags.call_args.args

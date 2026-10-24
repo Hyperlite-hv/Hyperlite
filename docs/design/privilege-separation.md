@@ -367,7 +367,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Disks, part 2: a VM's disk (below): `disk.resize`, `disk.move` (one call that waits, its progress written into the task) and `disk.cancel` (the copy is stopped in the daemon, which keeps the copies running by task); the replication checkpoints dropped by the daemon (`checkpoints.drop`), the chain forgotten by the API (`checkpoints.forget`) | done |
 | VMs, part 1: power (below): `vm.power` (start, shutdown and reboot through the guest agent or ACPI, stop, reset), `vm.autostart`, `vm.pre_stop` (the hook script run as root), `vm.agent_ipv4` (an agent's question needs a connection that may write) | done |
 | VMs, part 2a: processors, memory, limits, CPU pinning, advanced hardware (`vm.set_resources`, `vm.set_limits`, `vm.set_cpu_pinning`, `vm.set_disk_options`, `vm.set_boot_order`, `vm.set_balloon`, `vm.set_machine`) | done |
-| VMs, parts 2b to 4; containers, cluster, consoles; then backups | next: VMs, part 2b |
+| VMs, part 2b: a VM's devices (`app/core/vm_devices.py`): disks (`vm.attach_disk`, the image check included; `vm.detach_disk`), interfaces with their VLANs (`vm.set_interface`, `vm.attach_interface`, `vm.detach_interface`; the daemon sets the ports itself, so `network.vlan_apply_vm` is gone), host devices (`vm.attach_hostdev`, `vm.detach_hostdev`), CD-ROM drives (`vm.set_cdrom`, `vm.eject_cdrom`, an ISO of the daemon's own library) | done |
+| VMs, parts 2c to 4; containers, cluster, consoles; then backups | next: VMs, part 2c |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
