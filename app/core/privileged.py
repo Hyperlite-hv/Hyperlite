@@ -26,15 +26,23 @@ def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
     """The result of `op` with `args`, on behalf of `user` (named in the daemon's log). Raises DaemonError: its kind
     "refused" for a request the operation turned down (the message is for the user), "unavailable" without the
     daemon, another for a failure."""
+    result, fds = run_fds(op, user=user, timeout=timeout, **args)
+    daemon_client.close_fds(fds)
+    return result
+
+
+def run_fds(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
+    """run(), and the file descriptors the operation hands over (a session's terminal or socket, the consoles
+    domain): the caller's to close."""
     if os.environ.get(INPROCESS_ENV) != "1":
-        return daemon_client.call(op, args, user=user, timeout=timeout)
+        return daemon_client.call_fds(op, args, user=user, timeout=timeout)
     import app.daemon.ops  # noqa: F401  (registers the operations)
     from app.daemon.registry import Context, dispatch
 
     answer = dispatch({"op": op, "args": args}, Context(user, None, os.getpid(), os.getuid()))
     if not answer.get("ok"):
         raise DaemonError(answer.get("error") or "failed", answer.get("detail") or f"{op} failed")
-    return answer.get("result")
+    return answer.get("result"), answer.get("fds") or []
 
 
 def http_error(e, refused=422, failed="{}"):

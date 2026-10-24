@@ -1,9 +1,9 @@
 """Interactive shell directly on the physical host (the server running
-Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell purpose a full shell rather
+Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell but a full shell rather
 than a restricted menu.
 
-SECURITY WARNING: hyperlite.service runs as root (see the systemd unit file, no
-`User=`), so this shell is full root access to the physical machine, strictly
+SECURITY WARNING: hyperlite-daemon opens it as root (console.host_shell), so this
+shell is full root access to the physical machine, strictly
 more sensitive than the existing per-VM SSH terminal (itself already limited to
 admins for the same reason). There is no sandboxing or command allowlist here:
 the only barriers are access control (admins only), a short-lived single-use
@@ -14,7 +14,6 @@ the Tasks tab AND in the Journal).
 """
 
 import contextlib
-import os
 import secrets
 import socket
 import time
@@ -29,6 +28,7 @@ from app.core.libvirt_utils import open_conn
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
 from app.core.vm_limits import compute_limits
+from app.daemon.registry import DaemonError
 
 router = APIRouter(prefix="/host", tags=["host"])
 
@@ -156,16 +156,22 @@ async def host_terminal(websocket: WebSocket):
 
     await websocket.accept()
     hostname = socket.gethostname()
+    try:
+        # hyperlite-daemon opens the root shell and hands its terminal over (app/core/pty_session.py).
+        session = await pty_session.open_session("console.host_shell", username)
+    except DaemonError as e:
+        log_action(username, "host_shell_open", hostname, "failed", e.detail)
+        await pty_session.say(websocket, e.detail)
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011)
+        return
 
     # A shell session can last hours. Unlike instantaneous VM actions, "succeeded" at
     # task closing only means "session closed cleanly" here (see also finish_task
     # below), not a success/failure of an operation in the usual sense.
     task_id = create_task("host_shell", hostname, node=None, username=username)
     log_action(username, "host_shell_open", hostname, "success")
-
-    shell = os.environ.get("SHELL", "/bin/bash")
-    await pty_session.run(websocket, [shell, "-l"], {**os.environ, "TERM": "xterm-256color"})
-
+    await session.serve(websocket)
     finish_task(task_id, "succeeded")
     log_action(username, "host_shell_close", hostname, "success")
     with contextlib.suppress(RuntimeError, WebSocketDisconnect):

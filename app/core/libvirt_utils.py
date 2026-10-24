@@ -427,3 +427,21 @@ def ensure_vnc_graphics(conn, domain):
     new_xml = ET.tostring(root, encoding="unicode")
     conn.defineXML(new_xml)
     return True
+
+
+def has_serial(xml):
+    """A serial port, or a console on one, in this definition: what the serial console (`virsh console`) reaches."""
+    devices_el = ET.fromstring(xml).find("devices")
+    return devices_el is not None and (devices_el.find("serial") is not None or devices_el.find("console") is not None)
+
+
+def add_serial_port(conn, domain):
+    """Give a VM without a serial port one, in its configuration: a serial port cannot be plugged into a running
+    VM, so a running one gets it at its next start."""
+    root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+    devices_el = root.find("devices")
+    serial = ET.SubElement(devices_el, "serial", type="pty")
+    ET.SubElement(serial, "target", port="0")
+    console = ET.SubElement(devices_el, "console", type="pty")
+    ET.SubElement(console, "target", type="serial", port="0")
+    conn.defineXML(ET.tostring(root, encoding="unicode"))
