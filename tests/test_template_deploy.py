@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
+from app.core import vm_templates
 from app.routers import templates
 
 
@@ -40,16 +41,19 @@ class _Conn:
 
 
 @pytest.fixture()
-def deploy(database, tmp_path, monkeypatch):
+def deploy(database, tmp_path, monkeypatch, daemon_libvirt):
     conn = _Conn()
     seeds = []
-    monkeypatch.setattr(templates, "IMAGES_DIR", tmp_path)
-    monkeypatch.setattr(templates, "open_conn", lambda *a: conn)
-    monkeypatch.setattr(templates, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_templates, "IMAGES_DIR", tmp_path)
+    conn_ = daemon_libvirt(conn)
+    monkeypatch.setattr(templates, "open_conn", lambda *a: conn_)
+    monkeypatch.setattr(vm_templates, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(templates.maintenance, "refuse_if_in_maintenance", lambda *a: None)
-    monkeypatch.setattr(templates.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(vm_templates.subprocess, "run", lambda *a, **k: None)
     monkeypatch.setattr(
-        templates, "create_cloudinit_reseed_iso", lambda name: seeds.append(name) or tmp_path / f"{name}-cloudinit.iso"
+        vm_templates,
+        "create_cloudinit_reseed_iso",
+        lambda name: seeds.append(name) or tmp_path / f"{name}-cloudinit.iso",
     )
 
     def run(client, admin, cdrom):
