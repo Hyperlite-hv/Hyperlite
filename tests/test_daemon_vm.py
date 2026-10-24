@@ -292,3 +292,25 @@ def test_a_clone_is_checked_again_by_the_daemon(host):
     with pytest.raises(DaemonError) as e:
         privileged.run("vm.clone", vm="gone", new_name="copy", check_only=True)
     assert e.value.kind == "not_found"
+
+
+class _ZfsDom(_Dom):
+    def XMLDesc(self, flags=0):
+        return (
+            f"<domain><name>{self._name}</name><devices><disk type='block' device='disk'>"
+            "<source dev='/dev/zvol/tank/vm-zfs'/><target dev='vda'/></disk></devices></domain>"
+        )
+
+
+def test_a_snapshot_is_checked_again_by_the_daemon(daemon_libvirt):
+    daemon_libvirt(_Conn(_ZfsDom("zfs", running=True)))
+    for name in ("a,b", "x%y", "pre@x"):  # ZFS reads them as lists and ranges of snapshots
+        with pytest.raises(DaemonError) as e:
+            privileged.run("vm.snapshot_delete", vm="zfs", name=name)
+        assert e.value.kind == "refused"
+    with pytest.raises(DaemonError) as e:  # a rollback under a running QEMU corrupts the guest's disk
+        privileged.run("vm.snapshot_restore", vm="zfs", name="before", check_only=True)
+    assert e.value.kind == "in_use"
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.snapshot_create", vm="zfs", name="s1", xml="<domainsnapshot/>")
+    assert e.value.kind == "invalid_arguments"
