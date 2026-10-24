@@ -4,8 +4,6 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-import app.daemon.ops.network as ops_network
-
 
 def _iface(root, name, devtype=None, device=False, dirs=(), files=(), operstate="up", mac="00:11:22:33:44:55"):
     path = root / name
@@ -99,7 +97,7 @@ class _Conn:
 
 
 @pytest.fixture()
-def api(database, sysnet, monkeypatch):
+def api(database, sysnet, monkeypatch, daemon_libvirt):
     from app.core import host_interfaces
     from app.routers import network
 
@@ -107,7 +105,7 @@ def api(database, sysnet, monkeypatch):
     monkeypatch.setattr(host_interfaces, "SYS_NET", sysnet)
     monkeypatch.setattr(host_interfaces, "_addresses", lambda: {})
     monkeypatch.setattr(network, "open_conn", lambda node=None: conn)
-    monkeypatch.setattr(ops_network, "_connect", lambda: conn)  # hyperlite-daemon's own connection, in this process
+    daemon_libvirt(conn)  # hyperlite-daemon's own connection, in this process
     return conn
 
 

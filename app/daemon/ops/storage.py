@@ -85,15 +85,10 @@ def zfs_volume_create(args, ctx):
 
 
 def _disk_paths_in_use():
-    import libvirt
+    from app.core import libvirt_utils
 
-    from app.core.libvirt_utils import LIBVIRT_URI, get_disk_paths_in_use
-
-    conn = libvirt.open(LIBVIRT_URI)
-    try:
-        return get_disk_paths_in_use(conn)
-    finally:
-        conn.close()
+    with libvirt_utils.local_conn() as conn:
+        return libvirt_utils.get_disk_paths_in_use(conn)
 
 
 @operation("storage.zfs_volume_delete", VolumeArgs)

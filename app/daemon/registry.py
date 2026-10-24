@@ -18,8 +18,24 @@ class NoArgs(Args):
     pass
 
 
+# The error kinds, each described in app/daemon/__init__.py; tests/test_privileged.py checks that no code raises another.
+KINDS = frozenset(
+    {
+        "invalid_arguments",
+        "unknown_operation",
+        "bad_request",
+        "forbidden",
+        "refused",
+        "not_found",
+        "in_use",
+        "failed",
+        "unavailable",
+    }
+)
+
+
 class DaemonError(Exception):
-    """A refusal or a failure, with its kind (see app/daemon/__init__.py) and a sentence for the person who asked."""
+    """A refusal or a failure, with its kind (KINDS) and a sentence for the person who asked."""
 
     def __init__(self, kind, detail):
         super().__init__(detail)

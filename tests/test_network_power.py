@@ -2,8 +2,6 @@
 
 import pytest
 
-import app.daemon.ops.network as ops_network
-
 
 class _Net:
     def __init__(self, name, active=False, autostart=False, fail=None):
@@ -73,12 +71,12 @@ class _Conn:
 
 
 @pytest.fixture()
-def conn(database, monkeypatch):
+def conn(database, monkeypatch, daemon_libvirt):
     from app.routers import network
 
     c = _Conn()
     monkeypatch.setattr(network, "open_conn", lambda node=None: c)
-    monkeypatch.setattr(ops_network, "_connect", lambda: c)  # hyperlite-daemon's own connection, in this process
+    daemon_libvirt(c)  # hyperlite-daemon's own connection, in this process
     return c
 
 

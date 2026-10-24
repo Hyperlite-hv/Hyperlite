@@ -61,7 +61,8 @@ browser ──HTTPS──▶ hyperlite-proxy (user hyperlite)          hyperlite
   with `safe_child()` inside their fixed bases, no shell. Each call is logged with the user the proxy names. It holds
   the SSH keys to the other nodes and the hyperlite-cfs socket.
 - **Protocol**: one JSON request per connection line, `{"op": "disk.create", "args": {...}, "user": "alice",
-  "request_id": "..."}`, answered `{"ok": true, "result": ...}` or `{"error": code, "detail": ...}`, the codes of API v1.
+  "request_id": "..."}`, answered `{"ok": true, "result": ...}` or `{"error": code, "detail": ...}` (built with the
+  daemon's own kinds instead, which the API turns into its codes: section 13).
   Long operations (a disk copy, an apt run) answer at once with a task id, as today. The peer credentials of the
   connection (`SO_PEERCRED`) must be the `hyperlite` user.
 - **Consoles and the host shell**: the daemon opens the PTY or the VNC socket and passes the file descriptor to the
@@ -362,11 +363,31 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Storage, part 2: LVM pools and volumes; then the NFS and SMB mounts | next |
 | Storage, disks, VMs, containers, cluster, consoles | |
 
-**How a domain moves.** The implementation stays in its `app/core` module, which hyperlite-daemon imports. The
-daemon's operation (`app/daemon/ops/<domain>.py`) checks its arguments with a model (extra fields refused, lengths
-bounded) and calls it; a refusal the module raises becomes the daemon's `refused`, whose message reaches the user as
-before. The route asks for the operation by name (`app/core/privileged.py`) and keeps the permission check, the audit
-log and the task. A long operation (an apt run) is one call that waits, its output written into the task by the daemon.
+**How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
+
+- **The implementation stays in its `app/core` module**, which hyperlite-daemon imports. The operation
+  (`app/daemon/ops/<domain>.py`) checks its arguments with a model (extra fields refused, lengths bounded) and calls it.
+  No argument is named `user`, `timeout`, `refused` or `failed`: the client keeps those for itself
+  (`tests/test_privileged.py` checks it).
+- **An operation takes the names of objects** (a network, a VM, a pool, a volume), never an interface, a path, a
+  command line or XML: the daemon reads the bridge, the ports or the device itself, and writes a definition from
+  checked fields.
+- **The daemon checks again what must never happen**, whatever the API checked: names against the module's own
+  validators, a system network, a network or a volume in use.
+- **Its libvirt is this node's own**: `libvirt_utils.local_conn()`, never another member's nor a URI from the API. The
+  tests fake it in one place, the `daemon_libvirt` fixture.
+- **Each ops module turns its module's exceptions into the daemon's kinds** with one decorator: what the module refuses,
+  `refused` with its message for the user; what does not exist, `not_found`; what is in use, `in_use`; a failure,
+  `failed` with its cause. The kinds are listed in `app/daemon/__init__.py` (`registry.KINDS`); they are the daemon's
+  own, not the codes of API v1 that section 4 first planned.
+- **The route keeps** the permission check, the reads that need no root, the database writes, the audit log and the
+  task. It calls `privileged.ask(op, user, action, target, refused=<status>, **args)`, which writes a failure into the
+  audit log and answers: a refusal, the status the route gave before its domain moved (422 unless it said otherwise);
+  `not_found`, 404; `in_use`, 409; without the daemon, 503; a failure, 500 `internal` (never 502, which docs/api.md
+  keeps for another member of the cluster). A call outside a route (start-up, a task's thread) uses `privileged.run`
+  and handles `DaemonError` itself; one that escapes a route gets the same answer from the handler in `app/main.py`.
+- **The answers do not change**: same statuses, same sentences, checked by the route's existing tests. A long operation
+  (an apt run) is one call that waits, its output written into the task by the daemon.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of

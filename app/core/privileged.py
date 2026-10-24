@@ -7,10 +7,18 @@ the test suite, the e2e backend and the scale lab, which run no daemon. A node n
 
 import os
 
+from fastapi import HTTPException
+
 from app.core import daemon_client
+from app.core.audit import log_action
 from app.daemon.registry import DaemonError
 
 INPROCESS_ENV = "HYPERLITE_DAEMON_INPROCESS"
+
+# A route's answer to the daemon's kinds (app/daemon/__init__.py), with the statuses of docs/api.md. A refusal's status
+# is the route's own: what it answered before its domain moved. A failure of the daemon is this node's (500), never
+# 502, which says another member of the cluster failed.
+STATUS = {"not_found": 404, "in_use": 409, "unavailable": 503}
 
 
 def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
@@ -26,3 +34,25 @@ def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
     if not answer.get("ok"):
         raise DaemonError(answer.get("error") or "failed", answer.get("detail") or f"{op} failed")
     return answer.get("result")
+
+
+def http_error(e, refused=422, failed="{}"):
+    """The HTTPException for the DaemonError `e`: what the operation refused, or arguments it does not take, `refused`
+    with its reason; what does not exist, 404; what is in use, 409; without the daemon, 503; any other failure, 500
+    with `failed` around its reason."""
+    if e.kind in ("refused", "invalid_arguments"):
+        return HTTPException(status_code=refused, detail=e.detail)
+    if e.kind in STATUS:
+        return HTTPException(status_code=STATUS[e.kind], detail=e.detail)
+    return HTTPException(status_code=500, detail=failed.format(e.detail))
+
+
+def ask(op, user, action, target, /, *, refused=422, failed="{}", **args):
+    """`op` run for a route, on behalf of the account `user`: its result, or the HTTPException of http_error, the
+    failure written into the audit log as `action` on `target`. The routes keep their permission checks and their
+    success's audit entry."""
+    try:
+        return run(op, user=user["username"], **args)
+    except DaemonError as e:
+        log_action(user["username"], action, target, "failed", e.detail)
+        raise http_error(e, refused=refused, failed=failed) from None

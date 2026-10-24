@@ -18,6 +18,12 @@ FastAPI service (uvicorn, runs as root)         SQLite (WAL) hyperlite.db
 
 There is no agent on the managed nodes: remote hosts are driven through libvirt over SSH.
 
+**hyperlite-daemon** (`app/daemon/`, `hyperlite-daemon.service`) runs next to the API, as root, behind a local socket
+(`/run/hyperlite/daemon.sock`), the way Proxmox VE splits pveproxy and pvedaemon: it signs the sessions and does a fixed
+list of root operations, each with checked arguments (no "run this command"). The API asks for one by name through
+`app/core/privileged.py`; the domains move to it one by one, after which the API runs without root
+([design](design/privilege-separation.md), section 13 for the rules a domain follows).
+
 ISO images are per node: a VM boots only from an image in its own host's library (`/var/lib/hyperlite/template/iso`, at the same path on every node). The Library lists every node's images and shares one by copying it through the local host with the cluster SSH key (`app/core/iso_share.py`); a copy lands under a hidden temporary name and is renamed once complete.
 
 ## Backend (`app/`)
@@ -26,6 +32,7 @@ ISO images are per node: a VM boots only from an image in its own host's library
 - `app/routers/` contains one module per API area (`vms`, `containers`, `storage`, `network`, `nodes`, `ha`, `backups`, `auth`, `sso`, `acl`, `groups`, `pools`, `notifications`, `jobs`, `metrics`, `tasks`, `audit`, `update`, `host`, ...).
 - `app/core/` contains the logic shared by the routers: libvirt helpers, VM and container builders, ZFS, cluster and compatibility checks, permissions, security, notifications, backups, HA, metrics, preflight checks and host capability detection.
 - `app/core/database.py` creates the schema at start-up (`CREATE TABLE IF NOT EXISTS` plus small in-place migrations). SQLite runs in WAL mode with a 30 second timeout.
+- `app/daemon/` is hyperlite-daemon: `registry.py` (the operations and their argument models), `server.py` (the socket and the peer check), `ops/` (one module per domain). `app/core/privileged.py` is the API's side: `run` for a call, `ask` for a route (the audit entry and the HTTP answer of each error kind).
 - `app/core/audit.py` owns a dedicated writer thread for the audit log so that request handlers never wait on a SQLite write for it.
 
 ## Frontend (`dashboard/`)
@@ -38,7 +45,7 @@ Hyperlite keeps very little state of its own: libvirt is the source of truth for
 
 ## Security model
 
-- Authentication: local accounts (bcrypt), optional TOTP, API tokens (`hlt_` prefix, SHA-256 hash stored), optional OIDC single sign-on. Sessions are HS256 JWTs signed with `HYPERLITE_SECRET_KEY`.
+- Authentication: local accounts (bcrypt), optional TOTP, API tokens (`hlt_` prefix, SHA-256 hash stored), optional OIDC single sign-on. hyperlite-daemon checks the proof and signs the session, an Ed25519 ticket as Proxmox VE's (`app/core/tickets.py`); the API only verifies it.
 - Authorization: a global role (`admin` or `viewer`) plus scoped rights (roles, groups, pools, per-VM and per-container ACL) evaluated in `app/core/permissions.py`. Endpoints declare the privilege they require.
 - Consoles and terminals use short-lived single-use tickets.
 - Secrets in the database (SMTP password, OIDC client secret) are encrypted with a Fernet key from `/etc/hyperlite/priv/env`.

@@ -296,39 +296,13 @@ def start_network(name: str, user: dict = Depends(require_role("admin"))):
     try:
         net = _lookup(conn, name)
         if not net.isActive():
-            _daemon(
+            privileged.ask(
                 "network.start", user, "start_network", name, failed="The network could not start: {}", network=name
             )
             log_action(user["username"], "start_network", name, "success")
         return _network_summary(net)
     finally:
         conn.close()
-
-
-def _ask(user, action, op, name, **args):
-    """hyperlite-daemon's answer to `op` for the network `name`. What it refuses: 409 with its reason, as before;
-    without the daemon: 503."""
-    try:
-        return privileged.run(op, user=user["username"], network=name, **args)
-    except DaemonError as e:
-        log_action(user["username"], action, name, "failed", e.detail)
-        status = 409 if e.kind == "refused" else 503 if e.kind == "unavailable" else 502
-        raise HTTPException(status_code=status, detail=e.detail) from None
-
-
-def _daemon(op, user, action, target, refused=422, failed="{}", **args):
-    """hyperlite-daemon's answer to `op` on libvirt's networks (app/daemon/ops/network.py), with the answers these
-    routes gave when they wrote to libvirt themselves: what it refuses, `refused` with its reason; libvirt's failure,
-    500 with `failed` around libvirt's reason; without the daemon, 503. The failure is in the audit log."""
-    try:
-        return privileged.run(op, user=user["username"], **args)
-    except DaemonError as e:
-        log_action(user["username"], action, target, "failed", e.detail)
-        if e.kind in ("refused", "invalid_arguments"):
-            raise HTTPException(status_code=refused, detail=e.detail) from None
-        if e.kind == "unavailable":
-            raise HTTPException(status_code=503, detail=e.detail) from None
-        raise HTTPException(status_code=500, detail=failed.format(e.detail)) from None
 
 
 class VlanAwareConfirm(BaseModel):
@@ -348,7 +322,7 @@ def make_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
         msg = f"Network '{name}' is not on a Linux bridge of this host"
         log_action(user["username"], "vlan_aware_bridge", name, "failed", msg)
         raise HTTPException(status_code=422, detail=msg)
-    trial = _ask(user, "vlan_aware_bridge", "network.vlan_aware_start", name)
+    trial = privileged.ask("network.vlan_aware_start", user, "vlan_aware_bridge", name, refused=409, network=name)
     log_action(
         user["username"], "vlan_aware_bridge", name, "success", f"bridge {trial['bridge']}: trial, to be confirmed"
     )
@@ -362,7 +336,9 @@ def confirm_vlan_aware(name: str, payload: VlanAwareConfirm, user: dict = Depend
         _lookup(conn, name)
     finally:
         conn.close()
-    bridge = _ask(user, "vlan_aware_bridge", "network.vlan_aware_confirm", name, token=payload.token)["bridge"]
+    bridge = privileged.ask(
+        "network.vlan_aware_confirm", user, "vlan_aware_bridge", name, refused=409, network=name, token=payload.token
+    )["bridge"]
     log_action(user["username"], "vlan_aware_bridge", name, "success", f"bridge {bridge}: kept, set again at boot")
     return {"bridge": bridge, "vlan_aware": True}
 
@@ -403,7 +379,7 @@ def undo_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
         msg = f"VMs keep VLANs on bridge {bridge}: {', '.join(sorted(users))}. Remove their VLANs first"
         log_action(user["username"], "vlan_unaware_bridge", name, "failed", msg)
         raise HTTPException(status_code=409, detail=msg)
-    _ask(user, "vlan_unaware_bridge", "network.vlan_aware_off", name)
+    privileged.ask("network.vlan_aware_off", user, "vlan_unaware_bridge", name, refused=409, network=name)
     log_action(user["username"], "vlan_unaware_bridge", name, "success", f"bridge {bridge}")
     return {"bridge": bridge, "vlan_aware": False}
 
@@ -422,7 +398,9 @@ def stop_network(name: str, confirm: bool = False, user: dict = Depends(require_
             if running:
                 detail += f": running VMs will lose this network: {', '.join(running)}"
             raise HTTPException(status_code=400, detail=detail)
-        _daemon("network.stop", user, "stop_network", name, failed="The network could not stop: {}", network=name)
+        privileged.ask(
+            "network.stop", user, "stop_network", name, failed="The network could not stop: {}", network=name
+        )
         log_action(user["username"], "stop_network", name, "success", ", ".join(running) or None)
         return _network_summary(net)
     finally:
@@ -439,7 +417,7 @@ def set_network_autostart(name: str, payload: AutostartSetting, user: dict = Dep
     conn = open_conn()
     try:
         net = _lookup(conn, name)
-        _daemon("network.autostart", user, "network_autostart", name, network=name, autostart=payload.autostart)
+        privileged.ask("network.autostart", user, "network_autostart", name, network=name, autostart=payload.autostart)
         log_action(user["username"], "network_autostart", name, "success", "on" if payload.autostart else "off")
         return _network_summary(net)
     finally:
@@ -465,7 +443,7 @@ def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_r
     conn = open_conn()
     try:
         _lookup(conn, name)
-        restart = _daemon(
+        restart = privileged.ask(
             "network.edit",
             user,
             "edit_network",
@@ -498,7 +476,7 @@ def add_reservation(name: str, payload: Reservation, user: dict = Depends(requir
     conn = open_conn()
     try:
         _lookup(conn, name)
-        _daemon(
+        privileged.ask(
             "network.reservation_add",
             user,
             "add_reservation",
@@ -520,7 +498,7 @@ def delete_reservation(name: str, mac: str, user: dict = Depends(require_role("a
     conn = open_conn()
     try:
         _lookup(conn, name)
-        found = _daemon(
+        found = privileged.ask(
             "network.reservation_delete",
             user,
             "delete_reservation",
@@ -589,7 +567,7 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
                     raise HTTPException(status_code=409, detail=f"{conflict}: choose another address range")
         except network_create.SpecError as e:
             raise HTTPException(status_code=422, detail=str(e)) from None
-        _daemon(
+        privileged.ask(
             "network.create",
             user,
             "create_network",
@@ -667,7 +645,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
     except (ValueError, RuntimeError):
         # The rename goes on: the old chain only matches a bridge that keeps its name, and it is rebuilt below.
         logger.warning("Removing the firewall of network %s before its rename failed", name, exc_info=True)
-    moved = _daemon(
+    moved = privileged.ask(
         "network.rename",
         user,
         "rename_network",
@@ -736,7 +714,9 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
         except (ValueError, RuntimeError):
             logger.warning("Removing the firewall of network %s failed; the deletion goes on", name, exc_info=True)
 
-        _daemon("network.delete", user, "delete_network", name, refused=409, failed="Deletion error: {}", network=name)
+        privileged.ask(
+            "network.delete", user, "delete_network", name, refused=409, failed="Deletion error: {}", network=name
+        )
 
         log_action(user["username"], "delete_network", name, "success")
         return {"message": f"Network '{name}' deleted"}
