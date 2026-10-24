@@ -1,1 +1,0 @@
-- The `hyperlite` CLI opens or prints only a sign-in page of the server it signs in to, and refuses an http:// server address but for this very computer, so its token never travels in clear (GHSA-m44w-x95g-jp7m).

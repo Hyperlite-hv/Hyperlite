@@ -1,1 +1,0 @@
-- A container's web terminal takes the administrator role, as a VM's: it signs in as an account with passwordless sudo, and a container's root has the host's capabilities. An operator of the container keeps its console log (GHSA-527j-fwg2-7646).

@@ -1,1 +1,0 @@
-- A container's console log is opened without following links at any level: a link put there by the container's root can no longer have the service read or truncate a host file (GHSA-fvvw-286q-82jj).
