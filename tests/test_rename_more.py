@@ -388,14 +388,15 @@ def test_a_template_takes_its_new_name(client, auth_headers, tmp_path, monkeypat
     assert client.post("/templates/nope/rename", json={"new_name": "x-y"}, headers=headers).status_code == 404
 
 
-def test_an_iso_is_renamed_unless_a_vm_has_it_in_its_drive(client, auth_headers, tmp_path, monkeypatch):
-    from app.core import iso_share
+def test_an_iso_is_renamed_unless_a_vm_has_it_in_its_drive(client, auth_headers, tmp_path, monkeypatch, daemon_libvirt):
+    from app.core import disk_library, libvirt_utils
     from app.routers import isos
 
-    monkeypatch.setattr(iso_share, "isos_dir", lambda: tmp_path)
-    monkeypatch.setattr(isos, "_refresh_iso_pool", lambda path: None)
+    monkeypatch.setattr(disk_library, "ISOS", tmp_path)
+    monkeypatch.setattr(libvirt_utils, "refresh_pools_for_paths", lambda conn, paths: None)
     host = _Host()
     monkeypatch.setattr(isos, "open_conn", lambda node=None: host)
+    daemon_libvirt(host)  # hyperlite-daemon renames, and checks the CD-ROM drives again, in this process in the tests
     (tmp_path / "debian.iso").write_text("iso")
     (tmp_path / "used.iso").write_text("iso")
     host.domains.append(
