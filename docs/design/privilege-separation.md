@@ -357,7 +357,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Host system, part 3: the HTTPS certificate (`app/daemon/ops/tls.py`: import, previous, self-signed, certbot, the API's restart) | done |
 | Network, part 1: the network firewall's iptables and the VLANs of Linux bridges (`app/daemon/ops/network.py`: asked for by a network's or a VM's name, the daemon reading the bridge and the ports itself) | done |
 | Network, part 2a: libvirt's networks from the network routes: create, start, stop, autostart, edit, rename, delete, the isolated network (`app/daemon/ops/network.py`; the daemon writes a new network's definition itself from checked fields, `app/core/network_create.py`, never XML from the API) | done |
-| Network, part 2b: the DHCP reservations (`app/core/network_alloc.py`), which VM creation and migration also call | next |
+| Network, part 2b: the DHCP reservations of the network routes (`network.reservation_add`, `network.reservation_delete`). The reservations VM creation, clones, containers and migration make (`app/core/network_alloc.py`) move with the VM and container domains, which own those calls (migration across two nodes included) | done |
+| Storage | next |
 | Storage, disks, VMs, containers, cluster, consoles | |
 
 **How a domain moves.** The implementation stays in its `app/core` module, which hyperlite-daemon imports. The

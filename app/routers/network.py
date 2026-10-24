@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from app.core import bridge_vlan, cluster_view, network_create, network_edit, network_firewall, privileged, renaming
 from app.core.audit import log_action
-from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
@@ -498,18 +497,20 @@ def add_reservation(name: str, payload: Reservation, user: dict = Depends(requir
     """A fixed address for one MAC on the network's DHCP server, live and in its definition."""
     conn = open_conn()
     try:
-        net = _lookup(conn, name)
-        try:
-            network_edit.add_reservation(net, mac=payload.mac, ip=payload.ip, name=payload.name or None)
-        except network_edit.EditError as e:
-            log_action(user["username"], "add_reservation", name, "failed", str(e))
-            raise HTTPException(status_code=422, detail=str(e)) from e
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "add_reservation", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"The reservation could not be added: {msg}") from e
+        _lookup(conn, name)
+        _daemon(
+            "network.reservation_add",
+            user,
+            "add_reservation",
+            name,
+            failed="The reservation could not be added: {}",
+            network=name,
+            mac=payload.mac,
+            ip=payload.ip,
+            name=payload.name or None,
+        )
         log_action(user["username"], "add_reservation", name, "success", f"{payload.mac} -> {payload.ip}")
-        return network_edit.describe_xml(net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
+        return network_edit.describe_xml(_lookup(conn, name).XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
     finally:
         conn.close()
 
@@ -518,17 +519,20 @@ def add_reservation(name: str, payload: Reservation, user: dict = Depends(requir
 def delete_reservation(name: str, mac: str, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
     try:
-        net = _lookup(conn, name)
-        try:
-            found = network_edit.delete_reservation(net, mac)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "delete_reservation", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"The reservation could not be removed: {msg}") from e
+        _lookup(conn, name)
+        found = _daemon(
+            "network.reservation_delete",
+            user,
+            "delete_reservation",
+            name,
+            failed="The reservation could not be removed: {}",
+            network=name,
+            mac=mac,
+        )["found"]
         if not found:
             raise HTTPException(status_code=404, detail=f"No reservation for {mac} on '{name}'")
         log_action(user["username"], "delete_reservation", name, "success", mac)
-        return network_edit.describe_xml(net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
+        return network_edit.describe_xml(_lookup(conn, name).XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE))
     finally:
         conn.close()
 
