@@ -1,0 +1,1 @@
+- A WebAuthn challenge, an SSO state and an SSO hand-off code are each taken by one statement: presented twice at the same instant, they are accepted once (GHSA-xp4w-9555-wj48).
