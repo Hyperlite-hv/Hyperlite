@@ -4,10 +4,11 @@ it up in this node's libvirt itself. The routes keep who may ask, the locks, the
 and their answers; another node's VM keeps its own connection until the cluster domain."""
 
 import functools
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
+from app.core.vm_create import VMCreate
 from app.daemon.ops.network import FirewallConfig
 from app.daemon.registry import Args, DaemonError, operation
 
@@ -556,3 +557,170 @@ def cloudinit_write(args, conn, domain):
         # The file is written: the change applies anyway once the VM is powered off and on again.
         logging.getLogger(__name__).warning("Could not reload the cloud-init drive of %s live: %s", args.vm, e)
     return {"keys": keys, "custom": custom, "reloaded": reloaded}
+
+
+# --- Part 3a: a VM made on this node (app/core/vm_create.py) ---
+
+
+class CreateArgs(Args):
+    spec: VMCreate  # the API's own model of POST /vms, checked again here
+    # Images another node is copying here: they pass the existence check of a check_only call.
+    pending: list[Annotated[str, Field(max_length=255)]] = Field(default_factory=list, max_length=4)
+    check_only: bool = False
+
+    @field_validator("spec", mode="before")
+    @classmethod
+    def _as_sent(cls, spec):
+        # The route's model ignores a field it does not know, as an HTTP API does; the API sends the daemon its own
+        # dump, so an unknown field here, at any depth (a disk's path), is refused.
+        return VMCreate.model_validate(spec, extra="forbid") if isinstance(spec, dict) else spec
+
+
+@operation("vm.create", CreateArgs)
+@_libvirt
+def create(args, ctx):
+    """Every check of the VM's specification run here, then its disks, its cloud-init drive, its DHCP reservation and
+    its definition made from it (vm_create.create); check_only makes nothing. One call that waits (a disk's copy)."""
+    from app.core import libvirt_utils, vm_create
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            return vm_create.create(conn, args.spec, pending=frozenset(args.pending), check_only=args.check_only)
+        except vm_create.CreateError as e:
+            raise DaemonError(e.kind, e.detail) from e
+
+
+# --- Part 3b: a VM of this node deleted (app/core/vm_delete.py) ---
+
+
+class DeleteArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("vm.delete", DeleteArgs)
+@_libvirt
+def delete(args, ctx):
+    """The stopped VM, its disks but those another VM uses or reads through or that no storage pool holds, the drives
+    Hyperlite generated for it and its DHCP reservations (vm_delete.delete). {"kept": {path: reason}}."""
+    from app.core import libvirt_utils, vm_delete
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            return {"kept": vm_delete.delete(conn, args.vm)}
+        except vm_delete.DeleteError as e:
+            raise DaemonError(e.kind, e.detail) from e
+
+
+# --- Part 3c: clones and templates (app/core/vm_clone.py) ---
+
+
+class CloneArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    new_name: str = Field(min_length=1, max_length=VM_NAME)
+    check_only: bool = False
+
+
+@operation("vm.clone", CloneArgs)
+@_libvirt
+def clone(args, ctx):
+    """Every disk of the stopped VM copied into the images directory, under a new name, UUID, NVRAM and MAC addresses
+    (vm_clone.clone); check_only copies nothing. One call that waits (the copies)."""
+    from app.core import libvirt_utils, vm_clone
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            return vm_clone.clone(conn, args.vm, args.new_name, check_only=args.check_only)
+        except vm_clone.CloneError as e:
+            raise DaemonError(e.kind, e.detail) from e
+
+
+def _templates(fn):
+    """vm_templates' refusals and failures keep their kind."""
+
+    @functools.wraps(fn)
+    def wrapper(args, ctx):
+        from app.core import vm_templates
+
+        try:
+            return fn(args, ctx)
+        except vm_templates.TemplateError as e:
+            raise DaemonError(e.kind, e.detail) from e
+
+    return wrapper
+
+
+class TemplateMakeArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    template: str = Field(min_length=1, max_length=VM_NAME)
+    keep_vm: bool = False
+    # Recorded in the template's description, from the API's database: who made it, the source VM's account and system.
+    created_by: str = Field(min_length=1, max_length=256)
+    ssh_user: str | None = Field(default=None, max_length=64)
+    os_label: str | None = Field(default=None, max_length=128)
+    check_only: bool = False
+
+
+@operation("template.make", TemplateMakeArgs)
+@_libvirt
+@_templates
+def template_make(args, ctx):
+    """A template from the stopped VM: a copy of its disk (keep_vm), or the VM itself, converted (vm_templates.make)."""
+    from app.core import libvirt_utils, vm_templates
+
+    fields = args.model_dump(exclude={"vm", "template", "check_only"})
+    vm_templates.check_name(args.template)
+    with libvirt_utils.local_conn() as conn:
+        return vm_templates.make(conn, args.vm, args.template, check_only=args.check_only, **fields)
+
+
+class TemplateDeployArgs(Args):
+    template: str = Field(min_length=1, max_length=VM_NAME)
+    new_name: str = Field(min_length=1, max_length=VM_NAME)
+    network: str | None = Field(default=None, min_length=1, max_length=64)
+    linked: bool = False
+    check_only: bool = False
+
+
+@operation("template.deploy", TemplateDeployArgs)
+@_libvirt
+@_templates
+def template_deploy(args, ctx):
+    """A new VM with a copy of the template's disk, or a linked disk over it (vm_templates.deploy)."""
+    from app.core import libvirt_utils, vm_templates
+
+    with libvirt_utils.local_conn() as conn:
+        return vm_templates.deploy(
+            conn, args.template, args.new_name, args.network, linked=args.linked, check_only=args.check_only
+        )
+
+
+class TemplateRenameArgs(Args):
+    template: str = Field(min_length=1, max_length=VM_NAME)
+    new_name: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("template.rename", TemplateRenameArgs)
+@_libvirt
+@_templates
+def template_rename(args, ctx):
+    """Refused while a linked clone reads the template's disk, which the rename moves."""
+    from app.core import libvirt_utils, vm_templates
+
+    vm_templates.check_name(args.new_name)
+    with libvirt_utils.local_conn() as conn:
+        vm_templates.rename(conn, args.template, args.new_name)
+
+
+class TemplateArgs(Args):
+    template: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("template.delete", TemplateArgs)
+@_libvirt
+@_templates
+def template_delete(args, ctx):
+    """Refused while a linked clone reads the template's disk."""
+    from app.core import libvirt_utils, vm_templates
+
+    with libvirt_utils.local_conn() as conn:
+        vm_templates.delete(conn, args.template)

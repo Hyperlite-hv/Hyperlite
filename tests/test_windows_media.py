@@ -8,7 +8,7 @@ import libvirt
 import pytest
 from fastapi import HTTPException
 
-from app.core import disk_library
+from app.core import disk_library, vm_create
 
 creation = importlib.import_module("app.routers.vms.create")
 runtime = importlib.import_module("app.routers.vms.runtime")
@@ -99,11 +99,13 @@ def test_legacy_mount_without_target_still_selects_first_cd(domain):
 @pytest.mark.parametrize(
     "drivers_iso", ["../outside.iso", "/etc/driver.iso", "..\\outside.iso", "bad.txt", "missing.iso"]
 )
-def test_invalid_driver_media_is_rejected_before_allocation(database, monkeypatch, tmp_path, drivers_iso):
-    monkeypatch.setattr(creation, "ISOS_DIR", tmp_path)
-    monkeypatch.setattr(creation, "validate_vm_resources", lambda *args: [])
-    connection = Mock(side_effect=AssertionError("Must not allocate resources"))
-    monkeypatch.setattr(creation, "open_conn", connection)
+def test_invalid_driver_media_is_rejected_before_allocation(
+    database, monkeypatch, tmp_path, daemon_libvirt, drivers_iso
+):
+    monkeypatch.setattr(disk_library, "ISOS", tmp_path)
+    monkeypatch.setattr(vm_create, "validate_vm_resources", lambda *args: [])
+    conn = daemon_libvirt(Mock())
+    monkeypatch.setattr(vm_create, "create_disk", Mock(side_effect=AssertionError("Must not allocate resources")))
     (tmp_path / "windows.iso").touch()
     payload = creation.VMCreate(
         name="win", vcpu=2, memory_mb=4096, disks=[{"size_gb": 64}], iso="windows.iso", drivers_iso=drivers_iso
@@ -111,4 +113,4 @@ def test_invalid_driver_media_is_rejected_before_allocation(database, monkeypatc
     with pytest.raises(HTTPException) as error:
         creation.create_vm(payload, {"username": "admin", "role": "admin"})
     assert error.value.status_code == 422
-    connection.assert_not_called()
+    conn.defineXML.assert_not_called()

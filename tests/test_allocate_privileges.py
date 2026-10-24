@@ -152,7 +152,7 @@ def test_an_older_database_takes_storage_and_network_assignments(database):
 
 
 @pytest.fixture()
-def manager(client, pipeline, monkeypatch):
+def manager(client, pipeline, monkeypatch, daemon_libvirt):
     """The account manages the VM `web` (the Manager role on its pool); no VM exists behind it, so a request that
     passes every check ends in a 404."""
     import libvirt
@@ -166,8 +166,8 @@ def manager(client, pipeline, monkeypatch):
         def close(self):
             pass
 
-    for module in (devices, clone):
-        monkeypatch.setattr(module, "open_conn", lambda *a, **k: NoVm())
+    monkeypatch.setattr(devices, "open_conn", lambda *a, **k: NoVm())
+    daemon_libvirt(NoVm())  # the clone's source is looked up by hyperlite-daemon
     monkeypatch.setattr(clone.maintenance, "refuse_if_in_maintenance", lambda *a: None)
     perm.add_pool_member(pipeline["pool"], "web")
     perm.create_acl("user", "ci", "manager", "pool", str(pipeline["pool"]))

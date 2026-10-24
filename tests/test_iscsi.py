@@ -9,9 +9,8 @@ import xml.etree.ElementTree as ET
 import pytest
 from fastapi import HTTPException
 
-from app.core import iscsi, storage_pools
+from app.core import iscsi, storage_pools, vm_create
 from app.routers import storage
-from app.routers.vms import create
 
 TARGET = "iqn.2026-09.home.hyperlite:devtest"
 LUN0 = "/dev/disk/by-path/ip-192.168.1.20:3260-iscsi-iqn.2026-09.home.hyperlite:devtest-lun-0"
@@ -98,22 +97,22 @@ class _Pool:
 
 def test_luns_must_be_named_free_distinct_and_confirmed(monkeypatch):
     pool = _Pool({"unit:0:0:0": _Vol(LUN0, 4 << 30), "unit:0:0:1": _Vol(LUN0[:-1] + "1", 4 << 30)})
-    monkeypatch.setattr(create, "get_disk_paths_in_use", lambda conn: {LUN0[:-1] + "1"})
+    monkeypatch.setattr(vm_create, "get_disk_paths_in_use", lambda conn: {LUN0[:-1] + "1"})
     disks = [
-        create.DiskSpec(size_gb=4, lun="unit:0:0:0"),
-        create.DiskSpec(size_gb=4),
-        create.DiskSpec(size_gb=4, lun="nope"),
-        create.DiskSpec(size_gb=4, lun="unit:0:0:1"),
-        create.DiskSpec(size_gb=4, lun="unit:0:0:0"),
+        vm_create.DiskSpec(size_gb=4, lun="unit:0:0:0"),
+        vm_create.DiskSpec(size_gb=4),
+        vm_create.DiskSpec(size_gb=4, lun="nope"),
+        vm_create.DiskSpec(size_gb=4, lun="unit:0:0:1"),
+        vm_create.DiskSpec(size_gb=4, lun="unit:0:0:0"),
     ]
-    luns, errors = create._resolve_luns(None, pool, disks, erase_luns=False)
+    luns, errors = vm_create.resolve_luns(None, pool, disks, erase_luns=False)
     assert luns == [(LUN0, 4 << 30)]
     assert "confirm with erase_luns" in errors[0]
     assert any("Disk 2: choose a LUN" in e for e in errors)
     assert any("'nope' not found" in e for e in errors)
     assert any("Disk 4" in e and "already used by a VM" in e for e in errors)
     assert any("Disk 5" in e and "chosen twice" in e for e in errors)
-    _, ok = create._resolve_luns(None, pool, disks[:1], erase_luns=True)
+    _, ok = vm_create.resolve_luns(None, pool, disks[:1], erase_luns=True)
     assert ok == []
 
 
@@ -124,15 +123,15 @@ def test_a_lun_too_small_for_the_image_is_refused_before_writing(monkeypatch, tm
         calls.append(cmd[0])
         return subprocess.CompletedProcess(cmd, 0, json.dumps({"virtual-size": 2 << 30}), "")
 
-    monkeypatch.setattr(create.subprocess, "run", run)
+    monkeypatch.setattr(vm_create.subprocess, "run", run)
     with pytest.raises(ValueError, match="too small"):
-        create._prepare_lun(LUN0, 1 << 30, tmp_path / "base.qcow2")
+        vm_create.prepare_lun(LUN0, 1 << 30, tmp_path / "base.qcow2")
     assert calls == ["qemu-img"]  # only read, never written
     calls.clear()
-    create._prepare_lun(LUN0, 4 << 30, tmp_path / "base.qcow2")
+    vm_create.prepare_lun(LUN0, 4 << 30, tmp_path / "base.qcow2")
     assert calls == ["qemu-img", "qemu-img"]
     calls.clear()
-    create._prepare_lun(LUN0, 4 << 30)  # ISO install or data disk: start wiped
+    vm_create.prepare_lun(LUN0, 4 << 30)  # ISO install or data disk: start wiped
     assert calls == ["dd"]
 
 
