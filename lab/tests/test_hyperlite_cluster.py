@@ -534,7 +534,7 @@ def test_a_hung_ha_vm_is_reset_by_its_node(cluster):
     if not any(p["name"] == "hapool" for p in ok(api(3, "GET", "/storage", token=t[3]))["items"]):
         pytest.skip("the NFS pool of the HA test is not there")
     # The cloud image the VM starts from, from this host's cache: no 350 MB download inside the lab.
-    image = Path("/var/cache/hyperlite-lab/debian.qcow2")
+    image = Path(os.environ.get("HYPERLITE_LAB_CACHE") or "/var/cache/hyperlite-lab") / "debian.qcow2"  # as lab/vm.sh
     key = DIR / "id_ed25519"
     subprocess.run(
         ["scp", "-q", "-i", str(key), "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
