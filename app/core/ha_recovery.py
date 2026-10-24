@@ -124,12 +124,17 @@ def _in_maintenance(node):
         return False
 
 
-def candidates(row, policy, online, lost):
+def candidates(row, policy, online, lost, where=None):
     """Where the VM may restart, in the order to try: its preferred nodes first, in their order, then the others by
-    free memory; never a lost member, one in maintenance, or one without enough free memory."""
+    free memory; never a lost member, one in maintenance, one without enough free memory, nor one where it would
+    break a "must" rule of load balancing (`where`: where the other VMs run, docs/design/drs.md 3.4)."""
+    from app.core import drs_rules
+
     need = memory_mib(row["domain_xml"] or "")
     fits = {n: free for n, free in online.items() if n not in lost and not _in_maintenance(n)}
     fits = {n: free for n, free in fits.items() if free is None or free >= need}
+    if where is not None:
+        fits = {n: free for n, free in fits.items() if drs_rules.allowed(row["vm_name"], n, where)}
     preferred = [n for n in policy["preferred_nodes"] if n in fits]
     others = sorted((n for n in fits if n not in preferred), key=lambda n: -(fits[n] or 0))
     return preferred + others
@@ -234,7 +239,7 @@ def _running_elsewhere(row, nodes):
 LOCKED = re.compile(r"another process using the image|Failed to get .* lock|resource busy|is locked", re.IGNORECASE)
 
 
-def _restart(row, entry, online, lost):
+def _restart(row, entry, online, lost, where=None):
     """Restart one VM of a fenced member. Returns the node it runs on, or None (state and audit say why)."""
     from app.core import ha
 
@@ -253,9 +258,11 @@ def _restart(row, entry, online, lost):
         log_action("system", "ha_manual", vm, "failed", reason)
         _notify(f"HA: {vm} needs an administrator", reason)
         return None
-    targets = candidates(row, policy, online, lost)
+    targets = candidates(row, policy, online, lost, where)
     if not targets:
         reason = f"no online member outside maintenance with {memory_mib(row['domain_xml'] or '')} MiB free"
+        if where is not None and candidates(row, policy, online, lost):
+            reason = "no online member where it keeps its load balancing rules (must)"
         _record(vm, MANUAL, reason)
         log_action("system", "ha_manual", vm, "failed", reason)
         _notify(f"HA: {vm} needs an administrator", reason)
@@ -412,16 +419,21 @@ def tick():
 
 def _restart_all(vms, entry, online, lost):
     """Restart a fenced member's VMs in their order; each one started takes its memory out of its node's free memory
-    (read once for the round) for the next ones."""
+    (read once for the round) for the next ones, and counts where it runs for the next ones' rules."""
+    from app.core import drs_rules
+
+    where = {vm: node for vm, node in drs_rules.placement().items() if node not in lost}
     for r in vms:
         if not _may_act():
             logger.warning("HA: no longer the leader with the quorum, the next one acts")
             return
         if (_store().protected_vm(r["vm_name"]) or {}).get("ha_state") == MANUAL:
             continue
-        target = _restart(r, entry, online, lost)
-        if target is not None and online.get(target) is not None:
-            online[target] -= memory_mib(r["domain_xml"] or "")
+        target = _restart(r, entry, online, lost, where)
+        if target is not None:
+            where[r["vm_name"]] = target
+            if online.get(target) is not None:
+                online[target] -= memory_mib(r["domain_xml"] or "")
 
 
 def members_view():

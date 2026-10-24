@@ -580,6 +580,27 @@ def init_db():
                 auto_restarts TEXT NOT NULL DEFAULT '[]'
             )
         """)
+        # Load balancing (docs/design/drs.md): its settings (mode, threshold), its rules (VMs together, apart, on or off
+        # some nodes) and each VM's exception. Tables of their own, replicated.
+        conn.execute("CREATE TABLE IF NOT EXISTS drs_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_rules (
+                name TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('together', 'apart', 'on_nodes', 'not_on_nodes')),
+                strength TEXT NOT NULL DEFAULT 'should' CHECK(strength IN ('must', 'should')),
+                vms TEXT NOT NULL DEFAULT '[]',
+                nodes TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_vms (
+                vm_name TEXT PRIMARY KEY,
+                behaviour TEXT NOT NULL DEFAULT 'default' CHECK(behaviour IN ('default', 'manual', 'excluded'))
+            )
+        """)
         # VM monitoring of an HA VM (docs/design/ha-automatic.md, 4.9): a table of its own, for the same reason.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ha_monitoring (

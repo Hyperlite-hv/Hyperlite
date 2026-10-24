@@ -36,6 +36,10 @@ TABLES = {
     "ha_protected_vms": {"volatile": {"last_synced_at"}},
     "ha_policies": {},
     "ha_monitoring": {},
+    # Load balancing (docs/design/drs.md): the cluster's, read on every node.
+    "drs_settings": {},
+    "drs_rules": {},
+    "drs_vms": {},
     # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode, this node's own
     # name, its pending join, the ticket of its join information, the one-time rewrite of its tasks (they are its own
     # history) and its own step of a rolling update stay per node.
