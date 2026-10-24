@@ -21887,6 +21887,7 @@
     ]
    },
    "post": {
+    "description": "A VM on ZFS or LVM-thin gets a disk-only snapshot (never its memory), the qcow2 internal snapshot otherwise\n(with its memory while it runs): said by the list's vm_state rather than silently different.",
     "operationId": "create_snapshot_api_v1_vms__name__snapshots_post",
     "parameters": [
      {

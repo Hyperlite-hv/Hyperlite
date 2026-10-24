@@ -14,15 +14,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _named_operations():
-    """Every operation name the API asks for: privileged.run("op", ...), the routes' privileged.ask("op", ...) and
-    network_firewall's _daemon("op", ...) and the storage routes' _pool_work(node, "op", ...)."""
+    """Every operation name the API asks for: privileged.run("op", ...), the routes' privileged.ask("op", ...), the
+    helpers named _daemon("op", ...) or _daemon_task("op", ...) (network_firewall, the templates and snapshot routes)
+    and the storage routes' _pool_work(node, "op", ...)."""
     names = set()
     for path in (ROOT / "app").rglob("*.py"):
         if "daemon" in path.parts:
             continue
         text = path.read_text()
         names |= set(re.findall(r'privileged\.(?:run|ask)\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
-        names |= set(re.findall(r'_daemon\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
+        names |= set(re.findall(r'_daemon\w*\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         names |= set(re.findall(r'_pool_work\(\s*\w+,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         names |= set(re.findall(r'run_in_threadpool\(\s*privileged\.run,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         # The hardware routes' _apply(user, name, action, detail, "op", ...) (app/routers/vms/hardware_opts.py).
@@ -45,6 +46,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"vm.set_firewall", "vm.set_hookscript", "vm.rename", "vm.cloudinit_write"} <= named
     assert {"vm.create", "vm.delete", "vm.clone"} <= named
     assert {"template.make", "template.deploy", "template.rename", "template.delete"} <= named
+    assert {"vm.snapshot_create", "vm.snapshot_restore", "vm.snapshot_delete", "vm.lvm_snapshots"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
