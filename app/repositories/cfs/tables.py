@@ -35,6 +35,7 @@ TABLES = {
     # The HA state of a VM is the leader's, and read on every node (docs/design/ha-automatic.md, 4.5): replicated.
     "ha_protected_vms": {"volatile": {"last_synced_at"}},
     "ha_policies": {},
+    "ha_monitoring": {},
     # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode, this node's own
     # name, its pending join, the ticket of its join information, the one-time rewrite of its tasks (they are its own
     # history) and its own step of a rolling update stay per node.

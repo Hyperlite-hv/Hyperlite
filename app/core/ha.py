@@ -186,6 +186,15 @@ def set_policy(vm_name, priority, preferred_nodes):
     _store().set_policy(vm_name, priority, list(dict.fromkeys(preferred_nodes)))
 
 
+def monitoring(vm_name):
+    """{"enabled", "resets"} of a protected VM's monitoring (app/core/ha_monitor.py)."""
+    return _store().monitoring(vm_name)
+
+
+def set_monitoring(vm_name, enabled):
+    _store().set_monitoring(vm_name, bool(enabled))
+
+
 def disable_protection(vm_name, username):
     _store().unprotect(vm_name)
     log_action(username, "ha_disable", vm_name, "success")
