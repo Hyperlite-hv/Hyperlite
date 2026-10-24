@@ -1,6 +1,7 @@
 import hashlib
 import ipaddress
 import json
+import logging
 import re
 import subprocess
 import xml.etree.ElementTree as ET
@@ -9,7 +10,7 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import bridge_vlan, cluster_view, network_edit, renaming
+from app.core import bridge_vlan, cluster_view, network_edit, network_firewall, privileged, renaming
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn_if_any
@@ -17,8 +18,11 @@ from app.core.listing import listing
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
+from app.daemon.registry import DaemonError
 from app.routers.vms._shared import inventory
 from app.routers.vms.firewall import _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS, FirewallConfig
+
+logger = logging.getLogger(__name__)
 
 # ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
 router = APIRouter(prefix="/networks", tags=["networks"], dependencies=[Depends(cluster_view.on_node)])
@@ -112,7 +116,7 @@ def _network_summary(net):
     ip_elem = root.find("ip")
     dhcp = ip_elem is not None and ip_elem.find("dhcp") is not None
     vlan_mode = network_edit.vlan_mode(root)
-    linux_bridge = _linux_bridge_of(root)
+    linux_bridge = bridge_vlan.linux_bridge_of_network(root)
     subnet = None
     if ip_elem is not None:
         subnet = {"address": ip_elem.get("address"), "netmask": ip_elem.get("netmask")}
@@ -242,13 +246,14 @@ def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depend
             raise HTTPException(status_code=404, detail=f"Network '{name}' not found") from None
 
         try:
-            result = apply_network_firewall(conn, name, payload.model_dump())
+            result = apply_network_firewall(name, payload.model_dump(), user=user["username"])
         except ValueError as e:
             log_action(user["username"], "set_network_firewall", name, "failed", str(e))
             raise HTTPException(status_code=422, detail=str(e)) from e
         except RuntimeError as e:
             log_action(user["username"], "set_network_firewall", name, "failed", str(e))
-            raise HTTPException(status_code=500, detail=str(e)) from e
+            status = 503 if isinstance(e, network_firewall.Unavailable) else 500
+            raise HTTPException(status_code=status, detail=str(e)) from e
 
         log_action(
             user["username"],
@@ -308,14 +313,15 @@ def start_network(name: str, user: dict = Depends(require_role("admin"))):
         conn.close()
 
 
-def _linux_bridge_of(root):
-    """The host Linux bridge a bridge network (its parsed XML) sits on, or None (NAT, isolated, macvtap, Open vSwitch)."""
-    forward = root.find("forward")
-    bridge = root.find("bridge")
-    if forward is None or forward.get("mode") != "bridge" or bridge is None or network_edit.carries_vlan_tags(root):
-        return None
-    name = bridge.get("name")
-    return name if bridge_vlan.is_linux_bridge(name) else None
+def _ask(user, action, op, name, **args):
+    """hyperlite-daemon's answer to `op` for the network `name`. What it refuses: 409 with its reason, as before;
+    without the daemon: 503."""
+    try:
+        return privileged.run(op, user=user["username"], network=name, **args)
+    except DaemonError as e:
+        log_action(user["username"], action, name, "failed", e.detail)
+        status = 409 if e.kind == "refused" else 503 if e.kind == "unavailable" else 502
+        raise HTTPException(status_code=status, detail=e.detail) from None
 
 
 class VlanAwareConfirm(BaseModel):
@@ -331,33 +337,25 @@ def make_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
         root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
     finally:
         conn.close()
-    bridge = _linux_bridge_of(root)
-    if bridge is None:
+    if bridge_vlan.linux_bridge_of_network(root) is None:
         msg = f"Network '{name}' is not on a Linux bridge of this host"
         log_action(user["username"], "vlan_aware_bridge", name, "failed", msg)
         raise HTTPException(status_code=422, detail=msg)
-    try:
-        token = bridge_vlan.start_trial(bridge)
-    except bridge_vlan.VlanError as e:
-        log_action(user["username"], "vlan_aware_bridge", name, "failed", str(e))
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    log_action(user["username"], "vlan_aware_bridge", name, "success", f"bridge {bridge}: trial, to be confirmed")
-    return {"bridge": bridge, "token": token, "expires_in": bridge_vlan.TRIAL_S}
+    trial = _ask(user, "vlan_aware_bridge", "network.vlan_aware_start", name)
+    log_action(
+        user["username"], "vlan_aware_bridge", name, "success", f"bridge {trial['bridge']}: trial, to be confirmed"
+    )
+    return {"bridge": trial["bridge"], "token": trial["token"], "expires_in": trial["expires_in"]}
 
 
 @router.post("/{name}/vlan-aware/confirm")
 def confirm_vlan_aware(name: str, payload: VlanAwareConfirm, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
     try:
-        root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
+        _lookup(conn, name)
     finally:
         conn.close()
-    bridge = _linux_bridge_of(root)
-    try:
-        bridge_vlan.confirm_trial(bridge, payload.token)
-    except bridge_vlan.VlanError as e:
-        log_action(user["username"], "vlan_aware_bridge", name, "failed", str(e))
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    bridge = _ask(user, "vlan_aware_bridge", "network.vlan_aware_confirm", name, token=payload.token)["bridge"]
     log_action(user["username"], "vlan_aware_bridge", name, "success", f"bridge {bridge}: kept, set again at boot")
     return {"bridge": bridge, "vlan_aware": True}
 
@@ -369,7 +367,7 @@ def undo_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
     conn = open_conn()
     try:
         root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
-        bridge = _linux_bridge_of(root)
+        bridge = bridge_vlan.linux_bridge_of_network(root)
         on_bridge = set()
         for n in conn.listAllNetworks():
             n_bridge = ET.fromstring(n.XMLDesc(0)).find("bridge")
@@ -398,11 +396,7 @@ def undo_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
         msg = f"VMs keep VLANs on bridge {bridge}: {', '.join(sorted(users))}. Remove their VLANs first"
         log_action(user["username"], "vlan_unaware_bridge", name, "failed", msg)
         raise HTTPException(status_code=409, detail=msg)
-    try:
-        bridge_vlan.turn_off(bridge)
-    except bridge_vlan.VlanError as e:
-        log_action(user["username"], "vlan_unaware_bridge", name, "failed", str(e))
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    _ask(user, "vlan_unaware_bridge", "network.vlan_aware_off", name)
     log_action(user["username"], "vlan_unaware_bridge", name, "success", f"bridge {bridge}")
     return {"bridge": bridge, "vlan_aware": False}
 
@@ -746,7 +740,11 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
         root.find("name").text = new
         firewall = get_network_firewall(name)
         try:
-            remove_network_firewall(conn, name)
+            try:
+                remove_network_firewall(name, user=user["username"])
+            except (ValueError, RuntimeError):
+                # The rename goes on: the old chain only matches a bridge that keeps its name, and it is rebuilt below.
+                logger.warning("Removing the firewall of network %s before its rename failed", name, exc_info=True)
             if was_active:
                 net.destroy()
             net.undefine()
@@ -773,7 +771,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
         renaming.network_records(name, new)
         if firewall["rules"] or firewall["default_policy"] != "accept":
             try:
-                apply_network_firewall(conn, new, firewall)
+                apply_network_firewall(new, firewall, user=user["username"])
             except (ValueError, RuntimeError) as e:
                 log_action(user["username"], "rename_network", new, "failed", f"firewall not reapplied: {e}")
         log_action(
@@ -820,16 +818,16 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
             )
 
         if not confirm:
-            log_action(user["username"], "delete_network", name, "failed", "Confirmation manquante")
+            log_action(user["username"], "delete_network", name, "failed", "Confirmation missing")
             raise HTTPException(status_code=400, detail="Add ?confirm=true to confirm the deletion")
 
         # Clean up the network firewall BEFORE destroying the network:
         # remove_network_firewall needs to read the bridge from the libvirt XML that is
         # still in place to cleanly remove the jump from HYPERLITENETFW.
         try:
-            remove_network_firewall(conn, name)
-        except Exception as e:
-            print(f"[network_firewall] cleanup failed for '{name}' (deletion continues): {e!r}", flush=True)
+            remove_network_firewall(name, user=user["username"])
+        except (ValueError, RuntimeError):
+            logger.warning("Removing the firewall of network %s failed; the deletion goes on", name, exc_info=True)
 
         try:
             if net.isActive():

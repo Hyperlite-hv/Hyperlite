@@ -443,6 +443,8 @@ def net_api(monkeypatch, host):
             pass
 
     monkeypatch.setattr(network, "open_conn", lambda *a, **k: Conn())
+    # hyperlite-daemon reads the network's bridge itself (app/daemon/ops/network.py), in this process in the tests.
+    monkeypatch.setattr(bridge_vlan, "_connect", Conn)
     return domains
 
 

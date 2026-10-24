@@ -355,7 +355,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Host system, part 1: package updates, DNS, host name, time, syslog, power (`app/daemon/ops/host.py`) | done |
 | Host system, part 2: Hyperlite's own update (`app/daemon/ops/hyperlite.py`: the job in a unit of its own, the package lists, the channel) | done |
 | Host system, part 3: the HTTPS certificate (`app/daemon/ops/tls.py`: import, previous, self-signed, certbot, the API's restart) | done |
-| Network | next |
+| Network, part 1: the network firewall's iptables and the VLANs of Linux bridges (`app/daemon/ops/network.py`: asked for by a network's or a VM's name, the daemon reading the bridge and the ports itself) | done |
+| Network, part 2: the writes to libvirt's networks (define, start, stop, rename, DHCP reservations) | next |
 | Storage, disks, VMs, containers, cluster, consoles | |
 
 **How a domain moves.** The implementation stays in its `app/core` module, which hyperlite-daemon imports. The
