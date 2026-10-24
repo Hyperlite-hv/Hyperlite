@@ -373,7 +373,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | VMs, part 3b: deletion (`vm.delete`, `app/core/vm_delete.py`), from DELETE /vms/{name} and the automatic clean-up: the daemon checks the VM is stopped again, and deletes its own disks only, as Proxmox VE does, never vSphere's way of taking a disk shared with another VM along: a disk another VM uses or reads through (a linked clone's base), or a file outside every storage pool, is kept and reported (`kept_disks`). The API forgets the VM's records | done |
 | VMs, part 3c: clones (`vm.clone`, `app/core/vm_clone.py`) and templates (`template.make`, `template.deploy`, `template.rename`, `template.delete`, `app/core/vm_templates.py`): the copies, the new definitions and the template files are the daemon's, which checks the source's state, the names, the room and a template's linked clones again; the Kubernetes clusters' VMs started and stopped through `vm.power` | done |
 | VMs, part 4: snapshots (`vm.snapshot_create`, `vm.snapshot_restore`, `vm.snapshot_delete`, `vm.lvm_snapshots`, `app/core/vm_snapshots.py`): libvirt's, ZFS's and LVM-thin's, checked again by the daemon (a rollback only under a stopped VM, a name ZFS would read as a list or a range refused); every check runs first with `check_only`, so the route answers a refusal before it starts the task | done |
-| Containers, cluster, consoles; then backups | next: containers |
+| Containers, part 1: start, stop, settings, rename and deletion (`container.*`, `app/core/container_ops.py`), the filesystem found in the definition and accepted in Hyperlite's container directories only (below) | done |
+| Containers, parts 2 and 3; cluster, consoles; then backups | next: containers, part 2 |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -455,6 +456,24 @@ What stays elsewhere: a migration crosses two nodes and moves with the cluster d
 the consoles; HA's own calls (`app/core/ha*.py`) are moved with HA's owner through #298, onto the operations of part 1
 and part 3. Another node's VM (`?node=` naming a node registered over SSH) keeps its connection from the API until the
 cluster domain, as for the pools.
+
+**The containers domain (proposed, 2026-10-24).** A container is a libvirt LXC domain (`lxc:///system`) and a
+directory: its filesystem, its snapshots beside it (`.snapshots/<name>`, rsync copies), its archives. Root deletes,
+renames and writes into those directories, so **the daemon finds a container's filesystem in its definition** (the
+filesystem mounted at `/`), never in the API's records (`container_storage` names the pool a container was put in):
+it must be the directory named after the container in a place Hyperlite puts containers, `/var/lib/libvirt/containers`
+or the `hyperlite-containers` directory of a local directory pool (`app/core/container_ops.py`). A definition naming
+anything else has its filesystem left alone: a deletion keeps it and says so, a rename or a DNS change is refused. The
+daemon opens the LXC driver itself (`libvirt_utils.local_lxc_conn`); the API keeps its own connection for the reads,
+the container's lock (`container_snapshots.claim`) and its records (`container_meta`). Three parts:
+
+| Part | What moves | Operations |
+|---|---|---|
+| Containers, part 1 | Start, stop (SIGTERM to an application image's process, the init's shutdown for a system container, the stop by force after the grace period, which names the run it stops), the settings (processors, memory, start at boot, the DNS servers written into the container's `/etc/resolv.conf`), the rename, the deletion | `container.start`, `container.stop`, `container.update`, `container.rename`, `container.delete` |
+| Containers, part 2 | The creation (system and application containers: the image pulled with skopeo and umoci, the filesystem configured, the definition written from checked fields) and the clone | `container.create`, `container.clone` |
+| Containers, part 3 | The snapshots and the console log read from the container's filesystem | `container.snapshot_*`, `container.log` |
+
+A container's archives move with the backups domain, its terminal and root shell with the consoles.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of

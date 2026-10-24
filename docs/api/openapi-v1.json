@@ -8410,6 +8410,7 @@
     ]
    },
    "patch": {
+    "description": "Written by hyperlite-daemon (app/core/container_ops.py), its DNS servers into the container's own files.",
     "operationId": "update_container_api_v1_containers__name__patch",
     "parameters": [
      {

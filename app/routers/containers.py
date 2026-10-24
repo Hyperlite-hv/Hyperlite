@@ -7,7 +7,6 @@ ACLs as VMs (app/core/permissions.py)."""
 import asyncio
 import json
 import logging
-import os
 import secrets
 import subprocess
 import threading
@@ -31,6 +30,7 @@ from app.core import (
     maintenance,
     object_meta,
     paths,
+    privileged,
     pty_session,
     renaming,
 )
@@ -47,12 +47,12 @@ from app.core.container_builder import (
     prepare_app_rootfs,
     resolve_init,
     restore_container_rootfs,
-    set_container_hostname,
     validate_app_overrides,
 )
 from app.core.container_meta import (
     delete_container_app,
     delete_container_ssh_user,
+    delete_container_storage,
     get_container_app,
     get_container_ssh_user,
     get_container_storage,
@@ -64,7 +64,6 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.network_alloc import allocate_static_ip, generate_mac, network_gateway, release_static_ip
-from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_container_privilege, require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import (
@@ -73,7 +72,8 @@ from app.core.vm_builder import (
     validate_name,
     validate_username,
 )
-from app.core.vm_limits import compute_limits, validate_vm_resources
+from app.core.vm_limits import compute_limits
+from app.daemon.registry import DaemonError
 from app.services import backup_service
 
 logger = logging.getLogger(__name__)
@@ -216,41 +216,26 @@ class ContainerUpdate(BaseModel):
 
 @router.patch("/{name}")
 def update_container(name: str, payload: ContainerUpdate, user: dict = Depends(require_role("admin"))):
-    if payload.vcpu is not None or payload.memory_mb is not None:
-        errors = validate_vm_resources(payload.vcpu, payload.memory_mb)
-        if errors:
-            raise HTTPException(status_code=422, detail=errors)
+    """Written by hyperlite-daemon (app/core/container_ops.py), its DNS servers into the container's own files."""
+    changed = _daemon("container.update", user, "update_container", name, **payload.model_dump())
     conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-        changes, restart = [], False
-        try:
-            if payload.dns is not None:
-                servers = container_config.write_dns(name, payload.dns)
-                changes.append(f"DNS {', '.join(servers)}")
-            if payload.vcpu is not None or payload.memory_mb is not None:
-                restart = container_config.set_resources(conn, domain, payload.vcpu, payload.memory_mb)["needs_restart"]
-                domain = conn.lookupByName(name)  # the definition was replaced
-                changes.append(f"{payload.vcpu or '-'} vCPU, {payload.memory_mb or '-'} MB")
-            if payload.autostart is not None:
-                domain.setAutostart(1 if payload.autostart else 0)
-                changes.append(f"start at boot {'on' if payload.autostart else 'off'}")
-        except container_config.ConfigError as e:
-            log_action(user["username"], "update_container", name, "failed", str(e))
-            raise HTTPException(status_code=422, detail=str(e)) from e
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "update_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=msg) from e
-        if not changes:
-            raise HTTPException(status_code=422, detail="No change requested")
-        log_action(user["username"], "update_container", name, "success", "; ".join(changes))
-        return {**_detail(domain), "needs_restart": restart}
+        domain = _lookup(conn, name)
+        log_action(user["username"], "update_container", name, "success", "; ".join(changed["changes"]))
+        return {**_detail(domain), "needs_restart": changed["needs_restart"]}
     finally:
         conn.close()
+
+
+def _daemon(op, user, action, name, **args):
+    """`op` run by hyperlite-daemon on the container `name`: its result, or its refusal or failure recorded as
+    `action` and answered (a refusal 422, what is in use 409, what does not exist 404)."""
+    try:
+        return privileged.run(op, user=user["username"], container=name, **args)
+    except DaemonError as e:
+        reason = "; ".join(e.detail) if isinstance(e.detail, list) else e.detail
+        log_action(user["username"], action, name, "failed", reason)
+        raise privileged.http_error(e) from None
 
 
 def _app_domain_xml(conn, name, rootfs, spec, network, vcpu, memory_mb):
@@ -490,16 +475,8 @@ def start_container(name: str, user: dict = Depends(require_container_privilege(
     conn = open_lxc_conn()
     try:
         domain = _lookup(conn, name)
-        # Answered before libvirt does: its own refusal surfaced as a 500, in the host's language.
-        if domain.isActive():
-            raise HTTPException(status_code=409, detail=f"Container '{name}' is already running")
-        try:
-            with _claim_or_409(name, "a start"):
-                domain.create()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "start_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=msg) from e
+        with _claim_or_409(name, "a start"):
+            _daemon("container.start", user, "start_container", name)
         log_action(user["username"], "start_container", name, "success")
         return _summary(domain)
     finally:
@@ -515,7 +492,7 @@ def _force_stop_later(name, run_id, grace_s):
     """Stop the container by force when it is still running after grace_s: a process can ignore SIGTERM (a shell
     script as PID 1, or an image's entrypoint still initializing), and a stop must end with a stopped container.
     run_id (the domain's ID, the pid of its libvirt controller) tells the run that was asked to stop from a new one
-    started meanwhile, which is left alone."""
+    started meanwhile, which hyperlite-daemon leaves alone."""
     deadline = time.monotonic() + grace_s
     conn = open_lxc_conn()
     try:
@@ -527,15 +504,15 @@ def _force_stop_later(name, run_id, grace_s):
                     return
             except libvirt.libvirtError:
                 return  # deleted meanwhile
-        try:
-            domain.destroy()
-            log_action(
-                "system", "stop_container", name, "success", f"stopped by force: still running after {grace_s} s"
-            )
-        except libvirt.libvirtError as e:
-            logger.debug("Forced stop of %s not needed or failed: %s", name, e)
     finally:
         conn.close()
+    try:
+        done = privileged.run("container.stop", user="system", container=name, force=True, run_id=run_id)
+    except DaemonError as e:
+        logger.info("Forced stop of %s not needed or failed: %s", name, e.detail)
+        return
+    if done["stopped"]:
+        log_action("system", "stop_container", name, "success", f"stopped by force: still running after {grace_s} s")
 
 
 @router.post("/{name}/stop")
@@ -544,31 +521,17 @@ def stop_container(
 ):
     conn = open_lxc_conn()
     try:
-        domain = _lookup(conn, name)
-        if not domain.isActive():
-            raise HTTPException(status_code=409, detail=f"Container '{name}' is already stopped")
-        try:
-            run_id = domain.ID()
-            if force:
-                domain.destroy()
-            elif get_container_app(name):
-                # SIGTERM to the image's process, as `docker stop` does. libvirt's default first looks for an init
-                # control pipe, which an application image does not have, and then sends nothing at all.
-                domain.shutdownFlags(libvirt.VIR_DOMAIN_SHUTDOWN_SIGNAL)
-            else:
-                domain.shutdown()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "stop_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=msg) from e
-        grace = None
-        if not force:
-            grace = STOP_GRACE_S["application" if get_container_app(name) else "system"]
-            threading.Thread(target=_force_stop_later, args=(name, run_id, grace), daemon=True).start()
-        log_action(user["username"], "stop_container", name, "success", "forced" if force else None)
-        return {"ok": True, "force_stop_after_s": grace}
+        _lookup(conn, name)
     finally:
         conn.close()
+    application = bool(get_container_app(name))
+    done = _daemon("container.stop", user, "stop_container", name, force=force, application=application)
+    grace = None
+    if not force:
+        grace = STOP_GRACE_S["application" if application else "system"]
+        threading.Thread(target=_force_stop_later, args=(name, done["run_id"], grace), daemon=True).start()
+    log_action(user["username"], "stop_container", name, "success", "forced" if force else None)
+    return {"ok": True, "force_stop_after_s": grace}
 
 
 @router.delete("/{name}")
@@ -581,33 +544,18 @@ def delete_container(name: str, confirm: bool = False, user: dict = Depends(requ
 
 
 def _delete_container(name, user):
-    conn = open_lxc_conn()
-    try:
-        try:
-            domain = conn.lookupByName(name)
-            mac, network = _domain_mac(domain), _domain_network(domain)
-            try:
-                domain.destroy()
-            except libvirt.libvirtError:
-                logger.debug("Ignored exception in delete_container()", exc_info=True)
-            domain.undefine()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "delete_container", name, "failed", msg)
-            raise HTTPException(status_code=404, detail=msg) from e
-
-        container_snapshots.delete_all(name)  # before the filesystem: its place is read from the container's storage
-        delete_container_rootfs(name)
-        delete_container_ssh_user(name)
-        object_meta.delete("container", name)
-        if get_container_app(name):
-            if mac:
-                release_static_ip(conn, network, mac)
-            delete_container_app(name)
-        log_action(user["username"], "delete_container", name, "success")
-        return {"ok": True}
-    finally:
-        conn.close()
+    """Stopped, undefined, its snapshots and its filesystem removed by hyperlite-daemon (app/core/container_ops.py),
+    which leaves a filesystem outside Hyperlite's container directories in place; its records go here."""
+    application = bool(get_container_app(name))
+    done = _daemon("container.delete", user, "delete_container", name, application=application)
+    delete_container_storage(name)
+    delete_container_ssh_user(name)
+    object_meta.delete("container", name)
+    if application:
+        delete_container_app(name)
+    kept = done["filesystem_kept"]
+    log_action(user["username"], "delete_container", name, "success", f"filesystem {kept} kept" if kept else None)
+    return {"ok": True}
 
 
 class RenameContainerRequest(BaseModel):
@@ -625,72 +573,17 @@ def rename_container(name: str, payload: RenameContainerRequest, user: dict = De
 
 def _rename_container(name, payload, user):
     new = payload.new_name
-    error = validate_name(new, "container")
-    if error:
-        raise HTTPException(status_code=422, detail=error)
-    if new == name:
-        raise HTTPException(status_code=422, detail="The new name is the current one")
     conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-        try:
-            conn.lookupByName(new)
-            raise HTTPException(status_code=409, detail=f"A container named '{new}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("No container named %s yet", new)
-        if domain.isActive():
-            raise HTTPException(status_code=409, detail="Stop the container before renaming it")
-        old_root = container_rootfs_path(name)
-        new_root = safe_child(old_root.parent, new)
-        if os.path.lexists(new_root):
-            raise HTTPException(status_code=409, detail=f"A filesystem named '{new}' is already on disk: {new_root}")
-        old_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
-        autostart = bool(domain.autostart())
-        root = ET.fromstring(old_xml)
-        root.find("name").text = new
-        sources = [s for s in root.findall("./devices/filesystem/source") if s.get("dir") == str(old_root)]
-        if not sources:
-            raise HTTPException(
-                status_code=409, detail=f"The container's definition does not use its filesystem {old_root}"
-            )
-        for source in sources:
-            source.set("dir", str(new_root))
-        try:
-            container_snapshots.rename_all(name, new, old_root.parent)
-        except (OSError, container_snapshots.SnapshotError) as e:
-            log_action(user["username"], "rename_container", name, "failed", str(e))
-            raise HTTPException(status_code=409, detail=f"Could not rename the container's snapshots: {e}") from e
-        try:
-            os.rename(old_root, new_root)
-        except OSError as e:
-            container_snapshots.rename_all(new, name, old_root.parent)
-            log_action(user["username"], "rename_container", name, "failed", str(e))
-            raise HTTPException(status_code=500, detail=f"Could not rename the filesystem: {e}") from e
-        try:
-            domain.undefine()
-            try:
-                new_domain = conn.defineXML(ET.tostring(root, encoding="unicode"))
-            except libvirt.libvirtError:
-                conn.defineXML(old_xml)
-                raise
-        except libvirt.libvirtError as e:
-            os.rename(new_root, old_root)
-            container_snapshots.rename_all(new, name, old_root.parent)
-            msg = describe_exception(e)
-            log_action(user["username"], "rename_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
-        renaming.container_records(name, new)
-        if autostart:
-            new_domain.setAutostart(1)
-        try:
-            set_container_hostname(new_root, new)
-        except OSError as e:
-            logger.warning("Host name of the renamed container %s not updated: %s", new, e)
-        log_action(user["username"], "rename_container", name, "success", f"-> {new}")
-        return _summary(new_domain)
+        _lookup(conn, name)
+    finally:
+        conn.close()
+    _daemon("container.rename", user, "rename_container", name, new_name=new)
+    renaming.container_records(name, new)
+    log_action(user["username"], "rename_container", name, "success", f"-> {new}")
+    conn = open_lxc_conn()
+    try:
+        return _summary(_lookup(conn, new))
     finally:
         conn.close()
 
