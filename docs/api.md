@@ -32,7 +32,10 @@ words:
 
 Every list answers `{"items": [...], "total": n}` (`app/core/listing.py`). A list that gathers every node of a cluster
 (`?cluster=true`) adds `"unreachable"`, the members that did not answer, and the VM list `"stale"`, the members whose
-figures are older than 30 s.
+figures are older than 30 s. The CSV exports take the same `?cluster=true` (`GET /tasks/export.csv`,
+`GET /audit/export.csv`): every member's rows, newest first, with a last column `member`, the node that holds the row;
+the members that did not answer are named in the `Hyperlite-Unreachable` response header, and a member that stops
+answering midway ends the download with an error rather than a shorter file.
 
 Inside v1 a change is only ever an addition (a route, an optional field, a documented new value); anything else waits
 for a v2, served next to v1.

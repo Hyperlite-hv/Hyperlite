@@ -16,6 +16,7 @@ import contextlib
 import hashlib
 import hmac
 import http.client
+import io
 import json
 import logging
 import queue
@@ -159,6 +160,40 @@ def _decoded(raw):
         return json.loads(raw) if raw else None
     except ValueError:
         return raw.decode("utf-8", "replace")
+
+
+class Stream:
+    """An answer read while it arrives (a CSV export larger than memory), on a connection of its own."""
+
+    def __init__(self, conn, response):
+        self._conn, self.status = conn, response.status
+        # newline="": a CSV cell may hold a line break, which the csv reader handles itself.
+        self.lines = io.TextIOWrapper(response, encoding="utf-8", errors="replace", newline="")
+
+    def close(self):
+        self._conn.close()
+
+
+def stream(node, token, path, timeout=60, connect_timeout=5):
+    """GET `path` on `node`'s API over HTTPS, its body read as it arrives: a Stream, which the caller closes. Raises
+    Unavailable when it cannot be made this way (the caller then uses SSH, which reads the whole answer at once)."""
+    from app.core.cluster_setup import PORT
+
+    fingerprint = fingerprint_of(node["name"])
+    if not fingerprint:
+        raise Unavailable(f"{node['name']} published no certificate fingerprint")
+    conn = None
+    try:
+        conn = _connect(node["hostname"], PORT, fingerprint, connect_timeout)
+        conn.sock.settimeout(timeout)
+        conn.request("GET", path, headers={"Authorization": f"Bearer {token}"})
+        return Stream(conn, conn.getresponse())
+    except Unavailable:
+        raise
+    except (OSError, http.client.HTTPException) as e:
+        if conn is not None:
+            conn.close()
+        raise Unavailable(f"{node['name']} over HTTPS: {e}") from None
 
 
 def send(node, token, path, content_type, length, chunks, timeout, connect_timeout=5):

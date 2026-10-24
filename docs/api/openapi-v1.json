@@ -5189,6 +5189,16 @@
        ],
        "title": "Until"
       }
+     },
+     {
+      "in": "query",
+      "name": "cluster",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Cluster",
+       "type": "boolean"
+      }
      }
     ],
     "responses": {
@@ -16048,6 +16058,16 @@
         }
        ],
        "title": "Since"
+      }
+     },
+     {
+      "in": "query",
+      "name": "cluster",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Cluster",
+       "type": "boolean"
       }
      }
     ],
