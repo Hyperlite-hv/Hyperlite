@@ -1,9 +1,9 @@
 """The storage's root work (docs/design/privilege-separation.md, section 13, the storage domain). Part 1: the ZFS pools
-and volumes the storage routes make and remove (app/routers/storage.py), implemented in app/core/zfs_storage.py. Part
-2a: the libvirt pools of this node the storage routes make, rename and remove, implemented in app/core/storage_pools.py,
-which writes a pool's definition from checked fields. Each operation takes names and fields, checked again here; the
-routes keep who may ask, the audit log and their answers. What VMs do with zvols (their disks, snapshots, resizes)
-moves with the VM domain."""
+and volumes the storage routes make and remove (app/routers/storage.py), implemented in app/core/zfs_storage.py. Parts
+2a and 2b: the libvirt pools of this node the storage routes make, rename and remove, and their volumes, implemented in
+app/core/storage_pools.py, which writes a pool's or a volume's definition from checked fields. Each operation takes
+names and fields, checked again here; the routes keep who may ask, the audit log and their answers. What VMs do with
+their disks (zvols, snapshots, resizes) moves with the VM domain."""
 
 import functools
 from typing import Literal
@@ -234,3 +234,34 @@ def ensure_default_pool(args, ctx):
 
     with libvirt_utils.local_conn() as conn:
         libvirt_utils.ensure_default_pool(conn)
+
+
+# --- Part 2b: the volumes of this node's libvirt pools ---
+
+
+class LibvirtVolumeArgs(LibvirtPoolArgs):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class LibvirtVolumeCreateArgs(LibvirtVolumeArgs):
+    size_gb: int = Field(ge=1, le=MAX_GB)
+
+
+@operation("storage.volume_create", LibvirtVolumeCreateArgs)
+@_pools
+def volume_create(args, ctx):
+    """A qcow2 volume, its definition written here from its checked name and size (storage_pools.volume_create)."""
+    from app.core import libvirt_utils, storage_pools
+
+    with libvirt_utils.local_conn() as conn:
+        return storage_pools.volume_create(conn, args.pool, args.name, args.size_gb)
+
+
+@operation("storage.volume_delete", LibvirtVolumeArgs)
+@_pools
+def volume_delete(args, ctx):
+    """Refused while a VM's definition uses the volume, whatever the API checked."""
+    from app.core import libvirt_utils, storage_pools
+
+    with libvirt_utils.local_conn() as conn:
+        storage_pools.volume_delete(conn, args.pool, args.name)
