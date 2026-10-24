@@ -50,7 +50,7 @@ test("the HA page of a cluster: automatic HA, members, admission, history, a VM'
   await admission.getByLabel("Policy").selectOption("strict");
   await expect.poll(() => sent.find(([p]) => p.endsWith("/ha/admission"))?.[1]).toEqual({ policy: "strict" });
 
-  await expect(main.getByText("Restarting")).toBeVisible(); // the leader's state of the VM
+  await expect(main.getByText("Restarting", { exact: true })).toBeVisible(); // the leader's state of the VM
   await expect(main.getByRole("region", { name: "HA history" }).getByText("Member lost")).toBeVisible();
 
   await main.getByRole("button", { name: "HA settings of web" }).click();
