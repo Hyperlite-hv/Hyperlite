@@ -407,16 +407,17 @@ pools' files (owned by root or by QEMU, mode 0600). It moves in four parts, each
 
 | Part | What moves | Operations |
 |---|---|---|
-| Disks, part 1: the libraries | The ISOs and the disks to import (`app/routers/isos.py`, `app/routers/vm_disks.py`): an upload is stored, renamed, deleted; an image Hyperlite did not write is checked (`app/core/disk_images.py`, `qemu-img info`) | `disk.library_store`, `disk.library_rename`, `disk.library_delete`, `disk.image_info` |
+| Disks, part 1: the libraries | The ISOs and the disks to import (`app/routers/isos.py`, `app/routers/vm_disks.py`): an upload stored, an ISO renamed, a file deleted, an OVA's disks extracted (`app/core/ova.py`), the pool holding an ISO refreshed | `disk.library_store`, `disk.library_rename`, `disk.library_delete`, `disk.ova_extract` |
 | Disks, part 2: a VM's disk | Growing a disk (`app/core/disk_resize.py`) and moving it to another pool (`app/core/disk_move.py`): asked by the VM's name and the disk's target, never a path | `disk.resize`, `disk.move` (one call that waits, its progress written into the task) |
-| With the VM domain | The disks VM creation, clones, templates and linked clones make (`app/core/vm_builder.py`, `app/core/linked_disks.py`): they are made with the domain that uses them | moved with `vm.*` |
+| With the VM domain | The disks VM creation, clones, templates and linked clones make (`app/core/vm_builder.py`, `app/core/linked_disks.py`), and the check of an image Hyperlite did not write before a VM uses it (`app/core/disk_images.py`, `qemu-img info`): they go with the domain that uses them | moved with `vm.*` |
 | A domain of its own: backups | Backups, restores, replication, exports and OVA (`app/core/backups.py`, `replication.py`, `vm_export.py`, `ova.py`, `checkpoints.py`, `backup_integrity.py`): added after the VMs to section 5's list, with the live restore of #513 | `backup.*` |
 
 **An upload goes through a spool, as on Proxmox VE.** pveproxy writes an upload into a temporary file it owns, and
 pvedaemon copies it into the storage. Hyperlite does the same. The API streams the upload into
-`/var/lib/hyperlite/spool`, a directory it owns. `disk.library_store` takes that file's name in the spool, never a
-path. It checks the image (an ISO's size; a disk's format and the files it would name, `disk_images.check`), moves it
-into the library under the name the API checked, and gives it the owner and mode QEMU needs. The spool is emptied of
+`/var/lib/hyperlite/spool`, a directory it owns, on the libraries' own file system, so storing one is a rename, not a
+second copy of gigabytes. `disk.library_store` takes that file's name in the spool, never a
+path. It checks the name again, refuses an ISO that would replace another, moves the file into the library, gives it
+the owner and mode QEMU needs, and refreshes the pool that lists it. The spool is emptied of
 anything older than a day at start-up. Until step 4, the API still runs as root and the spool is only a directory:
 nothing changes for the user.
 
