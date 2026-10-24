@@ -206,7 +206,7 @@ async def get_node_summary(name: str, user: dict = Depends(get_current_user)):
 
 
 def _compat_with_local(name):
-    local, remote = open_conn(None), open_conn(name)
+    local, remote = open_conn(None), open_conn(name, readonly=True)
     try:
         return cluster_compat.report(cluster_compat.check_pair(local, remote))
     finally:

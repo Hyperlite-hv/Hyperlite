@@ -53,7 +53,7 @@ def test_an_address_taken_on_another_node_is_not_handed_out_again(monkeypatch):
     other = FakeNetwork(hosts={"52:54:00:00:00:01": "192.168.122.2"}, leases=[{"ipaddr": "192.168.122.3", "mac": "x"}])
     monkeypatch.setattr("app.core.cluster.list_nodes", lambda: [{"name": "hlc2"}])
     monkeypatch.setattr(
-        "app.core.libvirt_utils.open_conn", lambda name=None: FakeConn({"default": other if name else here})
+        "app.core.libvirt_utils.open_conn", lambda name=None, **_k: FakeConn({"default": other if name else here})
     )
     ip = network_alloc.allocate_static_ip(FakeConn({"default": here}), "default", "52:54:00:00:00:09")
     assert ip == "192.168.122.4"
@@ -63,7 +63,7 @@ def test_an_address_taken_on_another_node_is_not_handed_out_again(monkeypatch):
 def test_a_node_that_does_not_answer_never_blocks_a_creation(monkeypatch):
     here = FakeNetwork()
 
-    def open_conn(name=None):
+    def open_conn(name=None, **_k):
         if name:
             raise libvirt.libvirtError("unreachable")
         return FakeConn({"default": here})
@@ -207,7 +207,7 @@ def test_the_nodes_are_asked_at_once(monkeypatch):
 
     here, at_once, peak, lock = FakeNetwork(), [0], [0], threading.Lock()
 
-    def open_conn(name=None):
+    def open_conn(name=None, **_k):
         with lock:
             at_once[0] += 1
             peak[0] = max(peak[0], at_once[0])
