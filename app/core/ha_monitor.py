@@ -72,24 +72,23 @@ def _ping(domain):
 
 
 def _io(domain):
-    """The VM's disk and network counters, summed: they move while the guest works."""
+    """What the guest itself did on its disks and network cards, summed: its disk requests and the packets it sent.
+    Not what it received: a hung guest still has the network's broadcasts and announcements delivered to it.
+    libvirt gives a card's counters from the guest's side (rx what it received, tx what it sent)."""
     root = ET.fromstring(domain.XMLDesc(0))
-    total = [0, 0, 0, 0]
+    requests = sent = 0
     for target in root.findall("./devices/disk/target"):
         try:
-            rd_req, rd_bytes, wr_req, wr_bytes, _ = domain.blockStats(target.get("dev"))
+            rd_req, _rd_bytes, wr_req, _wr_bytes, _ = domain.blockStats(target.get("dev"))
         except libvirt.libvirtError:
             continue
-        total[0] += rd_req + wr_req
-        total[1] += rd_bytes + wr_bytes
+        requests += rd_req + wr_req
     for target in root.findall("./devices/interface/target"):
         try:
-            stats = domain.interfaceStats(target.get("dev"))
+            sent += domain.interfaceStats(target.get("dev"))[5]  # tx_packets
         except libvirt.libvirtError:
             continue
-        total[2] += stats[1] + stats[5]  # packets received, sent
-        total[3] += stats[0] + stats[4]  # bytes received, sent
-    return tuple(total)
+    return requests, sent
 
 
 def _quiet(domain):

@@ -514,3 +514,90 @@ def test_an_ha_vm_is_restarted_elsewhere_when_its_node_is_cut_off(cluster):
     ok(api(1, "POST", f"/vms/havm/stop?node={names[n]}&force=true", token=t[1]))
     wait("havm stopped", lambda: ok(api(1, "GET", f"/vms/havm?node={names[n]}", token=t[1]))["state"] == "stopped")
     ok(api(1, "DELETE", f"/vms/havm?node={names[n]}&confirm=true", token=t[1]))
+
+
+def _agent_answers(n, vm):
+    try:
+        on(n, "virsh", "qemu-agent-command", vm, '{"execute":"guest-ping"}')
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+
+def test_a_hung_ha_vm_is_reset_by_its_node(cluster):
+    """#333 step 6 (docs/design/ha-automatic.md, 4.9): an HA VM with its guest agent and monitoring on, its kernel
+    made to panic (it hangs: no pvpanic device, kernel.panic=0); its node resets it in place, and its agent answers
+    again."""
+    t, names = cluster["tokens"], cluster["names"]
+    if not nested(3):
+        pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
+    if not any(p["name"] == "hapool" for p in ok(api(3, "GET", "/storage", token=t[3]))["items"]):
+        pytest.skip("the NFS pool of the HA test is not there")
+    # The cloud image the VM starts from, from this host's cache: no 350 MB download inside the lab.
+    image = Path("/var/cache/hyperlite-lab/debian.qcow2")
+    key = DIR / "id_ed25519"
+    subprocess.run(
+        ["scp", "-q", "-i", str(key), "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+         "-o", "LogLevel=ERROR", str(image), f"debian@{ip(3)}:/tmp/base.qcow2"],
+        check=True, timeout=600,
+    )  # fmt: skip
+    on(
+        3,
+        "sh",
+        "-c",
+        "mkdir -p /var/lib/libvirt/images/base && mv /tmp/base.qcow2 /var/lib/libvirt/images/base/debian-12-generic-amd64.qcow2",
+    )
+    spec = {
+        "name": "hmvm",
+        "vcpu": 1,
+        "memory_mb": 512,
+        "disks": [{"size_gb": 4}],
+        "storage_pool": "hapool",
+        "username": "debian",
+        "password": "Lab-guest-" + secrets.token_hex(4),
+    }
+    finished(3, t[3], ok(api(3, "POST", "/vms?wait=false", spec, t[3]))["task_id"])
+    if ok(api(3, "GET", "/vms/hmvm", token=t[3]))["state"] != "active":
+        ok(api(3, "POST", "/vms/hmvm/start", token=t[3]))
+    # cloud-init installs qemu-guest-agent from the network: minutes.
+    wait("hmvm's guest agent", lambda: _agent_answers(3, "hmvm"), timeout=900, every=15)
+    ok(api(3, "POST", "/ha/hmvm/enable", {"node": names[3], "monitoring": True}, t[3]), 201)
+    assert ok(api(3, "GET", "/ha/hmvm", token=t[3]))["monitoring"] is True
+    time.sleep(45)  # a round of the monitor (30 s) sees the agent answer: from then on it may reset the VM
+    panic = {
+        "execute": "guest-exec",
+        "arguments": {
+            "path": "/bin/sh",
+            "arg": ["-c", "sysctl -w kernel.panic=0; echo 1 > /proc/sys/kernel/sysrq; echo c > /proc/sysrq-trigger"],
+        },
+    }
+    try:
+        on(3, "virsh", "qemu-agent-command", "hmvm", json.dumps(panic))
+    except subprocess.CalledProcessError:  # an agent that refuses guest-exec: the same through the keyboard
+        on(3, "virsh", "send-key", "hmvm", "KEY_LEFTALT", "KEY_SYSRQ", "KEY_C")
+    began = time.monotonic()
+    wait("hmvm's agent silent", lambda: not _agent_answers(3, "hmvm"), timeout=60, every=5)
+
+    def reset():
+        action = ok(api(3, "GET", "/ha/hmvm", token=t[3])).get("last_action") or ""
+        return "reset" in action and action
+
+    try:
+        action = wait("hmvm reset by its node", reset, timeout=300, every=10)
+    except AssertionError:
+        print(
+            on(
+                3,
+                "sh",
+                "-c",
+                "journalctl -u hyperlite --no-pager | grep -E 'HA monitoring|ha_monitor|Traceback' | tail -25",
+            )
+        )
+        raise
+    print(f"[lab] hmvm reset {time.monotonic() - began:.0f} s after its kernel panicked: {action}")
+    assert ok(api(3, "GET", "/vms/hmvm", token=t[3]))["state"] == "active"  # in place: no failover
+    wait("hmvm's guest agent after the reset", lambda: _agent_answers(3, "hmvm"), timeout=300, every=10)
+    ok(api(3, "DELETE", "/ha/hmvm", token=t[3]))
+    ok(api(3, "POST", "/vms/hmvm/stop?force=true", token=t[3]))
+    wait("hmvm stopped", lambda: ok(api(3, "GET", "/vms/hmvm", token=t[3]))["state"] == "stopped")
+    ok(api(3, "DELETE", "/vms/hmvm?confirm=true", token=t[3]))

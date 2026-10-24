@@ -177,3 +177,24 @@ def test_monitoring_is_set_through_the_api_and_off_by_default(client, auth_heade
     )
     ha.disable_protection("web", "root")
     assert ha.monitoring("web") == {"enabled": False, "resets": []}  # dropped with the protection
+
+
+def test_what_a_hung_guest_receives_is_no_activity_of_its_own():
+    class Counted:
+        def __init__(self):
+            self.received = 0
+
+        def XMLDesc(self, flags=0):
+            return "<domain><devices><disk><target dev='vda'/></disk><interface><target dev='vnet0'/></interface></devices></domain>"
+
+        def blockStats(self, dev):
+            return (5, 0, 7, 0, 0)
+
+        def interfaceStats(self, dev):
+            # rx_bytes, rx_packets, rx_errs, rx_drop, tx_bytes, tx_packets, tx_errs, tx_drop (the guest's side)
+            return (self.received * 60, self.received, 0, 0, 0, 3, 0, 0)
+
+    domain = Counted()
+    before = ha_monitor._io(domain)
+    domain.received += 50  # the network's broadcasts still reach it
+    assert ha_monitor._io(domain) == before == (12, 3)
