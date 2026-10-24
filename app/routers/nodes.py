@@ -6,7 +6,7 @@ import re
 import threading
 
 import libvirt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -45,6 +45,20 @@ router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$")
 
+# A host driven over SSH from this node, with no Hyperlite of its own (one controller, nodes over SSH), is deprecated:
+# a node joins a cluster of equal nodes instead, as on Proxmox VE, with no controller to lose. Its routes keep working
+# for as long as API v1 lasts, and go with v2 (docs/api.md, "Deprecated").
+DEPRECATED_SINCE = "@1792800000"  # RFC 9745: 2026-10-24
+SSH_HOSTS_DOC = "https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/cluster-failover.md"
+
+
+def _deprecated(response: Response):
+    response.headers["Deprecation"] = DEPRECATED_SINCE
+    response.headers["Link"] = f'<{SSH_HOSTS_DOC}>; rel="deprecation"'
+
+
+SSH_HOST_ROUTE = {"deprecated": True, "dependencies": [Depends(_deprecated)]}
+
 
 async def _require(name):
     try:
@@ -69,7 +83,7 @@ class NodeTest(BaseModel):
     ssh_port: int = Field(22, ge=1, le=65535)
 
 
-@router.post("/test")
+@router.post("/test", **SSH_HOST_ROUTE)
 def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
     """Check that a machine can be registered (SSH trust plus a QEMU/KVM libvirt) without
     registering it, so the add-node form can say what is wrong before submitting."""
@@ -109,7 +123,7 @@ def _connection_failure(raw):
     return "The connection failed: the details are in the audit log."
 
 
-@router.get("/cluster-pubkey")
+@router.get("/cluster-pubkey", **SSH_HOST_ROUTE)
 def get_cluster_key(user: dict = Depends(require_role("admin"))):
     """Public key to install in ~/.ssh/authorized_keys of the remote node before
     registering it, displayed in the UI so it can be copied and pasted."""
@@ -130,7 +144,7 @@ def _refuse_own_name(name):
         raise HTTPException(status_code=422, detail=f"'{name}' is this node's own name: choose another one")
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, **SSH_HOST_ROUTE)
 def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     if not NAME_RE.match(payload.name):
         raise HTTPException(status_code=422, detail="Invalid node name (letters/digits/-/., 2-63 characters)")
@@ -139,6 +153,10 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
         check_address(payload.hostname, payload.ssh_user)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
+    logger.warning(
+        "%s is registered as a host driven over SSH, which is deprecated: install Hyperlite on it and join the cluster",
+        payload.name,
+    )
     try:
         node = register_node(payload.name, payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     except RuntimeError as e:
@@ -160,7 +178,7 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     return node
 
 
-@router.get("/config-copy")
+@router.get("/config-copy", **SSH_HOST_ROUTE)
 def config_copy_status(user: dict = Depends(require_role("admin"))):
     """When the configuration was last copied to each node (see app/core/config_copy.py)."""
     from app.core import config_copy
@@ -168,7 +186,7 @@ def config_copy_status(user: dict = Depends(require_role("admin"))):
     return config_copy.status()
 
 
-@router.post("/config-copy")
+@router.post("/config-copy", **SSH_HOST_ROUTE)
 def config_copy_now(user: dict = Depends(require_role("admin"))):
     """Copy the configuration to every online node now, whatever changed."""
     from app.core import config_copy

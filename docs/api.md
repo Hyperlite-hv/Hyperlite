@@ -40,6 +40,16 @@ answering midway ends the download with an error rather than a shorter file.
 Inside v1 a change is only ever an addition (a route, an optional field, a documented new value); anything else waits
 for a v2, served next to v1.
 
+### Deprecated
+
+A deprecated route works as before for as long as v1 lasts and is not in v2. It is marked `deprecated` in the API's
+description (`/docs`, `docs/api/openapi-v1.json`) and answers with a `Deprecation` header (RFC 9745, the date it was
+deprecated) and a `Link` to what replaces it.
+
+| Since | Routes | Instead |
+|---|---|---|
+| 2026-10-24 | Hosts driven over SSH from one node: `POST /nodes`, `POST /nodes/test`, `GET /nodes/cluster-pubkey`, `GET` and `POST /nodes/config-copy` | A node joins the cluster (`POST /cluster/join`); a site across a WAN, one view over several sites (#656) |
+
 Every object a list gives can also be read alone, with the same fields: `GET /storage/{pool}?node=`,
 `GET /storage/{pool}/volumes/{volume}`, `GET /pools/{id}`, `GET /groups/{id}`, `GET /acl/{id}`,
 `GET /acl/custom-roles/{id}`, `GET /auth/users/{username}`, `GET /backup-groups/{id}`, `GET /ha/{vm}` (404 when there

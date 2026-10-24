@@ -56,6 +56,7 @@ function AddNodeDrawer({ open, onClose, onAdded }) {
       <button type="button" className="nx-btn" disabled={busy || !valid} onClick={runTest}>{t("nd.test")}</button>
       <button type="button" className="nx-btn nx-btn--primary" disabled={busy || !valid} onClick={add}>{busy ? t("nd.testing") : t("nd.testAdd")}</button>
     </>}>
+      <div className="nx-bn" data-tone="warning" role="note"><span className="nx-bn-t">{t("nd.deprecated")}</span></div>
       <ol className="nx-steps-list">
         <li>{t("nd.s1")}</li>
         <li>{t("nd.s2")}</li>
@@ -108,6 +109,7 @@ function ConfigCopyCard({ nodes }) {
   return (
     <Card title={t("cfc.title")} flush actions={<button type="button" className="nx-btn nx-btn--sm" disabled={busy} onClick={now}><CopyCheck size={14} aria-hidden="true" />{t("cfc.now")}</button>}>
       <p className="nx-f-h" style={{ margin: "0 var(--space-4) var(--space-3)" }}>{t("cfc.help")} <code className="nx-mono">/usr/lib/hyperlite/scripts/hyperlite-promote</code></p>
+      <div className="nx-bn" data-tone="warning" role="note" style={{ margin: "0 var(--space-4) var(--space-3)" }}><span className="nx-bn-t">{t("cfc.deprecated")}</span></div>
       <TableWrap>
         <table className="nx-table">
           <thead><tr><th scope="col">{t("nd.node")}</th><th scope="col">{t("cfc.last")}</th></tr></thead>
