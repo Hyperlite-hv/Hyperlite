@@ -425,6 +425,25 @@ and the checks that need no file (the name, an upload's size, a VM that has the 
 audit log, the tasks and `?node=`. Sharing an ISO with another node (`app/core/iso_share.py`, over SSH) moves with the
 cluster domain.
 
+**The VM domain (proposed, 2026-10-24).** Every change to a VM goes through libvirt with a connection that may write,
+and the API will keep a read-only one: more than a hundred call sites (`app/routers/vms/`, `app/core/vm_builder.py`,
+`app/core/vm_hardware_opts.py`, `app/core/cloudinit_edit.py`, `app/core/guest_agent.py`), plus the callers outside the
+routes (the scheduled jobs, the inactive VMs' cleanup, the start at boot, maintenance). As for the networks and the
+pools, an operation names the VM and gives checked fields; the daemon reads the definition itself and writes the change,
+never XML from the API. It moves in four parts, each in its own pull request:
+
+| Part | What moves | Operations |
+|---|---|---|
+| VMs, part 1: power | Start, shut down, stop, reboot, reset, suspend, resume, libvirt's autostart flag (`lifecycle.py`, the cleanup, the start at boot, the jobs), and the guest agent's commands (`app/core/guest_agent.py`: an agent command needs a connection that may write) | `vm.power`, `vm.autostart`, `vm.agent` |
+| VMs, part 2: a VM's definition | Processors, memory, options, notes and tags, advanced hardware, the devices (disks, CD-ROM, interfaces, their VLANs), the firewall filter, the hook script, the name (`settings.py`, `hardware_opts.py`, `devices.py`, `runtime.py`, `firewall.py`, `hookscript.py`, `rename.py`) | `vm.set_*`, `vm.attach`, `vm.detach`, `vm.rename`, by field |
+| VMs, part 3: creation and deletion | A VM's definition written from its checked specification (`vm_builder`), its disks (the image check of the disks domain included), its cloud-init medium, its DHCP reservations (`app/core/network_alloc.py`), clones, templates and linked clones, the deletion with its disks | `vm.create`, `vm.clone`, `vm.delete`, `vm.template` |
+| VMs, part 4: snapshots | Create, revert and delete a snapshot (`snapshots.py`) | `vm.snapshot_*` |
+
+What stays elsewhere: a migration crosses two nodes and moves with the cluster domain; the consoles and the tunnel with
+the consoles; HA's own calls (`app/core/ha*.py`) are moved with HA's owner through #298, onto the operations of part 1
+and part 3. Another node's VM (`?node=` naming a node registered over SSH) keeps its connection from the API until the
+cluster domain, as for the pools.
+
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of
 its own (`systemd-run`, `app/daemon/update_job.py`), as the update watchdog runs: the job keeps going through both
