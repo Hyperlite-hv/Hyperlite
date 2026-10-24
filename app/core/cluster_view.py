@@ -10,6 +10,10 @@ Each row says which node holds it ("on"), so that its detail, its log or its can
 Outside a cluster nothing changes: the lists are this node's own.
 """
 
+import csv
+import heapq
+import http.client
+import io
 import json
 import logging
 import urllib.parse
@@ -126,6 +130,99 @@ def merge(local, answers, key, reverse=True, limit=None):
         rows += [{**r, "on": name} for r in body if isinstance(r, dict)] if isinstance(body, list) else []
     rows.sort(key=lambda r: (r.get(key) is not None, r.get(key) or ""), reverse=reverse)
     return rows[:limit] if limit else rows
+
+
+# ---- The CSV exports of the whole cluster ----
+#
+# An export is complete, never capped (app/core/csv_export.py): each member's own export is read while it arrives and
+# merged with this node's rows, newest first, so the cluster's never has to fit in memory either.
+
+EXPORT_READ_TIMEOUT_S = 60  # between two reads of a member's export
+UNREACHABLE_HEADER = "Hyperlite-Unreachable"  # the members that did not answer, as the lists' "unreachable"
+
+
+class _MemberExport:
+    """A member's CSV export: its header, then its rows in the order of the caller's header."""
+
+    def __init__(self, name, lines, close=lambda: None):
+        self.name, self.close = name, close
+        self._reader = csv.reader(lines)
+        self.columns = next(self._reader, None) or []
+
+    def rows(self, header):
+        # By column name: a member on another version may have its columns in another order, or one fewer.
+        index = [self.columns.index(c) if c in self.columns else None for c in header]
+        try:
+            for row in self._reader:
+                yield [row[i] if i is not None and i < len(row) else "" for i in index] + [self.name]
+        except (OSError, http.client.HTTPException, csv.Error) as e:
+            # The download ends with an error: an export missing a member's end is never passed off as complete.
+            logger.warning("%s stopped answering during an export: %s", self.name, e)
+            raise PeerError(f"{self.name} stopped answering during the export: {e}") from None
+
+
+def _open_export(node, username, path):
+    """The member's export of `path` (a _MemberExport), or None when it does not answer it."""
+    from app.core import peer_https
+
+    try:
+        token = peer_auth.ticket_for(node, username)
+    except peer_auth.NoTicket as e:
+        raise PeerError(f"{node['name']} cannot be called in {username}'s name: {e}") from None
+    try:
+        answer = peer_https.stream(node, token, "/api/v1" + path, EXPORT_READ_TIMEOUT_S, CONNECT_TIMEOUT_S)
+    except peer_https.Unavailable as e:
+        logger.debug("%s: export over SSH (%s)", node["name"], e)
+    else:
+        if answer.status != 200:
+            answer.close()
+            return None
+        return _MemberExport(node["name"], answer.lines, answer.close)
+    # Over SSH the answer comes back whole: only when the member cannot be called over HTTPS.
+    status, body = rolling_update_call(node, username, "GET", path, None, timeout=SEND_WRITE_TIMEOUT_S)
+    return _MemberExport(node["name"], io.StringIO(body)) if status == 200 and isinstance(body, str) else None
+
+
+def gather_exports(username, path, params):
+    """Every other member's CSV export of GET path?params for `username`, opened in parallel: ([_MemberExport],
+    [names that did not answer]). The caller closes them (merged_export does)."""
+    nodes = members()
+    if not nodes:
+        return [], []
+    query = urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, "")})
+    full = f"{path}?{query}" if query else path
+    seen_down = node_health.down(nodes)
+
+    def open_one(node):
+        if node["name"] in seen_down:
+            return node["name"], None
+        try:
+            return node["name"], _open_export(node, username, full)
+        except Exception as e:  # unreachable, timed out: the export says so
+            logger.info("%s did not answer %s: %s", node["name"], path, e)
+            return node["name"], None
+
+    exports, missing = [], []
+    with ThreadPoolExecutor(max_workers=min(8, len(nodes))) as pool:
+        for name, export in pool.map(peer_auth.carry(open_one), nodes):
+            if export is None:
+                missing.append(name)
+            else:
+                exports.append(export)
+    return exports, missing
+
+
+def merged_export(local_rows, exports, header, key):
+    """This node's rows and the members' exports as one list of rows, newest first on the column `key`, each ending
+    with the member that holds it. Every export is closed once read, or when the download stops."""
+    k = header.index(key)
+    me = self_node.name()
+    sources = [([*r, me] for r in local_rows)] + [e.rows(header) for e in exports]
+    try:
+        yield from heapq.merge(*sources, key=lambda r: str(r[k] or ""), reverse=True)
+    finally:
+        for e in exports:
+            e.close()
 
 
 # ---- Requests about another member's guests or history ----
