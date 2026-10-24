@@ -363,7 +363,9 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Storage, part 2a: the libvirt pools of the storage routes on this node: create (directory, NFS, SMB, iSCSI, LVM), rename, delete, with the SMB credentials file, the iSCSI CHAP secret and the LVM thin pool (`storage.pool_create`, `storage.pool_rename`, `storage.pool_delete`; the daemon writes a pool's definition itself from checked fields, `app/core/storage_pools.py`) | done |
 | Storage, part 2b: the volumes of the storage routes' libvirt pools (`storage.volume_create`, `storage.volume_delete`; the daemon writes a volume's definition from its checked name and size and never deletes one a VM uses). A VM's own disks (resize, move, snapshots) move with the VM domain | done |
 | Storage, part 2c: what the storage routes read that needs root or a connection that may write: the LVM report of a group (`storage.lvm_volumes`) and a pool's refresh (`storage.pool_refresh`; `virStoragePoolRefresh` is refused on libvirt's read-only connection). The ZFS listings need neither (`/dev/zfs` is open to every user) | done |
-| Disks (four parts, below), VMs, containers, cluster, consoles; then backups | next: disks, part 1 |
+| Disks, part 1: the libraries (below) | done |
+| Disks, part 2: a VM's disk (below) | next |
+| VMs, containers, cluster, consoles; then backups | |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -417,8 +419,10 @@ pvedaemon copies it into the storage. Hyperlite does the same. The API streams t
 `/var/lib/hyperlite/spool`, a directory it owns, on the libraries' own file system, so storing one is a rename, not a
 second copy of gigabytes. `disk.library_store` takes that file's name in the spool, never a path. It checks the name
 again, refuses an ISO that would replace another, moves the file into the library, gives it the owner and mode QEMU
-needs, and refreshes the pool that lists it. The spool is emptied of anything older than a day at start-up. Until step
-4, the API still runs as root and the spool is only a directory: nothing changes for the user.
+needs, and refreshes the pool that lists it. The daemon moves a spool entry into a root-only staging directory before it
+checks it (a regular file with one link), so the API cannot have a link stored, nor swap the entry between the check and
+the move. The spool is emptied of anything older than a day at start-up. Until step 4, the API still runs as root and
+the spool is only a directory: nothing changes for the user.
 
 **What the API keeps.** It keeps listing the libraries (their directories made readable to the API's group at step 4)
 and the checks that need no file (the name, an upload's size, a VM that has the ISO in its drive). It also keeps the
