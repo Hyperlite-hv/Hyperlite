@@ -129,15 +129,17 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=422, detail=f"resource_type must be one of: {', '.join(perm.RESOURCE_TYPES)}")
     if not perm.role_exists(payload.role):
         raise HTTPException(status_code=422, detail=f"Unknown role: {payload.role}")
-    if payload.resource_type in ("storage", "network"):
+    if payload.resource_type in ("storage", "network", "backup_store"):
         from app.core import statd
 
-        behind = statd.members_without("acl_storage_network")
+        behind = statd.members_without(
+            "acl_backup_store" if payload.resource_type == "backup_store" else "acl_storage_network"
+        )
         if behind:
             raise HTTPException(
                 status_code=409,
                 detail=f"{', '.join(behind)} still {'runs' if len(behind) == 1 else 'run'} a version that does not know "
-                "assignments on a storage pool or a network: assign it once every node is updated",
+                f"assignments on a {payload.resource_type.replace('_', ' ')}: assign it once every node is updated",
             )
     # A right given to a name nobody has yet would go to whoever is created under it later.
     if payload.subject_type == "user" and not account_service.get(payload.subject_id):
