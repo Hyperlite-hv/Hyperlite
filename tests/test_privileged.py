@@ -25,6 +25,8 @@ def _named_operations():
         names |= set(re.findall(r'_daemon\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         names |= set(re.findall(r'_pool_work\(\s*\w+,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         names |= set(re.findall(r'run_in_threadpool\(\s*privileged\.run,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
+        # The hardware routes' _apply(user, name, action, detail, "op", ...) (app/routers/vms/hardware_opts.py).
+        names |= set(re.findall(r'_apply\(\s*\w+,\s*\w+,\s*"[a-z_]+",\s*[^,]+,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
     return names
 
 
@@ -38,6 +40,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"disk.library_store", "disk.library_rename", "disk.library_delete", "disk.ova_extract"} <= named
     assert {"disk.resize", "disk.move", "disk.cancel"} <= named
     assert {"vm.power", "vm.autostart", "vm.pre_stop", "vm.agent_ipv4"} <= named
+    assert {"vm.set_resources", "vm.set_limits", "vm.set_cpu_pinning", "vm.set_disk_options", "vm.set_machine"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 

@@ -137,9 +137,10 @@ def test_the_xml_is_written_read_back_and_removed():
 
 
 @pytest.fixture()
-def api(client, auth_headers, monkeypatch):
+def api(client, auth_headers, monkeypatch, daemon_libvirt):
     conn = FakeConn()
     monkeypatch.setattr(settings, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon pins the VM, in this process in the tests
     return {"client": client, "headers": auth_headers("admin1"), "conn": conn}
 
 
