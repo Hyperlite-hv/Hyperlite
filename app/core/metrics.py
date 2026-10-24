@@ -314,6 +314,27 @@ def latest_load():
         return _latest["load"]
 
 
+# VM uuid -> (monotonic time, all its disks on a shared pool): asked every SHARED_EVERY_S at most (pool lookups).
+_shared = {}
+SHARED_EVERY_S = 300
+
+
+def _on_shared_storage(conn, domain):
+    """Whether every disk of the VM is on a shared pool, so that load balancing may move it without copying its disks
+    (docs/design/drs.md, 3.3 and 8): the check HA makes, cached a few minutes."""
+    from app.core.libvirt_utils import uses_shared_storage
+
+    uuid, now = domain.UUIDString(), time.monotonic()
+    known = _shared.get(uuid)
+    if known is None or now - known[0] > SHARED_EVERY_S:
+        try:
+            known = (now, bool(uses_shared_storage(conn, conn, domain)))
+        except libvirt.libvirtError:
+            known = (now, False)
+        _shared[uuid] = known
+    return known[1]
+
+
 def _record_load(now, load, vms):
     import os
 
@@ -375,6 +396,7 @@ def _collect_tick():
                 "vcpus": s.get("vcpus"),
                 "mem_used_mb": s["mem_used_mb"],
                 "mem_total_mb": s["mem_total_mb"],
+                "shared": _on_shared_storage(conn, domain),
             }
         _record_load(now, load, vm_loads)
         pool_rows += _pool_rows("local", conn)
