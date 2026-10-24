@@ -97,18 +97,6 @@ def vlan_aware_off(args, ctx):
     return {"bridge": bridge}
 
 
-class VmArgs(Args):
-    vm: str = Field(min_length=1, max_length=NAME)
-
-
-@operation("network.vlan_apply_vm", VmArgs)
-@_refusals
-def vlan_apply_vm(args, ctx):
-    """A running VM's VLANs set on its bridge ports. Returns the errors, one per port (each such port then carries no
-    traffic)."""
-    return {"errors": bridge_vlan.apply_vm(args.vm)}
-
-
 @operation("network.vlan_boot", NoArgs)
 @_refusals
 def vlan_boot(args, ctx):
