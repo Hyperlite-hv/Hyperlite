@@ -4,7 +4,6 @@ claim sent as a string, an IdP error shown to anyone, a ZFS range in a snapshot 
 import importlib
 
 import pytest
-from fastapi import HTTPException
 
 from app.core import ha_fencing, secrets_crypto, sso
 
@@ -30,10 +29,12 @@ def test_a_group_claim_sent_as_a_string_is_one_group(claim, role):
 
 @pytest.mark.parametrize("name", ["%zz", "a,b", "pre@x", "a/b", " x"])
 def test_a_snapshot_name_with_zfs_syntax_is_refused(name):
-    with pytest.raises(HTTPException) as err:
-        snapshots._refuse_zfs_syntax(name)
-    assert err.value.status_code == 422
-    snapshots._refuse_zfs_syntax("before-update-2026")
+    from app.core import vm_snapshots
+
+    with pytest.raises(vm_snapshots.SnapshotError) as err:
+        vm_snapshots.check_existing_name(name)
+    assert err.value.kind == "refused"  # 422
+    vm_snapshots.check_existing_name("before-update-2026")
 
 
 def test_an_unreachable_identity_provider_is_said_without_its_error(root_client, database, monkeypatch):
