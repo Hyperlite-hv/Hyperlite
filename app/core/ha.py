@@ -219,11 +219,20 @@ def sync_protected_vms():
         try:
             try:
                 domain = conn.lookupByName(row["vm_name"])
-            except libvirt.libvirtError:
+            except libvirt.libvirtError as e:
+                if e.get_error_code() != libvirt.VIR_ERR_NO_DOMAIN:
+                    # libvirt not answering (restarted, connection lost) proves nothing about the VM.
+                    logger.warning("HA %s not synchronized: %s", row["vm_name"], e)
+                    continue
                 disable_protection(row["vm_name"], "system")
                 log_action("system", "ha_auto_disable", row["vm_name"], "failed", "VM not found on the protected node")
                 continue
-            if not uses_shared_storage(conn, conn, domain):
+            try:
+                shared = uses_shared_storage(conn, conn, domain)
+            except libvirt.libvirtError as e:
+                logger.warning("HA %s not synchronized: %s", row["vm_name"], e)
+                continue
+            if not shared:
                 disable_protection(row["vm_name"], "system")
                 log_action("system", "ha_auto_disable", row["vm_name"], "failed", "storage no longer shared")
                 continue
@@ -316,12 +325,15 @@ def _attempt_ssh_fence(node_name, vm_name):
     if not pids:
         return True, "no qemu process found for this VM (already stopped)"
 
-    subprocess.run(
-        ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), ssh_target, "kill -9 " + " ".join(pids)],
-        capture_output=True,
-        text=True,
-        timeout=12,
-    )
+    try:
+        subprocess.run(
+            ["ssh", *ssh_opts, "-p", str(node["ssh_port"]), ssh_target, "kill -9 " + " ".join(pids)],
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
+    except (subprocess.SubprocessError, OSError) as e:
+        return False, f"kill not sent (PID {','.join(pids)}): {e}"
     remaining, err2 = _find_pids()
     if remaining is None:
         return False, f"kill sent (PID {','.join(pids)}) purpose verification impossible: {err2}"
@@ -369,8 +381,13 @@ def recover(vm_name, target_node, username):
         )
 
     try:
-        ejected = start_on(row, target_node)
+        # A stopped copy of this very VM there is what an earlier attempt left: used again, not refused.
+        ejected = start_on(row, target_node, reuse_stopped=True)
     except libvirt.libvirtError as e:
+        try:
+            forget_on(row, target_node)  # nothing left defined there to refuse the next attempt
+        except Exception:
+            logger.warning("HA %s: its stopped copy on %s not undefined", vm_name, target_node, exc_info=True)
         raise RuntimeError(f"Recovery failed: {e}") from e
     note = f" (CD-ROM emptied: {', '.join(ejected)})" if ejected else ""
     log_action(username, "ha_recover", vm_name, "success", f"{row['node']} -> {target_node}{note}")
