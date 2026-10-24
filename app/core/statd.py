@@ -159,9 +159,9 @@ def ages():
     return {name: age for name, (age, _) in latest().items()}
 
 
-# What this node's database accepts that a version of 1.0 did not: an assignment on a storage pool or a network
-# (app/core/permissions.py, RESOURCE_TYPES).
-FEATURES = ("acl_storage_network",)
+# What this node's database accepts that an older version did not: an assignment on a storage pool or a network, then
+# on a backup store (app/core/permissions.py, RESOURCE_TYPES).
+FEATURES = ("acl_storage_network", "acl_backup_store")
 
 
 def members_without(feature):

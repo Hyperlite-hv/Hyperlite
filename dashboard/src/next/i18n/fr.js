@@ -3335,6 +3335,7 @@ export default {
   "cfs.domainName.backup_stores": "Magasins de sauvegardes",
   "cfs.domainName.backup_store_keys": "Clés des magasins de sauvegardes",
   "cfs.domainName.backup_store_syncs": "Copies des magasins de sauvegardes",
+  "cfs.domainName.backup_remotes": "Clusters distants des magasins de sauvegardes",
   "cfs.domainName.network_firewall": "Pare-feu des réseaux",
   "cfs.domainName.backup_jobs": "Tâches de sauvegarde",
   "cfs.domainName.backup_group_jobs": "Sauvegardes de groupe",

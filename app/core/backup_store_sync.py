@@ -51,10 +51,16 @@ def validate(payload):
     source, target = payload.get("source"), payload.get("target")
     if not source or not target or source == target:
         raise SyncError("Choose a source store and another store to copy it into")
+    from app.core import backup_remotes
+
     try:
         target_row = backup_stores.get(target)
-        backup_stores.get(source)
-    except backup_stores.StoreError as e:
+        remote = backup_remotes.split_source(source)
+        if remote:  # another cluster's store, "<remote>:<store>"
+            backup_remotes.get(remote[0])
+        else:
+            backup_stores.get(source)
+    except (backup_stores.StoreError, backup_remotes.RemoteError) as e:
         raise SyncError(e.message, e.status) from None
     if target_row.get("copy_of") != source:
         raise SyncError(f"The store '{target}' is not a copy of '{source}': make the target as a copy of the source")
@@ -70,7 +76,9 @@ def validate(payload):
         ("keep_months", 1, 240),
     ):
         value = payload.get(key)
-        if value is None and key != "retention_count":
+        if value is None and key == "retention_count":
+            value = 7  # as a backup schedule's default
+        if value is None:
             policy[key] = None
             continue
         if not isinstance(value, int) or not low <= value <= high:
@@ -121,10 +129,15 @@ def run_job(job):
             raise SyncError(f"The copy job '{job['name']}' is already running", 409)
         _running.add(job["id"])
     try:
+        from app.core import backup_remotes
+
         try:
-            source = backup_stores.open_store(job["source"], raw=True)
+            remote = backup_remotes.split_source(job["source"])
+            source = (
+                backup_remotes.RemoteStore(*remote) if remote else backup_stores.open_store(job["source"], raw=True)
+            )
             target = backup_stores.open_store(job["target"], raw=True)
-        except backup_stores.StoreError as e:
+        except (backup_stores.StoreError, backup_remotes.RemoteError) as e:
             raise SyncError(e.message, e.status) from None
         policy = backup_retention.policy_of(job)
         here = {(vm, stamp): manifest for vm, stamp, manifest in target.backups()}
@@ -142,6 +155,8 @@ def run_job(job):
             for key in sorted(here.keys() - keep):
                 target.delete_backup(*key)
                 removed += 1
+        if remote:
+            source.close()
         return {"copied": copied, "chunks": chunks, "removed": removed, "kept": len(target.backups())}
     finally:
         with _running_lock:

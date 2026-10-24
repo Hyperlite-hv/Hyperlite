@@ -63,6 +63,10 @@ def set_schedule(vm_name, frequency, time, target_dir, retention_count, jours, s
     )
 
 
+def list_remotes():
+    return registry.backups().sync.list_remotes()
+
+
 def list_stores():
     return registry.backups().sync.list_stores()
 
