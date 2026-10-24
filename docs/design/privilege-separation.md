@@ -365,7 +365,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Storage, part 2c: what the storage routes read that needs root or a connection that may write: the LVM report of a group (`storage.lvm_volumes`) and a pool's refresh (`storage.pool_refresh`; `virStoragePoolRefresh` is refused on libvirt's read-only connection). The ZFS listings need neither (`/dev/zfs` is open to every user) | done |
 | Disks, part 1: the libraries (below) | done |
 | Disks, part 2: a VM's disk (below): `disk.resize`, `disk.move` (one call that waits, its progress written into the task) and `disk.cancel` (the copy is stopped in the daemon, which keeps the copies running by task); the replication checkpoints dropped by the daemon (`checkpoints.drop`), the chain forgotten by the API (`checkpoints.forget`) | done |
-| VMs, containers, cluster, consoles; then backups | next: VMs |
+| VMs, part 1: power (below): `vm.power` (start, shutdown and reboot through the guest agent or ACPI, stop, reset), `vm.autostart`, `vm.pre_stop` (the hook script run as root), `vm.agent_ipv4` (an agent's question needs a connection that may write) | done |
+| VMs, parts 2 to 4; containers, cluster, consoles; then backups | next: VMs, part 2 |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
