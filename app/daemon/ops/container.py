@@ -5,7 +5,7 @@ keep who may ask, the container's lock, its records and their answers."""
 
 import functools
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.daemon.registry import Args, DaemonError, operation
 
@@ -103,3 +103,51 @@ def rename(args, ctx):
 
     with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
         return container_ops.rename(qemu, conn, args.container, args.new_name)
+
+
+# --- Part 2: creation and clone (app/core/container_create.py) ---
+
+
+class CreateArgs(Args):
+    # The API's own model of POST /containers, checked again here; its unknown fields are refused.
+    spec: dict
+    check_only: bool = False
+
+    @field_validator("spec")
+    @classmethod
+    def _as_sent(cls, spec):
+        from app.core.container_create import ContainerCreate
+
+        return ContainerCreate.model_validate(spec, extra="forbid")
+
+
+# One call that waits: an image is pulled and unpacked, a filesystem copied and configured.
+@operation("container.create", CreateArgs)
+@_container
+def create(args, ctx):
+    from app.core import container_create, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        return container_create.create(qemu, conn, args.spec, check_only=args.check_only)
+
+
+class CloneArgs(ContainerArgs):
+    new_name: str = Field(min_length=1, max_length=NAME)
+    # An application container's process, as the API recorded it at its creation: the clone runs the same.
+    app: dict | None = None
+
+    @field_validator("app")
+    @classmethod
+    def _process(cls, app):
+        from app.core.container_create import AppSpec
+
+        return None if app is None else AppSpec.model_validate(app, extra="forbid").model_dump()
+
+
+@operation("container.clone", CloneArgs)
+@_container
+def clone(args, ctx):
+    from app.core import container_create, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        return container_create.clone(qemu, conn, args.container, args.new_name, args.app)
