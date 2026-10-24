@@ -457,6 +457,28 @@ export async function deleteStoreSync(id) {
 export async function runStoreSync(id) {
   return realFetch(`/backup-store-syncs/${id}/run`, { method: "POST" });
 }
+// Other clusters whose stores are copied here (their certificate pinned, a reader's token).
+export async function fetchBackupRemotes() {
+  return realList("/backup-remotes");
+}
+export async function probeBackupRemote(address, port) {
+  return realFetch("/backup-remotes/probe", { method: "POST", ...jsonBody({ address, port }) });
+}
+export async function createBackupRemote(payload) {
+  return realFetch("/backup-remotes", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteBackupRemote(name) {
+  return realFetch(`/backup-remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function fetchRemoteStores(name) {
+  return realList(`/backup-remotes/${encodeURIComponent(name)}/stores`);
+}
+export async function fetchThisNodeFingerprint() {
+  return realFetch("/backup-remotes/this-node");
+}
+export async function unlockBackupStore(name, key) {
+  return realFetch(`/backup-stores/${encodeURIComponent(name)}/unlock`, { method: "POST", ...jsonBody({ key }) });
+}
 export async function deleteBackup(id, on) {
   return realFetch(`/backups/${id}${backupQs("on", on, "confirm=true")}`, { method: "DELETE" });
 }
