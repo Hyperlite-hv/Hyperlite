@@ -368,7 +368,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | VMs, part 1: power (below): `vm.power` (start, shutdown and reboot through the guest agent or ACPI, stop, reset), `vm.autostart`, `vm.pre_stop` (the hook script run as root), `vm.agent_ipv4` (an agent's question needs a connection that may write) | done |
 | VMs, part 2a: processors, memory, limits, CPU pinning, advanced hardware (`vm.set_resources`, `vm.set_limits`, `vm.set_cpu_pinning`, `vm.set_disk_options`, `vm.set_boot_order`, `vm.set_balloon`, `vm.set_machine`) | done |
 | VMs, part 2b: a VM's devices (`app/core/vm_devices.py`): disks (`vm.attach_disk`, the image check included; `vm.detach_disk`), interfaces with their VLANs (`vm.set_interface`, `vm.attach_interface`, `vm.detach_interface`; the daemon sets the ports itself, so `network.vlan_apply_vm` is gone), host devices (`vm.attach_hostdev`, `vm.detach_hostdev`), CD-ROM drives (`vm.set_cdrom`, `vm.eject_cdrom`, an ISO of the daemon's own library) | done |
-| VMs, parts 2c to 4; containers, cluster, consoles; then backups | next: VMs, part 2c |
+| VMs, part 2c: a VM's firewall (`vm.set_firewall`, the nwfilter built from checked rules, `app/core/vm_firewall.py`), hook script (`vm.set_hookscript`, checked again in the root library), name (`vm.rename`, with the files named after it, `app/core/vm_rename.py`) and cloud-init drive (`vm.cloudinit_write`: written private to root, the API keeping the state) | done |
+| VMs, parts 3 and 4; containers, cluster, consoles; then backups | next: VMs, part 3 |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
