@@ -433,6 +433,33 @@ covers the need.
 balancer…). A dry run only previews; a real run shows the exact commands first. Runs appear in **Tasks** with their
 output and can be cancelled.
 
+### From a node's shell: `hyperlite-admin`
+
+Every node has `hyperlite-admin`, which drives the node and the cluster through the same API as the dashboard, as
+`qm`, `pct` and `pvesh` do on Proxmox VE: the same rights, the same tasks, the same audit log.
+
+```bash
+hyperlite-admin vm list --cluster                 # every member's VMs
+hyperlite-admin vm start web1 --node node2        # node2 starts it; the command waits for its task
+hyperlite-admin vm snapshot create web1 before-upgrade
+hyperlite-admin vm migrate web1 node3
+hyperlite-admin task list status==running
+hyperlite-admin get /storage/default/volumes      # any route of the API, as pvesh does
+hyperlite-admin api /vms/web1/migrate             # what that route takes
+```
+
+- As root it needs no password or token: the node signs it in as `root@<node>`, an administrator named after the node,
+  which is what the audit log shows. To act as an account instead, with its rights, give one of its API tokens with
+  `--token-file` or `HYPERLITE_TOKEN`.
+- `hyperlite-admin <group>` lists a group's commands (`vm`, `ct`, `storage`, `network`, `backup`, `task`, `cluster`,
+  `node`). Fields a command does not name are given as `key=value` (text), `key:=json` (a number, `true`, a list) or
+  `key==value` (a query parameter).
+- A long operation waits for its task and prints its log; `--no-wait` prints the task instead, and `--timeout 10m`
+  stops waiting without stopping the task.
+- A deletion, a restore, a network stopped, a maintenance or an update asks first; a script adds `--yes`.
+- `--json` prints the API's answer as it is, for `jq`. Exit codes: 0 done, 1 refused or failed, 2 wrong usage, 3 the
+  task failed, 4 still running at `--timeout`.
+
 ## 14. Users, roles and permissions
 
 **Users and roles** (administrators):

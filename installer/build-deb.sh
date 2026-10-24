@@ -68,6 +68,12 @@ log "adding the workstation client (cli/dist, not tracked by Git)"
 mkdir -p "$CODE/cli"  # its sources are not shipped, so the copy loop did not create it
 cp -r "$REPO_DIR/cli/dist" "$CODE/cli/dist"
 
+# The node's administration CLI, and the API description its `api` command reads (docs/ is not shipped otherwise): the
+# binary and the API come from this one commit, so the description is the node's own contract.
+log "adding hyperlite-admin (cli/admin-dist) and docs/api/openapi-v1.json"
+install -D -m 755 "$REPO_DIR/cli/admin-dist/hyperlite-admin" "$STAGE/usr/bin/hyperlite-admin"
+install -D -m 644 "$REPO_DIR/docs/api/openapi-v1.json" "$CODE/docs/api/openapi-v1.json"
+
 # What a node used to build for itself (docs/design/clean-package.md): hyperlite-cfs, the ready Python environment
 # and the wheels it is made of, from installer/build-runtime.sh (CI: the debian:13 container).
 RUNTIME_DIR="${HYPERLITE_RUNTIME:-$REPO_DIR/installer/runtime}"
