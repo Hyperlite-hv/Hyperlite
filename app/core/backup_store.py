@@ -58,7 +58,12 @@ _ZSTD_LEVEL = 1
 
 
 class StoreError(Exception):
-    """The store cannot be used: not a store, another format, a share that does not keep access times."""
+    """The store cannot be used: not a store, another format, a share that does not keep access times. `message`:
+    the sentence for the person who asked."""
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
 
 
 class DamagedChunk(Exception):

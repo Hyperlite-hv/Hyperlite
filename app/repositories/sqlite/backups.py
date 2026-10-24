@@ -21,6 +21,7 @@ GROUP_COLUMNS = (
     "keep_weeks",
     "keep_months",
     "active",
+    "store",
 )
 
 
@@ -73,11 +74,16 @@ class SqliteBackupStore:
     def get(self, backup_id):
         return _one("SELECT * FROM backups WHERE id = ?", (backup_id,))
 
-    def create(self, vm_name, job_id, path, mode, created_at, task_id):
+    def create(self, vm_name, job_id, path, mode, created_at, task_id, store=None):
         return _write(
-            "INSERT INTO backups (vm_name, job_id, path, mode, created_at, status, task_id) VALUES (?, ?, ?, ?, ?, 'running', ?)",
-            (vm_name, job_id, path, mode, created_at, task_id),
+            "INSERT INTO backups (vm_name, job_id, path, mode, created_at, status, task_id, store) "
+            "VALUES (?, ?, ?, ?, ?, 'running', ?, ?)",
+            (vm_name, job_id, path, mode, created_at, task_id, store),
         ).lastrowid
+
+    def set_path(self, backup_id, path):
+        """A backup into a store gets its directory once the store named it."""
+        _write("UPDATE backups SET path = ? WHERE id = ?", (path, backup_id))
 
     def find_by_path(self, path):
         return _one("SELECT * FROM backups WHERE path = ?", (path,))
@@ -141,15 +147,17 @@ class SqliteBackupStore:
     def get_schedule(self, vm_name):
         return _one("SELECT * FROM backup_jobs WHERE vm_name = ?", (vm_name,))
 
-    def upsert_schedule(self, vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run):
+    def upsert_schedule(
+        self, vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run, store=None
+    ):
         _write(
             "INSERT INTO backup_jobs (vm_name, frequency, time, target_dir, retention_count, keep_days, "
-            "keep_weeks, keep_months, active, next_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?) "
+            "keep_weeks, keep_months, active, next_run, store) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) "
             "ON CONFLICT(vm_name) DO UPDATE SET frequency=excluded.frequency, time=excluded.time, "
             "target_dir=excluded.target_dir, retention_count=excluded.retention_count, keep_days=excluded.keep_days, "
             "keep_weeks=excluded.keep_weeks, keep_months=excluded.keep_months, active=1, "
-            "next_run=excluded.next_run",
-            (vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run),
+            "next_run=excluded.next_run, store=excluded.store",
+            (vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run, store),
         )
 
     def delete_schedule(self, vm_name):
@@ -163,6 +171,24 @@ class SqliteBackupStore:
             "UPDATE backup_jobs SET last_run = ?, next_run = ? WHERE id = ?",
             (last, next_run, job_id),
         )
+
+    # ---- Backup stores (app/core/backup_stores.py) ----
+
+    def list_stores(self):
+        return _all("SELECT * FROM backup_stores ORDER BY name")
+
+    def get_store(self, name):
+        return _one("SELECT * FROM backup_stores WHERE name = ?", (name,))
+
+    def save_store(self, name, pool, directory, store_id, encrypted, created_by, created_at):
+        _write(
+            "INSERT INTO backup_stores (name, pool, directory, store_id, encrypted, created_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, pool, directory, store_id, encrypted, created_by, created_at),
+        )
+
+    def delete_store(self, name):
+        _write("DELETE FROM backup_stores WHERE name = ?", (name,))
 
     # ---- Grouped jobs ----
 

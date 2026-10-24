@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import backup_use, cluster_view, maintenance, site_recovery, vm_locks
+from app.core import backup_stores, backup_use, cluster_view, maintenance, site_recovery, vm_locks
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -101,6 +101,21 @@ async def list_vm_backups(
 
 class BackupRequest(BaseModel):
     target_dir: str | None = None
+    # A backup store (GET /backup-stores) instead of a directory: every disk type, only new chunks written.
+    store: str | None = None
+
+
+def _store_for(name, target_dir):
+    """The store a backup or a schedule names, checked: it exists and this node reaches it; never with a directory."""
+    if not name:
+        return None
+    if target_dir:
+        raise HTTPException(status_code=422, detail="Choose a backup store or a directory, not both")
+    try:
+        backup_stores.open_store(name)
+    except backup_stores.StoreError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from None
+    return name
 
 
 def _target_dir(path, user, kept=None):
@@ -127,11 +142,13 @@ def create_backup(
     _: None = Depends(_on_vm_node),
 ):
     target_dir = _target_dir(payload.target_dir, user)
-    refuse_vm_with_block_disks(name, "A backup")
-    try:
-        check_space_for(name, target_dir)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from None
+    store = _store_for(payload.store, target_dir)
+    if not store:  # a store takes every disk type, and only what it lacks
+        refuse_vm_with_block_disks(name, "A backup")
+        try:
+            check_space_for(name, target_dir)
+        except RuntimeError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from None
 
     # Reuses the vm.snapshot privilege (protecting a VM's state, same spirit)
     # rather than introducing yet another dedicated privilege.
@@ -139,7 +156,7 @@ def create_backup(
 
     def job():
         try:
-            run_backup(name, target_dir, username=user["username"], claim=claim)
+            run_backup(name, target_dir, username=user["username"], claim=claim, store=store)
         except Exception:
             logger.debug(
                 "Ignored exception in job()", exc_info=True
@@ -251,6 +268,7 @@ class ScheduleRequest(BaseModel):
     keep_days: int | None = Field(None, ge=1, le=366)
     keep_weeks: int | None = Field(None, ge=1, le=260)
     keep_months: int | None = Field(None, ge=1, le=120)
+    store: str | None = None  # a backup store instead of a directory
 
 
 # A schedule is kept by the node that runs it, the VM's (not replicated): read and removed there, as it is set there.
@@ -296,6 +314,7 @@ def set_backup_schedule(
     current = backup_service.schedule_of(name)
     # Empty: the default directory (backup_groups.validate_target).
     target = _target_dir(payload.target_dir, user, current and current.get("target_dir")) or ""
+    store = _store_for(payload.store, target)
     next_run = _next_run(payload.frequency, payload.time)
     backup_service.set_schedule(
         name,
@@ -307,6 +326,7 @@ def set_backup_schedule(
         payload.keep_weeks,
         payload.keep_months,
         next_run.isoformat(),
+        store,
     )
     log_action(user["username"], "set_backup_schedule", name, "success", f"{payload.frequency} at {payload.time}")
     return backup_service.schedule_of(name)
@@ -319,3 +339,77 @@ def delete_backup_schedule(
     backup_service.delete_schedule(name)
     log_action(user["username"], "delete_backup_schedule", name, "success")
     return {"message": "Schedule deleted"}
+
+
+# ---- Backup stores (app/core/backup_stores.py, docs/design/backup-store.md) ----
+
+
+class StoreCreate(BaseModel):
+    name: str = Field(description="The store's name")
+    pool: str = Field(description="A storage pool of files (directory, NFS, SMB) of this node")
+    directory: str | None = Field(None, description="Its directory inside the pool (default: hyperlite-store)")
+
+
+def _store_error(e):
+    return HTTPException(status_code=e.status, detail=e.message)
+
+
+@router.get("/backup-stores")
+def list_backup_stores(user: dict = Depends(get_current_user)):
+    """Every store of the cluster, with what this node sees of each (reachable, space, backups)."""
+    return listing([backup_stores.describe(r) for r in backup_service.list_stores()])
+
+
+@router.get("/backup-stores/{name}")
+def get_backup_store(name: str, user: dict = Depends(get_current_user)):
+    try:
+        return backup_stores.describe(backup_stores.get(name))
+    except backup_stores.StoreError as e:
+        raise _store_error(e) from None
+
+
+@router.post("/backup-stores", status_code=201)
+def create_backup_store(payload: StoreCreate, user: dict = Depends(require_role("admin"))):
+    """Make a store in a directory of a storage pool, or take over the store already there."""
+    try:
+        row = backup_stores.create(payload.name, payload.pool, payload.directory, user["username"])
+    except backup_stores.StoreError as e:
+        log_action(user["username"], "create_backup_store", payload.name, "failed", e.message)
+        raise _store_error(e) from None
+    log_action(user["username"], "create_backup_store", payload.name, "success", f"pool {payload.pool}")
+    return backup_stores.describe(row)
+
+
+@router.delete("/backup-stores/{name}")
+def delete_backup_store(name: str, user: dict = Depends(require_role("admin"))):
+    """Forget a store no job uses; its directory and backups stay on the pool."""
+    try:
+        backup_stores.remove(name)
+    except backup_stores.StoreError as e:
+        raise _store_error(e) from None
+    log_action(user["username"], "delete_backup_store", name, "success")
+    return {"message": f"Backup store '{name}' removed; its files stay on the pool"}
+
+
+@router.post("/backup-stores/{name}/gc", status_code=202)
+def collect_store_garbage(name: str, user: dict = Depends(require_role("admin"))):
+    """Free the chunks no backup uses any more, in the background (a large store takes a while)."""
+    try:
+        backup_stores.open_store(name)
+    except backup_stores.StoreError as e:
+        raise _store_error(e) from None
+    task_id = create_task("backup_store_gc", name, node=None, username=user["username"])
+
+    def job():
+        try:
+            result = backup_stores.collect_garbage(name)
+        except Exception as e:
+            finish_task(task_id, "failed", str(e))
+            log_action(user["username"], "backup_store_gc", name, "failed", str(e))
+            return
+        finish_task(task_id, "succeeded")
+        freed = result["freed_bytes"] / 1024**3
+        log_action(user["username"], "backup_store_gc", name, "success", f"{result['removed']} chunks, {freed:.1f} GiB")
+
+    threading.Thread(target=job, daemon=True).start()
+    return {"task_id": task_id}

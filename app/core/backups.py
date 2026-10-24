@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -374,7 +375,7 @@ def _read_vm_config(src_dir):
     return config
 
 
-def run_backup(vm_name, target_dir=None, job_id=None, username="system", claim=None):
+def run_backup(vm_name, target_dir=None, job_id=None, username="system", claim=None, store=None):
     """Run a backup (choosing hot or cold according to the real state of the VM) and
     return the id of the `backups` row created. Synchronous: called from a
     thread by the endpoint (manual backup) or by the scheduler.
@@ -384,10 +385,14 @@ def run_backup(vm_name, target_dir=None, job_id=None, username="system", claim=N
     waits its turn instead of failing.
 
     `claim`: the vm_locks claim the endpoint took on the VM; without one the backup takes its own (VmBusy when
-    another operation is running on the VM). Released when the backup ends."""
+    another operation is running on the VM). Released when the backup ends.
+
+    `store`: the name of a backup store (app/core/backup_stores.py) to back up into, instead of a directory."""
     if claim is None:
         claim = vm_locks.claim(vm_name, "a backup")
     with claim, _backup_lock:
+        if store:
+            return _run_store_backup(vm_name, store, job_id, username)
         return _run_backup_locked(vm_name, target_dir, job_id, username)
 
 
@@ -479,21 +484,92 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
             log_action(username, "backup_vm", vm_name, "failed", msg)
             shutil.rmtree(dest_dir, ignore_errors=True)
             raise
-        # Retention is applied HERE, in the same place for manual and scheduled backups, and on ALL the backups of
-        # this VM (not only those of the same job_id): a retention configured for a VM caps the total number of its
-        # backups. It does nothing when no backup_jobs row exists for this VM (no policy, no limit). Outside the try
-        # above: an error in it is reported and the backup just made stays as it is (it used to be marked failed and
-        # deleted).
-        try:
-            job_row = _store().get_schedule(vm_name)
-            if job_row:
-                _apply_retention(vm_name, backup_retention.policy_of(job_row))
-        except Exception as e:
-            logger.exception("Retention of %s's backups failed", vm_name)
-            log_action(username, "backup_retention", vm_name, "failed", str(e)[:300])
+        _retention_after(vm_name, username)
         return backup_id
     finally:
         conn.close()
+
+
+def _retention_after(vm_name, username):
+    """Retention is applied after each backup, in the same place for manual and scheduled backups, and on ALL the
+    backups of this VM (not only those of the same job_id): a retention configured for a VM caps the total number of
+    its backups. It does nothing when no backup_jobs row exists for this VM (no policy, no limit). An error in it is
+    reported and the backup just made stays as it is (it used to be marked failed and deleted)."""
+    try:
+        job_row = _store().get_schedule(vm_name)
+        if job_row:
+            _apply_retention(vm_name, backup_retention.policy_of(job_row))
+    except Exception as e:
+        logger.exception("Retention of %s's backups failed", vm_name)
+        log_action(username, "backup_retention", vm_name, "failed", str(e)[:300])
+
+
+def _run_store_backup(vm_name, store_name, job_id, username):
+    """A backup into a backup store (docs/design/backup-store.md): every disk type, running or stopped, only the
+    chunks the store lacks written. Its task and its row exist from the start, so a store that cannot be reached is a
+    failed task, audited and notified, as any failed backup."""
+    from app.core import backup_store_vm, backup_stores
+
+    task_id = create_task("backup_vm", vm_name, node=None, username=username)
+    conn = open_conn()
+    backup_id = None
+    try:
+        try:
+            domain = conn.lookupByName(vm_name)
+        except libvirt.libvirtError:
+            finish_task(task_id, "failed", f"VM '{vm_name}' not found")
+            raise RuntimeError(f"VM '{vm_name}' not found") from None
+        mode = "live" if domain.isActive() else "cold"
+        backup_id = _store().create(vm_name, job_id, "", mode, _now().isoformat(), task_id, store=store_name)
+        try:
+            store = backup_stores.open_store(store_name)
+            with tempfile.TemporaryDirectory() as tmp:
+                _write_vm_config(domain, Path(tmp))
+                files = {"vm-config.json": (Path(tmp) / "vm-config.json").read_bytes()}
+            directory = backup_store_vm.backup_vm(
+                domain, store, mode, progress=lambda pct: update_task_progress(task_id, pct), files=files
+            )
+            _store().set_path(backup_id, str(directory))
+            manifest = json.loads((directory / "manifest.json").read_text())
+            total_size = sum(d["size"] for d in manifest["disks"].values())
+            _store().mark_done(backup_id, total_size, None)
+            finish_task(task_id, "succeeded")
+            kind = "live" if mode == "live" else "offline"
+            log_action(
+                username,
+                "backup_vm",
+                vm_name,
+                "success",
+                f"{kind}, {total_size / 1024**3:.1f} GiB of disk into the store {store_name}",
+            )
+        except Exception as e:
+            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+            _store().mark_failed(backup_id, msg)
+            finish_task(task_id, "failed", msg)
+            log_action(username, "backup_vm", vm_name, "failed", msg)
+            raise
+        _retention_after(vm_name, username)
+        return backup_id
+    finally:
+        conn.close()
+
+
+def remove_backup_files(path):
+    """Delete a backup's files: its own directory (and its VM's, once empty), or its index and manifest in a store,
+    whose chunks go at the store's next garbage collection."""
+    from app.core import backup_store_vm
+
+    if not path:
+        return
+    found = backup_store_vm.store_backup_of(path)
+    if found:
+        store, vm_uuid, stamp = found
+        with contextlib.suppress(FileNotFoundError):
+            store.delete_backup(vm_uuid, stamp)
+        return
+    shutil.rmtree(path, ignore_errors=True)
+    with contextlib.suppress(OSError):  # <target>/<vm>/<time>: the VM's directory goes with its last backup
+        Path(path).parent.rmdir()
 
 
 def _backup_images(src_dir):
@@ -623,10 +699,16 @@ def _restore_overwrite(conn, domain, images, task_id):
         for _dest, temp in staged:
             temp.unlink(missing_ok=True)
         raise
+    return _swap_staged(staged, task_id)
+
+
+def _swap_staged(staged, task_id):
+    """Put each staged image (dest, temp) in place of its disk by renames, the previous disks kept until the last
+    swap succeeded and put back if one fails."""
     swapped = []  # (dest, previous)
     try:
         for dest, temp in staged:
-            previous = dest.with_name(f".{dest.name}.pre-restore-{token}")
+            previous = dest.with_name(temp.name.replace(".restore-", ".pre-restore-", 1))
             if dest.exists():
                 os.replace(dest, previous)
                 swapped.append((dest, previous))
@@ -645,6 +727,52 @@ def _restore_overwrite(conn, domain, images, task_id):
             previous.unlink(missing_ok=True)
     update_task_progress(task_id, 90)
     return [str(dest) for dest, _ in staged]
+
+
+def _restore_overwrite_from_store(domain, found, devs, task_id):
+    """Replace the disks of a stopped VM with a backup in a store. A file disk is written next to itself under a
+    temporary name and swapped in once every one is complete, as _restore_overwrite does; a block device (a zvol, an
+    LVM volume, a LUN) cannot be swapped and is written in place, after every file disk was staged, as Proxmox
+    overwrites a zvol."""
+    from app.core import backup_store_vm
+
+    store, vm_uuid, stamp = found
+    disks = {d.dev: d for d in backup_store_vm.disks_of(domain)}
+    if set(disks) != set(devs):
+        raise RuntimeError(
+            f"The VM's disks ({', '.join(disks) or 'none'}) no longer match the backup's ({', '.join(devs)}): nothing "
+            "was restored. Restore to a new VM instead."
+        )
+    sizes = {dev: store.index_of(vm_uuid, stamp, dev).size for dev in devs}
+    files = [disks[d] for d in devs if not disks[d].block]
+    blocks = [disks[d] for d in devs if disks[d].block]
+    needed = {}
+    for disk in files:
+        folder = Path(disk.source).parent
+        needed.setdefault(os.stat(folder).st_dev, [folder, 0])[1] += sizes[disk.dev]
+    for folder, size in needed.values():
+        disk_space.ensure_room(folder, size, "this restore")
+    token = uuid.uuid4().hex[:8]
+    staged, span = [], 65 / len(devs)
+    try:
+        for i, disk in enumerate(files):
+            dest = Path(disk.source)
+            temp = dest.with_name(f".{dest.name}.restore-{token}")
+            staged.append((dest, temp))
+            backup_store_vm.restore_disk(store, vm_uuid, stamp, disk.dev, temp, disk.format)
+            update_task_progress(task_id, int(20 + (i + 1) * span))
+            _copy_owner_and_mode(dest, temp)
+            with open(temp, "rb") as f:
+                os.fsync(f.fileno())
+        checkpoints.release(domain)  # the disks no longer hold what the replication bitmap described
+        for i, disk in enumerate(blocks):
+            backup_store_vm.restore_disk(store, vm_uuid, stamp, disk.dev, disk.source)
+            update_task_progress(task_id, int(20 + (len(files) + i + 1) * span))
+    except BaseException:
+        for _dest, temp in staged:
+            temp.unlink(missing_ok=True)
+        raise
+    return [*_swap_staged(staged, task_id), *(d.source for d in blocks)]
 
 
 def restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None):
@@ -677,7 +805,16 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
         task_id = create_task("restore_backup", target_name, node=None, username=username)
         new_disk_paths = []
         try:
-            images = _backup_images(src_dir)
+            from app.core import backup_store_vm
+
+            # A backup in a store (docs/design/backup-store.md): its disks are indexes of chunks, written by
+            # backup_store_vm.restore_disk; its vm-config.json, NVRAM and TPM state are files of its directory.
+            found = backup_store_vm.store_backup_of(src_dir) if row.get("store") else None
+            if found:
+                manifest = json.loads((src_dir / "manifest.json").read_text())
+                images = [(dev, None) for dev in manifest["disks"]]
+            else:
+                images = _backup_images(src_dir)
             if not images:
                 raise RuntimeError("No disk file found in this backup")
             if mode == "overwrite":
@@ -690,7 +827,10 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 if domain.isActive():
                     raise RuntimeError("Stop the VM before restoring over it")
                 _check_before_restore(row, task_id, username)
-                written = _restore_overwrite(conn, domain, images, task_id)
+                if found:
+                    written = _restore_overwrite_from_store(domain, found, [dev for dev, _ in images], task_id)
+                else:
+                    written = _restore_overwrite(conn, domain, images, task_id)
                 refresh_pools_for_paths(conn, written)
                 restored = backup_integrity.restore_firmware_state(src_dir, domain)
                 finish_task(task_id, "succeeded")
@@ -725,7 +865,12 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                     "choose another network"
                 ) from None
             _check_before_restore(row, task_id, username)
-            disk_space.ensure_room(_IMAGES_DIR, sum(_allocated_bytes(src) for _dev, src in images), "this restore")
+            if found:
+                store, vm_uuid, stamp = found
+                needed = sum(store.index_of(vm_uuid, stamp, dev).size for dev, _ in images)
+            else:
+                needed = sum(_allocated_bytes(src) for _dev, src in images)
+            disk_space.ensure_room(_IMAGES_DIR, needed, "this restore")
 
             span = 60 / len(images)
             for i, (_dev, src) in enumerate(images):
@@ -734,7 +879,11 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 if dest.exists():
                     raise RuntimeError(f"A disk file '{dest.name}' already exists")
                 new_disk_paths.append(dest)
-                _convert(src, dest, "qcow2", task_id, 20 + i * span, span)
+                if found:
+                    backup_store_vm.restore_disk(store, vm_uuid, stamp, _dev, dest, "qcow2")
+                    update_task_progress(task_id, int(20 + (i + 1) * span))
+                else:
+                    _convert(src, dest, "qcow2", task_id, 20 + i * span, span)
 
             seed = _reseed_iso(config, row["vm_name"], new_name)
             if seed:
@@ -850,7 +999,7 @@ def _apply_retention(vm_name, policy):
         if row["id"] not in keep:
             if backup_use.holder(row["id"]):
                 continue  # being restored or read: the next run of the schedule removes it
-            shutil.rmtree(row["path"], ignore_errors=True)
+            remove_backup_files(row["path"])
             _store().delete(row["id"])
 
 
@@ -889,7 +1038,9 @@ def run_due_schedules(now):
         try:
             # Retention is now applied INSIDE run_backup() itself (see its body), which also
             # covers the manual backups of this VM, not only those of the scheduler.
-            run_backup(job["vm_name"], job["target_dir"], job_id=job["id"], username="scheduler")
+            run_backup(
+                job["vm_name"], job["target_dir"], job_id=job["id"], username="scheduler", store=job.get("store")
+            )
         except vm_locks.VmBusy:
             continue  # another operation runs on this VM: the job stays due and is retried next tick
         except Exception as e:
@@ -910,6 +1061,9 @@ def _scheduler_loop():
 
             backup_groups.run_due(now)
             _verify_due_backup()
+            from app.core import backup_stores
+
+            backup_stores.collect_due()
             db_health.succeeded("backup-scheduler")
         except Exception as e:
             logger.exception("Backup scheduler tick failed")

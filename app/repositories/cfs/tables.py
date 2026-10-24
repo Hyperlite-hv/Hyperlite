@@ -66,6 +66,7 @@ TABLES = {
     "container_apps": {},
     # Storage and network
     "shared_pools": {},
+    "backup_stores": {},
     "network_firewall": {},
     # Protection and automation
     "backup_jobs": {"volatile": {"last_run"}},
