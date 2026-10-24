@@ -415,11 +415,10 @@ pools' files (owned by root or by QEMU, mode 0600). It moves in four parts, each
 **An upload goes through a spool, as on Proxmox VE.** pveproxy writes an upload into a temporary file it owns, and
 pvedaemon copies it into the storage. Hyperlite does the same. The API streams the upload into
 `/var/lib/hyperlite/spool`, a directory it owns, on the libraries' own file system, so storing one is a rename, not a
-second copy of gigabytes. `disk.library_store` takes that file's name in the spool, never a
-path. It checks the name again, refuses an ISO that would replace another, moves the file into the library, gives it
-the owner and mode QEMU needs, and refreshes the pool that lists it. The spool is emptied of
-anything older than a day at start-up. Until step 4, the API still runs as root and the spool is only a directory:
-nothing changes for the user.
+second copy of gigabytes. `disk.library_store` takes that file's name in the spool, never a path. It checks the name
+again, refuses an ISO that would replace another, moves the file into the library, gives it the owner and mode QEMU
+needs, and refreshes the pool that lists it. The spool is emptied of anything older than a day at start-up. Until step
+4, the API still runs as root and the spool is only a directory: nothing changes for the user.
 
 **What the API keeps.** It keeps listing the libraries (their directories made readable to the API's group at step 4) and
 the checks that need no file (the name, an upload's size, a VM that has the ISO in its drive). It also keeps the audit log, the tasks and
