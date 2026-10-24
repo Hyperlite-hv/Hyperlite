@@ -8,6 +8,8 @@ import libvirt
 import pytest
 from fastapi import HTTPException
 
+from app.core import disk_library
+
 creation = importlib.import_module("app.routers.vms.create")
 runtime = importlib.import_module("app.routers.vms.runtime")
 
@@ -18,15 +20,18 @@ DRIVERS = """<disk type='file' device='cdrom'><driver name='qemu' type='raw'/>
 
 
 @pytest.fixture()
-def domain(monkeypatch, tmp_path):
+def domain(monkeypatch, tmp_path, daemon_libvirt):
     domain = Mock()
     domain.XMLDesc.return_value = f"<domain><devices>{INSTALLER}{DRIVERS}</devices></domain>"
     domain.isActive.return_value = True
     conn = Mock()
     conn.lookupByName.return_value = domain
     monkeypatch.setattr(runtime, "open_conn", lambda: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon changes the drives, in this process in the tests
     monkeypatch.setattr(runtime, "log_action", Mock())
+    monkeypatch.setattr("app.core.privileged.log_action", Mock())
     monkeypatch.setattr(runtime, "ISOS_DIR", tmp_path)
+    monkeypatch.setattr(disk_library, "ISOS", tmp_path)  # the library the daemon reads
     (tmp_path / "virtio.iso").touch()
     return domain
 

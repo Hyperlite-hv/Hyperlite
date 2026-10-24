@@ -224,7 +224,7 @@ class ApiDomain(FakeDomain):
 
 
 @pytest.fixture()
-def api(monkeypatch):
+def api(monkeypatch, daemon_libvirt):
     from app.routers.vms import devices
 
     dom = ApiDomain()
@@ -249,7 +249,8 @@ def api(monkeypatch):
             pass
 
     monkeypatch.setattr(devices, "open_conn", lambda *a, **k: Conn())
-    monkeypatch.setattr(devices, "generate_mac", lambda conn: "52:54:00:00:00:02")
+    daemon_libvirt(Conn())  # hyperlite-daemon changes the interfaces, in this process in the tests
+    monkeypatch.setattr("app.core.network_alloc.generate_mac", lambda conn: "52:54:00:00:00:02")
     monkeypatch.setattr(bridge_vlan, "filters_vlans", lambda bridge, node=None: bridge == "br0")
     return dom
 
