@@ -8,7 +8,7 @@ import libvirt
 import pytest
 from fastapi import HTTPException
 
-from app.core import vm_builder
+from app.core import vm_builder, vm_create
 
 creation = importlib.import_module("app.routers.vms.create")
 
@@ -27,18 +27,18 @@ def test_a_disk_is_never_created_over_an_existing_file(tmp_path):
     assert (tmp_path / "web-2.qcow2").read_bytes() == b"the data disk of web"
 
 
-def test_the_creation_refuses_a_name_whose_disk_file_exists(monkeypatch, tmp_path):
+def test_the_creation_refuses_a_name_whose_disk_file_exists(monkeypatch, tmp_path, daemon_libvirt):
     conn = Mock()
     conn.lookupByName.side_effect = libvirt.libvirtError("no domain")
-    monkeypatch.setattr(creation, "open_conn", lambda: conn)
-    monkeypatch.setattr(creation, "IMAGES_DIR", tmp_path)
-    monkeypatch.setattr(creation, "ensure_default_pool", lambda conn: None)
-    monkeypatch.setattr(creation.firmware, "check_choice", lambda conn, choice: None)
-    monkeypatch.setattr(creation, "validate_vm_resources", lambda *a: [])
+    daemon_libvirt(conn)
+    monkeypatch.setattr(vm_create, "IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(vm_create, "ensure_default_pool", lambda conn: None)
+    monkeypatch.setattr(vm_create.firmware, "check_choice", lambda conn, choice: None)
+    monkeypatch.setattr(vm_create, "validate_vm_resources", lambda *a: [])
     monkeypatch.setattr(creation, "log_action", Mock())
     monkeypatch.setattr(creation, "create_task", lambda *a, **k: "t")
     created = []
-    monkeypatch.setattr(creation, "create_disk", lambda *a, **k: created.append(a))
+    monkeypatch.setattr(vm_create, "create_disk", lambda *a, **k: created.append(a))
     (tmp_path / "web-2.qcow2").write_bytes(b"the data disk of web")
     payload = creation.VMCreate(
         name="web-2", vcpu=1, memory_mb=512, disks=[{"size_gb": 1}], username="debian", password="secret1"
