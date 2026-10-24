@@ -41,6 +41,10 @@ class MoveError(Exception):
         self.status = status
 
 
+class Pivoted(MoveError):
+    """A failure after the running VM was switched to the destination: neither file may be removed."""
+
+
 def _file_pool(conn, pool_name):
     # Picked from the pools libvirt lists, the requested name only compared: nothing the user typed is handed to
     # libvirt, and the pool XML parsed below always comes from a pool that already exists.
@@ -168,7 +172,16 @@ def _mirror_live(domain, target_dev, dest, progress, stop=None):
     # Some libvirt versions pivot the live disk purpose leave the persistent definition on the old file.
     config_el = _disk_config_path(domain, target_dev)
     if config_el is None or config_el.find("source").get("file") != dest:
-        _point_config_at(domain, target_dev, dest)
+        try:
+            _point_config_at(domain, target_dev, dest)
+        except Exception as e:
+            # The VM already writes to `dest`: it must never be removed now, nor the source, which lacks what was
+            # written since the pivot. Said with both paths, for an administrator to point the definition at dest.
+            raise Pivoted(
+                f"The VM now runs on {dest}, but its definition still names its old disk: point its disk "
+                f"{target_dev} at {dest} before it is stopped, both files are kept ({e})",
+                500,
+            ) from e
 
 
 def _convert_cold(source, dest, progress, stop=None):
@@ -228,6 +241,8 @@ def move(domain, target_dev, how, delete_source, progress=lambda pct: None, stop
         else:
             _convert_cold(src, dest, progress, stop)
             _point_config_at(domain, target_dev, dest)
+    except Pivoted:
+        raise  # the VM writes to dest now: removing it would lose everything written since
     except libvirt.libvirtError as e:
         Path(dest).unlink(missing_ok=True)
         raise MoveError(f"Move failed: {describe_exception(e)}", 500) from e

@@ -1,0 +1,1 @@
+- Retention never counts nor deletes a backup imported from another site's storage, which may be the only copy left of its data; a failure after a live disk move switched the VM to its new file keeps both files and says what to do, where the new file was deleted under the running VM.
