@@ -588,3 +588,24 @@ def create(args, ctx):
             return vm_create.create(conn, args.spec, pending=frozenset(args.pending), check_only=args.check_only)
         except vm_create.CreateError as e:
             raise DaemonError(e.kind, e.detail) from e
+
+
+# --- Part 3b: a VM of this node deleted (app/core/vm_delete.py) ---
+
+
+class DeleteArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("vm.delete", DeleteArgs)
+@_libvirt
+def delete(args, ctx):
+    """The stopped VM, its disks but those another VM uses or reads through or that no storage pool holds, the drives
+    Hyperlite generated for it and its DHCP reservations (vm_delete.delete). {"kept": {path: reason}}."""
+    from app.core import libvirt_utils, vm_delete
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            return {"kept": vm_delete.delete(conn, args.vm)}
+        except vm_delete.DeleteError as e:
+            raise DaemonError(e.kind, e.detail) from e
