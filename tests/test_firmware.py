@@ -10,7 +10,7 @@ import libvirt
 import pytest
 from fastapi import HTTPException
 
-from app.core import firmware, vm_builder
+from app.core import firmware, vm_builder, vm_snapshots
 
 runtime = importlib.import_module("app.routers.vms.runtime")
 snapshots = importlib.import_module("app.routers.vms.snapshots")
@@ -172,17 +172,16 @@ def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path, d
 
 
 @pytest.mark.parametrize(("fw", "active", "refused"), [("uefi_secure", True, True), ("uefi_secure", False, False)])
-def test_a_running_uefi_vm_is_not_snapshotted_a_stopped_one_is(monkeypatch, fw, active, refused):
+def test_a_running_uefi_vm_is_not_snapshotted_a_stopped_one_is(monkeypatch, daemon_libvirt, fw, active, refused):
     domain = Mock()
     domain.XMLDesc.return_value = ET.tostring(build(fw), encoding="unicode")
     domain.isActive.return_value = active
     domain.snapshotLookupByName.side_effect = libvirt.libvirtError("none")
     conn = Mock()
     conn.lookupByName.return_value = domain
-    monkeypatch.setattr(snapshots, "open_conn", lambda: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon checks the snapshot
     monkeypatch.setattr(snapshots, "log_action", Mock())
-    monkeypatch.setattr(snapshots, "_zvol_disks_of_domain", lambda d: [])
-    monkeypatch.setattr(snapshots.iscsi, "refuse_if_iscsi", lambda d, what: None)
+    monkeypatch.setattr(vm_snapshots.iscsi, "iscsi_disks_of_domain", lambda d: [])
     monkeypatch.setattr(snapshots, "create_task", lambda *a, **k: "t1")
     monkeypatch.setattr(snapshots, "task_log", lambda *a: None)
     monkeypatch.setattr(snapshots.threading, "Thread", Mock())
