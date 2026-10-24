@@ -644,7 +644,10 @@ def this_node_certificate(user: dict = Depends(require_role("admin"))):
     """What another cluster pins to copy this one's stores: this node's HTTPS certificate fingerprint."""
     from app.core import peer_https
 
-    return {"fingerprint": peer_https.own_fingerprint()}
+    try:
+        return {"fingerprint": peer_https.own_fingerprint()}
+    except (OSError, ValueError):  # no certificate of its own (a node served over plain HTTP behind a proxy)
+        return {"fingerprint": None}
 
 
 @router.post("/backup-remotes/probe")
