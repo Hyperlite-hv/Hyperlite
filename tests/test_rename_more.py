@@ -267,9 +267,11 @@ def nets(database, monkeypatch):
     monkeypatch.setattr(network, "open_conn", lambda node=None: qemu)
     monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda: lxc)
     monkeypatch.setattr(network, "_network_summary", lambda net: {"name": net.name()})
-    monkeypatch.setattr(network, "remove_network_firewall", lambda conn, name: None)
+    monkeypatch.setattr(network, "remove_network_firewall", lambda name, user=None: None)
     applied = []
-    monkeypatch.setattr(network, "apply_network_firewall", lambda conn, name, config: applied.append((name, config)))
+    monkeypatch.setattr(
+        network, "apply_network_firewall", lambda name, config, user=None: applied.append((name, config))
+    )
     return qemu, lxc, applied
 
 

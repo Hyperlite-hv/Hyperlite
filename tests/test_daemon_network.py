@@ -1,0 +1,192 @@
+"""The network's root work in hyperlite-daemon (app/daemon/ops/network.py, docs/design/privilege-separation.md section
+13): the iptables of the network firewall and the VLANs of Linux bridges, asked for by a network's or a VM's name. The
+daemon reads the bridge and the ports itself, so the API never names an interface; the database stays the API's."""
+
+import xml.etree.ElementTree as ET
+from typing import ClassVar
+
+import libvirt
+import pytest
+
+from app.core import bridge_vlan, network_firewall, privileged
+from app.daemon.registry import DaemonError
+
+RULES = {"default_policy": "drop", "rules": [{"direction": "in", "protocol": "tcp", "port": 22, "action": "accept"}]}
+
+
+class Net:
+    def __init__(self, xml):
+        self.xml = xml
+
+    def XMLDesc(self, flags=0):
+        return self.xml
+
+
+class Domain:
+    def __init__(self, name, xml, active):
+        self.name_, self.xml, self.active = name, xml, active
+
+    def name(self):
+        return self.name_
+
+    def isActive(self):
+        return self.active
+
+    def XMLDesc(self, flags=0):
+        return self.xml
+
+
+NETS = {
+    "lan": "<network><name>lan</name><forward mode='bridge'/><bridge name='br0'/></network>",
+    "nat": "<network><name>nat</name><forward mode='nat'/><bridge name='virbr0'/></network>",
+}
+WEB_XML = (
+    "<domain><name>web</name><metadata><hl:vlans xmlns:hl='urn:hyperlite:vlan:1'>"
+    "<hl:port mac='52:54:00:00:00:01' tag='20'/></hl:vlans></metadata><devices>"
+    "<interface type='network'><mac address='52:54:00:00:00:01'/><source network='lan' bridge='br0'/>"
+    "<target dev='vnet7'/></interface></devices></domain>"
+)
+
+
+class Conn:
+    """The libvirt connection hyperlite-daemon opens itself (here, in the tests' own process)."""
+
+    domains: ClassVar[dict] = {}
+
+    def networkLookupByName(self, name):
+        if name not in NETS:
+            raise libvirt.libvirtError("no network")
+        return Net(NETS[name])
+
+    def lookupByName(self, name):
+        if name not in self.domains:
+            raise libvirt.libvirtError("no domain")
+        return self.domains[name]
+
+    def close(self):
+        pass
+
+
+@pytest.fixture()
+def daemon_libvirt(monkeypatch):
+    monkeypatch.setattr(network_firewall, "_connect", Conn)
+    monkeypatch.setattr(bridge_vlan, "_connect", Conn)
+    Conn.domains = {}
+    return Conn
+
+
+@pytest.fixture()
+def iptables(monkeypatch):
+    calls = []
+
+    class Ok:
+        returncode, stderr = 0, ""
+
+    def run(*args):
+        calls.append(args)
+        return Ok()
+
+    monkeypatch.setattr(network_firewall, "_run", run)
+    return calls
+
+
+def test_no_operation_takes_an_interface_from_the_api(daemon_libvirt, iptables):
+    """A bridge or a port named by the caller is refused: the daemon reads them from libvirt."""
+    for op, args in [
+        ("network.firewall_apply", {"network": "lan", "config": RULES, "bridge": "eth0"}),
+        ("network.firewall_remove", {"network": "lan", "bridge": "eth0"}),
+        ("network.vlan_aware_start", {"network": "lan", "bridge": "eth0"}),
+        ("network.vlan_apply_vm", {"vm": "web", "tap": "eth0"}),
+    ]:
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, **args)
+        assert e.value.kind == "invalid_arguments", op
+    assert iptables == []
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"direction": "in", "protocol": "tcp; reboot", "action": "accept"},
+        {"direction": "sideways", "protocol": "tcp", "action": "accept"},
+        {"direction": "in", "protocol": "tcp", "port": 70000, "action": "accept"},
+        {"direction": "in", "protocol": "tcp", "action": "accept", "jump": "LOG"},
+    ],
+)
+def test_a_rule_is_checked_again_by_the_daemon(daemon_libvirt, iptables, rule):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("network.firewall_apply", network="lan", config={"default_policy": "drop", "rules": [rule]})
+    assert e.value.kind == "invalid_arguments"
+    assert iptables == []
+
+
+def test_the_firewall_is_applied_on_the_bridge_the_daemon_reads(daemon_libvirt, iptables, database):
+    result = network_firewall.apply_network_firewall("lan", RULES, user="ana")
+    assert result == {"bridge": "br0", "applied_rules": 1}
+    rules = [args for args in iptables if args[0] == "-A" and args[1].startswith("HLNET")]
+    assert rules and all("br0" in args for args in rules)
+    assert network_firewall.get_network_firewall("lan") == RULES  # kept by the API, to replay after a reboot
+
+
+def test_an_unknown_network_is_refused_and_nothing_is_kept(daemon_libvirt, iptables, database):
+    with pytest.raises(network_firewall.Refused):
+        network_firewall.apply_network_firewall("nowhere", RULES)
+    assert network_firewall.get_network_firewall("nowhere")["rules"] == []
+    assert iptables == []
+
+
+def test_without_the_daemon_the_firewall_route_says_so(client, auth_headers, monkeypatch, tmp_path, database):
+    from app.routers import network
+
+    class ApiConn(Conn):
+        pass
+
+    monkeypatch.setattr(network, "open_conn", lambda *a, **k: ApiConn())
+    monkeypatch.delenv(privileged.INPROCESS_ENV)
+    monkeypatch.setenv("HYPERLITE_DAEMON_SOCKET", str(tmp_path / "none.sock"))
+    r = client.put("/networks/lan/firewall", json=RULES, headers=auth_headers("ana", "admin"))
+    assert r.status_code == 503 and "not running" in r.json()["detail"]
+    assert network_firewall.get_network_firewall("lan")["rules"] == []
+
+
+def test_a_bridge_is_made_vlan_aware_only_through_its_network(daemon_libvirt, monkeypatch):
+    started = []
+    monkeypatch.setattr(bridge_vlan, "is_linux_bridge", lambda name: name == "br0")
+    monkeypatch.setattr(bridge_vlan, "start_trial", lambda bridge, seconds=60: started.append(bridge) or "t0k")
+    assert privileged.run("network.vlan_aware_start", network="lan") == {
+        "bridge": "br0",
+        "token": "t0k",
+        "expires_in": 60,
+    }
+    for network in ("nat", "nowhere"):  # libvirt's own bridge; no such network
+        with pytest.raises(DaemonError) as e:
+            privileged.run("network.vlan_aware_start", network=network)
+        assert e.value.kind == "refused"
+    assert started == ["br0"]
+
+
+def test_a_vms_vlans_are_set_from_the_ports_the_daemon_reads(daemon_libvirt, monkeypatch):
+    applied = []
+    monkeypatch.setattr(bridge_vlan, "filters_vlans", lambda bridge, node=None: bridge == "br0")
+    monkeypatch.setattr(bridge_vlan, "apply_port", lambda tap, tag, trunks, node=None: applied.append((tap, tag)))
+    daemon_libvirt.domains = {"web": Domain("web", WEB_XML, active=True), "off": Domain("off", WEB_XML, active=False)}
+    assert privileged.run("network.vlan_apply_vm", vm="web") == {"errors": []}
+    assert applied == [("vnet7", 20)]
+    assert privileged.run("network.vlan_apply_vm", vm="off") == {"errors": []}  # the hook sets it when it starts
+    assert applied == [("vnet7", 20)]
+    with pytest.raises(DaemonError) as e:
+        privileged.run("network.vlan_apply_vm", vm="nobody")
+    assert e.value.kind == "refused"
+
+
+def test_the_service_start_sets_the_vlans_of_the_running_vms(daemon_libvirt, monkeypatch):
+    seen = []
+    monkeypatch.setattr(bridge_vlan, "boot", lambda: seen.append("boot") or [])
+    monkeypatch.setattr(bridge_vlan, "apply_running", lambda conn=None, node=None: seen.append("running") or ["x"])
+    assert privileged.run("network.vlan_boot") == {"errors": ["x"]}
+    assert seen == ["boot", "running"]
+
+
+def test_the_ports_are_read_from_the_live_definition():
+    root = ET.fromstring(WEB_XML)
+    assert bridge_vlan.interfaces_to_apply(root) == [("vnet7", "br0", 20, None)]
