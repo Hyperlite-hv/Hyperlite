@@ -101,7 +101,13 @@ goes away (#337).
   (file and paper) and never kept: with it, a backup can be read even if every node and the cluster's secrets are
   lost. Optional, offered at the store's creation.
 - **What stays readable**: the index's sizes and the manifest's VM name and dates, as PBS's; the content, the chunks'
-  digests and the NVRAM and TPM state are encrypted.
+  digests and the files of a backup (NVRAM, TPM state, vm-config.json, domain.xml) are encrypted, each file bound to
+  its backup and its name (one cannot be passed off as another's).
+- **Done (step 3, 2026-10-24)**: the key kept encrypted in the cluster's secrets (`backup_store_keys`, under `/priv`),
+  shown once as a code (base32 in groups of four) with its QR code and a file; the master key made by Hyperlite
+  (given once) or the administrator's own public key (RSA 3072 bits or more); an encrypted store taken over with its
+  key's code; a recovery tool reading a backup with the store's directory and one key only
+  (`app/core/backup_store_recover.py`, `docs/backup-store-recovery.md`).
 
 ## 7. Verification, retention, garbage collection, off-site copy
 
