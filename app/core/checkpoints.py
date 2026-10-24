@@ -57,6 +57,24 @@ def _remove_bitmap(path, name):
 def release(domain, vm_name=None):
     """Drop every checkpoint of `domain`, so libvirt allows block operations again, and record that the replication
     chain must start again. Returns the number of checkpoints dropped."""
+    dropped = drop(domain)
+    if dropped:
+        forget(vm_name or domain.name(), dropped)
+    return dropped
+
+
+def forget(vm_name, dropped):
+    """The replication chain of `vm_name` starts again: its checkpoints were dropped (by drop(), here or by
+    hyperlite-daemon, which leaves the database to the API)."""
+    from app.repositories import registry
+
+    registry.replication().sync.forget_chain(vm_name)
+    logger.info("Dropped %d replication checkpoint(s) of %s", dropped, vm_name)
+
+
+def drop(domain):
+    """The root part of release(): every checkpoint of `domain` deleted, with its bitmaps in a stopped VM's qcow2
+    files. Returns the number dropped."""
     found = domain.listAllCheckpoints() if names(domain) else []
     if not found:
         return 0
@@ -71,8 +89,4 @@ def release(domain, vm_name=None):
             checkpoint.delete(libvirt.VIR_DOMAIN_CHECKPOINT_DELETE_METADATA_ONLY)
             for path in files:
                 _remove_bitmap(path, name)
-    from app.repositories import registry
-
-    registry.replication().sync.forget_chain(vm_name or domain.name())
-    logger.info("Dropped %d replication checkpoint(s) of %s", len(found), vm_name or domain.name())
     return len(found)
