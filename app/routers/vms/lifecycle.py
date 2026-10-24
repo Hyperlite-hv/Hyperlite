@@ -4,21 +4,25 @@ import subprocess
 import threading
 import time
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import firmware, guest_agent, hookscript, lvm_storage, privileged, vm_locks, vm_records, zfs_storage
+from app.core import (
+    guest_agent,
+    hookscript,
+    privileged,
+    vm_delete,
+    vm_locks,
+    vm_records,
+)
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
-    refresh_pools_for_paths,
 )
 from app.core.security import require_vm_privilege
 from app.core.tasks import create_task
-from app.core.vm_builder import generated_drives
 from app.core.vm_meta import (
     touch_vm_activity,
 )
@@ -293,112 +297,55 @@ def restart_vm(
         conn.close()
 
 
-def _perform_vm_deletion(conn, domain, name, node=None):
-    """The real deletion sequence (disks + reserved IP + metadata), shared by
-    DELETE /vms/{name} (user confirmation) and the automatic cleanup of inactive
-    VMs (app/core/vm_cleanup.py): no divergence is possible between the two
-    paths. The caller must have ALREADY checked that the VM is inactive; this
-    function does not revalidate it. It may raise libvirt.libvirtError
-    (undefine fails), which the caller must translate.
+# Unlinking a disk of hundreds of gigabytes, on an NFS pool above all, takes longer than an ordinary operation.
+DELETE_TIMEOUT_S = 600
 
-    `node`: None = local VM (the historical behaviour, files removed through
-    the LOCAL Path.unlink()). On a REMOTE node, `conn` is a qemu+ssh://
-    connection purpose disk paths remain paths on the REMOTE FILESYSTEM: a local
-    unlink() could delete the wrong file (or nothing at all) on the local host.
-    Remote deletion therefore goes through SSH (the same cluster key as the rest,
-    see _copy_file_to_node) rather than unlink()."""
-    # Captured BEFORE the undefine (no longer queryable afterwards) for ALL the disks
-    # and ALL the interfaces, not only the first ones: a multi-disk/multi-NIC VM must
-    # not leave an orphan qcow2 file or a phantom DHCP reservation for its disks and
-    # interfaces beyond the first. (This was found when testing multi-disk cloning:
-    # the secondary disk of a deleted VM stayed on the host disk and caused a name
-    # conflict at the next clone.)
-    # The drives Hyperlite generated for THIS VM (cloud-init, and the Kickstart/autoinstall answers of VMs created
-    # before 1.0) go with it, wherever its pool put them, and never an image of the ISO library that carries the
-    # same name (vm_builder.generated_drives).
 
-    disk_paths_to_remove = []
-    # BLOCK disks (ZFS zvols, LVM logical volumes, iSCSI LUNs): source='dev', not 'file'. They are handled separately
-    # (deletion through `zfs destroy` or libvirt, not Path.unlink()), see below. Zvols are always
-    # local for now (single-node ZFS management, the same limit as
-    # create_vm/storage.py): never expected in the remote deletion path (node= towards
-    # another node).
-    zvol_paths_to_remove = []
-    ifaces_to_release = []
-    extra_undefine_flags = 0
-    try:
-        root = ET.fromstring(domain.XMLDesc())
-        extra_undefine_flags = firmware.undefine_flags(root)
-        own_drives = {path for _disk, path in generated_drives(root, name)}
-        for disk_el in root.findall(".//devices/disk"):
-            source_el = disk_el.find("source")
-            if source_el is None:
-                continue
-            if disk_el.get("type") == "block":
-                source_dev = source_el.get("dev")
-                if source_dev and disk_el.get("device") == "disk":
-                    zvol_paths_to_remove.append(source_dev)
-                continue
-            source_file = source_el.get("file")
-            if not source_file:
-                continue
-            if disk_el.get("device") == "disk" or Path(source_file) in own_drives:
-                disk_paths_to_remove.append(Path(source_file))
-        ifaces_to_release = vm_records.reservations(root)
-    except (libvirt.libvirtError, ET.ParseError):
-        logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
+def _perform_vm_deletion(conn, domain, name, node=None, username="system"):
+    """The deletion of a stopped VM (app/core/vm_delete.py: its disks but those it does not own, its generated drives,
+    its DHCP reservations, then its records), shared by DELETE /vms/{name} and the automatic clean-up of inactive VMs
+    (app/core/vm_cleanup.py), so the two never diverge. Returns {path: reason} of the disks kept.
 
-    # VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA: without this flag, undefine() simply
-    # fails as soon as one or more snapshots remain ("cannot delete inactive domain
-    # with N snapshots"), even partially deleted ones. Harmless here: the qcow2 file
-    # that held the internal snapshots is deleted right afterwards anyway (unlink
-    # below), and the VM itself is already irrevocably confirmed as deleted.
-    # A UEFI VM also takes its NVRAM and TPM state with it (see app/core/firmware.py).
-    domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA | extra_undefine_flags)
-
-    vm_records.release_addresses(conn, ifaces_to_release)
-
-    if node:
-        from app.core.cluster import get_node, node_ssh_options
-
-        remote_node = get_node(node)
-        if remote_node:
-            ssh_opts = node_ssh_options()
-            ssh_target = f"{remote_node['ssh_user']}@{remote_node['hostname']}"
-            for disk_path in disk_paths_to_remove:
-                subprocess.run(
-                    ["ssh", *ssh_opts, "-p", str(remote_node["ssh_port"]), ssh_target, "rm", "-f", str(disk_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                )
+    hyperlite-daemon deletes a VM of this node. Another node's (`conn` over qemu+ssh) is deleted over its libvirt and
+    the cluster's SSH key until the cluster domain: its disk paths are paths on that node, which a local unlink() would
+    miss, or worse. Raises DaemonError or libvirt.libvirtError, which the caller turns into an answer."""
+    if not node or node == "local":
+        keep = privileged.run("vm.delete", user=username, timeout=DELETE_TIMEOUT_S, vm=name)["kept"]
     else:
-        for disk_path in disk_paths_to_remove:
-            disk_path.unlink(missing_ok=True)
-        # Removed behind libvirt's back: without a refresh their pools kept listing them (as create and clone refresh
-        # after writing).
-        refresh_pools_for_paths(conn, disk_paths_to_remove)
-        for zvol_path in zvol_paths_to_remove:
-            # '/dev/zvol/<pool>/<name>': the pool is the 3rd segment, the name is the rest (a
-            # zvol name never contains a '/' itself, see validate_zfs_name). Best-effort: a
-            # VM already partially cleaned up (a zvol removed by hand outside Hyperlite) must
-            # not make the whole deletion fail.
-            parts = zvol_path.strip("/").split("/")
-            if len(parts) >= 4 and parts[0] == "dev" and parts[1] == "zvol":
-                try:
-                    zfs_storage.delete_zvol(parts[2], "/".join(parts[3:]))
-                except zfs_storage.ZfsError:
-                    logger.debug("Ignored exception in _perform_vm_deletion()", exc_info=True)
-    # The other block disks: a logical volume of an LVM pool goes with its VM (a thick one through libvirt, a thin one
-    # and its snapshots through lvm); an iSCSI LUN or a volume outside such a pool is not Hyperlite's to delete.
-    for dev in zvol_paths_to_remove:
-        if dev.startswith("/dev/zvol/"):
-            continue
-        try:
-            lvm_storage.delete_vm_volume(conn, dev, node)
-        except (libvirt.libvirtError, lvm_storage.LvmError):
-            logger.warning("Logical volume %s of the deleted VM %s left in place", dev, name, exc_info=True)
+        keep = _delete_on_node(conn, domain, name, node)
     vm_records.forget(name, node)
+    return keep
+
+
+def _delete_on_node(conn, domain, name, node):
+    from app.core.cluster import get_node, node_ssh_options
+
+    found = vm_delete.leftovers(domain, name)
+    # The qcow2 headers of another node's disks are not read from here: its linked disks are not looked for.
+    keep = vm_delete.kept(conn, name, found, local=False)
+    vm_delete.undefine(domain, found)
+    vm_records.release_addresses(conn, found.reservations)
+    remote = get_node(node)
+    if remote:
+        target = f"{remote['ssh_user']}@{remote['hostname']}"
+        for path in found.files:
+            if str(path) in keep:
+                continue
+            result = subprocess.run(
+                ["ssh", *node_ssh_options(), "-p", str(remote["ssh_port"]), target, "rm", "-f", str(path)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                logger.warning("Disk %s of the deleted VM %s left on %s: %s", path, name, node, result.stderr.strip())
+    found.devices = [dev for dev in found.devices if dev not in keep]
+    vm_delete.delete_logical_volumes(conn, found, name, node)
+    return keep
+
+
+def _kept_sentence(keep):
+    return "; ".join(f"disk {path} kept ({reason})" for path, reason in keep.items())
 
 
 @router.delete("/{name}")
@@ -429,14 +376,18 @@ def _delete_vm(name, confirm, node, user):
             )
 
         try:
-            _perform_vm_deletion(conn, domain, name, node=node)
+            keep = _perform_vm_deletion(conn, domain, name, node=node, username=user["username"])
         except libvirt.libvirtError as e:
             msg = describe_exception(e)
             log_action(user["username"], "delete_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=500, detail=f"Unable to delete the VM: {msg}") from e
+        except DaemonError as e:
+            log_action(user["username"], "delete_vm", name, "failed", e.detail, task_id=task_id)
+            raise privileged.http_error(e) from None
 
-        log_action(user["username"], "delete_vm", name, "success", task_id=task_id)
-        return {"message": f"VM '{name}' deleted"}
+        log_action(user["username"], "delete_vm", name, "success", _kept_sentence(keep) or None, task_id=task_id)
+        # kept_disks: what stays on the storage, as Proxmox VE's and vSphere's tasks say it.
+        return {"message": f"VM '{name}' deleted", "kept_disks": keep}
     finally:
         conn.close()
 
