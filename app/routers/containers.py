@@ -216,7 +216,7 @@ class ContainerUpdate(BaseModel):
 
 @router.patch("/{name}")
 def update_container(name: str, payload: ContainerUpdate, user: dict = Depends(require_role("admin"))):
-    """Written by hyperlite-daemon (app/core/container_ops.py), its DNS servers into the container's own files."""
+    # Written by hyperlite-daemon (app/core/container_ops.py), the DNS servers into the container's own files.
     changed = _daemon("container.update", user, "update_container", name, **payload.model_dump())
     conn = open_lxc_conn()
     try:
