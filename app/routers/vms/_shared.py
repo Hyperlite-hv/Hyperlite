@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import APIRouter, Depends
 
-from app.core import cluster_view, firmware, guest_agent, iscsi, lvm_storage
+from app.core import cluster_view, firmware, guest_agent, iscsi, lvm_storage, privileged
 from app.core.libvirt_utils import (
     get_vm_uptime_s,
 )
@@ -15,6 +15,7 @@ from app.core.vm_meta import (
     get_vm_os_label,
     get_vm_ssh_user,
 )
+from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +36,25 @@ STATE_NAMES = {
 }
 
 
-def _get_ip(domain):
+def _agent_ips(domains, node=None):
+    """{uuid: address or None} from the guest agents of these running VMs (guest_agent.ipv4_many): asking an agent
+    needs a connection that may write, hyperlite-daemon's on this node (app/daemon/ops/vm.py); another node's VMs
+    over their own libvirt. Without an answer, no address: the DHCP lease is read instead."""
+    if not domains:
+        return {}
+    if node and node != "local":
+        return guest_agent.ipv4_many(domains)
+    try:
+        return privileged.run("vm.agent_ipv4", vms=[d.name() for d in domains], wait_s=guest_agent.LIST_WAIT_S)
+    except DaemonError as e:
+        logger.warning("The guest agents' addresses were not read: %s", e.detail)
+        return {}
+
+
+def _get_ip(domain, node=None):
     # The guest's own answer first (Hyperlite Tools): it also knows a static IP or a bridged address that libvirt's
     # DHCP leases never see.
-    agent_ip = guest_agent.ipv4(domain)
+    agent_ip = _agent_ips([domain], node).get(domain.UUIDString()) if guest_agent.connected(domain) else None
     if agent_ip:
         return agent_ip
     try:
@@ -89,7 +105,7 @@ def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
     if active:
         agent = guest_agent.state_of_xml(root)
         if agent == guest_agent.CONNECTED:
-            ip = agent_ips.get(domain.UUIDString()) if agent_ips is not None else guest_agent.ipv4_of_connected(domain)
+            ip = (agent_ips if agent_ips is not None else _agent_ips([domain])).get(domain.UUIDString())
         if not ip:
             for mac_el in root.findall("./devices/interface/mac"):
                 ip = _lease_ipv4(mac_el.get("address"), leases)
@@ -139,7 +155,7 @@ def _networks_of(root):
     return {src.get("network") for src in root.findall("./devices/interface/source") if src.get("network")}
 
 
-def _scan(conn):
+def _scan(conn, node=None):
     """Every VM of a connection, and the number of VMs on each libvirt network, from one pass: one bulk state call,
     one XML read per VM, one SQLite query per table and one lease read per network, instead of about ten calls per
     VM."""
@@ -155,8 +171,8 @@ def _scan(conn):
             # Undefined between the two calls: it is simply no longer in the list.
             logger.debug("VM gone while listing", exc_info=True)
     # The agents of all the running VMs are asked together, the list waiting a bounded time (guest_agent.ipv4_many).
-    agent_ips = guest_agent.ipv4_many(
-        [d for d, root, _ in read if d.ID() != -1 and guest_agent.state_of_xml(root) == guest_agent.CONNECTED]
+    agent_ips = _agent_ips(
+        [d for d, root, _ in read if d.ID() != -1 and guest_agent.state_of_xml(root) == guest_agent.CONNECTED], node
     )
     result, per_network = [], {}
     for domain, root, state in read:
@@ -171,7 +187,7 @@ def inventory(conn, node=None):
     copies: callers may change them."""
     from app.core import inventory_cache
 
-    scan = inventory_cache.get(("vms", node or "local"), lambda: _scan(conn))
+    scan = inventory_cache.get(("vms", node or "local"), lambda: _scan(conn, node))
     return {"vms": [dict(v) for v in scan["vms"]], "per_network": dict(scan["per_network"])}
 
 
