@@ -17,12 +17,12 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import Body, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.core import cluster_view, workstation
+from app.core import cluster_view, guest_agent, workstation
 from app.core.audit import log_action, request_ip
 from app.core.libvirt_utils import open_conn
 from app.core.security import require_vm_privilege
 from app.core.vm_meta import get_vm_ssh_user
-from app.routers.vms._shared import _get_ip, router
+from app.routers.vms._shared import router
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +30,33 @@ CONNECT_TIMEOUT_S = 10
 _CHUNK = 65536
 
 
+def _bound_ipv4(domain):
+    """The IPv4 addresses the host itself binds to the VM's own network cards: its DHCP leases, then the host's ARP
+    table (libvirt keeps the entries whose MAC is the VM's)."""
+    found = []
+    for source in (libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE, libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP):
+        try:
+            ifaces = domain.interfaceAddresses(source)
+        except libvirt.libvirtError:
+            logger.debug("Address lookup failed", exc_info=True)
+            continue
+        for iface in ifaces.values():
+            for addr in iface.get("addrs", []):
+                if addr.get("type") == libvirt.VIR_IP_ADDR_TYPE_IPV4 and addr.get("addr") not in found:
+                    found.append(addr.get("addr"))
+    return found
+
+
 def _guest_ip(domain):
-    """The DHCP lease first (the usual case), then the ARP table of the host, which
-    also covers VMs with a static address on a libvirt network."""
-    ip = _get_ip(domain)
-    if ip:
-        return ip
-    try:
-        ifaces = domain.interfaceAddresses(libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP)
-    except libvirt.libvirtError:
-        logger.debug("ARP address lookup failed", exc_info=True)
-        return None
-    for iface in ifaces.values():
-        for addr in iface.get("addrs", []):
-            if addr.get("type") == libvirt.VIR_IP_ADDR_TYPE_IPV4:
-                return addr.get("addr")
-    return None
+    """Where the tunnel connects: an address the host binds to the VM's own network cards, so that the connection
+    reaches this VM and nothing else. The guest agent's word alone is not enough: the guest's root writes it, and
+    could have the hypervisor connect anywhere it reaches (GHSA-4vfp-w7wf-jv75). It is preferred among those
+    addresses, as it knows which one is the VM's own."""
+    bound = _bound_ipv4(domain)
+    agent = guest_agent.ipv4(domain)
+    if agent and agent in bound:
+        return agent
+    return bound[0] if bound else None
 
 
 @router.post("/{name}/tunnel-ticket")

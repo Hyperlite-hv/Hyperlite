@@ -1,0 +1,1 @@
+- The workstation tunnel connects only to an address the host binds to the VM's own network cards (its DHCP lease or the host's ARP entry for its MAC), never to one the guest agent alone reports (GHSA-4vfp-w7wf-jv75).
