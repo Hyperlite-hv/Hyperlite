@@ -2670,6 +2670,30 @@
     "title": "PasswordConfirm",
     "type": "object"
    },
+   "PolicyRequest": {
+    "properties": {
+     "preferred_nodes": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Preferred Nodes",
+      "type": "array"
+     },
+     "priority": {
+      "default": "medium",
+      "enum": [
+       "high",
+       "medium",
+       "low"
+      ],
+      "title": "Priority",
+      "type": "string"
+     }
+    },
+    "title": "PolicyRequest",
+    "type": "object"
+   },
    "PoolMemberAdd": {
     "properties": {
      "vm_name": {
@@ -9864,6 +9888,53 @@
     ]
    }
   },
+  "/api/v1/ha/history": {
+   "get": {
+    "description": "The latest HA events of this node's audit log (lost, fenced, restarted, reset by monitoring...), newest first.",
+    "operationId": "history_api_v1_ha_history_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "History",
+    "tags": [
+     "ha"
+    ]
+   }
+  },
   "/api/v1/ha/leases/{node}": {
    "get": {
     "operationId": "lease_check_api_v1_ha_leases__node__get",
@@ -9955,6 +10026,7 @@
   },
   "/api/v1/ha/status": {
    "get": {
+    "description": "The HA page's state: in a cluster, automatic HA (the leader restarts the HA VMs of a lost member) with every\nmember's state; outside one, the dry run of ha_watch.",
     "operationId": "watch_status_api_v1_ha_status_get",
     "responses": {
      "200": {
@@ -10172,6 +10244,62 @@
      }
     ],
     "summary": "Set Monitoring",
+    "tags": [
+     "ha"
+    ]
+   }
+  },
+  "/api/v1/ha/{vm_name}/policy": {
+   "put": {
+    "description": "An HA VM's restart priority and preferred nodes, changed without turning its protection off (4.3).",
+    "operationId": "set_policy_api_v1_ha__vm_name__policy_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "vm_name",
+      "required": true,
+      "schema": {
+       "title": "Vm Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PolicyRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Policy",
     "tags": [
      "ha"
     ]

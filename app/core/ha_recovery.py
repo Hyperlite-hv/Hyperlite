@@ -424,6 +424,30 @@ def _restart_all(vms, entry, online, lost):
             online[target] -= memory_mib(r["domain_xml"] or "")
 
 
+def members_view():
+    """Every member as the HA page shows it (#333 step 7): seen within LOST_S or not, its free memory, and what its
+    watchdog published (armed, the reset delay, a normal stop). This node first."""
+    from app.core import ha_selffence, self_node, statd
+
+    me = self_node.name()
+    ages, table = statd.ages(), statd.table()
+    out = []
+    for name in [me, *_members()]:
+        age = ages.get(name)
+        published = ha_selffence.published(name) or {}
+        out.append(
+            {
+                "name": name,
+                "self": name == me,
+                "online": name == me or (age is not None and age <= LOST_S),
+                "seen_s": None if age is None else round(age, 1),
+                "mem_free_mb": (table.get(name) or {}).get("mem_free_mb"),
+                "watchdog": {k: published.get(k) for k in ("armed", "reset_within_s", "stopped", "at")},
+            }
+        )
+    return out
+
+
 def _loop():
     while True:
         try:

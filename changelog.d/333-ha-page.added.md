@@ -1,0 +1,1 @@
+- The HA page of a cluster (#333, step 7): automatic HA's state, each member's state (seen, its watchdog, its free memory), admission control's policy and result, the HA history, and each HA VM's priority, preferred nodes and monitoring, changed in place (`PUT /ha/{vm}/policy`).
