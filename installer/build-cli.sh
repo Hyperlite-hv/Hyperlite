@@ -19,3 +19,11 @@ for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 d
     CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$OUT/$os-$arch/$bin" .
     echo "[build-cli] $os-$arch/$bin"
 done
+
+# hyperlite-admin, the administration CLI of a node (cli/admin, docs/design/admin-cli.md): shipped in the package as
+# /usr/bin/hyperlite-admin (installer/build-deb.sh), never offered for download, so outside cli/dist.
+ADMIN_OUT="$REPO_DIR/cli/admin-dist"
+rm -rf "$ADMIN_OUT"
+mkdir -p "$ADMIN_OUT"
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$ADMIN_OUT/hyperlite-admin" ./admin
+echo "[build-cli] hyperlite-admin (linux-amd64)"
