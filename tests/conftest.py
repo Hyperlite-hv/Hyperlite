@@ -5,6 +5,7 @@ before any `app.*` module is imported. Nothing in the test suite may write
 to the repository (in particular no `.env`, no `hyperlite.db`).
 """
 
+import contextlib
 import os
 import shutil
 import tempfile
@@ -267,3 +268,16 @@ def fake_agent(monkeypatch):
         "libvirt_qemu",
         types.SimpleNamespace(qemuAgentCommand=lambda domain, command, timeout, flags: domain.agent_reply(command)),
     )
+
+
+@pytest.fixture()
+def daemon_libvirt(monkeypatch):
+    """The libvirt hyperlite-daemon's operations open (libvirt_utils.local_conn), in this process in the tests: call it
+    with the fake connection they get. The API's own connection (open_conn) is faked apart."""
+    from app.core import libvirt_utils
+
+    def use(conn):
+        monkeypatch.setattr(libvirt_utils, "local_conn", lambda: contextlib.nullcontext(conn))
+        return conn
+
+    return use

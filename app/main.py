@@ -478,6 +478,13 @@ async def http_error_handler(request: Request, exc: StarletteHTTPException):
     )
 
 
+# A route that lets hyperlite-daemon's error through (the routes' own translation is privileged.ask): without the daemon,
+# 503 with the reason, rather than the generic 500 below; a failure, 500 with the daemon's sentence.
+@app.exception_handler(DaemonError)
+async def daemon_error_handler(request: Request, exc: DaemonError):
+    return await http_error_handler(request, privileged.http_error(exc))
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors()), "code": "invalid"})

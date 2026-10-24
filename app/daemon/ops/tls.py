@@ -59,7 +59,8 @@ class AcmeArgs(Args):
     domain: str = Field(max_length=253)
     email: str = Field(max_length=254)
     test: bool = False
-    timeout: int = Field(default=240, ge=30, le=900)
+    # Not `timeout`, which privileged.run keeps for the socket's own wait.
+    certbot_timeout_s: int = Field(default=240, ge=30, le=900)
 
 
 @operation("tls.acme", AcmeArgs)
@@ -68,7 +69,7 @@ def acme(args, ctx):
     """certbot for a Let's Encrypt certificate (HTTP-01); its deploy hook installs the pair and restarts the API. The
     domain and the address are checked again (tls_certs.acme_config). Returns certbot's exit code and last lines."""
     try:
-        run = tls_certs.run_acme(args.domain, args.email, args.test, args.timeout)
+        run = tls_certs.run_acme(args.domain, args.email, args.test, args.certbot_timeout_s)
     except subprocess.TimeoutExpired:
         return {"returncode": None, "tail": "certbot did not finish in time"}
     tail = "\n".join((run.stderr or run.stdout or "").strip().splitlines()[-8:])

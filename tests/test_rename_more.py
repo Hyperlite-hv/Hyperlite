@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
-import app.daemon.ops.network as ops_network
 from app.core import libvirt_utils
 
 
@@ -262,7 +261,7 @@ def _guest(name, net, active):
 
 
 @pytest.fixture()
-def nets(database, monkeypatch):
+def nets(database, monkeypatch, daemon_libvirt):
     from app.routers import network
 
     qemu, lxc = _NetHost(), _NetHost()
@@ -270,7 +269,7 @@ def nets(database, monkeypatch):
     monkeypatch.setattr(network, "open_conn", lambda node=None: qemu)
     monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda: lxc)
     # hyperlite-daemon renames the network with connections of its own, in this process in the tests.
-    monkeypatch.setattr(ops_network, "_connect", lambda: qemu)
+    daemon_libvirt(qemu)
     monkeypatch.setattr(libvirt_utils, "open_lxc_conn_if_any", lambda: lxc)
     monkeypatch.setattr(network, "_network_summary", lambda net: {"name": net.name()})
     monkeypatch.setattr(network, "remove_network_firewall", lambda name, user=None: None)

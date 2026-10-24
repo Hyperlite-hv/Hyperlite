@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import xml.etree.ElementTree as ET
@@ -77,6 +78,18 @@ def open_conn(node_name=None):
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt connection")
     return conn
+
+
+@contextlib.contextmanager
+def local_conn():
+    """This node's own libvirt, closed on the way out: the one hyperlite-daemon's operations read and write
+    (app/daemon/ops), never another member's nor a URI the API names. Called as libvirt_utils.local_conn(), so the
+    tests fake the daemon's libvirt in one place (the daemon_libvirt fixture)."""
+    conn = libvirt.open(LIBVIRT_URI)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def get_vm_uptime_s(vm_name):

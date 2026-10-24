@@ -30,6 +30,8 @@ import xml.etree.ElementTree as ET
 
 import libvirt
 
+from app.core import libvirt_utils
+
 
 def _store():
     from app.repositories import registry
@@ -79,12 +81,6 @@ class Refused(ValueError):
 
 class Unavailable(RuntimeError):
     """hyperlite-daemon does not answer."""
-
-
-def _connect():
-    from app.core.libvirt_utils import LIBVIRT_URI
-
-    return libvirt.open(LIBVIRT_URI)
 
 
 def _bridge_name(conn, network_name: str):
@@ -146,11 +142,8 @@ def apply_rules(network_name: str, config: dict):
     principle as nwfilterDefineXML for the per-VM firewall: everything is redefined instead of applying an incremental
     patch, so it never diverges from `config`. Returns the bridge; raises Refused or RuntimeError (iptables refused a
     rule)."""
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         bridge = _bridge_name(conn, network_name)
-    finally:
-        conn.close()
     if not bridge:
         raise Refused(
             f"Network '{network_name}' not found or has no associated bridge ('bridge' mode towards a host bridge not managed by Hyperlite?)"
@@ -171,11 +164,8 @@ def apply_rules(network_name: str, config: dict):
 
 def remove_rules(network_name: str):
     """As root (hyperlite-daemon): the network's chain and its jumps, while its bridge can still be read."""
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         bridge = _bridge_name(conn, network_name)
-    finally:
-        conn.close()
     chain = _chain_name(network_name)
     if bridge:
         _remove_network_jump(bridge, chain)

@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.core import bridge_vlan, network_firewall
+from app.core import bridge_vlan, libvirt_utils, network_firewall
 from app.daemon.registry import Args, DaemonError, NoArgs, operation
 
 NAME = 64  # a libvirt network's or VM's name, only ever looked up
@@ -120,14 +120,6 @@ def vlan_boot(args, ctx):
 # --- Part 2a: libvirt's networks (define, start, stop, autostart, edit, rename, delete) ---
 
 
-def _connect():
-    import libvirt
-
-    from app.core.libvirt_utils import LIBVIRT_URI
-
-    return libvirt.open(LIBVIRT_URI)
-
-
 def _libvirt(fn):
     """A libvirt failure becomes the daemon's "failed" with libvirt's own reason, which the routes show as before; what
     the modules refuse, its "refused"."""
@@ -155,7 +147,7 @@ def _network(conn, name):
     try:
         return conn.networkLookupByName(name)
     except libvirt.libvirtError:
-        raise DaemonError("refused", f"Network '{name}' not found") from None
+        raise DaemonError("not_found", f"Network '{name}' not found") from None
 
 
 def _check_name(name):
@@ -194,8 +186,7 @@ def create(args, ctx):
     _check_name(args.name)
     fields = args.model_dump()
     xml = network_create.network_xml(fields.pop("name"), **fields)
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         try:
             conn.networkLookupByName(args.name)
             raise DaemonError("refused", f"A network '{args.name}' already exists")
@@ -213,32 +204,24 @@ def create(args, ctx):
             except libvirt.libvirtError:
                 pass
             raise
-    finally:
-        conn.close()
 
 
 @operation("network.start", NetworkArgs)
 @_libvirt
 def start(args, ctx):
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         net = _network(conn, args.network)
         if not net.isActive():
             net.create()
-    finally:
-        conn.close()
 
 
 @operation("network.stop", NetworkArgs)
 @_libvirt
 def stop(args, ctx):
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         net = _network(conn, args.network)
         if net.isActive():
             net.destroy()
-    finally:
-        conn.close()
 
 
 class AutostartArgs(NetworkArgs):
@@ -248,11 +231,8 @@ class AutostartArgs(NetworkArgs):
 @operation("network.autostart", AutostartArgs)
 @_libvirt
 def autostart(args, ctx):
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         _network(conn, args.network).setAutostart(1 if args.autostart else 0)
-    finally:
-        conn.close()
 
 
 class DhcpRange(BaseModel):
@@ -275,8 +255,7 @@ def edit(args, ctx):
     """Subnet, DHCP range and mode of a routed network (app/core/network_edit.apply_edit, which checks them)."""
     from app.core import network_edit
 
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         restart = network_edit.apply_edit(
             conn,
             _network(conn, args.network),
@@ -285,8 +264,6 @@ def edit(args, ctx):
             netmask=args.netmask,
             dhcp=args.dhcp.model_dump() if args.dhcp else None,
         )
-    finally:
-        conn.close()
     return {"needs_restart": restart}
 
 
@@ -298,18 +275,16 @@ class RenameArgs(NetworkArgs):
 @_libvirt
 def rename(args, ctx):
     from app.core import network_edit
-    from app.core.libvirt_utils import open_lxc_conn_if_any
 
     _check_name(args.new_name)
-    conn = _connect()
-    lxc = open_lxc_conn_if_any()
-    try:
+    with libvirt_utils.local_conn() as conn:
         _network(conn, args.network)
-        return {"guests_updated": network_edit.rename(conn, lxc, args.network, args.new_name)}
-    finally:
-        conn.close()
-        if lxc is not None:
-            lxc.close()
+        lxc = libvirt_utils.open_lxc_conn_if_any()
+        try:
+            return {"guests_updated": network_edit.rename(conn, lxc, args.network, args.new_name)}
+        finally:
+            if lxc is not None:
+                lxc.close()
 
 
 @operation("network.delete", NetworkArgs)
@@ -320,8 +295,7 @@ def delete(args, ctx):
 
     if args.network in network_edit.SYSTEM_NETWORKS:
         raise DaemonError("refused", f"Network '{args.network}' is a system network and cannot be deleted")
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         net = _network(conn, args.network)
         running, stopped = network_edit.guests_on([conn], args.network)
         if running or stopped:
@@ -330,21 +304,14 @@ def delete(args, ctx):
         if net.isActive():
             net.destroy()
         net.undefine()
-    finally:
-        conn.close()
 
 
 @operation("network.ensure_isolated", NoArgs)
 @_libvirt
 def ensure_isolated(args, ctx):
     """The isolated network Hyperlite relies on (libvirt_utils.ensure_isolated_network), defined and started."""
-    from app.core.libvirt_utils import ensure_isolated_network
-
-    conn = _connect()
-    try:
-        ensure_isolated_network(conn)
-    finally:
-        conn.close()
+    with libvirt_utils.local_conn() as conn:
+        libvirt_utils.ensure_isolated_network(conn)
 
 
 # --- Part 2b: the reservations of the network routes (those VM creation and migration make move with their domains) ---
@@ -363,11 +330,8 @@ def reservation_add(args, ctx):
     MAC, the name, that the address is in the network and free)."""
     from app.core import network_edit
 
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         network_edit.add_reservation(_network(conn, args.network), mac=args.mac, ip=args.ip, name=args.name)
-    finally:
-        conn.close()
 
 
 class ReservationDeleteArgs(NetworkArgs):
@@ -379,8 +343,5 @@ class ReservationDeleteArgs(NetworkArgs):
 def reservation_delete(args, ctx):
     from app.core import network_edit
 
-    conn = _connect()
-    try:
+    with libvirt_utils.local_conn() as conn:
         return {"found": network_edit.delete_reservation(_network(conn, args.network), args.mac)}
-    finally:
-        conn.close()
