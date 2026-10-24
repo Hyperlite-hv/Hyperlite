@@ -724,3 +724,83 @@ def template_delete(args, ctx):
 
     with libvirt_utils.local_conn() as conn:
         vm_templates.delete(conn, args.template)
+
+
+# --- Part 4: snapshots (app/core/vm_snapshots.py) ---
+
+
+def _snapshots(fn):
+    """vm_snapshots' refusals and failures keep their kind."""
+
+    @functools.wraps(fn)
+    def wrapper(args, ctx):
+        from app.core import vm_snapshots
+
+        try:
+            return fn(args, ctx)
+        except vm_snapshots.SnapshotError as e:
+            raise DaemonError(e.kind, e.detail) from e
+
+    return wrapper
+
+
+class SnapshotArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    name: str = Field(min_length=1, max_length=VM_NAME)
+
+
+class SnapshotCreateArgs(SnapshotArgs):
+    description: str | None = Field(default=None, max_length=4096)
+    check_only: bool = False
+
+
+class SnapshotRestoreArgs(SnapshotArgs):
+    check_only: bool = False
+
+
+class SnapshotListArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("vm.snapshot_create", SnapshotCreateArgs)
+@_libvirt
+@_snapshots
+def snapshot_create(args, ctx):
+    """libvirt's internal snapshot, `zfs snapshot` of every zvol, or a thin snapshot of every logical volume, after
+    every check; check_only takes none. One call that waits (a running VM's memory is saved)."""
+    from app.core import libvirt_utils, vm_snapshots
+
+    with libvirt_utils.local_conn() as conn:
+        return vm_snapshots.create(conn, args.vm, args.name, args.description, check_only=args.check_only)
+
+
+@operation("vm.snapshot_restore", SnapshotRestoreArgs)
+@_libvirt
+@_snapshots
+def snapshot_restore(args, ctx):
+    """A ZFS rollback or an LVM restore only on a stopped VM, checked again here."""
+    from app.core import libvirt_utils, vm_snapshots
+
+    with libvirt_utils.local_conn() as conn:
+        return vm_snapshots.restore(conn, args.vm, args.name, check_only=args.check_only)
+
+
+@operation("vm.snapshot_delete", SnapshotArgs)
+@_libvirt
+@_snapshots
+def snapshot_delete(args, ctx):
+    from app.core import libvirt_utils, vm_snapshots
+
+    with libvirt_utils.local_conn() as conn:
+        vm_snapshots.delete(conn, args.vm, args.name)
+
+
+@operation("vm.lvm_snapshots", SnapshotListArgs)
+@_libvirt
+@_snapshots
+def lvm_snapshots(args, ctx):
+    """The LVM-thin snapshots of a VM, for its list: `lvm` reads as root only."""
+    from app.core import libvirt_utils, vm_snapshots
+
+    with libvirt_utils.local_conn() as conn:
+        return {"snapshots": vm_snapshots.lvm_snapshots(conn, args.vm)}

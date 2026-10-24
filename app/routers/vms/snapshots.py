@@ -1,13 +1,15 @@
+"""A VM's snapshots: taken, restored and deleted by hyperlite-daemon (app/core/vm_snapshots.py), listed here. The
+route answers every refusal at once (the daemon's checks, with check_only), then the work runs as a task."""
+
 import logging
 import threading
 import xml.etree.ElementTree as ET
-from xml.sax.saxutils import escape
 
 import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import checkpoints, firmware, iscsi, lvm_storage, vm_locks, zfs_storage
+from app.core import checkpoints, privileged, vm_locks, vm_snapshots, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -16,19 +18,13 @@ from app.core.libvirt_utils import (
 from app.core.listing import listing
 from app.core.security import get_current_user, require_vm_privilege
 from app.core.tasks import create_task, finish_task, task_log
-from app.core.vm_builder import (
-    validate_name,
-)
-from app.routers.vms._shared import _zvol_disks_of_domain, router
+from app.daemon.registry import DaemonError
+from app.routers.vms._shared import router
 
 logger = logging.getLogger(__name__)
 
-
-def _lvm_disk_paths(domain):
-    """The VM's block disks shaped as logical volumes (/dev/<group>/<volume>): on an LVM pool, all of them."""
-    root = ET.fromstring(domain.XMLDesc(0))
-    paths = [s.get("dev", "") for s in root.findall("devices/disk[@type='block'][@device='disk']/source")]
-    return [p for p in paths if lvm_storage.lv_of_path(p) is not None]
+# Saving a running VM's memory, or a large disk's snapshot, takes longer than an ordinary operation.
+SNAPSHOT_TIMEOUT_S = 3600
 
 
 def _snapshot_summary(snap):
@@ -51,6 +47,17 @@ def _snapshot_summary(snap):
     }
 
 
+def _disk_only(name, created_at):
+    return {
+        "name": name,
+        "description": None,
+        "created_at": created_at,
+        "vm_state": "disk_only",
+        "current": False,
+        "parent": None,
+    }
+
+
 @router.get("/{name}/snapshots")
 def list_snapshots(name: str, user: dict = Depends(get_current_user)):
     conn = open_conn()
@@ -61,39 +68,24 @@ def list_snapshots(name: str, user: dict = Depends(get_current_user)):
             log_action(user["username"], "list_snapshots", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        zvol_specs = _zvol_disks_of_domain(domain)
+        root = ET.fromstring(domain.XMLDesc())
+        zvol_specs = vm_snapshots.zvol_disks(root)
         if zvol_specs:
-            # VM on a ZFS pool: one "logical" snapshot per NAME, merged across all the VM's
-            # zvols. The list of the first zvol is taken as the reference (all the zvols of a
-            # VM are snapshotted together by snapshot_zvols(), so the same names exist
-            # everywhere barring a very rare external inconsistency).
+            # VM on a ZFS pool: one "logical" snapshot per NAME, merged across all the VM's zvols. The list of the
+            # first zvol is taken as the reference (all the zvols of a VM are snapshotted together by
+            # snapshot_zvols(), so the same names exist everywhere barring a very rare external inconsistency).
             pool0, name0 = zvol_specs[0]
             result = [
-                {
-                    "name": s["name"],
-                    "description": None,
-                    "created_at": str(s["creation_epoch"]),
-                    "vm_state": "disk_only",
-                    "current": False,
-                    "parent": None,
-                }
-                for s in zfs_storage.list_zvol_snapshots(pool0, name0)
+                _disk_only(s["name"], str(s["creation_epoch"])) for s in zfs_storage.list_zvol_snapshots(pool0, name0)
             ]
-        elif lvm_paths := _lvm_disk_paths(domain):
-            # LVM-thin: the snapshots of the first disk, all the VM's disks being snapshotted together. Thick volumes
-            # have none.
-            disks = lvm_storage.thin_disks(lvm_paths)
-            result = [
-                {
-                    "name": s["name"],
-                    "description": None,
-                    "created_at": s["created_at"],
-                    "vm_state": "disk_only",
-                    "current": False,
-                    "parent": None,
-                }
-                for s in (lvm_storage.list_snapshots(disks) if disks else [])
-            ]
+        elif vm_snapshots.lvm_disk_paths(root):
+            # LVM-thin: the snapshots of the first disk, all the VM's disks being snapshotted together; thick volumes
+            # have none. `lvm` reads as root: hyperlite-daemon lists them.
+            try:
+                found = privileged.run("vm.lvm_snapshots", user=user["username"], vm=name)["snapshots"]
+            except DaemonError as e:
+                raise privileged.http_error(e) from None
+            result = [_disk_only(s["name"], s["created_at"]) for s in found]
         else:
             result = []
             for snap in domain.listAllSnapshots():
@@ -116,78 +108,38 @@ class SnapshotCreate(BaseModel):
     description: str | None = None
 
 
-def _create_snapshot_job(task_id, username, vm_name, snap_name, snap_xml):
-    """Runs in a separate thread (see create_snapshot) with its OWN libvirt
-    connection: never share a Domain/Connect object between threads, libvirt's
-    Python bindings do not guarantee it. The final log_action (success/failure) is
-    written here, at the real end of the work, not at the synchronous submission,
-    which does not know yet whether it will work."""
-    conn = open_conn()
+def _daemon(op, user, action, vm, snapshot_name, **args):
+    """`op` checked or run by hyperlite-daemon: its result, or its refusal recorded and answered."""
     try:
-        domain = conn.lookupByName(vm_name)
-        if not domain.isActive():
-            # libvirt refuses an offline snapshot while a replication checkpoint exists.
-            checkpoints.release(domain, vm_name)
-        domain.snapshotCreateXML(snap_xml, 0)
-        finish_task(task_id, "succeeded")
-        log_action(username, "create_snapshot", vm_name, "success", f"Snapshot '{snap_name}'")
-    except Exception as e:  # any error closes the task: libvirt's, and dropping the replication bitmaps
-        msg = describe_exception(e)
-        finish_task(task_id, "failed", msg)
-        log_action(username, "create_snapshot", vm_name, "failed", f"Snapshot '{snap_name}': {msg}")
-    finally:
-        conn.close()
+        return privileged.run(op, user=user["username"], vm=vm, name=snapshot_name, **args)
+    except DaemonError as e:
+        log_action(user["username"], action, vm, "failed", e.detail)
+        raise privileged.http_error(e) from None
 
 
-def _create_zvol_snapshot_job(task_id, username, vm_name, zvol_specs, snap_name):
-    """ZFS equivalent of _create_snapshot_job(). Nearly instantaneous in practice
-    (unlike the qcow2 + memory snapshot, which can take several seconds), it
-    still runs as a background task to keep exactly the same API contract
-    (task_id, 202) on both sides, so no frontend change is needed."""
+def _daemon_task(op, vm, user, action, snapshot_name, **args):
+    """The work as a task, in a thread that holds the VM's lock until it ends; the replication chain the daemon's
+    dropped checkpoints end is forgotten here."""
+    claim = vm_locks.claim_or_409(vm, "a snapshot")
+
+    def work(task_id):
+        try:
+            done = privileged.run(
+                op, user=user["username"], timeout=SNAPSHOT_TIMEOUT_S, vm=vm, name=snapshot_name, **args
+            )
+            if done and done.get("checkpoints_dropped"):
+                checkpoints.forget(vm, done["checkpoints_dropped"])
+            finish_task(task_id, "succeeded")
+            log_action(user["username"], action, vm, "success", f"Snapshot '{snapshot_name}'")
+        except Exception as e:  # any error closes the task
+            msg = e.detail if isinstance(e, DaemonError) else describe_exception(e)
+            finish_task(task_id, "failed", msg)
+            log_action(user["username"], action, vm, "failed", f"Snapshot '{snapshot_name}': {msg}")
+
     try:
-        zfs_storage.snapshot_zvols(zvol_specs, snap_name)
-        finish_task(task_id, "succeeded")
-        log_action(username, "create_snapshot", vm_name, "success", f"Snapshot '{snap_name}'")
-    except Exception as e:
-        msg = e.message if isinstance(e, zfs_storage.ZfsError) else describe_exception(e)
-        finish_task(task_id, "failed", msg)
-        log_action(username, "create_snapshot", vm_name, "failed", f"Snapshot '{snap_name}': {msg}")
-
-
-def _create_lvm_snapshot_job(task_id, username, vm_name, disks, snap_name):
-    """A thin snapshot of each disk. A running VM with several disks is paused meanwhile (about a second per disk),
-    so that its disks all show the same instant, as ZFS's single atomic command gives."""
-    conn = open_conn()
-    paused = False
-    try:
-        domain = conn.lookupByName(vm_name)
-        if len(disks) > 1 and domain.isActive():
-            domain.suspend()
-            paused = True
-        lvm_storage.snapshot(disks, snap_name)
-        finish_task(task_id, "succeeded")
-        log_action(username, "create_snapshot", vm_name, "success", f"Snapshot '{snap_name}'")
-    except Exception as e:  # any error closes the task
-        msg = describe_exception(e)
-        finish_task(task_id, "failed", msg)
-        log_action(username, "create_snapshot", vm_name, "failed", f"Snapshot '{snap_name}': {msg}")
-    finally:
-        if paused:
-            try:
-                domain.resume()
-            except libvirt.libvirtError:
-                logger.error("VM %s left paused after its snapshot", vm_name, exc_info=True)
-        conn.close()
-
-
-def _start_job(name, user, kind, label, target, args):
-    claim = vm_locks.claim_or_409(name, "a snapshot")
-    try:
-        task_id = create_task(kind, name, node=None, username=user["username"])
-        task_log(task_id, label)
-        threading.Thread(
-            target=vm_locks.released_after(claim, target), args=(task_id, user["username"], name, *args), daemon=True
-        ).start()
+        task_id = create_task(action, vm, node=None, username=user["username"])
+        task_log(task_id, f"Snapshot '{snapshot_name}'")
+        threading.Thread(target=vm_locks.released_after(claim, work), args=(task_id,), daemon=True).start()
     except BaseException:
         claim.release()
         raise
@@ -196,388 +148,50 @@ def _start_job(name, user, kind, label, target, args):
 
 @router.post("/{name}/snapshots", status_code=202)
 def create_snapshot(name: str, payload: SnapshotCreate, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    conn = open_conn()
-    try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            log_action(user["username"], "create_snapshot", name, "failed", "VM not found")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-
-        name_error = validate_name(payload.name, "snapshot")
-        if name_error:
-            log_action(user["username"], "create_snapshot", name, "failed", name_error)
-            raise HTTPException(status_code=422, detail=name_error)
-        iscsi.refuse_if_iscsi(domain, "A snapshot")
-
-        zvol_specs = _zvol_disks_of_domain(domain)
-        if zvol_specs:
-            # VM on a ZFS pool: the native ZFS mechanism, see zfs_storage.py. It is a
-            # DISK-ONLY snapshot (never the memory, unlike the qcow2 path below when the VM
-            # is running), documented on the frontend/API side rather than silently
-            # different.
-            claim = vm_locks.claim_or_409(name, "a snapshot")
-            try:
-                task_id = create_task("create_snapshot", name, node=None, username=user["username"])
-                task_log(task_id, f"Snapshot '{payload.name}'")
-                threading.Thread(
-                    target=vm_locks.released_after(claim, _create_zvol_snapshot_job),
-                    args=(task_id, user["username"], name, zvol_specs, payload.name),
-                    daemon=True,
-                ).start()
-            except BaseException:
-                claim.release()
-                raise
-            return {"task_id": task_id, "name": payload.name, "status": "running"}
-
-        lvm_paths = _lvm_disk_paths(domain)
-        if lvm_paths:
-            # LVM: thin snapshots (disk only, as on ZFS). Thick volumes have no snapshot of their own here.
-            disks = lvm_storage.thin_disks(lvm_paths)
-            if disks is None:
-                msg = "This VM's disks are thick LVM volumes: snapshots need an LVM pool with a thin pool (LVM-thin)"
-                log_action(user["username"], "create_snapshot", name, "failed", msg)
-                raise HTTPException(status_code=422, detail=msg)
-            task_id = _start_job(
-                name,
-                user,
-                "create_snapshot",
-                f"Snapshot '{payload.name}'",
-                _create_lvm_snapshot_job,
-                (disks, payload.name),
-            )
-            return {"task_id": task_id, "name": payload.name, "status": "running"}
-
-        # A raw block disk left (zvols and logical volumes took the branches above, iSCSI was refused). libvirt's
-        # internal snapshots need qcow2: the task would fail after the fact with libvirt's own message.
-        if ET.fromstring(domain.XMLDesc(0)).find("devices/disk[@type='block'][@device='disk']") is not None:
-            msg = "This VM's disks are raw block devices: their snapshots are not available"
-            log_action(user["username"], "create_snapshot", name, "failed", msg)
-            raise HTTPException(status_code=422, detail=msg)
-
-        # QEMU cannot save a running VM's state while its firmware is in pflash (every UEFI VM): libvirt would fail
-        # the task after the fact with "internal snapshots of a VM with pflash based firmware are not supported".
-        if domain.isActive() and firmware.is_pflash(ET.fromstring(domain.XMLDesc(0))):
-            msg = "This VM uses UEFI firmware: its snapshots are taken while it is stopped. Shut it down, then take the snapshot"
-            log_action(user["username"], "create_snapshot", name, "failed", msg)
-            raise HTTPException(status_code=409, detail=msg)
-
-        try:
-            domain.snapshotLookupByName(payload.name)
-            log_action(user["username"], "create_snapshot", name, "failed", f"Snapshot '{payload.name}' already exists")
-            raise HTTPException(status_code=422, detail=f"A snapshot '{payload.name}' already exists for this VM")
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in create_snapshot()", exc_info=True)
-
-        desc_xml = f"<description>{escape(payload.description)}</description>" if payload.description else ""
-        snap_xml = f"""
-        <domainsnapshot>
-          <name>{escape(payload.name)}</name>
-          {desc_xml}
-        </domainsnapshot>
-        """
-        # flags=0: internal, memory included automatically if the VM is running, disk
-        # only if it is stopped. See the design note above _snapshot_summary for why no
-        # other option is offered.
-        claim = vm_locks.claim_or_409(name, "a snapshot")
-        try:
-            task_id = create_task("create_snapshot", name, node=None, username=user["username"])
-            task_log(task_id, f"Snapshot '{payload.name}'")
-            threading.Thread(
-                target=vm_locks.released_after(claim, _create_snapshot_job),
-                args=(task_id, user["username"], name, payload.name, snap_xml),
-                daemon=True,
-            ).start()
-        except BaseException:
-            claim.release()
-            raise
-
-        return {"task_id": task_id, "name": payload.name, "status": "running"}
-    finally:
-        conn.close()
-
-
-def _restore_snapshot_job(task_id, username, vm_name, snapshot_name):
-    conn = open_conn()
-    try:
-        domain = conn.lookupByName(vm_name)
-        snap = domain.snapshotLookupByName(snapshot_name)
-        # A revert rewrites the disk without marking the replication bitmap: the next copy must be a full one.
-        checkpoints.release(domain, vm_name)
-        domain.revertToSnapshot(snap, 0)
-        finish_task(task_id, "succeeded")
-        log_action(username, "restore_snapshot", vm_name, "success", f"Snapshot '{snapshot_name}'")
-    except Exception as e:  # any error closes the task: libvirt's, and dropping the replication bitmaps
-        msg = describe_exception(e)
-        finish_task(task_id, "failed", msg)
-        log_action(username, "restore_snapshot", vm_name, "failed", f"Snapshot '{snapshot_name}': {msg}")
-    finally:
-        conn.close()
-
-
-def _restore_zvol_snapshot_job(task_id, username, vm_name, zvol_specs, snapshot_name):
-    try:
-        zfs_storage.rollback_zvols(zvol_specs, snapshot_name)
-        finish_task(task_id, "succeeded")
-        log_action(username, "restore_snapshot", vm_name, "success", f"Snapshot '{snapshot_name}'")
-    except Exception as e:
-        msg = e.message if isinstance(e, zfs_storage.ZfsError) else describe_exception(e)
-        finish_task(task_id, "failed", msg)
-        log_action(username, "restore_snapshot", vm_name, "failed", f"Snapshot '{snapshot_name}': {msg}")
-
-
-def _restore_lvm_snapshot_job(task_id, username, vm_name, disks, snapshot_name):
-    try:
-        lvm_storage.rollback(disks, snapshot_name)
-        finish_task(task_id, "succeeded")
-        log_action(username, "restore_snapshot", vm_name, "success", f"Snapshot '{snapshot_name}'")
-    except Exception as e:
-        msg = describe_exception(e)
-        finish_task(task_id, "failed", msg)
-        log_action(username, "restore_snapshot", vm_name, "failed", f"Snapshot '{snapshot_name}': {msg}")
-
-
-def _refuse_zfs_syntax(snapshot_name):
-    """ZFS reads `a%b` as a range of snapshots and `a,b` as a list: such a name, never made here, would destroy or
-    roll back more than the one snapshot named (and audited)."""
-    if not snapshot_name or any(c in snapshot_name for c in "%,@/") or snapshot_name != snapshot_name.strip():
-        raise HTTPException(status_code=422, detail=f"Invalid snapshot name: {snapshot_name!r}")
+    """A VM on ZFS or LVM-thin gets a disk-only snapshot (never its memory), the qcow2 internal snapshot otherwise
+    (with its memory while it runs): said by the list's vm_state rather than silently different."""
+    fields = {"description": payload.description}
+    _daemon("vm.snapshot_create", user, "create_snapshot", name, payload.name, check_only=True, **fields)
+    task_id = _daemon_task("vm.snapshot_create", name, user, "create_snapshot", payload.name, **fields)
+    return {"task_id": task_id, "name": payload.name, "status": "running"}
 
 
 @router.post("/{name}/snapshots/{snapshot_name}/restore", status_code=202)
 def restore_snapshot(
     name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_vm_privilege("vm.snapshot"))
 ):
-    _refuse_zfs_syntax(snapshot_name)
-    conn = open_conn()
-    try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            log_action(user["username"], "restore_snapshot", name, "failed", "VM not found")
-            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-
-        zvol_specs = _zvol_disks_of_domain(domain)
-        if zvol_specs:
-            # SAFETY: unlike the qcow2 internal snapshot (libvirt itself handles the "running
-            # VM" case for revertToSnapshot), a `zfs rollback` on a zvol actively opened by
-            # the qemu process of a RUNNING VM would desynchronize the guest kernel's cache
-            # from the real state of the disk, which means near-certain corruption. The VM
-            # MUST be stopped before a ZFS rollback, checked explicitly rather than letting it
-            # fail (or worse, silently succeed) in a dangerous way.
-            if domain.isActive():
-                log_action(
-                    user["username"],
-                    "restore_snapshot",
-                    snapshot_name,
-                    "failed",
-                    "VM running (it must be stopped for a ZFS rollback)",
-                )
-                raise HTTPException(
-                    status_code=409,
-                    detail="The VM must be stopped before restoring a ZFS snapshot (unlike the qcow2 snapshot, a ZFS rollback cannot be done while running)",
-                )
-            if not confirm:
-                log_action(
-                    user["username"],
-                    "restore_snapshot",
-                    name,
-                    "failed",
-                    f"Snapshot '{snapshot_name}': confirmation missing",
-                )
-                raise HTTPException(
-                    status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore"
-                )
-            claim = vm_locks.claim_or_409(name, "a snapshot")
-            try:
-                task_id = create_task("restore_snapshot", name, node=None, username=user["username"])
-                task_log(task_id, f"Snapshot '{snapshot_name}'")
-                threading.Thread(
-                    target=vm_locks.released_after(claim, _restore_zvol_snapshot_job),
-                    args=(task_id, user["username"], name, zvol_specs, snapshot_name),
-                    daemon=True,
-                ).start()
-            except BaseException:
-                claim.release()
-                raise
-            return {
-                "task_id": task_id,
-                "status": "running",
-                "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
-            }
-
-        lvm_paths = _lvm_disk_paths(domain)
-        if lvm_paths:
-            disks = lvm_storage.thin_disks(lvm_paths)
-            if not disks or snapshot_name not in {s["name"] for s in lvm_storage.list_snapshots(disks)}:
-                log_action(
-                    user["username"], "restore_snapshot", name, "failed", f"Snapshot '{snapshot_name}' not found"
-                )
-                raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found")
-            # The disks are swapped for new volumes: QEMU must not hold the old ones open, as for a ZFS rollback.
-            if domain.isActive():
-                msg = "The VM must be stopped before restoring an LVM snapshot"
-                log_action(user["username"], "restore_snapshot", name, "failed", msg)
-                raise HTTPException(status_code=409, detail=msg)
-            if not confirm:
-                log_action(
-                    user["username"],
-                    "restore_snapshot",
-                    name,
-                    "failed",
-                    f"Snapshot '{snapshot_name}': confirmation missing",
-                )
-                raise HTTPException(
-                    status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore"
-                )
-            task_id = _start_job(
-                name,
-                user,
-                "restore_snapshot",
-                f"Snapshot '{snapshot_name}'",
-                _restore_lvm_snapshot_job,
-                (disks, snapshot_name),
-            )
-            return {
-                "task_id": task_id,
-                "status": "running",
-                "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
-            }
-
-        try:
-            domain.snapshotLookupByName(snapshot_name)
-        except libvirt.libvirtError:
-            log_action(user["username"], "restore_snapshot", name, "failed", f"Snapshot '{snapshot_name}' not found")
-            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found") from None
-
-        if not confirm:
-            log_action(
-                user["username"],
-                "restore_snapshot",
-                name,
-                "failed",
-                f"Snapshot '{snapshot_name}': confirmation missing",
-            )
-            raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore")
-
-        claim = vm_locks.claim_or_409(name, "a snapshot")
-        try:
-            task_id = create_task("restore_snapshot", name, node=None, username=user["username"])
-            task_log(task_id, f"Snapshot '{snapshot_name}'")
-            threading.Thread(
-                target=vm_locks.released_after(claim, _restore_snapshot_job),
-                args=(task_id, user["username"], name, snapshot_name),
-                daemon=True,
-            ).start()
-        except BaseException:
-            claim.release()
-            raise
-
-        return {
-            "task_id": task_id,
-            "status": "running",
-            "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
-        }
-    finally:
-        conn.close()
+    _daemon("vm.snapshot_restore", user, "restore_snapshot", name, snapshot_name, check_only=True)
+    if not confirm:
+        log_action(
+            user["username"], "restore_snapshot", name, "failed", f"Snapshot '{snapshot_name}': confirmation missing"
+        )
+        raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the restore")
+    task_id = _daemon_task("vm.snapshot_restore", name, user, "restore_snapshot", snapshot_name)
+    return {
+        "task_id": task_id,
+        "status": "running",
+        "message": f"Restore of '{name}' to '{snapshot_name}' in progress",
+    }
 
 
 @router.delete("/{name}/snapshots/{snapshot_name}")
 def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    _refuse_zfs_syntax(snapshot_name)
-    # It stays synchronous (no background thread/task): unlike create/restore,
-    # deleting an internal snapshot is nearly instantaneous even with a child (libvirt
-    # reparents the child automatically), tested and confirmed on this host. `zfs
-    # destroy` of a snapshot is of the same order of magnitude (nearly instantaneous),
-    # hence the same choice for ZFS VMs.
-    claim = vm_locks.claim_or_409(name, "a snapshot deletion")
-    try:
-        conn = open_conn()
-    except BaseException:
-        claim.release()
-        raise
-    task_id = create_task("delete_snapshot", name, node=None, username=user["username"])
-    task_log(task_id, f"Snapshot '{snapshot_name}'")
-    try:
+    """Synchronous: deleting a snapshot is nearly instantaneous whatever its kind (libvirt reparents a child itself,
+    `zfs destroy` and `lvremove` of a snapshot are as quick)."""
+    with vm_locks.claim_or_409(name, "a snapshot deletion"):
+        task_id = create_task("delete_snapshot", name, node=None, username=user["username"])
+        task_log(task_id, f"Snapshot '{snapshot_name}'")
         try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            log_action(user["username"], "delete_snapshot", name, "failed", "VM not found", task_id=task_id)
-            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-
-        zvol_specs = _zvol_disks_of_domain(domain)
-        if zvol_specs:
-            try:
-                zfs_storage.delete_zvol_snapshot(zvol_specs, snapshot_name)
-            except zfs_storage.ZfsError as e:
-                log_action(
-                    user["username"],
-                    "delete_snapshot",
-                    name,
-                    "failed",
-                    f"Snapshot '{snapshot_name}': {e.message}",
-                    task_id=task_id,
-                )
-                raise HTTPException(status_code=500, detail=f"Deletion error: {e.message}") from e
-            finish_task(task_id, "succeeded")
-            log_action(user["username"], "delete_snapshot", name, "success", f"Snapshot '{snapshot_name}'")
-            return {"message": f"Snapshot '{snapshot_name}' deleted"}
-
-        lvm_paths = _lvm_disk_paths(domain)
-        if lvm_paths:
-            disks = lvm_storage.thin_disks(lvm_paths)
-            if not disks or snapshot_name not in {s["name"] for s in lvm_storage.list_snapshots(disks)}:
-                log_action(
-                    user["username"], "delete_snapshot", name, "failed", f"Snapshot '{snapshot_name}' not found",
-                    task_id=task_id,
-                )  # fmt: skip
-                raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found")
-            try:
-                lvm_storage.delete_snapshot(disks, snapshot_name)
-            except lvm_storage.LvmError as e:
-                log_action(
-                    user["username"], "delete_snapshot", name, "failed", f"Snapshot '{snapshot_name}': {e}",
-                    task_id=task_id,
-                )  # fmt: skip
-                raise HTTPException(status_code=500, detail=f"Deletion error: {e}") from e
-            finish_task(task_id, "succeeded")
-            log_action(user["username"], "delete_snapshot", name, "success", f"Snapshot '{snapshot_name}'")
-            return {"message": f"Snapshot '{snapshot_name}' deleted"}
-
-        try:
-            snap = domain.snapshotLookupByName(snapshot_name)
-        except libvirt.libvirtError:
+            privileged.run("vm.snapshot_delete", user=user["username"], vm=name, name=snapshot_name)
+        except Exception as e:  # never a task left running: closed with what happened
+            msg = e.detail if isinstance(e, DaemonError) else describe_exception(e)
             log_action(
-                user["username"], "delete_snapshot", name, "failed", f"Snapshot '{snapshot_name}' not found",
+                user["username"], "delete_snapshot", name, "failed", f"Snapshot '{snapshot_name}': {msg}",
                 task_id=task_id,
             )  # fmt: skip
-            raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot_name}' not found") from None
-
-        try:
-            snap.delete(0)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(
-                user["username"],
-                "delete_snapshot",
-                name,
-                "failed",
-                f"Snapshot '{snapshot_name}': {msg}",
-                task_id=task_id,
-            )
-            raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
-
+            if isinstance(e, DaemonError):
+                raise privileged.http_error(e) from None
+            raise
         finish_task(task_id, "succeeded")
         log_action(user["username"], "delete_snapshot", name, "success", f"Snapshot '{snapshot_name}'")
         return {"message": f"Snapshot '{snapshot_name}' deleted"}
-    except HTTPException:
-        raise
-    except Exception as e:  # never a task left running: closed with what happened
-        log_action(
-            user["username"], "delete_snapshot", name, "failed", f"Snapshot '{snapshot_name}': {describe_exception(e)}",
-            task_id=task_id,
-        )  # fmt: skip
-        raise
-    finally:
-        conn.close()
-        claim.release()
