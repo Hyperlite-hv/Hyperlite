@@ -357,20 +357,20 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
                 status_code=409,
                 detail="This VM has no cloud-init drive: it was installed from an ISO image, not made from a cloud image",
             )
-        try:
-            keys = cloudinit_edit.validate(payload.user, payload.password, payload.ssh_keys)
-            macs = cloudinit_edit.interface_macs(domain)
-            custom = cloudinit_edit.validate_custom(merged_custom(name, payload), macs)
-            cloudinit_edit.rewrite_drive(name, drive, payload.user, payload.password, keys, custom, macs)
-        except cloudinit_edit.CloudInitError as e:
-            log_action(user["username"], "update_vm_cloudinit", name, "failed", str(e))
-            raise HTTPException(status_code=422, detail=str(e)) from e
-        reloaded = False
-        try:
-            reloaded = cloudinit_edit.reload_media(domain, name)
-        except libvirt.libvirtError as e:
-            # The file is written: the change applies anyway once the VM is powered off and on again.
-            logger.warning("Could not reload the cloud-init drive of %s live: %s", name, e)
+        # Checked again, written private to root and reloaded by hyperlite-daemon (app/daemon/ops/vm.py).
+        written = privileged.ask(
+            "vm.cloudinit_write",
+            user,
+            "update_vm_cloudinit",
+            name,
+            vm=name,
+            account=payload.user,
+            password=payload.password,
+            ssh_keys=payload.ssh_keys,
+            custom=merged_custom(name, payload),
+        )
+        keys, reloaded = written["keys"], written["reloaded"]
+        cloudinit_edit.save_state(name, payload.user, keys, written["custom"])
         set_vm_ssh_user(name, payload.user)
         log_action(
             user["username"],

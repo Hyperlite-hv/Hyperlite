@@ -97,7 +97,7 @@ def test_the_drive_is_rebuilt_with_a_new_instance_id(images, database):
     assert cloudinit_edit.get_state("web")["ssh_keys"] == [KEY]
 
 
-def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_headers, images, monkeypatch):
+def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_headers, images, monkeypatch, daemon_libvirt):
     from app.routers.vms import settings
 
     domains = {"web": _Domain(_xml(images / "web-cloudinit.iso")), "iso-vm": _Domain(_xml(images / "debian.iso"))}
@@ -113,12 +113,11 @@ def test_the_api_rewrites_the_drive_of_a_cloud_image_vm_only(client, auth_header
 
     written = []
     monkeypatch.setattr(settings, "open_conn", lambda node=None: Conn())
+    daemon_libvirt(Conn())  # hyperlite-daemon writes the drive (write_drive); the API keeps the state
     monkeypatch.setattr(
         cloudinit_edit,
-        "rewrite_drive",
-        lambda name, iso, user, pw, keys, custom=None, macs=(): (
-            written.append((name, user, pw, keys)) or cloudinit_edit._save_state(name, user, keys, custom)
-        ),
+        "write_drive",
+        lambda name, iso, user, pw, keys, custom=None, macs=(): written.append((name, user, pw, keys)),
     )
     admin = auth_headers("admin")
     assert client.get("/vms/web/cloud-init", headers=admin).json()["available"] is True
