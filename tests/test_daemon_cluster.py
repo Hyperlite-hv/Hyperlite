@@ -123,3 +123,24 @@ def test_a_migration_names_registered_nodes_and_its_task(database):
     with pytest.raises(DaemonError) as e:
         privileged.run("vm.migrate_finish", task_id="t1", paths=["/etc/shadow"])
     assert e.value.kind == "invalid_arguments"
+
+
+def test_the_copies_and_the_commands_name_a_node_never_an_address_a_path_or_a_script(database):
+    for op, args, kind in (
+        ("iso.copy", {"name": "../x.iso", "target": "n2", "task_id": "t", "total": 1}, "refused"),
+        ("iso.copy", {"name": "d.iso", "target": "ghost", "task_id": "t", "total": 1}, "not_found"),
+        ("iso.delete_remote", {"node": "n2", "name": "../../etc/passwd"}, "refused"),
+        ("node.probe", {"node": "n2", "probe": "rm -rf /"}, "invalid_arguments"),
+        (
+            "node.peer_call",
+            {
+                "node": "n2",
+                "request": {"url": "https://evil/", "method": "GET", "body": None, "timeout": 5, "token": "t"},
+            },
+            "invalid_arguments",
+        ),
+        ("config.copy", {"nodes": ["../x"]}, "refused"),
+    ):
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, **args)
+        assert e.value.kind == kind, op

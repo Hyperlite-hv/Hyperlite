@@ -201,7 +201,7 @@ def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: 
         raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
 
     # Every node keeps its library at the same path, so the in-use check reads that node's own VMs.
-    conn = open_conn(None if remote is None else node)
+    conn = open_conn(None if remote is None else node, readonly=True)
     try:
         if _iso_in_use(conn, str(path)):
             raise HTTPException(status_code=409, detail="ISO in use by a VM, eject it first")

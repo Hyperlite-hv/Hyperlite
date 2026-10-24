@@ -439,17 +439,20 @@ def node_summary(node_name):
     """CPU/RAM/storage/VMs of the node, in the same shape as the local
     GET /dashboard (app/routers/dashboard.py), so the frontend can reuse the
     same rendering whichever node is shown."""
-    from app.core.libvirt_utils import ensure_default_pool, open_conn
+    from app.core import privileged
+    from app.core.libvirt_utils import open_conn
+    from app.daemon.registry import DaemonError
 
-    conn = open_conn(node_name)
+    conn = open_conn(node_name, readonly=True)
     try:
         domains = conn.listAllDomains()
         active = sum(1 for d in domains if d.isActive())
         try:
-            pool = ensure_default_pool(conn)
-            pool.refresh(0)
-            _, capacity, _allocation, available = pool.info()
-        except libvirt.libvirtError:
+            # Its 'default' pool made where it is missing and read again by hyperlite-daemon, with the cluster's key.
+            privileged.run("storage.ensure_default_pool", node=node_name)
+            privileged.run("storage.pool_refresh", pool="default", node=node_name)
+            _, capacity, _allocation, available = conn.storagePoolLookupByName("default").info()
+        except (libvirt.libvirtError, DaemonError):
             capacity = available = None
         return {
             "hostname": conn.getHostname(),

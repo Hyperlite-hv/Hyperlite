@@ -139,18 +139,15 @@ def _local_boot_id():
 
 
 def remote_boot_id(node_row):
-    """The boot id of a registered node, read over the cluster's SSH trust; None when unreachable."""
-    from app.core.cluster import _run_ssh  # late import: cluster.py imports much of the core
+    """The boot id of a registered node, read by hyperlite-daemon over the cluster's SSH trust (node.facts); None when
+    unreachable."""
+    from app.core import privileged
 
     try:
-        r = _run_ssh(node_row, ["cat", str(BOOT_ID_FILE)], timeout=10)
-    except (OSError, ValueError) as e:
-        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], e)
+        return privileged.run("node.facts", node=node_row["name"])["boot_id"]
+    except DaemonError as e:
+        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], e.detail)
         return None
-    if r.returncode != 0:
-        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], r.stderr.strip())
-        return None
-    return r.stdout.strip() or None
 
 
 def boot_if_new(node, boot_id):
