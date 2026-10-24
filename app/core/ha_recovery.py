@@ -46,7 +46,8 @@ PRIORITY = {"high": 0, "medium": 1, "low": 2}
 
 OK, LOST, FENCING, RECOVERING, MANUAL = "ok", "lost", "fencing", "recovering", "manual"
 
-# member -> {"noticed": monotonic, "last_seen": monotonic, "bmc": result or None, "fenced_at": monotonic or None}:
+# member -> {"noticed": monotonic, "last_seen": monotonic, "bmc": result or None, "fenced_at": monotonic or None,
+# "recovering": the names of the VMs it was fenced for, restarted elsewhere}:
 # the leader's own view, rebuilt from the statuses within a round after it starts.
 _lost = {}
 _lock = threading.Lock()
@@ -342,7 +343,18 @@ def tick():
                     continue
                 vms = stopped
                 entry["fenced_at"] = time.monotonic()
+                entry["recovering"] = {r["vm_name"] for r in stopped}
                 log_action("system", "ha_fenced", member, "success", "it answers again and its HA VMs do not run there")
+            else:
+                # Already known to be stopped: only the VMs it was fenced for are restarted, never one that runs
+                # there now, nor one stopped on purpose; once none is left on it, it is back.
+                vms = [r for r in vms if r["vm_name"] in entry["recovering"]]
+                if not vms:
+                    with _lock:
+                        _lost.pop(member, None)
+                    log_action("system", "ha_back", member, "success", "the member answers again, its HA VMs recovered")
+                    states[member] = OK
+                    continue
             # Known to be stopped: its VMs are restarted even though it answers again, on another member (as Proxmox
             # VE and vSphere do): whatever made it fail may not be over.
             _restart_all(vms, entry, _online(ages), set(_lost))
@@ -361,7 +373,9 @@ def tick():
                 first = True
             else:
                 first = False
-        if entry["ran"] is not None:
+        if entry.get("recovering") is not None:
+            vms = [r for r in vms if r["vm_name"] in entry["recovering"]]
+        elif entry["ran"] is not None:
             # A VM stopped on purpose before its node was lost stays stopped, on that node, as Proxmox's requested
             # state keeps it.
             idle = [r for r in vms if r["vm_name"] not in entry["ran"]]
@@ -388,6 +402,7 @@ def tick():
                 states[member] = FENCING
                 continue
             entry["fenced_at"] = time.monotonic()
+            entry["recovering"] = {r["vm_name"] for r in vms}
             logger.warning("HA: member %s fenced: %s", member, why)
             log_action("system", "ha_fenced", member, "success", why)
         _restart_all(vms, entry, _online(ages), set(_lost))
