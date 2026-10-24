@@ -441,6 +441,22 @@ export async function deleteBackupStore(name) {
 export async function cleanUpBackupStore(name) {
   return realFetch(`/backup-stores/${encodeURIComponent(name)}/gc`, { method: "POST" });
 }
+// Copies of a store into its copy store, pulled on their own schedule with their own retention.
+export async function fetchStoreSyncs() {
+  return realList("/backup-store-syncs");
+}
+export async function createStoreSync(payload) {
+  return realFetch("/backup-store-syncs", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateStoreSync(id, payload) {
+  return realFetch(`/backup-store-syncs/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteStoreSync(id) {
+  return realFetch(`/backup-store-syncs/${id}`, { method: "DELETE" });
+}
+export async function runStoreSync(id) {
+  return realFetch(`/backup-store-syncs/${id}/run`, { method: "POST" });
+}
 export async function deleteBackup(id, on) {
   return realFetch(`/backups/${id}${backupQs("on", on, "confirm=true")}`, { method: "DELETE" });
 }
