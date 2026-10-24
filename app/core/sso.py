@@ -244,7 +244,9 @@ def resolve_role(config, claims):
     admin_groups = {g.strip() for g in (config.get("admin_groups") or "").split(",") if g.strip()}
     if not admin_groups:
         return "viewer"
-    user_groups = set(claims.get(config.get("group_claim") or "groups") or [])
+    groups = claims.get(config.get("group_claim") or "groups") or []
+    # Some identity providers send one group as a string, not a list: one group, never its characters.
+    user_groups = {groups} if isinstance(groups, str) else {g for g in groups if isinstance(g, str)}
     return "admin" if user_groups & admin_groups else "viewer"
 
 

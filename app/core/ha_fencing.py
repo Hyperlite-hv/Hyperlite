@@ -140,8 +140,9 @@ def _without_secret(row, text):
         secret = secrets_crypto.decrypt(row["secret"]) or ""
     except secrets_crypto.SecretUnreadable:
         secret = ""
-    message = " ".join(line.strip() for line in text.splitlines() if line.strip())[-300:]
-    return message.replace(secret, "***") if secret else message
+    message = " ".join(line.strip() for line in text.splitlines() if line.strip())
+    # Replaced before it is cut: a cut inside the secret left its end to read.
+    return (message.replace(secret, "***") if secret else message)[-300:]
 
 
 def _run(row, action, timeout):

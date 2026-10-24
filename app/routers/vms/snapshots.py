@@ -337,10 +337,18 @@ def _restore_lvm_snapshot_job(task_id, username, vm_name, disks, snapshot_name):
         log_action(username, "restore_snapshot", vm_name, "failed", f"Snapshot '{snapshot_name}': {msg}")
 
 
+def _refuse_zfs_syntax(snapshot_name):
+    """ZFS reads `a%b` as a range of snapshots and `a,b` as a list: such a name, never made here, would destroy or
+    roll back more than the one snapshot named (and audited)."""
+    if not snapshot_name or any(c in snapshot_name for c in "%,@/") or snapshot_name != snapshot_name.strip():
+        raise HTTPException(status_code=422, detail=f"Invalid snapshot name: {snapshot_name!r}")
+
+
 @router.post("/{name}/snapshots/{snapshot_name}/restore", status_code=202)
 def restore_snapshot(
     name: str, snapshot_name: str, confirm: bool = False, user: dict = Depends(require_vm_privilege("vm.snapshot"))
 ):
+    _refuse_zfs_syntax(snapshot_name)
     conn = open_conn()
     try:
         try:
@@ -476,6 +484,7 @@ def restore_snapshot(
 
 @router.delete("/{name}/snapshots/{snapshot_name}")
 def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
+    _refuse_zfs_syntax(snapshot_name)
     # It stays synchronous (no background thread/task): unlike create/restore,
     # deleting an internal snapshot is nearly instantaneous even with a child (libvirt
     # reparents the child automatically), tested and confirmed on this host. `zfs

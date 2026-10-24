@@ -1,0 +1,1 @@
+- A BMC password an agent echoes is hidden even where its output is cut; an SSO group claim sent as a string counts as one group; an unreachable identity provider is said without the connection error's details to the anonymous visitor; a snapshot name with ZFS's range or list syntax is refused.
