@@ -259,3 +259,37 @@ def test_without_its_checkpoint_a_backup_reads_whole(vm):
     backup_store_vm.backup_vm(domain, store)
     assert _manifest(store)["read"]["vda"] == "full"
     domain.destroy()
+
+
+def test_a_backup_of_todays_format_is_imported_into_a_store_and_restores(vm, monkeypatch):
+    """A directory backup (qcow2 images and a manifest), copied into a store on demand: the old one left as it is, the
+    new one restores the same disk."""
+    from app.core import backup_integrity, backup_stores, backups
+
+    store = vm["store"]
+    monkeypatch.setattr(backup_stores, "_pool_dir", lambda name: store.root.parent)
+    backup_stores.create("e2e", "pool", store.root.name)
+    old = vm["tmp"] / "dir-backup" / VM / "20261024T020000Z"
+    old.mkdir(parents=True)
+    subprocess.run(["qemu-img", "convert", "-O", "qcow2", str(vm["qcow2"]), str(old / "vda.qcow2")], check=True)
+    (old / "vm-config.json").write_text('{"vcpu": 1, "memory_mb": 64, "network": "default", "firmware": "bios"}')
+    backup_integrity.write_manifest(old, VM, "cold", "bios", [("vda", old / "vda.qcow2")])
+    with _conn() as conn:
+        backup_id = conn.execute(
+            "INSERT INTO backups (vm_name, path, mode, created_at, status) VALUES (?, ?, 'cold', ?, 'succeeded')",
+            (VM, str(old), "2026-10-24T02:00:00+00:00"),
+        ).lastrowid
+        conn.commit()
+    new_id = backups.import_into_store(backup_id, "e2e", "ana")
+    assert new_id != backup_id and (old / "vda.qcow2").exists()  # the old one stays
+    [(vm_uuid, stamp, manifest)] = store.backups()
+    assert stamp == "2026-10-24T02:00:00Z" and manifest["imported_from"] == str(old)
+    assert store.read_file(vm_uuid, stamp, "vm-config.json").startswith(b'{"vcpu"')
+    assert same("qcow2", vm["qcow2"], "qcow2", _restored(store, vm_uuid, stamp, "vda", "qcow2"))
+    assert backups.import_into_store(backup_id, "e2e", "ana") == new_id  # once
+
+
+def _conn():
+    from app.core.database import get_conn
+
+    return get_conn()
