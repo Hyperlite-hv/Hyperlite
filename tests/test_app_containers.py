@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from app.core import container_ops
+
 NGINX_CONFIG = {
     "process": {
         "args": ["/docker-entrypoint.sh", "nginx", "-g", "daemon off;"],
@@ -223,12 +225,15 @@ class _Conn:
     def listAllDomains(self):
         return list(self.domains.values())
 
+    def listAllStoragePools(self, flags=0):
+        return []
+
     def close(self):
         pass
 
 
 @pytest.fixture()
-def api(database, image, monkeypatch, tmp_path):
+def api(database, image, monkeypatch, tmp_path, daemon_libvirt, daemon_lxc):
     from app.routers import containers
 
     conn = _Conn()
@@ -242,6 +247,10 @@ def api(database, image, monkeypatch, tmp_path):
 
     monkeypatch.setattr(containers, "allocate_static_ip", allocate)
     monkeypatch.setattr(containers, "release_static_ip", lambda c, network, mac: reserved.pop(mac, None))
+    # hyperlite-daemon stops and deletes the containers, and releases an application container's address.
+    daemon_lxc(conn)
+    daemon_libvirt(conn)
+    monkeypatch.setattr(container_ops, "release_static_ip", lambda c, network, mac: reserved.pop(mac, None))
     rootfs = image("nginx:latest", NGINX_CONFIG)
     pulls = []
 
