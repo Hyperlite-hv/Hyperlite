@@ -8,8 +8,7 @@ from pathlib import Path
 import libvirt
 import pytest
 
-from app.core import audit, vm_locks
-from app.routers.vms import clone
+from app.core import audit, vm_clone, vm_locks
 
 RAW_VM = """<domain><name>old</name><uuid>1</uuid><devices>
 <disk type='file' device='disk'><driver name='qemu' type='raw'/><source file='{src}'/><target dev='vda'/></disk>
@@ -50,23 +49,23 @@ class FakeConn:
 
 
 @pytest.fixture()
-def env(database, tmp_path, monkeypatch):
+def env(database, tmp_path, monkeypatch, daemon_libvirt):
     src = tmp_path / "old.img"
     src.write_bytes(b"raw disk")
     images = tmp_path / "images"
     images.mkdir()
     conn = FakeConn(src)
-    monkeypatch.setattr(clone, "open_conn", lambda node=None: conn)
-    monkeypatch.setattr(clone, "IMAGES_DIR", images)
-    monkeypatch.setattr(clone, "refresh_pools_for_paths", lambda *a: None)
-    monkeypatch.setattr(clone, "generate_mac", lambda conn: "52:54:00:00:00:02")
-    monkeypatch.setattr(clone, "allocate_static_ip", lambda *a: None)
+    daemon_libvirt(conn)
+    monkeypatch.setattr(vm_clone, "IMAGES_DIR", images)
+    monkeypatch.setattr(vm_clone, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_clone, "generate_mac", lambda conn: "52:54:00:00:00:02")
+    monkeypatch.setattr(vm_clone, "allocate_static_ip", lambda *a: None)
 
     def copy(cmd, **kwargs):
         Path(cmd[-1]).write_bytes(b"QFI\xfb")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(clone.subprocess, "run", copy)
+    monkeypatch.setattr(vm_clone.subprocess, "run", copy)
 
     def task():
         audit._AUDIT_QUEUE.join()
@@ -89,7 +88,7 @@ def test_a_copy_that_stops_leaves_no_partial_file(env, client, auth_headers, mon
         Path(cmd[-1]).write_bytes(b"half")
         raise subprocess.CalledProcessError(1, cmd, "", "No space left on device")
 
-    monkeypatch.setattr(clone.subprocess, "run", full)
+    monkeypatch.setattr(vm_clone.subprocess, "run", full)
     r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert r.status_code == 500
     assert list(env["images"].iterdir()) == []
@@ -100,12 +99,13 @@ def test_an_unexpected_error_removes_the_copies_and_closes_the_task(env, client,
     def broken(conn):
         raise OSError("entropy source unavailable")
 
-    monkeypatch.setattr(clone, "generate_mac", broken)
-    with pytest.raises(OSError):
-        client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
+    monkeypatch.setattr(vm_clone, "generate_mac", broken)
+    r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
+    # hyperlite-daemon keeps an unexpected error's reason in its own log: the answer and the task say it failed.
+    assert r.status_code == 500
     assert list(env["images"].iterdir()) == []
     task = env["task"]()
-    assert task["status"] == "failed" and "entropy" in task["error"]
+    assert task["status"] == "failed" and "vm.clone failed" in task["error"]
 
 
 def test_two_clones_never_write_the_same_new_disks(env, client, auth_headers):
@@ -115,8 +115,8 @@ def test_two_clones_never_write_the_same_new_disks(env, client, auth_headers):
 
 
 def test_a_clone_that_would_not_fit_is_refused_before_any_copy(env, client, auth_headers, monkeypatch):
-    monkeypatch.setattr(clone.disk_space, "allocated_bytes", lambda path: 50 * 1024**3)
-    monkeypatch.setattr(clone.disk_space.shutil, "disk_usage", lambda path: type("U", (), {"free": 20 * 1024**3})())
+    monkeypatch.setattr(vm_clone.disk_space, "allocated_bytes", lambda path: 50 * 1024**3)
+    monkeypatch.setattr(vm_clone.disk_space.shutil, "disk_usage", lambda path: type("U", (), {"free": 20 * 1024**3})())
     r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert r.status_code == 409 and "Not enough space for this clone" in r.json()["detail"]
     assert list(env["images"].iterdir()) == [] and env["conn"].defined == []
