@@ -18,6 +18,7 @@ server, so a reader never sees half of one; a chunk already held is never writte
 time), which garbage collection reads.
 """
 
+import base64
 import contextlib
 import fcntl
 import hashlib
@@ -35,7 +36,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import zstandard
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
@@ -53,6 +55,7 @@ _HEADER = struct.Struct(">4sBBHII")  # magic, format, flags, reserved, content l
 _COMPRESSED, _ENCRYPTED = 1, 2
 _NONCE = 12
 _INDEX_MAGIC = b"HLFIDX01"
+_FILE_MAGIC = b"HLBF1"
 _INDEX_HEADER = struct.Struct(">8sQII")  # magic, disk size, chunk size, number of chunks
 _ZSTD_LEVEL = 1
 
@@ -152,6 +155,8 @@ class Store:
             if not hmac.compare_digest(fingerprint(key), self.config.get("key_fingerprint", "")):
                 raise StoreError(f"{self.root}: this is not the store's key")
             self._id_key, self._aead = _derive(key, b"id"), AESGCM(_derive(key, b"chunk"))
+            self._file_aead = AESGCM(_derive(key, b"file"))
+        self._key = key
         self._local = threading.local()  # zstd's contexts are not shared between threads
 
     @property
@@ -284,11 +289,47 @@ class Store:
             raw = index.encode()
             _write_atomic(directory / f"{_safe(name)}.fidx", raw)
             listed[name] = {"size": index.size, "sha256": hashlib.sha256(raw).hexdigest()}
+        kept = {}
         for name, data in (files or {}).items():
-            _write_atomic(directory / _safe(name), data)
+            _write_atomic(directory / _safe(name), self._seal_file(vm_uuid, stamp, name, data))
+            kept[name] = {"encrypted": self.encrypted}
         manifest = {**manifest, "store": self.id, "vm_uuid": str(uuid.UUID(vm_uuid)), "time": stamp, "disks": listed}
+        manifest["files"] = kept
         _write_atomic(directory / "manifest.json", json.dumps(manifest, indent=1).encode())
         return directory
+
+    def _file_aad(self, vm_uuid, stamp, name):
+        # A file is bound to its backup and its name: one cannot be passed off as another's NVRAM or configuration.
+        return f"{uuid.UUID(vm_uuid)}/{stamp}/{name}".encode()
+
+    def _seal_file(self, vm_uuid, stamp, name, data):
+        if not self.encrypted:
+            return data
+        nonce = os.urandom(_NONCE)
+        return _FILE_MAGIC + nonce + self._file_aead.encrypt(nonce, data, self._file_aad(vm_uuid, stamp, name))
+
+    def read_file(self, vm_uuid, stamp, name):
+        """A file kept whole with a backup (its NVRAM, its TPM state, its configuration), decrypted. A file written
+        before files were encrypted, or by an unencrypted store, is read as it is."""
+        raw = (self.backup_dir(vm_uuid, stamp) / _safe(name)).read_bytes()
+        if not self.encrypted:
+            return raw
+        if not raw.startswith(_FILE_MAGIC):
+            raise DamagedChunk(b"", f"{name} is not encrypted in an encrypted store")
+        body = raw[len(_FILE_MAGIC) :]
+        try:
+            return self._file_aead.decrypt(body[:_NONCE], body[_NONCE:], self._file_aad(vm_uuid, stamp, name))
+        except Exception:  # InvalidTag
+            raise DamagedChunk(b"", f"{name}: authentication failed") from None
+
+    def sealed_key(self, public_pem):
+        """The store's key encrypted with a master recovery key's public half (RSA-OAEP, SHA-256), as PBS writes it
+        into each backup: with the private half, a backup is read again even when every node and secret is lost."""
+        public = serialization.load_pem_public_key(public_pem)
+        sealed = public.encrypt(
+            self._key, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None)
+        )
+        return base64.b64encode(sealed).decode()
 
     def backups(self, vm_uuid=None):
         """The complete backups, as (vm uuid, time, manifest), oldest first."""
@@ -423,6 +464,61 @@ def fingerprint(key):
 
 def new_key():
     return secrets.token_bytes(32)
+
+
+def new_master_key():
+    """A master recovery key, as PBS's: (private PEM, public PEM), RSA 4096. Hyperlite keeps the public half only."""
+    private = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    private_pem = private.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+    public_pem = private.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return private_pem, public_pem
+
+
+def check_public_key(public_pem):
+    """A master key's public half given by the administrator: an RSA key of at least 3072 bits, PEM. Its PEM bytes."""
+    try:
+        public = serialization.load_pem_public_key(public_pem.encode() if isinstance(public_pem, str) else public_pem)
+    except (ValueError, TypeError):
+        raise StoreError("The master key is not a public key in PEM format") from None
+    if not isinstance(public, rsa.RSAPublicKey) or public.key_size < 3072:
+        raise StoreError("The master key must be an RSA key of 3072 bits or more")
+    return public.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def recover_key(manifest, private_pem):
+    """The store's key from a backup's manifest and the master recovery key's private half."""
+    sealed = manifest.get("recovery_key")
+    if not sealed:
+        raise StoreError("This backup was made without a master recovery key")
+    private = serialization.load_pem_private_key(private_pem, password=None)
+    try:
+        return private.decrypt(
+            base64.b64decode(sealed),
+            padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+        )
+    except ValueError:
+        raise StoreError("This is not the master key this backup was made with") from None
+
+
+def key_code(key):
+    """The store's key as a person writes it down: base32, in groups of four (and back with key_from_code)."""
+    text = base64.b32encode(key).decode().rstrip("=")
+    return "-".join(text[i : i + 4] for i in range(0, len(text), 4))
+
+
+def key_from_code(code):
+    text = "".join(ch for ch in code.upper() if ch.isalnum())
+    try:
+        key = base64.b32decode(text + "=" * (-len(text) % 8))
+    except (ValueError, base64.binascii.Error):
+        raise StoreError("This is not a store key") from None
+    if len(key) != 32:
+        raise StoreError("This is not a store key")
+    return key
 
 
 def create(root, encrypted_with=None, chunk_size=CHUNK_SIZE):

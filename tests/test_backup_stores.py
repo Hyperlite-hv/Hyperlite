@@ -60,7 +60,7 @@ def _row(path, created_at, vm="web", store="main"):
 
 
 def test_a_store_is_made_in_a_pool_and_found_again_by_its_id(database, pools):
-    row = backup_stores.create("main", "nas", username="ana")
+    row, _ = backup_stores.create("main", "nas", username="ana")
     assert (row["pool"], row["directory"]) == ("nas", "hyperlite-store")
     store = backup_stores.open_store("main")
     assert store.root == pools["nas"] / "hyperlite-store" and store.id == row["store_id"]
@@ -72,14 +72,14 @@ def test_a_store_is_made_in_a_pool_and_found_again_by_its_id(database, pools):
 
 def test_a_store_already_in_a_pool_is_taken_over_once(database, pools):
     made = backup_store.create(pools["nas"] / "kept")  # a store left by a reinstallation, or another cluster's
-    row = backup_stores.create("again", "nas", "kept")
+    row, _ = backup_stores.create("again", "nas", "kept")
     assert row["store_id"] == made.id
     with pytest.raises(backup_stores.StoreError, match="already a store of this cluster"):
         backup_stores.create("twice", "nas", "kept")
 
 
 def test_another_share_mounted_at_the_pool_is_never_taken_for_the_store(database, pools):
-    row = backup_stores.create("main", "nas")
+    row, _ = backup_stores.create("main", "nas")
     other = pools["nas"] / "hyperlite-store"
     for path in sorted(other.rglob("*"), reverse=True):
         path.rmdir() if path.is_dir() else path.unlink()
@@ -235,7 +235,9 @@ def test_a_store_backup_records_its_directory_and_size(database, pools, monkeypa
 
     monkeypatch.setattr(backups, "open_conn", lambda: Conn())
     monkeypatch.setattr(
-        backup_store_vm, "backup_vm", lambda domain, s, mode, progress, files: _backup_into(s, "t1", b"\x02" * 9000)
+        backup_store_vm,
+        "backup_vm",
+        lambda domain, s, mode, progress, files, manifest_extra: _backup_into(s, "t1", b"\x02" * 9000),
     )
     backup_id = backups.run_backup("web", store="main", username="ana")
     with get_conn() as conn:

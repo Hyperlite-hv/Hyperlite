@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import backup_stores, backup_use, cluster_view, maintenance, site_recovery, vm_locks
+from app.core import backup_store, backup_stores, backup_use, cluster_view, maintenance, site_recovery, twofa, vm_locks
 from app.core.audit import log_action
 from app.core.backups import (
     DEFAULT_BACKUP_DIR,
@@ -348,6 +348,12 @@ class StoreCreate(BaseModel):
     name: str = Field(description="The store's name")
     pool: str = Field(description="A storage pool of files (directory, NFS, SMB) of this node")
     directory: str | None = Field(None, description="Its directory inside the pool (default: hyperlite-store)")
+    encrypted: bool = Field(False, description="A new store: its chunks and files encrypted, the key shown once")
+    master_key: str = Field(
+        "none", pattern="^(none|generate|own)$", description="A master recovery key: none, made here (shown once), own"
+    )
+    master_public_key: str | None = Field(None, description="master_key 'own': the public half, PEM (RSA 3072+)")
+    key: str | None = Field(None, description="Taking over an encrypted store: its key's code")
 
 
 def _store_error(e):
@@ -370,14 +376,38 @@ def get_backup_store(name: str, user: dict = Depends(get_current_user)):
 
 @router.post("/backup-stores", status_code=201)
 def create_backup_store(payload: StoreCreate, user: dict = Depends(require_role("admin"))):
-    """Make a store in a directory of a storage pool, or take over the store already there."""
+    """Make a store in a directory of a storage pool, or take over the store already there. An encrypted store's key,
+    and a master recovery key made here, are in this answer only: Hyperlite never shows them again."""
+    private = None
+    public = payload.master_public_key
+    if payload.master_key == "generate":
+        private, public = backup_store.new_master_key()
+    elif payload.master_key == "none":
+        public = None
+    elif not public:
+        raise HTTPException(status_code=422, detail="Give the master key's public half")
     try:
-        row = backup_stores.create(payload.name, payload.pool, payload.directory, user["username"])
+        row, code = backup_stores.create(
+            payload.name,
+            payload.pool,
+            payload.directory,
+            user["username"],
+            encrypted=payload.encrypted,
+            master_public_key=public,
+            key=payload.key,
+        )
     except backup_stores.StoreError as e:
         log_action(user["username"], "create_backup_store", payload.name, "failed", e.message)
         raise _store_error(e) from None
-    log_action(user["username"], "create_backup_store", payload.name, "success", f"pool {payload.pool}")
-    return backup_stores.describe(row)
+    detail = f"pool {payload.pool}" + (", encrypted" if row["encrypted"] else "") + (", master key" if public else "")
+    log_action(user["username"], "create_backup_store", payload.name, "success", detail)
+    out = backup_stores.describe(row)
+    if code:
+        out["key_code"] = code
+        out["key_qr_svg"] = twofa.qr_code_svg(code)
+    if private:
+        out["master_private_key"] = private.decode()
+    return out
 
 
 @router.delete("/backup-stores/{name}")

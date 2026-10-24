@@ -12,7 +12,14 @@ import { Card, Chip, Empty, Field, Loading, Meter, SideDrawer, TableWrap } from 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 // Pools of files: a store keeps files, which ZFS, LVM and iSCSI pools (disks) do not.
 const FILE_POOLS = new Set(["dir", "netfs", "fs"]);
-const EMPTY = { name: "", pool: "", directory: "hyperlite-store" };
+const EMPTY = { name: "", pool: "", directory: "hyperlite-store", encrypted: false, master_key: "none", master_public_key: "", key: "" };
+
+function download(name, text, type = "text/plain") {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
 
 // Backup stores, as Proxmox Backup Server's datastores: each lives in a directory of a storage pool, and keeps every
 // VM's disks as chunks held once. A backup job, a VM's schedule or a manual backup names one as its destination.
@@ -25,6 +32,9 @@ export default function BackupStores({ onChange }) {
   const [error, setError] = useState(null);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The keys of a store just made: shown once, never again (the API does not keep them readable).
+  const [shown, setShown] = useState(null);
+  const [saved, setSaved] = useState(false);
   const load = useCallback(async () => {
     try { const s = await fetchBackupStores(); setStores(s); setError(null); onChange?.(s); } catch (e) { setError(errorMessage(e)); }
   }, [onChange]);
@@ -33,15 +43,21 @@ export default function BackupStores({ onChange }) {
     if (form) fetchStoragePools().then((p) => setPools(p.filter((x) => x.node === "local" && FILE_POOLS.has(x.type)))).catch(() => setPools([]));
   }, [form]);
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-  const bad = form ? { name: !NAME_RE.test(form.name), pool: !form.pool, directory: !NAME_RE.test(form.directory) } : {};
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+  const bad = form ? { name: !NAME_RE.test(form.name), pool: !form.pool, directory: !NAME_RE.test(form.directory),
+    master: form.encrypted && form.master_key === "own" && !form.master_public_key.includes("BEGIN PUBLIC KEY") } : {};
   const invalid = Object.values(bad).some(Boolean);
 
   async function save() {
     setBusy(true);
     try {
-      await createBackupStore({ name: form.name, pool: form.pool, directory: form.directory });
+      const r = await createBackupStore({
+        name: form.name, pool: form.pool, directory: form.directory, encrypted: form.encrypted,
+        master_key: form.encrypted ? form.master_key : "none", master_public_key: form.master_key === "own" ? form.master_public_key : null,
+        key: form.key.trim() || null,
+      });
       pushToast({ kind: "success", title: t("bst.created"), message: form.name });
+      if (r?.key_code || r?.master_private_key) { setSaved(false); setShown({ name: form.name, ...r }); }
       setForm(null); await load();
     } catch (e) { pushToast({ kind: "error", title: t("bst.createFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
   }
@@ -66,7 +82,7 @@ export default function BackupStores({ onChange }) {
               <thead><tr><th scope="col">{t("bst.name")}</th><th scope="col">{t("bst.where")}</th><th scope="col">{t("bst.space")}</th><th scope="col" className="nx-num">{t("bst.backups")}</th><th scope="col">{t("bst.lastClean")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>{stores.map((s) => (
                 <tr key={s.name}>
-                  <th scope="row">{s.name}{!s.available && <> <Chip tone="danger">{t("bst.unreachable")}</Chip></>}</th>
+                  <th scope="row">{s.name}{s.encrypted && <> <Chip tone="info">{t("bst.encrypted")}</Chip></>}{!s.available && <> <Chip tone="danger">{t("bst.unreachable")}</Chip></>}</th>
                   <td className="nx-wrapcell"><span className="nx-mono">{s.pool}/{s.directory}</span>{!s.available && s.problem && <div className="nx-f-h is-error">{s.problem}</div>}</td>
                   <td>{s.available ? <><Meter value={((s.total_bytes - s.free_bytes) / s.total_bytes) * 100} label={`${t("bst.space")} ${s.name}`} /><div className="nx-f-h">{t("bst.free", { free: gb(s.free_bytes), total: gb(s.total_bytes) })}</div></> : "—"}</td>
                   <td className="nx-num nx-mono">{s.available ? s.backups : "—"}</td>
@@ -92,6 +108,33 @@ export default function BackupStores({ onChange }) {
             <option value="">{t("sec.choose")}</option>{pools.map((x) => <option key={x.name} value={x.name}>{x.name}{x.protocol ? ` (${x.protocol.toUpperCase()})` : ""}</option>)}
           </select>}</Field>
           <Field label={t("bst.directory")} hint={t("bst.directoryHint")} error={bad.directory ? t("bst.nameRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.directory} onChange={set("directory")} />}</Field>
+          <label className="nx-check"><input type="checkbox" checked={form.encrypted} onChange={set("encrypted")} /> {t("bst.encrypt")}</label>
+          <p className="nx-f-h" style={{ margin: 0 }}>{t("bst.encryptHelp")}</p>
+          {form.encrypted && <>
+            <Field label={t("bst.master")} hint={t("bst.masterHint")}>{(p) => <select {...p} className="nx-inp" value={form.master_key} onChange={set("master_key")}>
+              <option value="none">{t("bst.master.none")}</option><option value="generate">{t("bst.master.generate")}</option><option value="own">{t("bst.master.own")}</option>
+            </select>}</Field>
+            {form.master_key === "own" && <Field label={t("bst.masterPublic")} error={form.master_public_key && bad.master ? t("bst.masterPublicRule") : null}>{(p) => <textarea {...p} className="nx-inp nx-mono" rows={6} value={form.master_public_key} onChange={set("master_public_key")} placeholder="-----BEGIN PUBLIC KEY-----" />}</Field>}
+          </>}
+          <Field label={t("bst.takeOverKey")} hint={t("bst.takeOverKeyHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.key} onChange={set("key")} autoComplete="off" />}</Field>
+        </>}
+      </SideDrawer>
+      <SideDrawer open={!!shown} title={t("bst.keysTitle", { name: shown?.name || "" })} onClose={() => saved && setShown(null)} footer={<>
+        <button type="button" className="nx-btn nx-btn--primary" disabled={!saved} onClick={() => setShown(null)}>{t("bst.keysDone")}</button>
+      </>}>
+        {shown && <>
+          <div className="nx-bn" data-tone="warning" role="alert"><span className="nx-bn-t">{t("bst.keysWarning")}</span></div>
+          {shown.key_code && <>
+            <Field label={t("bst.keyCode")} hint={t("bst.keyCodeHint")}>{(p) => <input {...p} className="nx-inp nx-mono" readOnly value={shown.key_code} onFocus={(e) => e.target.select()} />}</Field>
+            {/* An SVG the API generated from the key's code (qrcode), as the two-factor setup shows its own. */}
+            <div className="nx-qr" style={{ width: 180 }} aria-label={t("bst.keyQr")} role="img" dangerouslySetInnerHTML={{ __html: shown.key_qr_svg }} />
+            <button type="button" className="nx-btn" onClick={() => download(`hyperlite-store-${shown.name}.key`, `${shown.key_code}\n`)}>{t("bst.downloadKey")}</button>
+          </>}
+          {shown.master_private_key && <>
+            <p className="nx-f-h" style={{ margin: 0 }}>{t("bst.masterShown")}</p>
+            <button type="button" className="nx-btn" onClick={() => download(`hyperlite-store-${shown.name}-master.pem`, shown.master_private_key, "application/x-pem-file")}>{t("bst.downloadMaster")}</button>
+          </>}
+          <label className="nx-check"><input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} /> {t("bst.keysSaved")}</label>
         </>}
       </SideDrawer>
     </>

@@ -527,7 +527,12 @@ def _run_store_backup(vm_name, store_name, job_id, username):
                 _write_vm_config(domain, Path(tmp))
                 files = {"vm-config.json": (Path(tmp) / "vm-config.json").read_bytes()}
             directory = backup_store_vm.backup_vm(
-                domain, store, mode, progress=lambda pct: update_task_progress(task_id, pct), files=files
+                domain,
+                store,
+                mode,
+                progress=lambda pct: update_task_progress(task_id, pct),
+                files=files,
+                manifest_extra=backup_stores.manifest_extra(store_name),
             )
             _store().set_path(backup_id, str(directory))
             manifest = json.loads((directory / "manifest.json").read_text())
@@ -804,15 +809,19 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
         conn = open_conn()
         task_id = create_task("restore_backup", target_name, node=None, username=username)
         new_disk_paths = []
+        stack = contextlib.ExitStack()
         try:
             from app.core import backup_store_vm
 
             # A backup in a store (docs/design/backup-store.md): its disks are indexes of chunks, written by
-            # backup_store_vm.restore_disk; its vm-config.json, NVRAM and TPM state are files of its directory.
+            # backup_store_vm.restore_disk; its vm-config.json, NVRAM and TPM state are files of its directory,
+            # decrypted into a temporary one when the store is encrypted (files_dir).
             found = backup_store_vm.store_backup_of(src_dir) if row.get("store") else None
+            files_dir = src_dir
             if found:
                 manifest = json.loads((src_dir / "manifest.json").read_text())
                 images = [(dev, None) for dev in manifest["disks"]]
+                files_dir = stack.enter_context(backup_store_vm.files_of(found))
             else:
                 images = _backup_images(src_dir)
             if not images:
@@ -832,7 +841,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 else:
                     written = _restore_overwrite(conn, domain, images, task_id)
                 refresh_pools_for_paths(conn, written)
-                restored = backup_integrity.restore_firmware_state(src_dir, domain)
+                restored = backup_integrity.restore_firmware_state(files_dir, domain)
                 finish_task(task_id, "succeeded")
                 detail = f"overwrite from backup #{backup_id}" + (
                     f", with {' and '.join(restored)}" if restored else ""
@@ -854,7 +863,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
             except libvirt.libvirtError:
                 pass
             # Checked before any copy: a missing network would only fail at the first start.
-            config = _read_vm_config(src_dir)
+            config = _read_vm_config(files_dir)
             if network:
                 config["network"] = network
             try:
@@ -899,7 +908,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
             )
             new_domain = conn.defineXML(xml)
             refresh_pools_for_paths(conn, new_disk_paths)
-            restored = backup_integrity.restore_firmware_state(src_dir, new_domain)
+            restored = backup_integrity.restore_firmware_state(files_dir, new_domain)
             # Older backups did not record them: taken from the original VM when it still has them.
             os_label = config.get("os_label") or get_vm_os_label(row["vm_name"])
             ssh_user = config.get("ssh_user") or get_vm_ssh_user(row["vm_name"])
@@ -921,6 +930,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
             log_action(username, "restore_backup", target_name or row["vm_name"], "failed", msg)
             raise
         finally:
+            stack.close()
             conn.close()
 
 
