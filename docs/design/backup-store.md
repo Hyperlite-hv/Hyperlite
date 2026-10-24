@@ -145,7 +145,16 @@ Each one ships with its tests (unit, the e2e suite, the package lab) and keeps t
 
 1. **The store** (format, writer, reader, verification, garbage collection, retention) and **full backups into it** of
    every disk type, cold and hot (pull mode), with restore through the export: the refusal of block disks goes away.
-2. **Incremental reading**: checkpoints and dirty bitmaps of qcow2 disks.
+2. **Incremental reading**: checkpoints and dirty bitmaps of qcow2 disks. **Done (2026-10-24)**: a running VM's backup
+   into a store makes a checkpoint named after the store (`hl-store-<id>-<time>`, a bitmap on each qcow2 disk); the
+   next one counts the changed blocks from it (libvirt's `<incremental>`, the bitmap exported as the NBD meta context
+   `qemu:dirty-bitmap:dirty-<disk>`, read with `nbdinfo --map`), reads only those chunks (`backup_store_nbd_read.py`,
+   the system's Python with `python3-libnbd`) and takes every other one from the previous backup's index, touched
+   for garbage collection (a chunk the store lost is read again). Raw files and block devices are read whole. Only
+   the store's last checkpoint is kept (libvirt merges the bitmaps of those deleted, so replication's and other
+   stores' keep counting right). A stopped VM is read whole and makes no checkpoint, the next running backup counts
+   from the last one; a whole read at least every 7 days (`full_at` in the manifest) catches what wrote a disk
+   outside QEMU; what Hyperlite does to a disk offline (a snapshot, a move, a restore) drops the checkpoints first.
 3. **Encryption** and the master recovery key; the store becomes the default for new jobs.
 4. **Off-site copy** to another store or another cluster; **import** of today's backups.
 5. **File restore** from a store, and the export for **live restore** (with #513).
