@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import APIRouter, Depends
 
-from app.core import cluster_view, firmware, guest_agent, iscsi, lvm_storage, privileged
+from app.core import cluster_view, firmware, guest_agent, iscsi, lvm_storage, privileged, vm_snapshots
 from app.core.libvirt_utils import (
     get_vm_uptime_s,
 )
@@ -124,7 +124,7 @@ def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
         "os": os_labels.get(name),
         # Exposed directly rather than letting the frontend guess from a derived state: the frontend used to deduce
         # "VM on a ZFS pool" from the list of EXISTING snapshots, which is wrong for a VM's very first snapshot.
-        "zfs_storage": bool(_zvol_disks_of_xml(root)),
+        "zfs_storage": bool(vm_snapshots.zvol_disks(root)),
         "iscsi_storage": bool(iscsi.iscsi_disks_of_xml(root)),
         "lvm_storage": lvm_storage.on_lvm(root),
         # Hyperlite Tools (qemu-guest-agent): "active", "inactive", "not_configured", or None when the VM is stopped.
@@ -193,27 +193,3 @@ def inventory(conn, node=None):
 
 def _domain_summaries(conn, node=None):
     return inventory(conn, node)["vms"]
-
-
-def _zvol_disks_of_domain(domain):
-    """List of (pool, zvol_name) for all the BLOCK disks (ZFS zvols) of a domain. A
-    VM created on a ZFS pool (see create_vm) has ALL its disks as zvols in the
-    SAME pool, never mixed with qcow2 files in this project. Used to route
-    snapshots to the native ZFS mechanism rather than the qcow2 internal
-    snapshot (which only applies to FILE disks)."""
-    return _zvol_disks_of_xml(ET.fromstring(domain.XMLDesc()))
-
-
-def _zvol_disks_of_xml(root):
-    specs = []
-    for disk_el in root.findall(".//devices/disk"):
-        if disk_el.get("type") != "block" or disk_el.get("device") != "disk":
-            continue
-        source_el = disk_el.find("source")
-        dev = source_el.get("dev") if source_el is not None else None
-        if not dev:
-            continue
-        parts = dev.strip("/").split("/")
-        if len(parts) >= 4 and parts[0] == "dev" and parts[1] == "zvol":
-            specs.append((parts[2], "/".join(parts[3:])))
-    return specs
