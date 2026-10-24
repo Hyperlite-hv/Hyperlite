@@ -514,6 +514,14 @@ def init_db():
                 auto_restarts TEXT NOT NULL DEFAULT '[]'
             )
         """)
+        # VM monitoring of an HA VM (docs/design/ha-automatic.md, 4.9): a table of its own, for the same reason.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ha_monitoring (
+                vm_name TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                resets TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
         # Fencing settings per node ("local" or a registered node name), see app/core/ha_fencing.py. The password
         # is Fernet-encrypted and never returned by the API.
         conn.execute("""

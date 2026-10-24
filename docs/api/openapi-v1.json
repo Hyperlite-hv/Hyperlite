@@ -1410,6 +1410,11 @@
    },
    "EnableRequest": {
     "properties": {
+     "monitoring": {
+      "default": false,
+      "title": "Monitoring",
+      "type": "boolean"
+     },
      "node": {
       "anyOf": [
        {
@@ -2375,6 +2380,19 @@
      "target_node"
     ],
     "title": "MigrateRequest",
+    "type": "object"
+   },
+   "MonitoringRequest": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "enabled"
+    ],
+    "title": "MonitoringRequest",
     "type": "object"
    },
    "NetworkCreate": {
@@ -9830,6 +9848,62 @@
      }
     ],
     "summary": "Enable",
+    "tags": [
+     "ha"
+    ]
+   }
+  },
+  "/api/v1/ha/{vm_name}/monitoring": {
+   "put": {
+    "description": "VM monitoring of an HA VM on or off (docs/design/ha-automatic.md, 4.9): it needs qemu-guest-agent in the guest;\na VM whose agent never answered is never reset.",
+    "operationId": "set_monitoring_api_v1_ha__vm_name__monitoring_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "vm_name",
+      "required": true,
+      "schema": {
+       "title": "Vm Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MonitoringRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Monitoring",
     "tags": [
      "ha"
     ]

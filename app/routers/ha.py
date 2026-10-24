@@ -32,10 +32,19 @@ class EnableRequest(BaseModel):
     # The order automatic HA restarts the VMs of a lost member in, and where it tries first (4.3).
     priority: Literal["high", "medium", "low"] = "medium"
     preferred_nodes: list[str] = Field(default_factory=list, max_length=16)
+    # VM monitoring (4.9): reset in place when its guest agent stops answering and it does no I/O. Off by default.
+    monitoring: bool = False
+
+
+class MonitoringRequest(BaseModel):
+    enabled: bool
 
 
 def _with_policy(row):
-    return {**row, **{k: v for k, v in ha.policy(row["vm_name"]).items() if k != "auto_restarts"}} if row else row
+    if not row:
+        return row
+    policy = {k: v for k, v in ha.policy(row["vm_name"]).items() if k != "auto_restarts"}
+    return {**row, **policy, "monitoring": ha.monitoring(row["vm_name"])["enabled"]}
 
 
 @router.post("/{vm_name}/enable", status_code=201)
@@ -43,6 +52,7 @@ def enable(vm_name: str, payload: EnableRequest, user: dict = Depends(require_ro
     try:
         admission = ha.enable_protection(vm_name, payload.node, user["username"])
         ha.set_policy(vm_name, payload.priority, payload.preferred_nodes)
+        ha.set_monitoring(vm_name, payload.monitoring)
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     out = _with_policy(ha.get_protected(vm_name))
@@ -57,6 +67,17 @@ def disable(vm_name: str, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
     ha.disable_protection(vm_name, user["username"])
     return {"message": f"HA protection disabled for '{vm_name}'"}
+
+
+@router.put("/{vm_name}/monitoring")
+def set_monitoring(vm_name: str, payload: MonitoringRequest, user: dict = Depends(require_role("admin"))):
+    """VM monitoring of an HA VM on or off (docs/design/ha-automatic.md, 4.9): it needs qemu-guest-agent in the guest;
+    a VM whose agent never answered is never reset."""
+    if not ha.get_protected(vm_name):
+        raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
+    ha.set_monitoring(vm_name, payload.enabled)
+    log_action(user["username"], "ha_monitoring", vm_name, "success", "on" if payload.enabled else "off")
+    return _with_policy(ha.get_protected(vm_name))
 
 
 class RecoverRequest(BaseModel):
