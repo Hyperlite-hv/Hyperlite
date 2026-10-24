@@ -219,6 +219,27 @@ def init_db():
                 next_run TEXT NOT NULL
             )
         """)
+        # Backup stores (app/core/backup_stores.py, docs/design/backup-store.md): a store lives in a directory of a
+        # storage pool, the same on every node that mounts the pool. `store_id` is the one its .store.json holds.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_stores (
+                name TEXT PRIMARY KEY,
+                pool TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                encrypted INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # A backup or a job into a store: its name; NULL for a backup directory (the format of every backup before).
+        for ddl in (
+            "ALTER TABLE backups ADD COLUMN store TEXT",
+            "ALTER TABLE backup_jobs ADD COLUMN store TEXT",
+            "ALTER TABLE backup_group_jobs ADD COLUMN store TEXT",
+        ):
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+                conn.execute(ddl)
         # In a cluster, this node's own next run of the jobs every node runs for its VMs (grouped backups,
         # replication), against the shared value it was computed from: app/repositories/sqlite/schedule_state.py.
         # Each node keeps its own (not in app/repositories/cfs/tables.py).

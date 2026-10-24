@@ -144,3 +144,46 @@ def test_a_damaged_chunk_stops_the_restore_and_leaves_no_disk(vm):
     with pytest.raises(backup_store.DamagedChunk):
         backup_store_vm.restore_disk(store, vm_uuid, stamp, "vda", target)
     assert not target.exists()
+
+
+def test_a_backup_job_into_a_store_and_its_restores(vm, monkeypatch):
+    """The whole path Hyperlite takes: run_backup into a named store, then restore_backup over the VM (its file
+    disks swapped in, its block device written in place) and to a new VM."""
+    import libvirt
+
+    from app.core import backup_stores, backups
+
+    domain, store = vm["domain"], vm["store"]
+    monkeypatch.setattr(backup_stores, "_pool_dir", lambda name: store.root.parent)
+    backup_stores.create("e2e", "pool", store.root.name)
+    domain.create()
+    backup_id = backups.run_backup(VM, store="e2e", username="ana")
+    domain.destroy()
+    for fmt, path in (("qcow2", vm["qcow2"]), ("raw", vm["raw"]), ("raw", vm["device"])):
+        qemu_io(fmt, path, f"write -P 0x99 0 {2 * MIB}")  # what the restore must undo
+    assert backups.restore_backup(backup_id, "overwrite", username="ana") == {"vm": VM, "mode": "overwrite"}
+    assert "failed" not in qemu_io("qcow2", vm["qcow2"], f"read -P 0xab 0 {9 * MIB}", readonly=True).stdout
+    assert "failed" not in qemu_io("raw", vm["raw"], f"read -P 0x11 {MIB} {3 * MIB}", readonly=True).stdout
+    assert "failed" not in qemu_io("raw", vm["device"], f"read -P 0x22 0 {5 * MIB}", readonly=True).stdout
+    assert not list(IMAGES.glob(f".{VM}*.restore-*"))  # nothing staged left behind
+
+    conn = libvirt.open("qemu:///system")
+    networks = [n.name() for n in conn.listAllNetworks()]
+    if not networks:
+        pytest.skip("no libvirt network to restore a new VM on")
+    copy = f"{VM}-copy"
+    try:
+        backups.restore_backup(backup_id, "new", new_name=copy, username="ana", network=networks[0])
+        restored = conn.lookupByName(copy)
+        assert len(backup_store_vm.disks_of(restored)) == 3
+        first = backup_store_vm.disks_of(restored)[0].source
+        assert same("qcow2", vm["qcow2"], "qcow2", first)
+    finally:
+        try:
+            restored = conn.lookupByName(copy)
+            for disk in backup_store_vm.disks_of(restored):
+                Path(disk.source).unlink(missing_ok=True)
+            restored.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
+        except libvirt.libvirtError:
+            pass
+        conn.close()

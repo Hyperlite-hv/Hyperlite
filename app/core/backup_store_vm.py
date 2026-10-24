@@ -15,6 +15,7 @@ Every disk type takes the same path: files (qcow2, raw) and block devices (ZFS z
 """
 
 import contextlib
+import json
 import logging
 import os
 import shutil
@@ -224,10 +225,10 @@ def _firmware_files(domain):
         return {name: (Path(tmp) / name).read_bytes() for name in names}
 
 
-def backup_vm(domain, store, mode="live", disks=None, progress=None):
-    """Back the VM up into `store`: every disk (or `disks`, a subset of disks_of), its definition and its firmware
-    state. Returns the backup's directory. A running VM keeps running; a stopped one must stay stopped meanwhile (the
-    caller holds its lock)."""
+def backup_vm(domain, store, mode="live", disks=None, progress=None, files=None):
+    """Back the VM up into `store`: every disk (or `disks`, a subset of disks_of), its definition, its firmware state
+    and `files` ({name: bytes}, kept whole). Returns the backup's directory. A running VM keeps running; a stopped one
+    must stay stopped meanwhile (the caller holds its lock)."""
     disks = disks if disks is not None else disks_of(domain)
     if not disks:
         raise BackupFailed("This VM has no disk to back up")
@@ -249,7 +250,7 @@ def backup_vm(domain, store, mode="live", disks=None, progress=None):
 
                 indexes[disk.dev] = read_into_store(store, uris[disk.dev], sizes[disk.dev], step)
                 done += sizes[disk.dev]
-        files = _firmware_files(domain)
+        files = {**(files or {}), **_firmware_files(domain)}
         files["domain.xml"] = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE | libvirt.VIR_DOMAIN_XML_SECURE).encode()
         manifest = {
             "vm": domain.name(),
@@ -333,11 +334,21 @@ def restore_disk(store, vm_uuid, stamp, dev, target, target_format="qcow2", prog
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def firmware_files(store, vm_uuid, stamp):
-    """The NVRAM and TPM state kept with a backup, written into a temporary directory restore_firmware_state reads."""
-    directory = store.backup_dir(vm_uuid, stamp)
-    out = Path(tempfile.mkdtemp(dir=_workdir()))
-    for name in (backup_integrity.NVRAM_FILE, backup_integrity.TPM_FILE):
-        if (directory / name).is_file():
-            shutil.copyfile(directory / name, out / name)
-    return out
+def store_backup_of(path):
+    """(Store, vm uuid, time) when `path` is a backup in a store (<store>/vm/<uuid>/<time>), else None."""
+    path = Path(path)
+    if len(path.parents) < 3 or not (path.parents[2] / backup_store.CONFIG).is_file():
+        return None
+    return backup_store.Store(path.parents[2]), path.parent.name, path.name
+
+
+def verify(path):
+    """(status, problems, disks checked) of a backup in a store, in backup_integrity's terms."""
+    store, vm_uuid, stamp = store_backup_of(path)
+    try:
+        disks = len(json.loads((Path(path) / "manifest.json").read_text())["disks"])
+        bad = store.verify(vm_uuid, stamp)
+    except (OSError, ValueError, KeyError) as e:
+        return backup_integrity.CORRUPT, [f"The backup cannot be read: {e}"], 0
+    problems = [f"chunk {d.hex()[:16]}... is damaged or missing" for d in bad]
+    return (backup_integrity.CORRUPT if bad else backup_integrity.VERIFIED), problems, disks
