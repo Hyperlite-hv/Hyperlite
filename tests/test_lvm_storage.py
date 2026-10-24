@@ -338,7 +338,7 @@ def test_a_logical_volume_disk_is_grown_with_lvextend(monkeypatch, lvm):
 
 
 def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
-    from app.routers.vms import lifecycle
+    from app.core import vm_delete
 
     deleted = []
 
@@ -374,6 +374,12 @@ def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
 
             return [LogicalPool()]
 
+        def lookupByName(self, name):
+            return Domain()
+
+        def listAllDomains(self, flags=0):
+            return []
+
     disks = ["/dev/hlvg/web", "/dev/hlvg/web-2", "/dev/disk/by-path/ip-lun-1", "/dev/othervg/root"]
 
     class Domain:
@@ -384,14 +390,14 @@ def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
             )
             return f"<domain><name>web</name><devices>{body}</devices></domain>"
 
+        def isActive(self):
+            return False
+
         def undefineFlags(self, flags):
             pass
 
-    monkeypatch.setattr(lifecycle.vm_records, "reservations", lambda root: [])
-    monkeypatch.setattr(lifecycle.vm_records, "release_addresses", lambda conn, ifaces: None)
-    monkeypatch.setattr(lifecycle.vm_records, "forget", lambda name, node=None: None)
-    monkeypatch.setattr(lifecycle, "refresh_pools_for_paths", lambda conn, paths: None)
-    lifecycle._perform_vm_deletion(Conn(), Domain(), "web")
+    monkeypatch.setattr(vm_delete.vm_records, "release_addresses", lambda conn, ifaces: None)
+    vm_delete.delete(Conn(), "web")
     assert deleted == ["/dev/hlvg/web", "/dev/hlvg/web-2"], "an iSCSI LUN or a group outside a pool stays"
 
 

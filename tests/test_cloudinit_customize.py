@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from app.core import cloudinit_edit as ce
-from app.core import vm_builder
+from app.core import vm_builder, vm_create
 from app.routers.vms import create, settings
 
 MACS = ["52:54:00:aa:00:01", "52:54:00:aa:00:02"]
@@ -170,22 +170,21 @@ def test_a_creation_checks_the_customisation_before_anything_is_made(database):
         )
 
     with pytest.raises(ce.CloudInitError, match="leave mac out"):
-        create._customisation(payload(customize={"network": [{"mac": MACS[0], "addresses": ["10.0.0.2/24"]}]}), "m")
-    keys, custom = create._customisation(
+        vm_create.customisation(payload(customize={"network": [{"mac": MACS[0], "addresses": ["10.0.0.2/24"]}]}), "m")
+    keys, custom = vm_create.customisation(
         payload(ssh_keys=["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKey user@host"], customize={"hostname": "web-1"}),
         MACS[0],
     )
     assert keys == ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKey user@host"] and custom["hostname"] == "web-1"
 
 
-def test_an_iso_installation_takes_no_customisation(client, auth_headers, monkeypatch, tmp_path):
-    monkeypatch.setattr(create, "ISOS_DIR", tmp_path)
+def test_an_iso_installation_takes_no_customisation(client, auth_headers, monkeypatch, tmp_path, daemon_libvirt):
+    monkeypatch.setattr(vm_create.disk_library, "ISOS", tmp_path)
     monkeypatch.setattr(create.maintenance, "refuse_if_in_maintenance", lambda *a: None)
-    monkeypatch.setattr(create, "validate_vm_resources", lambda *a: [])
-    conn = Mock()
-    conn.lookupByName.side_effect = create.libvirt.libvirtError("no domain")
-    monkeypatch.setattr(create, "open_conn", lambda: conn)
-    monkeypatch.setattr(create.firmware, "check_choice", lambda conn, choice: None)
+    monkeypatch.setattr(vm_create, "validate_vm_resources", lambda *a: [])
+    conn = daemon_libvirt(Mock())
+    conn.lookupByName.side_effect = vm_create.libvirt.libvirtError("no domain")
+    monkeypatch.setattr(vm_create.firmware, "check_choice", lambda conn, choice: None)
     (tmp_path / "debian.iso").touch()
     body = {
         "name": "web",

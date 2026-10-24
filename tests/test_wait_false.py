@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app.core import audit, tasks, vm_locks
+from app.core import audit, tasks, vm_clone, vm_locks, vm_templates
 from app.routers import templates
-from app.routers.vms import clone, create
+from app.routers.vms import create
 from tests.test_clone_safety import FakeConn
 from tests.test_template_deploy import _Conn, _xml
 
@@ -35,23 +35,23 @@ def _count(database, type_):
 
 
 @pytest.fixture()
-def cloning(database, tmp_path, monkeypatch):
+def cloning(database, tmp_path, monkeypatch, daemon_libvirt):
     src = tmp_path / "old.img"
     src.write_bytes(b"raw disk")
     images = tmp_path / "images"
     images.mkdir()
     conn = FakeConn(src)
-    monkeypatch.setattr(clone, "open_conn", lambda node=None: conn)
-    monkeypatch.setattr(clone, "IMAGES_DIR", images)
-    monkeypatch.setattr(clone, "refresh_pools_for_paths", lambda *a: None)
-    monkeypatch.setattr(clone, "generate_mac", lambda conn: "52:54:00:00:00:02")
-    monkeypatch.setattr(clone, "allocate_static_ip", lambda *a: None)
+    daemon_libvirt(conn)
+    monkeypatch.setattr(vm_clone, "IMAGES_DIR", images)
+    monkeypatch.setattr(vm_clone, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_clone, "generate_mac", lambda conn: "52:54:00:00:00:02")
+    monkeypatch.setattr(vm_clone, "allocate_static_ip", lambda *a: None)
 
     def copy(cmd, **kwargs):
         Path(cmd[-1]).write_bytes(b"QFI\xfb")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(clone.subprocess, "run", copy)
+    monkeypatch.setattr(vm_clone.subprocess, "run", copy)
     return {"conn": conn, "images": images}
 
 
@@ -70,8 +70,8 @@ def test_a_clone_answers_its_task_at_once(cloning, client, auth_headers, databas
 def test_a_clone_refused_by_its_checks_answers_the_refusal_and_makes_no_task(
     cloning, client, auth_headers, database, monkeypatch
 ):
-    monkeypatch.setattr(clone.disk_space, "allocated_bytes", lambda path: 50 * 1024**3)
-    monkeypatch.setattr(clone.disk_space.shutil, "disk_usage", lambda path: type("U", (), {"free": 20 * 1024**3})())
+    monkeypatch.setattr(vm_clone.disk_space, "allocated_bytes", lambda path: 50 * 1024**3)
+    monkeypatch.setattr(vm_clone.disk_space.shutil, "disk_usage", lambda path: type("U", (), {"free": 20 * 1024**3})())
     r = client.post("/vms/old/clone?wait=false", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert r.status_code == 409 and "Not enough space" in r.json()["detail"]
     assert _count(database, "clone_vm") == 0
@@ -83,7 +83,7 @@ def test_a_clone_that_fails_after_the_answer_closes_its_task(cloning, client, au
         Path(cmd[-1]).write_bytes(b"half")
         raise subprocess.CalledProcessError(1, cmd, "", "No space left on device")
 
-    monkeypatch.setattr(clone.subprocess, "run", full)
+    monkeypatch.setattr(vm_clone.subprocess, "run", full)
     r = client.post("/vms/old/clone?wait=false", json={"new_name": "copy"}, headers=auth_headers("root"))
     assert r.status_code == 202, r.text
     assert _task(database, r.json()["task_id"])["status"] == "failed"
@@ -92,13 +92,14 @@ def test_a_clone_that_fails_after_the_answer_closes_its_task(cloning, client, au
 
 
 @pytest.fixture()
-def deploying(database, tmp_path, monkeypatch):
+def deploying(database, tmp_path, monkeypatch, daemon_libvirt):
     conn = _Conn()
-    monkeypatch.setattr(templates, "IMAGES_DIR", tmp_path)
-    monkeypatch.setattr(templates, "open_conn", lambda *a: conn)
-    monkeypatch.setattr(templates, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_templates, "IMAGES_DIR", tmp_path)
+    conn_ = daemon_libvirt(conn)
+    monkeypatch.setattr(templates, "open_conn", lambda *a: conn_)
+    monkeypatch.setattr(vm_templates, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(templates.maintenance, "refuse_if_in_maintenance", lambda *a: None)
-    monkeypatch.setattr(templates.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(vm_templates.subprocess, "run", lambda *a, **k: None)
     monkeypatch.setattr(
         templates.templates_store, "get_template", lambda n: {"xml": _xml(None), "disk_path": "/t/base.qcow2"}
     )

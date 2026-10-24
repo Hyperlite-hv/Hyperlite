@@ -285,35 +285,38 @@ def test_an_ova_upload_is_accepted(client, auth_headers, disks_dir):
 # --- A VM made from the extracted disks ---
 
 creation = importlib.import_module("app.routers.vms.create")
+vm_create = importlib.import_module("app.core.vm_create")
+disk_library = importlib.import_module("app.core.disk_library")
 
 
 @pytest.fixture()
-def created(monkeypatch, tmp_path):
+def created(monkeypatch, tmp_path, daemon_libvirt):
     conn = Mock()
     conn.lookupByName.side_effect = libvirt.libvirtError("no domain")
     conn.defineXML.return_value = Mock()
     made = []
-    monkeypatch.setattr(creation, "IMPORTED_DISKS_DIR", tmp_path)
+    monkeypatch.setattr(disk_library, "IMPORTS", tmp_path)
     # The disks here are stand-ins: what qemu-img says of a real one is tests/test_disk_images.py.
-    monkeypatch.setattr(creation.disk_images, "check", lambda path, within=None: "vmdk")
-    monkeypatch.setattr(creation, "open_conn", lambda: conn)
-    monkeypatch.setattr(creation.firmware, "check_choice", lambda conn, choice: None)
-    monkeypatch.setattr(creation, "validate_vm_resources", lambda *a: [])
-    monkeypatch.setattr(creation, "generate_mac", lambda conn: "52:54:00:00:00:01")
-    monkeypatch.setattr(creation, "allocate_static_ip", lambda *a: None)
+    monkeypatch.setattr(vm_create.disk_images, "check", lambda path, within=None: "vmdk")
+    daemon_libvirt(conn)
+    monkeypatch.setattr(creation, "open_conn", Mock)  # the summary of what the daemon made
+    monkeypatch.setattr(vm_create.firmware, "check_choice", lambda conn, choice: None)
+    monkeypatch.setattr(vm_create, "validate_vm_resources", lambda *a: [])
+    monkeypatch.setattr(vm_create, "generate_mac", lambda conn: "52:54:00:00:00:01")
+    monkeypatch.setattr(vm_create, "allocate_static_ip", lambda *a: None)
     monkeypatch.setattr(
-        creation,
+        vm_create,
         "create_disk",
         lambda name, size, index, blank=False, target_dir=None: made.append(("blank", index)) or f"/i/{index}",
     )
     monkeypatch.setattr(
-        creation,
+        vm_create,
         "create_disk_from_import",
         lambda name, src, target_dir=None, index=0: made.append(("import", index, src.name)) or f"/i/{index}",
     )
-    monkeypatch.setattr(creation, "create_cloudinit_reseed_iso", lambda name: "/i/seed.iso")
-    monkeypatch.setattr(creation, "build_domain_xml", lambda *a, **k: "<domain/>")
-    monkeypatch.setattr(creation, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_create, "create_cloudinit_reseed_iso", lambda name: "/i/seed.iso")
+    monkeypatch.setattr(vm_create, "build_domain_xml", lambda *a, **k: "<domain/>")
+    monkeypatch.setattr(vm_create, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(creation, "_domain_summary", lambda domain: {"name": "web"})
     monkeypatch.setattr(creation, "create_task", lambda kind, *a, **k: "t")
     for name in ("set_vm_ssh_user", "set_vm_os_label", "set_vm_auto_cleanup", "log_action"):
@@ -367,7 +370,7 @@ def test_a_system_disk_name_that_leaves_the_directory_is_refused_as_a_422(create
 )
 def test_an_imported_windows_vm_gets_devices_windows_boots_from(monkeypatch, created, guest_os, bus, nic):
     built = {}
-    monkeypatch.setattr(creation, "build_domain_xml", lambda *a, **k: built.update(k) or "<domain/>")
+    monkeypatch.setattr(vm_create, "build_domain_xml", lambda *a, **k: built.update(k) or "<domain/>")
     payload = creation.VMCreate(
         name="web", vcpu=2, memory_mb=4096, import_disk="web-disk1.vmdk", guest_os=guest_os, disks=[{"size_gb": 64}]
     )

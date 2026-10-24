@@ -11,6 +11,7 @@ from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.security import require_vm_privilege
+from app.core.vm_create import CloudInitCustom, StaticInterface  # noqa: F401  (the routes' models)
 from app.core.vm_limits import CPU_PERIOD_US, UNLIMITED_KB, validate_vm_resources
 from app.core.vm_meta import get_vm_ssh_user, set_vm_os_label, set_vm_ssh_user
 from app.routers.vms._shared import _domain_summary, router
@@ -294,25 +295,6 @@ def set_vm_boot(
         return {**vm_boot.get_setting(name, node), "autostart_libvirt": bool(domain.autostart())}
     finally:
         conn.close()
-
-
-class StaticInterface(BaseModel):
-    # The interface, by its MAC address; absent: the VM's first interface.
-    mac: str | None = Field(default=None, max_length=17)
-    addresses: list[str] = Field(min_length=1, max_length=16)  # with their prefix: "10.0.20.11/24", "2001:db8::5/64"
-    gateway: str | None = Field(default=None, max_length=45)
-
-
-class CloudInitCustom(BaseModel):
-    """The rest of a guest's customisation, as vSphere's and Proxmox VE's (cloudinit_edit.CUSTOM). A field left out
-    keeps what the drive holds; an empty value ("" or []) clears it."""
-
-    hostname: str | None = Field(default=None, max_length=63)  # the VM's name when empty
-    domain: str | None = Field(default=None, max_length=253)
-    network: list[StaticInterface] | None = Field(default=None, max_length=16)  # the interfaces not listed use DHCP
-    dns: list[str] | None = Field(default=None, max_length=8)
-    dns_search: list[str] | None = Field(default=None, max_length=8)
-    user_data: str | None = Field(default=None, max_length=16 * 1024)  # a cloud-config added to Hyperlite's own
 
 
 class CloudInitUpdate(CloudInitCustom):

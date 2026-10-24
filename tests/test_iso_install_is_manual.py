@@ -7,25 +7,30 @@ from unittest.mock import Mock
 import libvirt
 import pytest
 
+from app.core import disk_library, vm_create
+
 creation = importlib.import_module("app.routers.vms.create")
 
 
 @pytest.fixture()
-def created(monkeypatch, tmp_path):
+def created(monkeypatch, tmp_path, daemon_libvirt):
     conn = Mock()
     conn.lookupByName.side_effect = libvirt.libvirtError("no domain")
     domain = Mock()
     conn.defineXML.return_value = domain
     built, tasks = {}, []
-    monkeypatch.setattr(creation, "open_conn", lambda: conn)
-    monkeypatch.setattr(creation, "ISOS_DIR", tmp_path)
-    monkeypatch.setattr(creation.firmware, "check_choice", lambda conn, choice: None)
-    monkeypatch.setattr(creation, "validate_vm_resources", lambda *a: [])
-    monkeypatch.setattr(creation, "generate_mac", lambda conn: "52:54:00:00:00:01")
-    monkeypatch.setattr(creation, "allocate_static_ip", lambda *a: None)
-    monkeypatch.setattr(creation, "create_disk", lambda name, size, index, blank, target_dir: f"/images/{name}-{index}")
-    monkeypatch.setattr(creation, "build_domain_xml", lambda *a, **k: built.update(args=a, kwargs=k) or "<domain/>")
-    monkeypatch.setattr(creation, "refresh_pools_for_paths", lambda *a: None)
+    daemon_libvirt(conn)
+    monkeypatch.setattr(creation, "open_conn", Mock)  # the summary of what the daemon made
+    monkeypatch.setattr(disk_library, "ISOS", tmp_path)
+    monkeypatch.setattr(vm_create.firmware, "check_choice", lambda conn, choice: None)
+    monkeypatch.setattr(vm_create, "validate_vm_resources", lambda *a: [])
+    monkeypatch.setattr(vm_create, "generate_mac", lambda conn: "52:54:00:00:00:01")
+    monkeypatch.setattr(vm_create, "allocate_static_ip", lambda *a: None)
+    monkeypatch.setattr(
+        vm_create, "create_disk", lambda name, size, index, blank, target_dir: f"/images/{name}-{index}"
+    )
+    monkeypatch.setattr(vm_create, "build_domain_xml", lambda *a, **k: built.update(args=a, kwargs=k) or "<domain/>")
+    monkeypatch.setattr(vm_create, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(creation, "_domain_summary", lambda domain: {"name": "srv"})
     monkeypatch.setattr(creation, "create_task", lambda kind, *a, **k: tasks.append(kind) or f"t-{kind}")
     for name in ("set_vm_ssh_user", "set_vm_os_label", "set_vm_auto_cleanup", "log_action"):
