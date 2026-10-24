@@ -118,7 +118,7 @@ def test_run_backs_up_each_vm_and_applies_the_job_policy_unless_the_vm_has_its_o
     monkeypatch.setattr(bg, "_local_vm_names", lambda: ["a", "b", "c", "d"])
     calls, retained = [], []
 
-    def fake_backup(vm, target, username="x"):
+    def fake_backup(vm, target, username="x", store=None):
         calls.append((vm, target))
         if vm == "b":
             raise vm_locks.VmBusy("b", "a migration")
