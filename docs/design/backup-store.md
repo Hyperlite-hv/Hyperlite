@@ -1,6 +1,6 @@
 # A backup store as Proxmox Backup Server's (#337, #420)
 
-Status: **proposal** (2026-10-24). Section 2 holds the maintainer's choices; no code before the design is accepted.
+Status: **accepted (maintainer, 2026-10-24).** Section 2 holds the maintainer's choices.
 It follows `docs/design/backups-pro.md`, whose steps 1 (manifest and verify) and 5 (daily, weekly and monthly
 retention) are done, and replaces its steps 2 to 4 and 6.
 
