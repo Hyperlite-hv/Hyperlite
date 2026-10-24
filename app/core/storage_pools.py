@@ -543,6 +543,11 @@ def delete(conn, pool_name, detach=False, node=None):
         raise PoolError("failed", f"Pool deletion error: {describe_exception(e)}") from e
 
 
+def refresh(conn, pool_name):
+    """libvirt's list of the pool's volumes read again."""
+    _lookup(conn, pool_name).refresh(0)
+
+
 def check_permissions(conn, pool_name):
     """For an NFS or SMB pool of this host: can QEMU own its disk files there (app/core/nfs_permissions.py)? A file
     is written into the share and removed: {"ok", "message"}."""

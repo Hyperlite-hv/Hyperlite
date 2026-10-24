@@ -140,7 +140,12 @@ def group_of(pool):
 
 def thin_pool_of(vg, node=None):
     """The thin pool of the group a Hyperlite pool makes VM disks in, or None (thick volumes, through libvirt)."""
-    return next((v for v in logical_volumes(vg, node) if _is_hyperlite_thin_pool(v)), None)
+    return thin_pool_in(logical_volumes(vg, node))
+
+
+def thin_pool_in(volumes):
+    """The Hyperlite thin pool among a group's volumes (logical_volumes), or None."""
+    return next((v for v in volumes if _is_hyperlite_thin_pool(v)), None)
 
 
 def ensure_thin_pool(vg, name, node=None):
