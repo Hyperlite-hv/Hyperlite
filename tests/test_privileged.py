@@ -30,6 +30,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     named = _named_operations()
     assert {"host.set_dns", "host.upgrade", "host.schedule_power"} <= named  # the scan finds them
     assert {"network.firewall_apply", "network.vlan_aware_start", "network.vlan_apply_vm", "network.vlan_boot"} <= named
+    assert {"network.create", "storage.zfs_pool_create", "storage.zfs_volume_delete"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
