@@ -89,16 +89,29 @@ def fingerprint_of(name):
         return None
 
 
+class _Pinned(http.client.HTTPSConnection):
+    """A connection checked against the member's published fingerprint each time it connects: http.client reopens a
+    connection by itself on the next request once the peer closed it (Connection: close), and that connect must be
+    checked as the first one, or the peer ticket goes to whatever answers there (GHSA-mv7v-9gqp-797f)."""
+
+    def __init__(self, host, port, fingerprint, timeout):
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE  # checked against the published fingerprint below, before any data is sent
+        super().__init__(host, port, timeout=timeout, context=context)
+        self.fingerprint = fingerprint
+
+    def connect(self):
+        super().connect()
+        der = self.sock.getpeercert(binary_form=True)
+        if not hmac.compare_digest(hashlib.sha256(der).hexdigest(), self.fingerprint):
+            self.close()
+            raise Unavailable(f"{self.host}: certificate does not match the fingerprint it published")
+
+
 def _connect(host, port, fingerprint, timeout):
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE  # checked against the published fingerprint below, before any data is sent
-    conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=context)
+    conn = _Pinned(host, port, fingerprint, timeout)
     conn.connect()
-    der = conn.sock.getpeercert(binary_form=True)
-    if not hmac.compare_digest(hashlib.sha256(der).hexdigest(), fingerprint):
-        conn.close()
-        raise Unavailable(f"{host}: certificate does not match the fingerprint it published")
     return conn
 
 
@@ -147,6 +160,9 @@ def call(node, token, method, path, body=None, timeout=60, connect_timeout=5):
                 ) from None
             if attempt == 2 or not reads:
                 raise Unavailable(f"{node['name']} over HTTPS: {e}") from None
+    if conn.sock is None:  # closed by the peer: not kept
+        conn.close()
+        return status, _decoded(raw)
     try:
         pool.put_nowait(conn)
     except queue.Full:
