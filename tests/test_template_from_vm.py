@@ -4,7 +4,9 @@ VM expecting a copy, and the VM was gone from the list."""
 
 import shutil
 import subprocess
+from unittest.mock import Mock
 
+import libvirt
 import pytest
 
 from app.core import disk_space, templates_store
@@ -208,16 +210,23 @@ def test_a_copy_forgets_nothing(node, client, auth_headers, monkeypatch):
     assert network.updates == []
 
 
-def test_a_conversion_and_a_deletion_forget_through_the_same_list(node, client, auth_headers, monkeypatch):
+def test_a_conversion_and_a_deletion_forget_through_the_same_list(
+    node, client, auth_headers, monkeypatch, daemon_libvirt
+):
     from app.core import vm_records
     from app.routers.vms import lifecycle
 
     forgotten = []
     monkeypatch.setattr(vm_records, "forget", lambda name, node=None: forgotten.append(name))
-    monkeypatch.setattr(lifecycle, "refresh_pools_for_paths", lambda conn, paths: None)  # no libvirt here
     assert (
         client.post("/templates/from-vm/web", json={"template_name": "conv"}, headers=auth_headers("root")).status_code
         == 201
     )
-    lifecycle._perform_vm_deletion(None, _Domain("/nonexistent/db.qcow2"), "db")
+    domain = _Domain("/nonexistent/db.qcow2")
+    conn = daemon_libvirt(Mock())  # no other VM, no pool
+    conn.lookupByName.return_value = domain
+    conn.listAllDomains.return_value = []
+    conn.listAllStoragePools.return_value = []
+    conn.storageVolLookupByPath.side_effect = libvirt.libvirtError("no storage vol with matching path")
+    lifecycle._perform_vm_deletion(conn, domain, "db")
     assert forgotten == ["web", "db"]
