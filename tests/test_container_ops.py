@@ -113,3 +113,28 @@ def test_the_fields_are_checked_by_the_daemon(node, op, args):
     with pytest.raises(DaemonError) as e:
         privileged.run(op, **args)
     assert e.value.kind == "invalid_arguments"
+
+
+@pytest.mark.parametrize(
+    ("op", "args"),
+    [
+        ("container.create", {"spec": {"name": "new", "rootfs": "/etc"}}),
+        ("container.create", {"spec": {"name": "new", "network": "lan", "xml": "<domain/>"}}),
+        ("container.clone", {"container": "web", "new_name": "web2", "app": {"args": ["sh"], "init": "/bin/sh"}}),
+        ("container.clone", {"container": "web", "new_name": "web2", "app": {"args": []}}),
+    ],
+)
+def test_a_creation_or_a_clone_takes_a_specification_never_a_path_or_a_definition(node, op, args):
+    with pytest.raises(DaemonError) as e:
+        privileged.run(op, **args)
+    assert e.value.kind == "invalid_arguments"
+
+
+def test_a_clone_is_made_from_a_stopped_container_in_a_directory_hyperlite_manages(node):
+    node["lxc"].domains["web"].active = True
+    with pytest.raises(DaemonError) as e:
+        privileged.run("container.clone", container="web", new_name="web2")
+    assert e.value.kind == "in_use"
+    with pytest.raises(DaemonError) as e:
+        privileged.run("container.clone", container="evil", new_name="evil2")
+    assert e.value.kind == "refused" and not (node["elsewhere"].parent / "evil2").exists()

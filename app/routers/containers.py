@@ -14,7 +14,6 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
 import asyncssh
 import libvirt
@@ -24,6 +23,7 @@ from pydantic import BaseModel, Field
 from app.core import (
     container_config,
     container_console,
+    container_create,
     container_shell,
     container_snapshots,
     image_env,
@@ -36,19 +36,13 @@ from app.core import (
 )
 from app.core.audit import log_action
 from app.core.container_builder import (
-    app_spec,
     backup_container_rootfs,
     build_container_xml,
-    clone_container_rootfs,
-    configure_container_rootfs,
     container_rootfs_path,
-    create_container_rootfs,
     delete_container_rootfs,
-    prepare_app_rootfs,
-    resolve_init,
     restore_container_rootfs,
-    validate_app_overrides,
 )
+from app.core.container_create import ContainerCreate
 from app.core.container_meta import (
     delete_container_app,
     delete_container_ssh_user,
@@ -58,21 +52,19 @@ from app.core.container_meta import (
     get_container_storage,
     set_container_app,
     set_container_ssh_user,
+    set_container_storage,
 )
 from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn, open_lxc_conn_if_any
 from app.core.listing import listing
-from app.core.network_alloc import allocate_static_ip, generate_mac, network_gateway, release_static_ip
+from app.core.network_alloc import generate_mac, release_static_ip
 from app.core.security import get_current_user, require_container_privilege, require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import (
     get_automation_private_key_path,
-    get_or_create_automation_pubkey,
     validate_name,
-    validate_username,
 )
-from app.core.vm_limits import compute_limits
 from app.daemon.registry import DaemonError
 from app.services import backup_service
 
@@ -124,28 +116,6 @@ def _summary(domain):
         # An application container has no DHCP lease: its address is the one libvirt set on its interface.
         "ip": (app["ip"] if app else _get_ip(domain)) if active else None,
     }
-
-
-class ContainerCreate(BaseModel):
-    name: str
-    vcpu: int = Field(default=1, ge=1)
-    memory_mb: int = Field(default=512, ge=128)
-    # Required for a system container (the account created in it); unused by an application container.
-    username: str | None = None
-    password: str | None = None
-    network: str = "default"
-    # None/empty = the local Debian 12 base (fast, already cached); otherwise a
-    # Docker Hub image reference (or any OCI registry), e.g. "ubuntu:22.04",
-    # "alpine:3.19", "nginx:latest". See container_builder.pull_image_rootfs.
-    image: str | None = None
-    # "application": run the image's own process (the default with an image); "system": boot it as a small
-    # system with systemd and sshd (the only choice without an image). See container_builder.read_image_config.
-    mode: Literal["application", "system"] | None = None
-    # A "dir" storage pool to hold the container's filesystem (None: the default /var/lib/libvirt/containers).
-    storage_pool: str | None = None
-    # Application containers only: replaces the image's Entrypoint+Cmd, and adds to or overrides its environment.
-    command: list[str] | None = None
-    env: dict[str, str] | None = None
 
 
 @router.get("")
@@ -238,56 +208,6 @@ def _daemon(op, user, action, name, **args):
         raise privileged.http_error(e) from None
 
 
-def _app_domain_xml(conn, name, rootfs, spec, network, vcpu, memory_mb):
-    """Reserve an address on the network, prepare the image's filesystem and build the domain of an application
-    container. Returns (xml, mac, ip); the reservation is released again if anything after it fails."""
-    gateway = network_gateway(conn, network)
-    if gateway is None:
-        raise ValueError(
-            f"Network '{network}' has no Hyperlite-managed subnet: an application container needs a NAT or isolated "
-            "network, whose address it receives from Hyperlite"
-        )
-    mac = generate_mac(conn)
-    ip = allocate_static_ip(conn, network, mac)
-    if not ip:
-        raise ValueError(f"Network '{network}' has no free address left in its DHCP range")
-    try:
-        init = resolve_init(rootfs, spec)
-        prepare_app_rootfs(rootfs, name, gateway[0])
-        app = {"init": init, "spec": spec, "ip": ip, "prefix": gateway[1], "gateway": gateway[0]}
-        if container_console.install(rootfs, int(spec.get("uid", 0)), int(spec.get("gid", 0))):
-            app["launcher"] = (container_console.LAUNCHER, container_console.LOG)
-        return build_container_xml(name, vcpu, memory_mb, rootfs, network=network, mac=mac, app=app), mac, ip
-    except Exception:
-        release_static_ip(conn, network, mac)
-        raise
-
-
-def resolve_container_storage(pool_name):
-    """{"pool", "base_dir"} for a local directory storage pool, or raise ValueError. NFS, ZFS and iSCSI pools are
-    refused: a container filesystem needs root ownership, device files and extended attributes, which an NFS
-    export (root squash) does not reliably keep, and ZFS/iSCSI pools hold block volumes, not directories."""
-    from app.core.libvirt_utils import lookup_pool, open_conn
-
-    conn = open_conn()
-    try:
-        try:
-            pool = lookup_pool(conn, pool_name)
-        except libvirt.libvirtError:
-            raise ValueError(f"Storage pool '{pool_name}' not found") from None
-        root = ET.fromstring(pool.XMLDesc(0))
-        if root.get("type") != "dir":
-            raise ValueError(f"Storage pool '{pool_name}' is not a local directory pool: containers need one")
-        if not pool.isActive():
-            raise ValueError(f"Storage pool '{pool_name}' is not started")
-        path = root.findtext("target/path")
-        if not path or not path.startswith("/"):
-            raise ValueError(f"Storage pool '{pool_name}' has no usable path")
-        return {"pool": pool_name, "base_dir": str(Path(path) / "hyperlite-containers")}
-    finally:
-        conn.close()
-
-
 def _domain_mac(domain):
     mac = ET.fromstring(domain.XMLDesc(0)).find(".//devices/interface/mac")
     return mac.get("address") if mac is not None else None
@@ -295,148 +215,37 @@ def _domain_mac(domain):
 
 @router.post("", status_code=201)
 def create_container(payload: ContainerCreate, user: dict = Depends(require_role("admin"))):
+    # Checked, then made by hyperlite-daemon (app/core/container_create.py); its records are written here.
     maintenance.refuse_if_in_maintenance("local", "Container creation")
-    _limits = compute_limits()
-    _errs = []
-
-    def _origin(lim):
-        return f"variable {lim['variable']}" if lim["source"] == "configuration" else "technical ceiling"
-
-    if payload.vcpu > _limits["vcpu"]["max"]:
-        _errs.append(f"vCPU: {payload.vcpu} is above the limit ({_limits['vcpu']['max']}, {_origin(_limits['vcpu'])})")
-    if payload.memory_mb > _limits["memory_mb"]["max"]:
-        _errs.append(
-            f"Memory: {payload.memory_mb} MB is above the limit "
-            f"({_limits['memory_mb']['max']} MB, {_origin(_limits['memory_mb'])})"
-        )
-    if _errs:
-        raise HTTPException(status_code=422, detail=" ; ".join(_errs))
-    errors = []
     mode = payload.mode or ("application" if payload.image else "system")
-    name_error = validate_name(payload.name, "container")
-    if name_error:
-        errors.append(name_error)
-    if mode == "application":
-        if not payload.image:
-            errors.append("An application container needs an image")
-        errors.extend(validate_app_overrides(payload.command, payload.env))
-        # Before the download: an official postgres image stops at once without its password.
-        errors.extend(image_env.missing(payload.image, payload.env))
-    else:
-        if payload.command or payload.env:
-            errors.append("A command or environment variables apply to application containers only")
-        username_error = validate_username(payload.username or "")
-        if username_error:
-            errors.append(username_error)
-        if len(payload.password or "") < 4:
-            errors.append("The password must contain at least 4 characters")
-
-    conn = open_lxc_conn()
+    # Asked of the registry before the download: an official postgres image stops at once without its password.
+    before = image_env.missing(payload.image, payload.env) if mode == "application" else []
+    spec = payload.model_dump()
+    try:
+        privileged.run("container.create", user=user["username"], spec=spec, check_only=True)
+    except DaemonError as e:
+        if e.kind != "refused" or not isinstance(e.detail, list) or not before:
+            raise privileged.http_error(e) from None
+        before = [*e.detail, *before]
+    if before:
+        raise HTTPException(status_code=422, detail=before)
     task_id = create_task("create_container", payload.name, node=None, username=user["username"])
     try:
-        try:
-            conn.lookupByName(payload.name)
-            errors.append(f"A container named '{payload.name}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in create_container()", exc_info=True)
-
-        storage = None
-        if payload.storage_pool:
-            try:
-                storage = resolve_container_storage(payload.storage_pool)
-            except ValueError as e:
-                errors.append(str(e))
-        # Checked before the image is fetched: a download of hundreds of MB must not end in this refusal.
-        try:
-            if not conn.networkLookupByName(payload.network).isActive():
-                errors.append(f"Network '{payload.network}' is not started")
-        except libvirt.libvirtError:
-            logger.debug("Network lookup failed in create_container()", exc_info=True)
-        if mode == "application":
-            try:
-                if network_gateway(conn, payload.network) is None:
-                    errors.append(
-                        f"Network '{payload.network}' has no Hyperlite-managed subnet: an application container "
-                        "needs a NAT or isolated network"
-                    )
-            except libvirt.libvirtError:
-                errors.append(f"Network '{payload.network}' not found")
-
-        if errors:
-            log_action(user["username"], "create_container", payload.name, "failed", "; ".join(errors), task_id=task_id)
-            raise HTTPException(status_code=422, detail=errors)
-
-        if mode == "application":
-            return _create_app_container(conn, payload, user, task_id, storage)
-
-        try:
-            rootfs, family = create_container_rootfs(payload.name, image=payload.image, storage=storage)
-            ssh_pubkey = get_or_create_automation_pubkey()
-            configure_container_rootfs(
-                rootfs, payload.name, payload.username, payload.password, ssh_pubkey, family=family
-            )
-        except subprocess.CalledProcessError as e:
-            msg = e.stderr or str(e)
-            delete_container_rootfs(payload.name)
-            log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to prepare the filesystem: {msg}") from e
-        except ValueError as e:
-            log_action(user["username"], "create_container", payload.name, "failed", str(e), task_id=task_id)
-            raise HTTPException(status_code=422, detail=str(e)) from e
-
-        mac = generate_mac(conn)
-        xml = build_container_xml(
-            payload.name, payload.vcpu, payload.memory_mb, rootfs, network=payload.network, mac=mac
+        made = privileged.run(
+            "container.create", user=user["username"], timeout=CREATE_TIMEOUT_S, spec=spec, check_only=False
         )
-        try:
-            domain = conn.defineXML(xml)
-            domain.create()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            delete_container_rootfs(payload.name)
-            log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to start the container: {msg}") from e
-
+    except DaemonError as e:
+        reason = "; ".join(e.detail) if isinstance(e.detail, list) else e.detail
+        log_action(user["username"], "create_container", payload.name, "failed", reason, task_id=task_id)
+        raise privileged.http_error(e) from None
+    if made["pool"]:
+        set_container_storage(payload.name, made["pool"], made["base_dir"])
+    if made["app"]:
+        set_container_app(payload.name, payload.image, made["app"]["spec"], made["app"]["ip"], payload.network)
+    else:
         set_container_ssh_user(payload.name, payload.username)
-        log_action(user["username"], "create_container", payload.name, "success", task_id=task_id)
-        return _summary(domain)
-    finally:
-        conn.close()
-
-
-def _create_app_container(conn, payload, user, task_id, storage=None):
-    try:
-        rootfs, _family = create_container_rootfs(payload.name, image=payload.image, bootstrap=False, storage=storage)
-    except subprocess.CalledProcessError as e:
-        msg = e.stderr or str(e)
-        delete_container_rootfs(payload.name)
-        log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-        raise HTTPException(status_code=500, detail=f"Failed to fetch the image: {msg}") from e
-    except ValueError as e:
-        log_action(user["username"], "create_container", payload.name, "failed", str(e), task_id=task_id)
-        raise HTTPException(status_code=422, detail=str(e)) from e
-
-    mac = None
-    try:
-        spec = app_spec(payload.image, payload.command, payload.env)
-        xml, mac, ip = _app_domain_xml(
-            conn, payload.name, rootfs, spec, payload.network, payload.vcpu, payload.memory_mb
-        )
-        domain = conn.defineXML(xml)
-    except (ValueError, libvirt.libvirtError) as e:
-        msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-        if mac:
-            release_static_ip(conn, payload.network, mac)
-        delete_container_rootfs(payload.name)
-        log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-        raise HTTPException(status_code=422 if isinstance(e, ValueError) else 500, detail=msg) from e
-
-    set_container_app(payload.name, payload.image, spec, ip, payload.network)
-    try:
-        domain.create()
-    except libvirt.libvirtError as e:
-        # Defined purpose not started (a wrong command, for instance): kept, so it can be fixed or deleted.
-        msg = describe_exception(e)
+    if made["start_error"]:
+        msg = made["start_error"]
         log_action(
             user["username"],
             "create_container",
@@ -445,13 +254,18 @@ def _create_app_container(conn, payload, user, task_id, storage=None):
             f"defined, start failed: {msg}",
             task_id=task_id,
         )
-        raise HTTPException(
-            status_code=500, detail=f"Container defined purpose its process did not start: {msg}"
-        ) from e
-    log_action(
-        user["username"], "create_container", payload.name, "success", f"application {payload.image}", task_id=task_id
-    )
-    return _summary(domain)
+        raise HTTPException(status_code=500, detail=f"Container defined but its process did not start: {msg}")
+    detail = f"application {payload.image}" if made["app"] else None
+    log_action(user["username"], "create_container", payload.name, "success", detail, task_id=task_id)
+    conn = open_lxc_conn()
+    try:
+        return _summary(_lookup(conn, payload.name))
+    finally:
+        conn.close()
+
+
+# A creation or a clone is one call to hyperlite-daemon that waits: an image is pulled, a filesystem copied.
+CREATE_TIMEOUT_S = 2 * 3600
 
 
 def _claim_or_409(name, what):
@@ -607,77 +421,38 @@ def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depe
 
 
 def _clone_container(name, payload, user):
+    # Copied by hyperlite-daemon (app/core/container_create.py) in its source's directory; the records follow here.
     conn = open_lxc_conn()
-    task_id = create_task("clone_container", name, node=None, username=user["username"])
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            log_action(
-                user["username"], "clone_container", name, "failed", "source container not found", task_id=task_id
-            )
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-
-        name_error = validate_name(payload.new_name, "container")
-        if name_error:
-            log_action(user["username"], "clone_container", name, "failed", name_error, task_id=task_id)
-            raise HTTPException(status_code=422, detail=name_error)
-
-        try:
-            conn.lookupByName(payload.new_name)
-            log_action(
-                user["username"],
-                "clone_container",
-                name,
-                "failed",
-                f"'{payload.new_name}' already exists",
-                task_id=task_id,
-            )
-            raise HTTPException(status_code=409, detail=f"A container '{payload.new_name}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in clone_container()", exc_info=True)
-
-        if domain.isActive():
-            log_action(user["username"], "clone_container", name, "failed", "container active", task_id=task_id)
-            raise HTTPException(status_code=409, detail="Stop the container before cloning it")
-
-        try:
-            rootfs = clone_container_rootfs(name, payload.new_name)
-        except (subprocess.CalledProcessError, ValueError) as e:
-            msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
-            log_action(user["username"], "clone_container", name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to copy the filesystem: {msg}") from e
-
-        source_root = ET.fromstring(domain.XMLDesc(0))
-        vcpu = int(source_root.findtext("vcpu") or "1")
-        memory_kb = int(source_root.findtext("memory") or str(512 * 1024))
-        network = _domain_network(domain)
-        app = get_container_app(name)
-        mac = ip = None
-        try:
-            if app:
-                xml, mac, ip = _app_domain_xml(
-                    conn, payload.new_name, rootfs, app["spec"], network, vcpu, memory_kb // 1024
-                )
-            else:
-                mac = generate_mac(conn)
-                xml = build_container_xml(payload.new_name, vcpu, memory_kb // 1024, rootfs, network=network, mac=mac)
-            new_domain = conn.defineXML(xml)
-        except (ValueError, libvirt.libvirtError) as e:
-            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            if app and ip:
-                release_static_ip(conn, network, mac)
-            delete_container_rootfs(payload.new_name)
-            log_action(user["username"], "clone_container", name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to define the cloned container: {msg}") from e
-
-        ssh_user = get_container_ssh_user(name)
-        if ssh_user:
-            set_container_ssh_user(payload.new_name, ssh_user)
-        if app:
-            set_container_app(payload.new_name, app["image"], app["spec"], ip, network)
-        log_action(user["username"], "clone_container", name, "success", f"-> {payload.new_name}", task_id=task_id)
-        return _summary(new_domain)
+        _lookup(conn, name)
+    finally:
+        conn.close()
+    task_id = create_task("clone_container", name, node=None, username=user["username"])
+    app = get_container_app(name)
+    try:
+        made = privileged.run(
+            "container.clone",
+            user=user["username"],
+            timeout=CREATE_TIMEOUT_S,
+            container=name,
+            new_name=payload.new_name,
+            app=app["spec"] if app else None,
+        )
+    except DaemonError as e:
+        log_action(user["username"], "clone_container", name, "failed", e.detail, task_id=task_id)
+        raise privileged.http_error(e) from None
+    storage = get_container_storage(name)
+    if storage:  # a clone stays in its source's storage pool
+        set_container_storage(payload.new_name, storage["pool"], storage["base_dir"])
+    ssh_user = get_container_ssh_user(name)
+    if ssh_user:
+        set_container_ssh_user(payload.new_name, ssh_user)
+    if app:
+        set_container_app(payload.new_name, app["image"], app["spec"], made["ip"], made["network"])
+    log_action(user["username"], "clone_container", name, "success", f"-> {payload.new_name}", task_id=task_id)
+    conn = open_lxc_conn()
+    try:
+        return _summary(_lookup(conn, payload.new_name))
     finally:
         conn.close()
 
@@ -904,7 +679,7 @@ def restore_container_backup(
             if app:
                 # The original network, not "default": that one may not even be started on this host.
                 network = app["network"] or "default"
-                xml, mac, ip = _app_domain_xml(conn, target_name, rootfs, app["spec"], network, 1, 512)
+                xml, mac, ip = container_create.app_definition(conn, target_name, rootfs, app["spec"], network, 1, 512)
             else:
                 mac = generate_mac(conn)
                 xml = build_container_xml(target_name, 1, 512, rootfs, network="default", mac=mac)
