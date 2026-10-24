@@ -4,10 +4,9 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core import privileged, vm_locks
 from app.core import vm_hardware_opts as opts
-from app.core import vm_locks
 from app.core.audit import log_action
-from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn
 from app.core.security import require_vm_privilege
 from app.routers.vms._shared import router
@@ -20,21 +19,14 @@ def _lookup(conn, name):
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
 
-def _apply(user, name, action, detail, change):
-    """Run a change under the VM's lock, report refused values as 422 and libvirt failures as 500."""
+def _apply(user, name, action, detail, op, **fields):
+    """A change written by hyperlite-daemon (`op`, app/daemon/ops/vm.py) under the VM's lock: refused values 422,
+    libvirt failures 500."""
     with vm_locks.claim_or_409(name, "a hardware change"):
         conn = open_conn()
         try:
-            domain = _lookup(conn, name)
-            try:
-                result = change(conn, domain)
-            except opts.OptionError as e:
-                log_action(user["username"], action, name, "failed", str(e))
-                raise HTTPException(status_code=422, detail=str(e)) from e
-            except libvirt.libvirtError as e:
-                msg = describe_exception(e)
-                log_action(user["username"], action, name, "failed", msg)
-                raise HTTPException(status_code=500, detail=msg) from e
+            _lookup(conn, name)
+            result = privileged.ask(op, user, action, name, vm=name, **fields)
             log_action(user["username"], action, name, "success", detail)
             return {**opts.describe(conn.lookupByName(name)), **(result or {})}
         finally:
@@ -77,7 +69,9 @@ def set_disk_options(
         name,
         "set_disk_options",
         detail,
-        lambda conn, d: opts.set_disk_options(conn, d, target_dev, payload.model_dump()),
+        "vm.set_disk_options",
+        target=target_dev,
+        **payload.model_dump(),
     )
 
 
@@ -92,7 +86,8 @@ def set_boot_order(name: str, payload: BootOrder, user: dict = Depends(require_v
         name,
         "set_boot_order",
         " > ".join(payload.position),
-        lambda conn, d: opts.set_boot_order(conn, d, payload.position),
+        "vm.set_boot_order",
+        position=payload.position,
     )
 
 
@@ -105,7 +100,7 @@ class Balloon(BaseModel):
 def set_balloon(name: str, payload: Balloon, user: dict = Depends(require_vm_privilege("vm.resize"))):
     detail = f"on, minimum {payload.minimum_mb} MB" if payload.active else "off"
     return _apply(
-        user, name, "set_balloon", detail, lambda conn, d: opts.set_balloon(conn, d, payload.active, payload.minimum_mb)
+        user, name, "set_balloon", detail, "vm.set_balloon", active=payload.active, minimum_mb=payload.minimum_mb
     )
 
 
@@ -115,6 +110,4 @@ class Machine(BaseModel):
 
 @router.put("/{name}/machine")
 def set_machine(name: str, payload: Machine, user: dict = Depends(require_vm_privilege("vm.hardware"))):
-    return _apply(
-        user, name, "set_machine", payload.machine, lambda conn, d: opts.set_machine(conn, d, payload.machine)
-    )
+    return _apply(user, name, "set_machine", payload.machine, "vm.set_machine", machine=payload.machine)

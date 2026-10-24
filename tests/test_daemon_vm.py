@@ -112,3 +112,35 @@ def test_the_agents_are_asked_through_the_daemons_libvirt(host, fake_agent):
         privileged.run("vm.agent_ipv4", vms=["x" * 65])
     assert e.value.kind == "invalid_arguments"
     assert privileged.run("vm.agent_ipv4", vms=["ghost"]) == {}
+
+
+# --- Part 2a: a VM's processors, memory, limits, pinning and advanced hardware ---
+
+
+def test_a_running_vms_resources_are_kept_whatever_the_api_checked(host):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.set_resources", vm="db", vcpu=4)
+    assert e.value.kind == "in_use"
+
+
+@pytest.mark.parametrize(
+    "op, args",
+    [
+        ("vm.set_disk_options", {"vm": "web", "target": "../vda"}),
+        ("vm.set_resources", {"vm": "web", "vcpu": 0}),
+        ("vm.set_limits", {"vm": "web", "cpu_shares": 1}),
+        ("vm.set_balloon", {"vm": "web", "active": True, "minimum_mb": 1}),
+        ("vm.set_machine", {"vm": "web", "machine": ""}),
+        ("vm.set_boot_order", {"vm": "web", "position": []}),
+    ],
+)
+def test_the_fields_are_bounded_by_the_daemon(host, op, args):
+    with pytest.raises(DaemonError) as e:
+        privileged.run(op, **args)
+    assert e.value.kind == "invalid_arguments", op
+
+
+def test_a_definition_is_changed_on_a_vm_of_this_node_only(host):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.set_machine", vm="ghost", machine="pc-q35-9.0")
+    assert e.value.kind == "not_found"
