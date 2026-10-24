@@ -144,3 +144,41 @@ def test_a_definition_is_changed_on_a_vm_of_this_node_only(host):
     with pytest.raises(DaemonError) as e:
         privileged.run("vm.set_machine", vm="ghost", machine="pc-q35-9.0")
     assert e.value.kind == "not_found"
+
+
+# --- Part 2b: a VM's devices ---
+
+
+@pytest.mark.parametrize(
+    "op, args",
+    [
+        ("vm.attach_disk", {"vm": "web", "pool": "default", "volume": "d.qcow2", "target": "../vda"}),
+        ("vm.attach_disk", {"vm": "web", "pool": "default", "path": "/etc/shadow", "target": "vdb"}),
+        ("vm.detach_interface", {"vm": "web", "mac": "eth0"}),
+        ("vm.set_cdrom", {"vm": "web", "iso": "x.iso", "target": "sda"}),
+        ("vm.set_interface", {"vm": "web", "network": "lan", "xml": "<interface/>"}),
+    ],
+)
+def test_a_device_is_named_never_given_as_a_path_or_a_definition(host, op, args):
+    with pytest.raises(DaemonError) as e:
+        privileged.run(op, **args)
+    assert e.value.kind == "invalid_arguments", op
+
+
+def test_an_iso_is_found_in_the_daemons_own_library(host, tmp_path, monkeypatch):
+    from app.core import disk_library
+
+    monkeypatch.setattr(disk_library, "ISOS", tmp_path)
+    for iso in ("../../etc/shadow.iso", "missing.iso"):
+        with pytest.raises(DaemonError) as e:
+            privileged.run("vm.set_cdrom", vm="web", iso=iso)
+        assert e.value.kind == "not_found", iso
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.set_cdrom", vm="web", iso="notes.txt")
+    assert e.value.kind == "refused"
+
+
+def test_the_last_interface_is_kept_whatever_the_api_checked(host):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.detach_interface", vm="web", mac="52:54:00:00:00:01")
+    assert e.value.kind == "refused"
