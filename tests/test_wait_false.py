@@ -96,7 +96,7 @@ def deploying(database, tmp_path, monkeypatch, daemon_libvirt):
     conn = _Conn()
     monkeypatch.setattr(vm_templates, "IMAGES_DIR", tmp_path)
     conn_ = daemon_libvirt(conn)
-    monkeypatch.setattr(templates, "open_conn", lambda *a: conn_)
+    monkeypatch.setattr(templates, "open_conn", lambda *a, **_k: conn_)
     monkeypatch.setattr(vm_templates, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(templates.maintenance, "refuse_if_in_maintenance", lambda *a: None)
     monkeypatch.setattr(vm_templates.subprocess, "run", lambda *a, **k: None)

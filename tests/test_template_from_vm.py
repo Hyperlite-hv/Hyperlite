@@ -62,7 +62,7 @@ def node(database, tmp_path, monkeypatch, daemon_libvirt):
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tpl_dir)
     monkeypatch.setattr(vm_templates, "IMAGES_DIR", images)
     conn_ = daemon_libvirt(_Conn(domain))
-    monkeypatch.setattr(templates, "open_conn", lambda *a: conn_)
+    monkeypatch.setattr(templates, "open_conn", lambda *a, **_k: conn_)
     monkeypatch.setattr(vm_templates, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(vm_templates.subprocess, "run", qemu_img)
     monkeypatch.setattr(disk_space, "ensure_room", lambda *a: None)

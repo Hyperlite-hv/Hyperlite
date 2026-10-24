@@ -28,7 +28,7 @@ def domain(monkeypatch, daemon_libvirt):
     vol = conn.storagePoolLookupByName.return_value.storageVolLookupByName.return_value
     vol.path.return_value = "/images/data.qcow2"
     vol.info.return_value = [0, 1 << 30, 0]  # a file volume
-    monkeypatch.setattr(devices, "open_conn", lambda: conn)
+    monkeypatch.setattr(devices, "open_conn", lambda **_k: conn)
     daemon_libvirt(conn)  # hyperlite-daemon attaches, in this process in the tests (app/core/vm_devices.py)
     monkeypatch.setattr(vm_devices, "get_disk_paths_in_use", lambda conn: set())
     monkeypatch.setattr(vm_devices.disk_images, "check", lambda path: "qcow2")

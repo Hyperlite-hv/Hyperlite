@@ -44,7 +44,7 @@ def _require_exists(kind, name, node):
         return
     label = "VM" if kind == "vm" else "Container"
     # A node without the LXC driver has no containers: the name is not found, it is no server error.
-    conn = open_conn(node) if kind == "vm" else open_lxc_conn_if_any()
+    conn = open_conn(node, readonly=True) if kind == "vm" else open_lxc_conn_if_any()
     if conn is None:
         raise HTTPException(status_code=404, detail=f"{label} '{name}' not found")
     try:
