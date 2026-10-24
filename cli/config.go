@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -99,7 +100,8 @@ func normalizeURL(raw string) (string, error) {
 	if err != nil || u.Hostname() == "" {
 		return "", fmt.Errorf("invalid server address %q", raw)
 	}
-	if u.Scheme != "https" && u.Scheme != "http" {
+	if u.Scheme != "https" && !(u.Scheme == "http" && isLoopback(u.Hostname())) {
+		// Plain HTTP would carry the token in clear: only to this very computer (a development server).
 		return "", fmt.Errorf("the server address must start with https://")
 	}
 	host := strings.ToLower(u.Host)
@@ -107,6 +109,14 @@ func normalizeURL(raw string) (string, error) {
 		return "", fmt.Errorf("invalid server address %q", raw)
 	}
 	return u.Scheme + "://" + host, nil
+}
+
+func isLoopback(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // pick returns the server to use: --server, then HYPERLITE_SERVER/HYPERLITE_TOKEN,
