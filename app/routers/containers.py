@@ -1061,8 +1061,11 @@ TERMINAL_TICKETS = {}
 TERMINAL_TICKET_TTL = 30
 
 
+# Restricted to the admin role, as the VM one (app/routers/vms/console.py): the automation key signs in as the
+# container's account, which has passwordless sudo, and its root has the host's capabilities (no user namespace,
+# app/core/container_shell.py). Opening it is root on the host (GHSA-527j-fwg2-7646).
 @router.post("/{name}/terminal-ticket")
-def create_terminal_ticket(name: str, user: dict = Depends(require_container_privilege("container.console"))):
+def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin"))):
     conn = open_lxc_conn()
     try:
         try:
