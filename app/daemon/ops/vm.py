@@ -609,3 +609,26 @@ def delete(args, ctx):
             return {"kept": vm_delete.delete(conn, args.vm)}
         except vm_delete.DeleteError as e:
             raise DaemonError(e.kind, e.detail) from e
+
+
+# --- Part 3c: clones and templates (app/core/vm_clone.py) ---
+
+
+class CloneArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    new_name: str = Field(min_length=1, max_length=VM_NAME)
+    check_only: bool = False
+
+
+@operation("vm.clone", CloneArgs)
+@_libvirt
+def clone(args, ctx):
+    """Every disk of the stopped VM copied into the images directory, under a new name, UUID, NVRAM and MAC addresses
+    (vm_clone.clone); check_only copies nothing. One call that waits (the copies)."""
+    from app.core import libvirt_utils, vm_clone
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            return vm_clone.clone(conn, args.vm, args.new_name, check_only=args.check_only)
+        except vm_clone.CloneError as e:
+            raise DaemonError(e.kind, e.detail) from e
