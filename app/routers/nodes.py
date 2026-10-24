@@ -2,7 +2,6 @@
 app/core/cluster.py."""
 
 import logging
-import re
 import threading
 
 import libvirt
@@ -10,15 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import cluster_compat, cluster_view, maintenance, renaming, self_node, vm_locks
+from app.core import cluster, cluster_compat, cluster_view, maintenance, privileged, renaming, self_node, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import (
     check_address,
-    get_cluster_pubkey,
     node_summary,
     register_node,
-    rename_reverse_trust,
-    test_node_connection,
 )
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_remote_capabilities
@@ -43,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
-NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$")
+NAME_RE = cluster.NODE_NAME_RE
 
 # A host driven over SSH from this node, with no Hyperlite of its own (one controller, nodes over SSH), is deprecated:
 # a node joins a cluster of equal nodes instead, as on Proxmox VE, with no controller to lose. Its routes keep working
@@ -91,7 +87,8 @@ def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
         check_address(payload.hostname, payload.ssh_user)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
-    ok, detail = test_node_connection(payload.hostname, payload.ssh_user, payload.ssh_port)
+    # Asked of hyperlite-daemon, which alone holds the cluster's key.
+    ok, detail = cluster.test_from_daemon(payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     log_action(user["username"], "test_node", payload.hostname, "success" if ok else "failed", None if ok else detail)
     # The raw libvirt/SSH error stays in the audit log; the browser gets a fixed reason.
     if ok:
@@ -127,7 +124,7 @@ def _connection_failure(raw):
 def get_cluster_key(user: dict = Depends(require_role("admin"))):
     """Public key to install in ~/.ssh/authorized_keys of the remote node before
     registering it, displayed in the UI so it can be copied and pasted."""
-    return {"public_key": get_cluster_pubkey()}
+    return {"public_key": cluster.public_key()}
 
 
 class NodeCreate(BaseModel):
@@ -299,7 +296,7 @@ async def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depend
     if busy:
         raise HTTPException(status_code=409, detail=f"Node '{name}' is busy ({', '.join(busy)}): try again later")
     await run_in_threadpool(renaming.node_records, name, new)
-    await run_in_threadpool(rename_reverse_trust, name, new)
+    await run_in_threadpool(privileged.run, "cluster.rename_trust", user=user["username"], node=name, new_name=new)
     log_action(user["username"], "rename_node", name, "success", f"-> {new}")
     return await node_service.wire_with_live(new)
 

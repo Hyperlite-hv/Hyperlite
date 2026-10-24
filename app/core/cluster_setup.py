@@ -347,7 +347,7 @@ def create(name, address, username):
     client = _client()
     client.put(CONF_PATH, json.dumps(conf).encode())
     client.put(COROSYNC_KEY_ENTRY, base64.b64encode(key))
-    client.put(f"{SSH_DIR}/{shadow.component(me)}", cluster.get_cluster_pubkey().encode())
+    client.put(f"{SSH_DIR}/{shadow.component(me)}", cluster.public_key().encode())
     _register(me, address)
     # Now, not at the next round of peer_https (ten minutes): until the members can check this node's certificate,
     # their calls to it go over SSH and a file cannot be relayed to it. A joining node publishes as it restarts.
@@ -692,7 +692,7 @@ def _member_request(ticket, me, address):
     them while the quorum holds, and the others can call this node as soon as it is up."""
     from app.core import cluster, peer_auth, peer_https
 
-    body = {"ticket": ticket, "name": me, "address": address, "ssh_key": cluster.get_cluster_pubkey()}
+    body = {"ticket": ticket, "name": me, "address": address, "ssh_key": cluster.public_key()}
     try:
         body["fingerprint"] = peer_https.own_fingerprint()
     except (OSError, ValueError) as e:  # published by this node once it is up, as before
@@ -880,6 +880,6 @@ def sync():
     try:
         client.get(own)
     except NotFound:  # a node of a cluster made before the keys were shared: publish its own
-        client.put(own, cluster.get_cluster_pubkey().encode())
+        client.put(own, cluster.public_key().encode())
     _authorize(_member_keys(client), me)
     return changed
