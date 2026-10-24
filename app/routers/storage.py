@@ -22,7 +22,7 @@ from app.core import (
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_pool, lookup_volume, open_conn
+from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_volume, open_conn
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
@@ -181,6 +181,14 @@ def _ensure_default(conn, node):
         privileged.run("storage.ensure_default_pool")
     except DaemonError as e:
         logger.error("The 'default' storage pool could not be made: %s", e.detail)
+
+
+def _read_pool(conn, name):
+    """A pool of this node by its name, for the routes' reads; 'default' made first where it is missing, as
+    libvirt_utils.lookup_pool does, by hyperlite-daemon. Raises libvirt.libvirtError as the lookup."""
+    if name == "default":
+        _ensure_default(conn, None)
+    return conn.storagePoolLookupByName(name)
 
 
 def _pools(node):
@@ -594,7 +602,7 @@ def _volumes(pool_name):
             return result
 
         try:
-            pool = lookup_pool(conn, pool_name)
+            pool = _read_pool(conn, pool_name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         pool.refresh(0)
@@ -668,10 +676,11 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(ge
         log_action(user["username"], "create_volume", payload.name, "success")
         return {"name": payload.name, "path": path, "capacity_gb": float(payload.size_gb)}
 
+    # Read here first, so the answers stay as they were; hyperlite-daemon checks it all again.
     conn = open_conn()
     try:
         try:
-            pool = lookup_pool(conn, pool_name)
+            pool = _read_pool(conn, pool_name)
         except libvirt.libvirtError:
             log_action(user["username"], "create_volume", payload.name, "failed", "Pool not found")
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
@@ -679,46 +688,24 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(ge
             raise HTTPException(
                 status_code=422, detail="An iSCSI pool's LUNs are created and resized on the storage server, not here"
             )
-
-        base_name = payload.name[: -len(".qcow2")] if payload.name.endswith(".qcow2") else payload.name
-        name_error = validate_name(base_name, "volume")
-        if name_error:
-            log_action(user["username"], "create_volume", payload.name, "failed", name_error)
-            raise HTTPException(status_code=422, detail=name_error)
-        filename = f"{base_name}.qcow2"
+        try:
+            filename = storage_pools.volume_file_name(payload.name)
+        except storage_pools.PoolError as e:
+            log_action(user["username"], "create_volume", payload.name, "failed", e.message)
+            raise HTTPException(status_code=422, detail=e.message) from None
         try:
             lookup_volume(pool, filename)
             log_action(user["username"], "create_volume", filename, "failed", "Volume already exists")
             raise HTTPException(status_code=422, detail=f"A volume '{filename}' already exists in this pool")
         except libvirt.libvirtError:
             pass
-
-        size_bytes = payload.size_gb * (1024**3)
-        vol_xml = f"""
-        <volume>
-          <name>{filename}</name>
-          <capacity unit='bytes'>{size_bytes}</capacity>
-          <target>
-            <format type='qcow2'/>
-          </target>
-        </volume>
-        """
-        try:
-            vol = pool.createXML(vol_xml, 0)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "create_volume", filename, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Volume creation error: {msg}") from e
-
-        log_action(user["username"], "create_volume", filename, "success")
-        vol_info = vol.info()
-        return {
-            "name": vol.name(),
-            "path": vol.path(),
-            "capacity_gb": round(vol_info[1] / (1024**3), 3),
-        }
     finally:
         conn.close()
+    created = privileged.ask(
+        "storage.volume_create", user, "create_volume", filename, pool=pool_name, name=filename, size_gb=payload.size_gb
+    )
+    log_action(user["username"], "create_volume", filename, "success")
+    return created
 
 
 @router.delete("/{pool_name}/volumes/{volume_name}")
@@ -750,10 +737,11 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         log_action(user["username"], "delete_volume", volume_name, "success")
         return {"message": f"Volume '{volume_name}' deleted"}
 
+    # Read here first, so the answers stay as they were; hyperlite-daemon checks it all again.
     conn = open_conn()
     try:
         try:
-            pool = lookup_pool(conn, pool_name)
+            pool = _read_pool(conn, pool_name)
         except libvirt.libvirtError:
             raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
         if _pool_type(pool) == "iscsi":
@@ -765,29 +753,17 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         except libvirt.libvirtError:
             log_action(user["username"], "delete_volume", volume_name, "failed", "Volume not found")
             raise HTTPException(status_code=404, detail=f"Volume '{volume_name}' not found") from None
-
-        in_use = get_disk_paths_in_use(conn)
-        if vol.path() in in_use:
+        if vol.path() in get_disk_paths_in_use(conn):
             log_action(user["username"], "delete_volume", volume_name, "failed", "Volume used by a VM")
             raise HTTPException(status_code=409, detail=f"Volume '{volume_name}' is used by a VM, deletion refused")
-
-        if not confirm:
-            log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation missing")
-            raise HTTPException(
-                status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
-            )
-
-        try:
-            vol.delete(0)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "delete_volume", volume_name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
-
-        log_action(user["username"], "delete_volume", volume_name, "success")
-        return {"message": f"Volume '{volume_name}' deleted"}
     finally:
         conn.close()
+    if not confirm:
+        log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation missing")
+        raise HTTPException(status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion")
+    privileged.ask("storage.volume_delete", user, "delete_volume", volume_name, pool=pool_name, name=volume_name)
+    log_action(user["username"], "delete_volume", volume_name, "success")
+    return {"message": f"Volume '{volume_name}' deleted"}
 
 
 # Reading one object, registered last so that the fixed paths above (/support, /shared...) keep their routes.
