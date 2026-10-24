@@ -24,6 +24,7 @@ def _named_operations():
         names |= set(re.findall(r'privileged\.(?:run|ask)\(\s*"([a-z_]+\.[a-z_]+)"', text))
         names |= set(re.findall(r'_daemon\(\s*"([a-z_]+\.[a-z_]+)"', text))
         names |= set(re.findall(r'_pool_work\(\s*\w+,\s*"([a-z_]+\.[a-z_]+)"', text))
+        names |= set(re.findall(r'run_in_threadpool\(\s*privileged\.run,\s*"([a-z_]+\.[a-z_]+)"', text))
     return names
 
 
@@ -34,6 +35,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"network.create", "storage.zfs_pool_create", "storage.zfs_volume_delete", "tls.import"} <= named
     assert {"storage.pool_create", "storage.pool_rename", "storage.pool_delete", "storage.pool_check"} <= named
     assert {"storage.volume_create", "storage.volume_delete", "storage.pool_refresh", "storage.lvm_volumes"} <= named
+    assert {"disk.library_store", "disk.library_rename", "disk.library_delete", "disk.ova_extract"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
