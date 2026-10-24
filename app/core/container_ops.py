@@ -241,3 +241,68 @@ def rename(qemu, conn, name, new):
         set_container_hostname(new_root, new)
     except OSError as e:
         logger.warning("Host name of the renamed container %s not updated: %s", new, e)
+
+
+# --- Part 3: snapshots and the console log, read and written in the container's own directory ---
+
+
+def _stopped(conn, qemu, name, action):
+    """(domain, filesystem) of a stopped container: its files are copied or swapped."""
+    dom = domain(conn, name)
+    if dom.isActive():
+        raise ContainerError("in_use", f"Stop the container before {action}")
+    return dom, rootfs(qemu, dom)
+
+
+def snapshots(qemu, conn, name):
+    return container_snapshots.list_snapshots(rootfs(qemu, domain(conn, name)))
+
+
+def snapshot_create(qemu, conn, name, snapshot, description=None, check_only=False):
+    error = validate_name(snapshot, "snapshot")
+    if error:
+        raise ContainerError("refused", error)
+    _dom, path = _stopped(conn, qemu, name, "taking a snapshot (its files are copied)")
+    if container_snapshots.exists(path, snapshot):
+        raise ContainerError("in_use", f"A snapshot '{snapshot}' already exists for this container")
+    if check_only:
+        return None
+    try:
+        return container_snapshots.create(path, snapshot, description)
+    except container_snapshots.SnapshotError as e:
+        raise ContainerError("failed", str(e)[:500]) from e
+
+
+def _existing(qemu, conn, name, snapshot):
+    path = rootfs(qemu, domain(conn, name))
+    if validate_name(snapshot, "snapshot") or not container_snapshots.exists(path, snapshot):
+        raise ContainerError("not_found", f"Snapshot '{snapshot}' not found")
+    return path
+
+
+def snapshot_restore(qemu, conn, name, snapshot, check_only=False):
+    _existing(qemu, conn, name, snapshot)
+    _dom, path = _stopped(conn, qemu, name, "restoring a snapshot")
+    if check_only:
+        return
+    try:
+        container_snapshots.restore(path, snapshot)
+    except container_snapshots.SnapshotError as e:
+        raise ContainerError("failed", str(e)[:500]) from e
+
+
+def snapshot_delete(qemu, conn, name, snapshot):
+    path = _existing(qemu, conn, name, snapshot)
+    try:
+        container_snapshots.delete(path, snapshot)
+    except (OSError, container_snapshots.SnapshotError) as e:
+        raise ContainerError("failed", str(e)) from e
+
+
+def log(qemu, conn, name, lines):
+    """The last lines an application container's process printed (what `docker logs` shows): {"active", "lines"},
+    lines None when it has no log. The log is trimmed as it is read."""
+    from app.core import container_console
+
+    dom = domain(conn, name)
+    return {"active": bool(dom.isActive()), "lines": container_console.read_tail(rootfs(qemu, dom), lines)}

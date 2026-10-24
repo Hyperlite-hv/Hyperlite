@@ -49,6 +49,8 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"vm.snapshot_create", "vm.snapshot_restore", "vm.snapshot_delete", "vm.lvm_snapshots"} <= named
     assert {"container.start", "container.stop", "container.update", "container.rename", "container.delete"} <= named
     assert {"container.create", "container.clone"} <= named
+    assert {"container.snapshot_list", "container.snapshot_create", "container.snapshot_restore"} <= named
+    assert {"container.snapshot_delete", "container.log"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
