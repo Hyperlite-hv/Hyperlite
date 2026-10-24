@@ -345,3 +345,42 @@ def ensure_isolated(args, ctx):
         ensure_isolated_network(conn)
     finally:
         conn.close()
+
+
+# --- Part 2b: the reservations of the network routes (those VM creation and migration make move with their domains) ---
+
+
+class ReservationArgs(NetworkArgs):
+    mac: str = Field(min_length=1, max_length=64)
+    ip: str = Field(min_length=1, max_length=ADDRESS)
+    name: str | None = Field(None, max_length=63)
+
+
+@operation("network.reservation_add", ReservationArgs)
+@_libvirt
+def reservation_add(args, ctx):
+    """A fixed address for one MAC on the network's DHCP server, live and in its definition (network_edit checks the
+    MAC, the name, that the address is in the network and free)."""
+    from app.core import network_edit
+
+    conn = _connect()
+    try:
+        network_edit.add_reservation(_network(conn, args.network), mac=args.mac, ip=args.ip, name=args.name)
+    finally:
+        conn.close()
+
+
+class ReservationDeleteArgs(NetworkArgs):
+    mac: str = Field(min_length=1, max_length=64)
+
+
+@operation("network.reservation_delete", ReservationDeleteArgs)
+@_libvirt
+def reservation_delete(args, ctx):
+    from app.core import network_edit
+
+    conn = _connect()
+    try:
+        return {"found": network_edit.delete_reservation(_network(conn, args.network), args.mac)}
+    finally:
+        conn.close()
