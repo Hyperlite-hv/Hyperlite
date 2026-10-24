@@ -632,3 +632,93 @@ def clone(args, ctx):
             return vm_clone.clone(conn, args.vm, args.new_name, check_only=args.check_only)
         except vm_clone.CloneError as e:
             raise DaemonError(e.kind, e.detail) from e
+
+
+def _templates(fn):
+    """vm_templates' refusals and failures keep their kind."""
+
+    @functools.wraps(fn)
+    def wrapper(args, ctx):
+        from app.core import vm_templates
+
+        try:
+            return fn(args, ctx)
+        except vm_templates.TemplateError as e:
+            raise DaemonError(e.kind, e.detail) from e
+
+    return wrapper
+
+
+class TemplateMakeArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    template: str = Field(min_length=1, max_length=VM_NAME)
+    keep_vm: bool = False
+    # Recorded in the template's description, from the API's database: who made it, the source VM's account and system.
+    created_by: str = Field(min_length=1, max_length=256)
+    ssh_user: str | None = Field(default=None, max_length=64)
+    os_label: str | None = Field(default=None, max_length=128)
+    check_only: bool = False
+
+
+@operation("template.make", TemplateMakeArgs)
+@_libvirt
+@_templates
+def template_make(args, ctx):
+    """A template from the stopped VM: a copy of its disk (keep_vm), or the VM itself, converted (vm_templates.make)."""
+    from app.core import libvirt_utils, vm_templates
+
+    fields = args.model_dump(exclude={"vm", "template", "check_only"})
+    with libvirt_utils.local_conn() as conn:
+        return vm_templates.make(conn, args.vm, args.template, check_only=args.check_only, **fields)
+
+
+class TemplateDeployArgs(Args):
+    template: str = Field(min_length=1, max_length=VM_NAME)
+    new_name: str = Field(min_length=1, max_length=VM_NAME)
+    network: str | None = Field(default=None, min_length=1, max_length=64)
+    linked: bool = False
+    check_only: bool = False
+
+
+@operation("template.deploy", TemplateDeployArgs)
+@_libvirt
+@_templates
+def template_deploy(args, ctx):
+    """A new VM with a copy of the template's disk, or a linked disk over it (vm_templates.deploy)."""
+    from app.core import libvirt_utils, vm_templates
+
+    with libvirt_utils.local_conn() as conn:
+        return vm_templates.deploy(
+            conn, args.template, args.new_name, args.network, linked=args.linked, check_only=args.check_only
+        )
+
+
+class TemplateRenameArgs(Args):
+    template: str = Field(min_length=1, max_length=VM_NAME)
+    new_name: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("template.rename", TemplateRenameArgs)
+@_libvirt
+@_templates
+def template_rename(args, ctx):
+    """Refused while a linked clone reads the template's disk, which the rename moves."""
+    from app.core import libvirt_utils, vm_templates
+
+    with libvirt_utils.local_conn() as conn:
+        vm_templates.rename(conn, args.template, args.new_name)
+
+
+class TemplateArgs(Args):
+    template: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("template.delete", TemplateArgs)
+@_libvirt
+@_templates
+def template_delete(args, ctx):
+    """Refused while a linked clone reads the template's disk."""
+    from app.core import libvirt_utils, vm_templates
+
+    with libvirt_utils.local_conn() as conn:
+        vm_templates.delete(conn, args.template)

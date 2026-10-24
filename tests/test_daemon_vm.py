@@ -266,3 +266,29 @@ def test_a_creation_is_checked_again_by_the_daemon(daemon_libvirt, monkeypatch, 
     conn.lookupByName.side_effect = libvirt.libvirtError("no domain")
     assert privileged.run("vm.create", spec=SPEC, pending=["debian.iso"], check_only=True) is None
     conn.defineXML.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("op", "args"),
+    [
+        ("vm.clone", {"vm": "web", "new_name": "copy", "disk": "/etc/shadow"}),
+        ("vm.clone", {"vm": "web", "new_name": "c" * 65}),
+        ("template.make", {"vm": "web", "template": "base", "created_by": "ana", "xml": "<domain/>"}),
+        ("template.deploy", {"template": "base", "new_name": "copy", "disk_path": "/etc/shadow"}),
+        ("template.rename", {"template": "base", "new_name": "n" * 65}),
+        ("template.delete", {"template": "base", "path": "/var/lib/hyperlite/templates/base.qcow2"}),
+    ],
+)
+def test_a_clone_or_a_template_is_named_never_given_as_a_path_or_a_definition(host, op, args):
+    with pytest.raises(DaemonError) as e:
+        privileged.run(op, **args)
+    assert e.value.kind == "invalid_arguments"
+
+
+def test_a_clone_is_checked_again_by_the_daemon(host):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.clone", vm="db", new_name="copy", check_only=True)
+    assert e.value.kind == "in_use"  # running
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.clone", vm="gone", new_name="copy", check_only=True)
+    assert e.value.kind == "not_found"
