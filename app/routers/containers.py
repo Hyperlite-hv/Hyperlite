@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field
 
 from app.core import (
     container_config,
-    container_console,
     container_create,
     container_shell,
     container_snapshots,
@@ -38,7 +37,6 @@ from app.core.audit import log_action
 from app.core.container_builder import (
     backup_container_rootfs,
     build_container_xml,
-    container_rootfs_path,
     delete_container_rootfs,
     restore_container_rootfs,
 )
@@ -532,34 +530,36 @@ class ContainerSnapshotCreate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
 
-def _stopped_container_or_error(name, action):
-    conn = open_lxc_conn()
-    try:
-        domain = _lookup(conn, name)
-        if domain.isActive():
-            raise HTTPException(status_code=409, detail=f"Stop the container before {action}")
-    finally:
-        conn.close()
-
-
-def _snapshot_job(task_id, username, action, name, snapshot, claim, work):
+def _snapshot_job(task_id, username, action, name, snapshot, claim, op, args):
     with claim:
         try:
-            work()
+            privileged.run(op, user=username, timeout=SNAPSHOT_TIMEOUT_S, container=name, snapshot=snapshot, **args)
             finish_task(task_id, "succeeded")
             log_action(username, action, name, "success", f"Snapshot '{snapshot}'")
         except Exception as e:  # any error closes the task, said as it is
-            msg = str(e)[:500] if isinstance(e, container_snapshots.SnapshotError) else describe_exception(e)
+            msg = e.detail if isinstance(e, DaemonError) else describe_exception(e)
             finish_task(task_id, "failed", msg)
             log_action(username, action, name, "failed", f"Snapshot '{snapshot}': {msg}")
 
 
-def _start_snapshot_job(user, action, name, snapshot, what, work):
+# Copying a container's files takes longer than an ordinary operation.
+SNAPSHOT_TIMEOUT_S = 3600
+
+
+def _daemon_task(op, user, action, name, snapshot, what, **args):
+    """Checked by hyperlite-daemon first (check_only), so that a refusal is the answer; then the work as a task,
+    holding the container's lock until it ends."""
+    try:
+        privileged.run(op, user=user["username"], container=name, snapshot=snapshot, check_only=True, **args)
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
     claim = _claim_or_409(name, what)
     try:
         task_id = create_task(action, name, username=user["username"])
         threading.Thread(
-            target=_snapshot_job, args=(task_id, user["username"], action, name, snapshot, claim, work), daemon=True
+            target=_snapshot_job,
+            args=(task_id, user["username"], action, name, snapshot, claim, op, args),
+            daemon=True,
         ).start()
     except BaseException:
         claim.release()
@@ -569,57 +569,45 @@ def _start_snapshot_job(user, action, name, snapshot, what, work):
 
 @router.get("/{name}/snapshots")
 def list_container_snapshots(name: str, user: dict = Depends(require_container_privilege("container.view"))):
-    conn = open_lxc_conn()
+    # Read by hyperlite-daemon: the snapshots are root's.
     try:
-        _lookup(conn, name)
-    finally:
-        conn.close()
-    return listing(container_snapshots.list_snapshots(name))
+        found = privileged.run("container.snapshot_list", user=user["username"], container=name)["snapshots"]
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
+    return listing(found)
 
 
 @router.post("/{name}/snapshots", status_code=202)
 def create_container_snapshot(name: str, payload: ContainerSnapshotCreate, user: dict = Depends(require_role("admin"))):
-    error = validate_name(payload.name, "snapshot")
-    if error:
-        raise HTTPException(status_code=422, detail=error)
-    _stopped_container_or_error(name, "taking a snapshot (its files are copied)")
-    if container_snapshots.exists(name, payload.name):
-        raise HTTPException(status_code=409, detail=f"A snapshot '{payload.name}' already exists for this container")
-    return _start_snapshot_job(
+    return _daemon_task(
+        "container.snapshot_create",
         user,
         "create_container_snapshot",
         name,
         payload.name,
         "a snapshot",
-        lambda: container_snapshots.create(name, payload.name, payload.description),
+        description=payload.description,
     )
 
 
 @router.post("/{name}/snapshots/{snapshot}/restore", status_code=202)
 def restore_container_snapshot(name: str, snapshot: str, user: dict = Depends(require_role("admin"))):
-    if validate_name(snapshot, "snapshot") or not container_snapshots.exists(name, snapshot):
-        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot}' not found")
-    _stopped_container_or_error(name, "restoring a snapshot")
-    return _start_snapshot_job(
-        user,
-        "restore_container_snapshot",
-        name,
-        snapshot,
-        "a snapshot restore",
-        lambda: container_snapshots.restore(name, snapshot),
+    return _daemon_task(
+        "container.snapshot_restore", user, "restore_container_snapshot", name, snapshot, "a snapshot restore"
     )
 
 
 @router.delete("/{name}/snapshots/{snapshot}")
 def delete_container_snapshot(name: str, snapshot: str, user: dict = Depends(require_role("admin"))):
-    if validate_name(snapshot, "snapshot") or not container_snapshots.exists(name, snapshot):
-        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot}' not found")
     with _claim_or_409(name, "a snapshot deletion"):
         try:
-            container_snapshots.delete(name, snapshot)
-        except (OSError, container_snapshots.SnapshotError) as e:
-            log_action(user["username"], "delete_container_snapshot", name, "failed", f"Snapshot '{snapshot}': {e}")
-            raise HTTPException(status_code=500, detail=str(e)) from e
+            privileged.run("container.snapshot_delete", user=user["username"], container=name, snapshot=snapshot)
+        except DaemonError as e:
+            if e.kind != "not_found":
+                log_action(
+                    user["username"], "delete_container_snapshot", name, "failed", f"Snapshot '{snapshot}': {e.detail}"
+                )
+            raise privileged.http_error(e) from None
     log_action(user["username"], "delete_container_snapshot", name, "success", f"Snapshot '{snapshot}'")
     return {"ok": True}
 
@@ -710,17 +698,12 @@ def container_logs(name: str, lines: int = 300, user: dict = Depends(require_con
     """The last lines an application container's process printed: what `docker logs` shows."""
     if not get_container_app(name):
         raise HTTPException(status_code=409, detail="Only Docker (application) containers have a log: use the terminal")
-    conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-        active = bool(domain.isActive())
-    finally:
-        conn.close()
-    tail = container_console.read_tail(container_rootfs_path(name), max(1, min(lines, 5000)))
-    return {"name": name, "active": active, "available": tail is not None, "lines": tail or []}
+        found = privileged.run("container.log", user=user["username"], container=name, lines=max(1, min(lines, 5000)))
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
+    tail = found["lines"]
+    return {"name": name, "active": found["active"], "available": tail is not None, "lines": tail or []}
 
 
 # ---- Web terminal (SSH, same mechanism as app/routers/vms.py) ----
