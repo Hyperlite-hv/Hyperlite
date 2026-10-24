@@ -57,12 +57,12 @@ class Conn:
 
 
 @pytest.fixture()
-def iptables(monkeypatch):
+def iptables(monkeypatch, daemon_libvirt):
     """iptables, and the libvirt connection hyperlite-daemon opens to read the network's bridge (the operations run in
     this process in the tests, app/core/privileged.py)."""
     fake = FakeIptables()
     monkeypatch.setattr(fw, "_run", fake)
-    monkeypatch.setattr(fw, "_connect", Conn)
+    daemon_libvirt(Conn())
     return fake
 
 

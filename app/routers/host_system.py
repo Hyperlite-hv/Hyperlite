@@ -13,7 +13,6 @@ from app.core.audit import log_action
 from app.core.listing import listing
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, task_log
-from app.daemon.registry import DaemonError
 
 router = APIRouter(prefix="/host/system", tags=["host"])
 
@@ -24,17 +23,6 @@ _upgrade_lock = threading.Lock()
 def _refused(user, action, e):
     log_action(user["username"], action, "host", "failed", str(e))
     return HTTPException(status_code=422, detail=str(e))
-
-
-def _ask(user, action, op, **args):
-    """hyperlite-daemon's answer to `op`. A setting it refuses: 422 with its reason, as before; without the daemon: 503."""
-    try:
-        return privileged.run(op, user=user["username"], **args)
-    except DaemonError as e:
-        if e.kind == "refused":
-            raise _refused(user, action, e.detail) from None
-        log_action(user["username"], action, "host", "failed", e.detail)
-        raise HTTPException(status_code=503 if e.kind == "unavailable" else 502, detail=e.detail) from None
 
 
 @router.get("/updates")
@@ -91,10 +79,9 @@ def get_auto_updates(user: dict = Depends(require_role("admin"))):
 
 @router.put("/auto-updates")
 def put_auto_updates(payload: AutoUpdates, user: dict = Depends(require_role("admin"))):
-    try:
-        result = _ask(user, "set_auto_updates", "host.set_auto_updates", active=payload.active, at=payload.time)
-    except host_system.SettingError as e:
-        raise _refused(user, "set_auto_updates", e) from e
+    result = privileged.ask(
+        "host.set_auto_updates", user, "set_auto_updates", "host", active=payload.active, at=payload.time
+    )
     log_action(
         user["username"],
         "set_auto_updates",
@@ -117,10 +104,7 @@ def get_dns(user: dict = Depends(require_role("admin"))):
 
 @router.put("/dns")
 def put_dns(payload: DnsSettings, user: dict = Depends(require_role("admin"))):
-    try:
-        result = _ask(user, "host_dns", "host.set_dns", servers=payload.servers, search=payload.search)
-    except host_system.SettingError as e:
-        raise _refused(user, "host_dns", e) from e
+    result = privileged.ask("host.set_dns", user, "host_dns", "host", servers=payload.servers, search=payload.search)
     log_action(user["username"], "host_dns", "host", "success", " ".join(payload.servers))
     return result
 
@@ -133,10 +117,7 @@ class HostnameSettings(BaseModel):
 def put_hostname(payload: HostnameSettings, user: dict = Depends(require_role("admin"))):
     """Rename this node: its host name (/etc/hostname) and its line in /etc/hosts. The name libvirt reports, and so
     the one shown for this node, follows at once."""
-    try:
-        result = _ask(user, "host_hostname", "host.set_hostname", name=payload.name)
-    except host_system.SettingError as e:
-        raise _refused(user, "host_hostname", e) from e
+    result = privileged.ask("host.set_hostname", user, "host_hostname", "host", name=payload.name)
     log_action(user["username"], "host_hostname", result["old"], "success", f"-> {result['name']}")
     return result
 
@@ -162,17 +143,15 @@ def get_timezones(user: dict = Depends(require_role("admin"))):
 
 @router.put("/time")
 def put_time(payload: TimeSettings, user: dict = Depends(require_role("admin"))):
-    try:
-        result = _ask(
-            user,
-            "host_time",
-            "host.set_time",
-            timezone=payload.timezone,
-            ntp=payload.ntp,
-            ntp_servers=payload.ntp_servers,
-        )
-    except host_system.SettingError as e:
-        raise _refused(user, "host_time", e) from e
+    result = privileged.ask(
+        "host.set_time",
+        user,
+        "host_time",
+        "host",
+        timezone=payload.timezone,
+        ntp=payload.ntp,
+        ntp_servers=payload.ntp_servers,
+    )
     log_action(user["username"], "host_time", "host", "success", f"{payload.timezone} ntp={payload.ntp}")
     return result
 
@@ -190,12 +169,9 @@ def get_syslog(user: dict = Depends(require_role("admin"))):
 
 @router.put("/syslog")
 def put_syslog(payload: SyslogSettings, user: dict = Depends(require_role("admin"))):
-    try:
-        result = _ask(
-            user, "host_syslog", "host.set_syslog", host=payload.host, port=payload.port, protocol=payload.protocol
-        )
-    except host_system.SettingError as e:
-        raise _refused(user, "host_syslog", e) from e
+    result = privileged.ask(
+        "host.set_syslog", user, "host_syslog", "host", host=payload.host, port=payload.port, protocol=payload.protocol
+    )
     log_action(
         user["username"],
         "host_syslog",

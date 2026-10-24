@@ -264,11 +264,10 @@ def apply_running(conn=None, node=None):
     import libvirt
 
     if conn is None:
-        conn = _connect()
-        try:
+        from app.core import libvirt_utils
+
+        with libvirt_utils.local_conn() as conn:
             return apply_running(conn, node)
-        finally:
-            conn.close()
     errors = []
     for domain in conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE):
         try:
@@ -329,26 +328,17 @@ def linux_bridge_of_network(root):
     return name if is_linux_bridge(name) else None
 
 
-def _connect():
-    import libvirt
-
-    from app.core.libvirt_utils import LIBVIRT_URI
-
-    return libvirt.open(LIBVIRT_URI)
-
-
 def network_bridge(network):
     """The Linux bridge of this node's libvirt network `network`, read here: what the daemon acts on."""
     import libvirt
 
-    conn = _connect()
-    try:
+    from app.core import libvirt_utils
+
+    with libvirt_utils.local_conn() as conn:
         try:
             root = ET.fromstring(conn.networkLookupByName(network).XMLDesc(0))
         except libvirt.libvirtError:
             raise VlanError(f"Network '{network}' not found") from None
-    finally:
-        conn.close()
     bridge = linux_bridge_of_network(root)
     if bridge is None:
         raise VlanError(f"Network '{network}' is not on a Linux bridge of this host")
@@ -360,8 +350,9 @@ def apply_vm(vm):
     Returns the errors, one per port; a stopped VM gets its VLANs from the libvirt hook when it starts."""
     import libvirt
 
-    conn = _connect()
-    try:
+    from app.core import libvirt_utils
+
+    with libvirt_utils.local_conn() as conn:
         try:
             domain = conn.lookupByName(vm)
         except libvirt.libvirtError:
@@ -369,8 +360,6 @@ def apply_vm(vm):
         if not domain.isActive():
             return []
         return apply_domain(ET.fromstring(domain.XMLDesc(0)))
-    finally:
-        conn.close()
 
 
 def uplinks(bridge):

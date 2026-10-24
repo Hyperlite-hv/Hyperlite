@@ -407,7 +407,7 @@ def test_only_a_bridge_hyperlite_made_vlan_aware_is_turned_off(host):
 
 
 @pytest.fixture()
-def net_api(monkeypatch, host):
+def net_api(monkeypatch, host, daemon_libvirt):
     from app.routers import network
 
     domains = []
@@ -444,7 +444,7 @@ def net_api(monkeypatch, host):
 
     monkeypatch.setattr(network, "open_conn", lambda *a, **k: Conn())
     # hyperlite-daemon reads the network's bridge itself (app/daemon/ops/network.py), in this process in the tests.
-    monkeypatch.setattr(bridge_vlan, "_connect", Conn)
+    daemon_libvirt(Conn())
     return domains
 
 
