@@ -848,7 +848,8 @@ _migrations_lock = threading.Lock()
 class MigrateArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     source_node: str | None = NODE
-    target_node: str = Field(min_length=1, max_length=63)
+    # A registered node's name or "local", never a URI: the daemon builds the destination's own.
+    target_node: str = Field(min_length=1, max_length=63, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}$")
     task_id: str = Field(min_length=1, max_length=64)
 
 
