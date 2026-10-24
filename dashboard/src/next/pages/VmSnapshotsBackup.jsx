@@ -4,7 +4,7 @@ import RetentionFields, { retentionForm, retentionPayload, retentionProblems } f
 import { DestinationField } from "../components/BackupStores";
 import {
   fetchSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, fetchTaskDetail,
-  fetchVMBackups, createBackup, deleteBackup, restoreBackup, verifyBackup, fetchBackupSchedule, setBackupSchedule, deleteBackupSchedule,
+  fetchVMBackups, createBackup, deleteBackup, restoreBackup, verifyBackup, fetchBackupSchedule, setBackupSchedule, deleteBackupSchedule, importBackupIntoStore,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -18,7 +18,7 @@ import { errorMessage } from "../lib/errors";
 import { formatSizeMb, formatDateTime } from "../lib/format";
 import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
-import { PageHeader, Card, Empty, Field, Loading, TableWrap } from "../components/ui";
+import { PageHeader, Card, Empty, Field, Loading, SideDrawer, TableWrap } from "../components/ui";
 import { Archive, Camera, Info, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -165,6 +165,8 @@ export function VmBackupPage({ resource: vm }) {
   const [busy, setBusy] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [browsing, setBrowsing] = useState(null);
+  // A backup of the directory format copied into a store, on demand: the store chosen in a drawer.
+  const [importing, setImporting] = useState(null);
   // A backup asked here and not listed yet: one backup runs at a time on a node, so it may wait for the one in
   // progress before its row exists. The rows known at the click: the new one is the first row not among them.
   const [waiting, setWaiting] = useState(null);
@@ -232,6 +234,11 @@ export function VmBackupPage({ resource: vm }) {
     if (!name) return;
     try { await restoreBackup(b.id, "new", name.trim(), vmNode); pushToast({ kind: "success", title: t("vb.restoreStarted"), message: name.trim() }); } catch (er) { fail(t("vb.restoreFailed"))(er); }
   }
+  async function importInto() {
+    const { backup, store } = importing;
+    try { await importBackupIntoStore(backup.id, store, vmNode); pushToast({ kind: "success", title: t("vb.importStarted"), message: `#${backup.id} → ${store}` }); setImporting(null); }
+    catch (er) { fail(t("vb.importFailed"))(er); }
+  }
   async function verify(b) {
     setBusy(true);
     try {
@@ -279,6 +286,7 @@ export function VmBackupPage({ resource: vm }) {
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
+                        {caps.admin && b.status === "succeeded" && !b.store && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("vb.importX", { v: b.id })} onClick={() => setImporting({ backup: b, store: null })}>{t("vb.import")}</button>}
                         {caps.admin && b.status === "succeeded" && !b.store && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.name, on: vmNode })}>{t("fr.browse")}</button>}
                         {caps.admin && (b.status === "succeeded" || b.status === "failed") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}
                       </div></td>
@@ -309,6 +317,15 @@ export function VmBackupPage({ resource: vm }) {
         </Card>
       </div>
       {browsing && <BackupFileBrowser backup={browsing} onClose={() => setBrowsing(null)} />}
+      <SideDrawer open={!!importing} title={t("vb.importTitle", { id: importing?.backup.id ?? "" })} onClose={() => setImporting(null)} footer={<>
+        <button type="button" className="nx-btn nx-btn--ghost" onClick={() => setImporting(null)}>{t("action.cancel")}</button>
+        <button type="button" className="nx-btn nx-btn--primary" disabled={!importing?.store} onClick={importInto}>{t("vb.import")}</button>
+      </>}>
+        {importing && <>
+          <p className="nx-muted" style={{ margin: 0 }}>{t("vb.importHelp")}</p>
+          <DestinationField value={importing.store} onChange={(store) => setImporting((x) => ({ ...x, store }))} />
+        </>}
+      </SideDrawer>
     </>
   );
 }

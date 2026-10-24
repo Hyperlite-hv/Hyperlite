@@ -577,3 +577,85 @@ def verify(path):
         except (OSError, backup_store.DamagedChunk) as e:
             problems.append(f"{name}: {e}")
     return (backup_integrity.CORRUPT if problems else backup_integrity.VERIFIED), problems, disks
+
+
+def _directory_disks(src_dir):
+    """[(target dev, image Path)] of a backup in today's format, as its manifest lists them (or, before manifests, its
+    images named after their target)."""
+    manifest = backup_integrity.read_manifest(src_dir)
+    if manifest:
+        return [
+            (e["target"], Path(src_dir) / Path(str(e["name"])).name)
+            for e in manifest.get("files") or []
+            if e.get("role") == "disk" and e.get("target")
+        ]
+    return [(p.stem, p) for p in sorted(Path(src_dir).glob("*.qcow2"))]
+
+
+def _stamp_of(created_at):
+    try:
+        moment = datetime.fromisoformat((created_at or "").replace("Z", "+00:00"))
+    except ValueError:
+        moment = datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def import_directory_backup(src_dir, created_at, vm_name, store, vm_uuid, progress=None):
+    """Copy a backup of today's format (its own directory, qcow2 images, a point of a replication chain included)
+    into `store`: each image read through qemu-nbd, which follows its chain, cut into the store's chunks; its
+    vm-config.json, NVRAM and TPM state kept with it. The backup is verified first; it is left as it is. Returns the
+    new backup's directory (the existing one when it was imported before)."""
+    from app.core import disk_images
+
+    src_dir = Path(src_dir)
+    status, problems, _ = backup_integrity.verify(src_dir, None)
+    if status != backup_integrity.VERIFIED:
+        raise BackupFailed("The backup failed its integrity check, nothing was imported: " + "; ".join(problems[:3]))
+    stamp = _stamp_of(created_at)
+    if (store.backup_dir(vm_uuid, stamp) / "manifest.json").exists():
+        return store.backup_dir(vm_uuid, stamp)
+    disks = []
+    for dev, image in _directory_disks(src_dir):
+        try:
+            # Its chain stays in the backup's own directory and its VM's points: nothing it names is read elsewhere.
+            fmt = disk_images.check(image, within=image.parent.parent)
+        except disk_images.UnsafeImage as e:
+            raise BackupFailed(str(e)) from None
+        disks.append(Disk(dev, str(image), fmt))
+    if not disks:
+        raise BackupFailed("This backup has no disk image left to import")
+    workdir = _workdir()
+    try:
+        indexes = {}
+        with exported_stopped(disks, workdir) as uris:
+            sizes = {dev: export_size(uri) for dev, uri in uris.items()}
+            total, done = sum(sizes.values()) or 1, 0
+            for disk in disks:
+                start = done
+
+                def step(n, start=start):
+                    if progress:
+                        progress(min(99, int(100 * (start + n) / total)))
+
+                indexes[disk.dev] = read_into_store(store, uris[disk.dev], sizes[disk.dev], step)
+                done += sizes[disk.dev]
+        files = {
+            name: (src_dir / name).read_bytes()
+            for name in (backup_integrity.NVRAM_FILE, backup_integrity.TPM_FILE, "vm-config.json")
+            if (src_dir / name).is_file()
+        }
+        manifest = {
+            "vm": vm_name,
+            "mode": (backup_integrity.read_manifest(src_dir) or {}).get("mode") or "cold",
+            "running": False,
+            "formats": {d.dev: d.format for d in disks},
+            "block": [],
+            "read": {d.dev: "full" for d in disks},
+            "full_at": _now_iso(),
+            "imported_from": str(src_dir),
+        }
+        return store.write_backup(vm_uuid, stamp, indexes, manifest, files)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)

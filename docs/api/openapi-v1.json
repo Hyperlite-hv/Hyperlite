@@ -3433,6 +3433,20 @@
     "title": "StoreCreate",
     "type": "object"
    },
+   "StoreImport": {
+    "properties": {
+     "store": {
+      "description": "The backup store to copy the backup into",
+      "title": "Store",
+      "type": "string"
+     }
+    },
+    "required": [
+     "store"
+    ],
+    "title": "StoreImport",
+    "type": "object"
+   },
    "StoreSync": {
     "properties": {
      "active": {
@@ -8388,6 +8402,80 @@
      }
     ],
     "summary": "Open Backup Files",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backups/{backup_id}/import": {
+   "post": {
+    "description": "Copy a backup of today's format into a backup store, in the background (a task); the backup stays as it is.",
+    "operationId": "import_backup_into_store_api_v1_backups__backup_id__import_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "backup_id",
+      "required": true,
+      "schema": {
+       "title": "Backup Id",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "on",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "On"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StoreImport"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Import Backup Into Store",
     "tags": [
      "backups"
     ]
