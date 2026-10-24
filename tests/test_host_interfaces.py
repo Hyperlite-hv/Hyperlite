@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+import app.daemon.ops.network as ops_network
+
 
 def _iface(root, name, devtype=None, device=False, dirs=(), files=(), operstate="up", mac="00:11:22:33:44:55"):
     path = root / name
@@ -82,6 +84,10 @@ class _Conn:
     def networkLookupByName(self, name):
         import libvirt
 
+        # As libvirt: a network is found once defined (the route reads it back after hyperlite-daemon made it).
+        for xml in self.defined:
+            if ET.fromstring(xml).findtext("name") == name:
+                return _Net(xml)
         raise libvirt.libvirtError("no network")
 
     def networkDefineXML(self, xml):
@@ -101,6 +107,7 @@ def api(database, sysnet, monkeypatch):
     monkeypatch.setattr(host_interfaces, "SYS_NET", sysnet)
     monkeypatch.setattr(host_interfaces, "_addresses", lambda: {})
     monkeypatch.setattr(network, "open_conn", lambda node=None: conn)
+    monkeypatch.setattr(ops_network, "_connect", lambda: conn)  # hyperlite-daemon's own connection, in this process
     return conn
 
 

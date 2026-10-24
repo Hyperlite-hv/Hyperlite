@@ -190,3 +190,148 @@ def test_the_service_start_sets_the_vlans_of_the_running_vms(daemon_libvirt, mon
 def test_the_ports_are_read_from_the_live_definition():
     root = ET.fromstring(WEB_XML)
     assert bridge_vlan.interfaces_to_apply(root) == [("vnet7", "br0", 20, None)]
+
+
+# --- Part 2a: libvirt's networks ---
+
+import app.daemon.ops.network as ops_network  # noqa: E402
+
+
+class Lib:
+    """libvirt as hyperlite-daemon sees it: networks defined, started, autostarted; a VM on one of them."""
+
+    def __init__(self):
+        self.nets = {}
+        self.domains = []
+
+    def networkLookupByName(self, name):
+        if name not in self.nets:
+            raise libvirt.libvirtError("no network")
+        return self.nets[name]
+
+    def networkDefineXML(self, xml):
+        net = LibNet(self, xml)
+        self.nets[net.name()] = net
+        return net
+
+    def listAllDomains(self, flags=0):
+        return self.domains
+
+    def close(self):
+        pass
+
+
+class LibNet:
+    def __init__(self, lib, xml):
+        self.lib, self.xml, self.active, self.auto = lib, xml, False, False
+
+    def name(self):
+        return ET.fromstring(self.xml).findtext("name")
+
+    def create(self):
+        self.active = True
+
+    def destroy(self):
+        self.active = False
+
+    def undefine(self):
+        del self.lib.nets[self.name()]
+
+    def isActive(self):
+        return self.active
+
+    def setAutostart(self, on):
+        self.auto = bool(on)
+
+    def autostart(self):
+        return self.auto
+
+    def XMLDesc(self, flags=0):
+        return self.xml
+
+
+@pytest.fixture()
+def lib(monkeypatch):
+    lib = Lib()
+    monkeypatch.setattr(ops_network, "_connect", lambda: lib)
+    monkeypatch.setattr("app.core.libvirt_utils.open_lxc_conn_if_any", lambda: None)
+    return lib
+
+
+ROUTED = {"mode": "nat", "subnet_address": "10.77.0.1", "subnet_netmask": "255.255.255.0"}
+
+
+def test_the_daemon_writes_the_definition_itself(lib):
+    privileged.run("network.create", name="lab", **ROUTED, dhcp_start="10.77.0.10", dhcp_end="10.77.0.50")
+    net = lib.nets["lab"]
+    assert net.isActive() and net.autostart()
+    root = ET.fromstring(net.XMLDesc())
+    assert root.find("forward").get("mode") == "nat" and root.find("ip").get("address") == "10.77.0.1"
+    with pytest.raises(DaemonError) as e:  # libvirt XML from the caller is no argument
+        privileged.run("network.create", name="x", **ROUTED, xml="<network/>")
+    assert e.value.kind == "invalid_arguments"
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"name": "lab'/><forward mode='bridge"},  # a quote in the name would rewrite the definition
+        {"name": "lab", "subnet_address": "10.0.0.1'/><dns"},
+        {"name": "lab", "dhcp_start": "10.77.0.10' x='", "dhcp_end": "10.77.0.50"},
+        {"name": "lab", "mode": "bridge", "bridge_name": "br0'/>"},
+    ],
+)
+def test_nothing_that_could_rewrite_the_definition_reaches_libvirt(lib, fields):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("network.create", **{**ROUTED, **fields})
+    assert e.value.kind == "refused"
+    assert lib.nets == {}
+
+
+def test_the_daemon_keeps_the_system_networks_and_those_in_use(lib):
+    for name in ("default", "hyperlite-isolated", "lan"):
+        lib.networkDefineXML(f"<network><name>{name}</name></network>")
+    lib.domains = [
+        Domain(
+            "web",
+            "<domain><devices><interface type='network'><source network='lan'/></interface></devices></domain>",
+            True,
+        )
+    ]
+    for op, args in [
+        ("network.delete", {"network": "default"}),
+        ("network.delete", {"network": "lan"}),  # a VM still on it, whatever the API checked
+        ("network.rename", {"network": "hyperlite-isolated", "new_name": "other"}),
+        ("network.rename", {"network": "lan", "new_name": "bad name"}),
+    ]:
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, **args)
+        assert e.value.kind == "refused", (op, args)
+    assert set(lib.nets) == {"default", "hyperlite-isolated", "lan"}
+
+
+def test_start_stop_autostart_and_edit_are_the_daemons(lib):
+    privileged.run("network.create", name="lab", **ROUTED)
+    privileged.run("network.stop", network="lab")
+    assert not lib.nets["lab"].isActive()
+    privileged.run("network.start", network="lab")
+    privileged.run("network.autostart", network="lab", autostart=False)
+    assert lib.nets["lab"].isActive() and not lib.nets["lab"].autostart()
+    with pytest.raises(DaemonError) as e:
+        privileged.run("network.start", network="nowhere")
+    assert e.value.kind == "refused"
+
+
+def test_listing_the_networks_asks_the_daemon_only_for_a_missing_isolated_network(monkeypatch):
+    from app.routers import network
+
+    asked = []
+    monkeypatch.setattr(privileged, "run", lambda op, **kw: asked.append(op))
+    present = Lib()
+    present.networkDefineXML("<network><name>hyperlite-isolated</name></network>")
+    present.nets["hyperlite-isolated"].create()
+    present.nets["hyperlite-isolated"].setAutostart(True)
+    network._ensure_isolated(present, {"username": "ana"})
+    assert asked == []
+    network._ensure_isolated(Lib(), {"username": "ana"})
+    assert asked == ["network.ensure_isolated"]
