@@ -176,8 +176,8 @@ def restore_snapshot(
 
 @router.delete("/{name}/snapshots/{snapshot_name}")
 def delete_snapshot(name: str, snapshot_name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"))):
-    """Synchronous: deleting a snapshot is nearly instantaneous whatever its kind (libvirt reparents a child itself,
-    `zfs destroy` and `lvremove` of a snapshot are as quick)."""
+    # Synchronous: deleting a snapshot is nearly instantaneous whatever its kind (libvirt reparents a child itself,
+    # `zfs destroy` and `lvremove` of a snapshot are as quick).
     with vm_locks.claim_or_409(name, "a snapshot deletion"):
         task_id = create_task("delete_snapshot", name, node=None, username=user["username"])
         task_log(task_id, f"Snapshot '{snapshot_name}'")
