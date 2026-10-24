@@ -28,6 +28,7 @@ KINDS = frozenset(
         "refused",
         "not_found",
         "in_use",
+        "unreachable",
         "failed",
         "unavailable",
     }

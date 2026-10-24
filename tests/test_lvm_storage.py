@@ -207,11 +207,12 @@ class _Conn:
 
 
 @pytest.fixture()
-def storage_api(monkeypatch, lvm):
+def storage_api(monkeypatch, lvm, daemon_libvirt):
     from app.routers import storage
 
     conn = _Conn()
     monkeypatch.setattr(storage, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # this node's pools are hyperlite-daemon's, in this process in the tests
     monkeypatch.setattr(storage.zfs_storage, "pool_exists", lambda name: False)
     monkeypatch.setattr(storage.shutil, "which", lambda cmd: f"/usr/sbin/{cmd}")
     monkeypatch.setattr(storage, "get_disk_paths_in_use", lambda conn: set())

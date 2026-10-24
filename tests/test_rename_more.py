@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
-from app.core import libvirt_utils
+from app.core import libvirt_utils, storage_pools
 
 
 def _gone():
@@ -105,11 +105,12 @@ DIR_POOL = "<pool type='dir'><name>fast</name><uuid>1</uuid><target><path>/data/
 
 
 @pytest.fixture()
-def hosts(database, monkeypatch):
+def hosts(database, monkeypatch, daemon_libvirt):
     from app.routers import storage
 
     hosts = {"local": _Host()}
     monkeypatch.setattr(storage, "open_conn", lambda node=None: hosts[node or "local"])
+    daemon_libvirt(hosts["local"])  # this node's pools are hyperlite-daemon's, in this process in the tests
     monkeypatch.setattr(storage.zfs_storage, "pool_exists", lambda name: name == "tank")
     return hosts
 
@@ -165,7 +166,7 @@ def test_a_renamed_iscsi_pool_keeps_its_chap_secret_and_deleting_it_removes_that
     hosts["local"].add_pool(xml)
     storage._rename_on("san", "san2", None, {"username": "alice"})
     renamed = ET.fromstring(hosts["local"].pools["san2"].xml)
-    assert storage._chap_usage(renamed) == "hyperlite-iscsi-san"  # the secret is private: it cannot be copied
+    assert storage_pools.chap_usage(renamed) == "hyperlite-iscsi-san"  # the secret is private: it cannot be copied
 
 
 def test_a_shared_pool_is_renamed_on_every_node_and_its_definition_follows(client, auth_headers, hosts, database):

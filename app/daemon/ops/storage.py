@@ -1,14 +1,16 @@
-"""The storage's root work (docs/design/privilege-separation.md, section 13, the storage domain), part 1: the ZFS pools
-and volumes the storage routes make and remove (app/routers/storage.py). The implementation stays in
-app/core/zfs_storage.py. Each operation takes a pool's or a volume's name, checked again here; the routes keep who may
-ask, the audit log and their answers. What VMs do with zvols (their disks, snapshots, resizes) moves with the VM
-domain."""
+"""The storage's root work (docs/design/privilege-separation.md, section 13, the storage domain). Part 1: the ZFS pools
+and volumes the storage routes make and remove (app/routers/storage.py), implemented in app/core/zfs_storage.py. Part
+2a: the libvirt pools of this node the storage routes make, rename and remove, implemented in app/core/storage_pools.py,
+which writes a pool's definition from checked fields. Each operation takes names and fields, checked again here; the
+routes keep who may ask, the audit log and their answers. What VMs do with zvols (their disks, snapshots, resizes)
+moves with the VM domain."""
 
 import functools
+from typing import Literal
 
 from pydantic import Field
 
-from app.core import zfs_storage
+from app.core import iscsi, zfs_storage
 from app.daemon.registry import Args, DaemonError, NoArgs, operation
 
 NAME = 63  # zfs_storage.NAME_RE's own limit
@@ -100,3 +102,135 @@ def zfs_volume_delete(args, ctx):
     if zfs_storage.device_path(args.pool, args.name) in _disk_paths_in_use():
         raise DaemonError("in_use", f"Volume '{args.name}' is used by a VM, deletion refused")
     zfs_storage.delete_zvol(args.pool, args.name)
+
+
+# --- Part 2a: the libvirt pools of this node (directory, NFS, SMB, iSCSI, LVM) ---
+
+LIBVIRT_NAME = 64  # vm_builder.validate_name's own limit is 63
+FIELD = 512  # loose bounds: the modules' own checks give the user their sentence (storage_pools.check_spec)
+
+
+def _pools(fn):
+    """storage_pools' refusals and failures keep their kind; a libvirt failure is "failed" with libvirt's reason."""
+
+    @functools.wraps(fn)
+    def wrapper(args, ctx):
+        import libvirt
+
+        from app.core import storage_pools
+        from app.core.error_messages import describe_exception
+
+        try:
+            return fn(args, ctx)
+        except storage_pools.PoolError as e:
+            raise DaemonError(e.kind, e.message) from e
+        except libvirt.libvirtError as e:
+            raise DaemonError("failed", describe_exception(e)) from e
+
+    return wrapper
+
+
+def _pool_name(value):
+    from app.core.vm_builder import validate_name
+
+    error = validate_name(value, "storage pool")
+    if error:
+        raise DaemonError("refused", error)
+
+
+class LibvirtPoolCreateArgs(Args):
+    """routers.storage.PoolCreate's fields for a libvirt pool, without the nodes it is made on."""
+
+    name: str = Field(min_length=1, max_length=LIBVIRT_NAME)
+    type: Literal["dir", "netfs", "smb", "iscsi", "lvm"]
+    path: str | None = Field(None, max_length=FIELD)
+    nfs_host: str | None = Field(None, max_length=FIELD)
+    nfs_export_path: str | None = Field(None, max_length=FIELD)
+    nfs_version: Literal["3", "4", "4.0", "4.1", "4.2"] = "4.2"
+    iscsi_host: str | None = Field(None, max_length=FIELD)
+    iscsi_port: int = Field(iscsi.DEFAULT_PORT, ge=1, le=65535)
+    iscsi_target: str | None = Field(None, max_length=FIELD)
+    chap_user: str | None = Field(None, max_length=FIELD)
+    chap_password: str | None = Field(None, max_length=FIELD)
+    smb_host: str | None = Field(None, max_length=FIELD)
+    smb_share: str | None = Field(None, max_length=FIELD)
+    smb_user: str | None = Field(None, max_length=FIELD)
+    smb_password: str | None = Field(None, max_length=FIELD)
+    smb_domain: str | None = Field(None, max_length=FIELD)
+    smb_version: str = Field("default", max_length=16)
+    lvm_vg: str | None = Field(None, max_length=FIELD)
+    lvm_device: str | None = Field(None, max_length=FIELD)
+    lvm_thin_pool: str | None = Field(None, max_length=FIELD)
+
+
+@operation("storage.pool_create", LibvirtPoolCreateArgs)
+@_pools
+def pool_create(args, ctx):
+    """Every field checked again (storage_pools.check_spec), then the pool defined, built, started and autostarted,
+    with its SMB credentials, its CHAP secret and its LVM thin pool; nothing left half made. Returns {"warning"}."""
+    from app.core import libvirt_utils, storage_pools
+
+    _pool_name(args.name)
+    with libvirt_utils.local_conn() as conn:
+        return storage_pools.create(conn, args)
+
+
+class LibvirtPoolArgs(Args):
+    pool: str = Field(min_length=1, max_length=LIBVIRT_NAME)
+
+
+class LibvirtPoolRenameArgs(LibvirtPoolArgs):
+    new_name: str = Field(min_length=1, max_length=LIBVIRT_NAME)
+
+
+def _not_default(*names):
+    if "default" in names:
+        raise DaemonError("refused", "The 'default' pool keeps its name and stays: Hyperlite relies on it")
+
+
+@operation("storage.pool_rename", LibvirtPoolRenameArgs)
+@_pools
+def pool_rename(args, ctx):
+    """Refused while a running VM uses the pool (storage_pools.rename); the 'default' pool keeps its name."""
+    from app.core import libvirt_utils, storage_pools
+
+    _pool_name(args.new_name)
+    _not_default(args.pool, args.new_name)
+    with libvirt_utils.local_conn() as conn:
+        storage_pools.rename(conn, args.pool, args.new_name)
+
+
+class LibvirtPoolDeleteArgs(LibvirtPoolArgs):
+    detach: bool = False
+
+
+@operation("storage.pool_delete", LibvirtPoolDeleteArgs)
+@_pools
+def pool_delete(args, ctx):
+    """Never the user's files: refused while the pool holds any, or a VM uses it, whatever the API checked
+    (storage_pools.delete). The 'default' pool stays."""
+    from app.core import libvirt_utils, storage_pools
+
+    _not_default(args.pool)
+    with libvirt_utils.local_conn() as conn:
+        storage_pools.delete(conn, args.pool, detach=args.detach)
+
+
+@operation("storage.pool_check", LibvirtPoolArgs)
+@_pools
+def pool_check(args, ctx):
+    """Whether QEMU can own files on the share an NFS or SMB pool mounted: a file written there and removed."""
+    from app.core import libvirt_utils, storage_pools
+
+    with libvirt_utils.local_conn() as conn:
+        return storage_pools.check_permissions(conn, args.pool)
+
+
+@operation("storage.ensure_default_pool", NoArgs)
+@_pools
+def ensure_default_pool(args, ctx):
+    """The 'default' pool Hyperlite relies on (libvirt_utils.ensure_default_pool), defined, started and autostarted."""
+    from app.core import libvirt_utils
+
+    with libvirt_utils.local_conn() as conn:
+        libvirt_utils.ensure_default_pool(conn)
