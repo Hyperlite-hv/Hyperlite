@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
-from app.core import lvm_storage
+from app.core import lvm_storage, vm_snapshots
 
 LVS = {
     "report": [
@@ -670,7 +670,7 @@ def test_an_lvm_thin_pool_is_made_with_its_pool_or_the_pool_is_not(client, auth_
 
 
 @pytest.fixture()
-def vm_api(monkeypatch, thin):
+def vm_api(monkeypatch, thin, daemon_libvirt):
     from app.routers.vms import snapshots
 
     class Domain:
@@ -702,8 +702,8 @@ def vm_api(monkeypatch, thin):
             pass
 
     monkeypatch.setattr(snapshots, "open_conn", lambda *a, **k: Conn())
-    monkeypatch.setattr(snapshots, "_zvol_disks_of_domain", lambda domain: [])
-    monkeypatch.setattr(snapshots.iscsi, "refuse_if_iscsi", lambda domain, what: None)
+    daemon_libvirt(Conn())  # hyperlite-daemon takes, restores and deletes the snapshots
+    monkeypatch.setattr(vm_snapshots.iscsi, "iscsi_disks_of_domain", lambda domain: [])
     return domains
 
 
