@@ -68,6 +68,7 @@ TABLES = {
     # Storage and network
     "shared_pools": {},
     "backup_stores": {},
+    "backup_store_keys": {"priv": True},
     "network_firewall": {},
     # Protection and automation
     "backup_jobs": {"volatile": {"last_run"}},

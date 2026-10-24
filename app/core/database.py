@@ -232,8 +232,19 @@ def init_db():
                 created_at TEXT
             )
         """)
+        # The key of an encrypted store, encrypted at rest (app/core/secrets_crypto.py), replicated under /priv (root
+        # only). Kept apart from backup_stores, whose rows every reader of the configuration sees.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_store_keys (
+                name TEXT PRIMARY KEY,
+                key_encrypted TEXT NOT NULL,
+                created_at TEXT
+            )
+        """)
         # A backup or a job into a store: its name; NULL for a backup directory (the format of every backup before).
         for ddl in (
+            # The public half of a store's master recovery key (PEM), NULL without one.
+            "ALTER TABLE backup_stores ADD COLUMN master_public_key TEXT",
             "ALTER TABLE backups ADD COLUMN store TEXT",
             "ALTER TABLE backup_jobs ADD COLUMN store TEXT",
             "ALTER TABLE backup_group_jobs ADD COLUMN store TEXT",

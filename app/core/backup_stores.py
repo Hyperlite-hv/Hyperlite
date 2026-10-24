@@ -92,13 +92,28 @@ def get(name):
     return row
 
 
+def _key_of(row):
+    """The key of an encrypted store, from the cluster's secrets; None for an unencrypted one."""
+    if not row["encrypted"]:
+        return None
+    from app.core import secrets_crypto
+
+    sealed = _repo().get_store_key(row["name"])
+    if not sealed:
+        raise StoreError(f"The key of the backup store '{row['name']}' is missing from this cluster's secrets", 409)
+    try:
+        return backup_store.key_from_code(secrets_crypto.decrypt(sealed))
+    except (secrets_crypto.SecretUnreadable, backup_store.StoreError):
+        raise StoreError(f"The key of the backup store '{row['name']}' cannot be read on this node", 409) from None
+
+
 def open_store(name):
-    """The store `name` as this node reaches it: a Store, or StoreError (its pool is not here, or the directory found
-    is not that store)."""
+    """The store `name` as this node reaches it: a Store, with its key when it is encrypted, or StoreError (its pool
+    is not here, or the directory found is not that store)."""
     row = get(name)
     path = path_of(row)
     try:
-        store = backup_store.Store(path)
+        store = backup_store.Store(path, _key_of(row))
     except backup_store.StoreError as e:
         raise StoreError(f"Backup store '{name}' cannot be read on this node: {e.message}", 409) from None
     if store.id != row["store_id"]:
@@ -108,29 +123,74 @@ def open_store(name):
     return store
 
 
-def create(name, pool, directory=None, username="system"):
+def open_root(root):
+    """The store at `root` (a backup's <store>/vm/<uuid>/<time> three levels up), with its key: the store of this
+    cluster whose id it holds. A store no row names is opened without a key (an unencrypted one only)."""
+    try:
+        store_id = json.loads((Path(root) / backup_store.CONFIG).read_text())["id"]
+    except (OSError, ValueError, KeyError) as e:
+        raise StoreError(f"{root} is not a backup store: {e}", 409) from None
+    row = next((r for r in _repo().list_stores() if r["store_id"] == store_id), None)
+    try:
+        return backup_store.Store(root, _key_of(row) if row else None)
+    except backup_store.StoreError as e:
+        raise StoreError(e.message, 409) from None
+
+
+def create(name, pool, directory=None, username="system", encrypted=False, master_public_key=None, key=None):
     """Make the store `name` in `directory` of `pool` (created when missing), or take over the store found there (a
-    store made by another cluster, or before a reinstallation). Returns its row."""
+    store made by another cluster, or before a reinstallation; an encrypted one with its `key`, as its code).
+
+    encrypted: a new store's chunks and files are encrypted with a new key, kept in the cluster's secrets.
+    master_public_key: the public half of a master recovery key (PEM): each backup then carries the store's key
+    encrypted with it. Returns (row, the key's code for a new encrypted store, to be shown once, else None)."""
     if not NAME.match(name or ""):
         raise StoreError("Invalid name: letters, digits, '.', '-' and '_', 63 characters at most")
     if _repo().get_store(name):
         raise StoreError(f"A backup store '{name}' already exists", 409)
     directory = _check_directory(directory or DEFAULT_DIRECTORY)
+    master = None
+    if master_public_key:
+        try:
+            master = backup_store.check_public_key(master_public_key).decode()
+        except backup_store.StoreError as e:
+            raise StoreError(e.message) from None
     path = safe_child(_pool_dir(pool), directory)
-    if (path / backup_store.CONFIG).exists():
-        try:
-            store = backup_store.Store(path)
-        except backup_store.StoreError as e:
-            raise StoreError(e.message) from None
-        if any(r["store_id"] == store.id for r in _repo().list_stores()):
-            raise StoreError(f"{path} is already a store of this cluster", 409)
-    else:
-        try:
-            store = backup_store.create(path)
-        except backup_store.StoreError as e:
-            raise StoreError(e.message) from None
-    _repo().save_store(name, pool, directory, store.id, 1 if store.encrypted else 0, username, _now())
-    return get(name)
+    shown = None
+    try:
+        if (path / backup_store.CONFIG).exists():
+            existing = json.loads((path / backup_store.CONFIG).read_text())
+            secret = backup_store.key_from_code(key) if key else None
+            if existing.get("encrypted") and secret is None:
+                raise StoreError(f"{path} holds an encrypted store: give its key to take it over")
+            store = backup_store.Store(path, secret)
+            if any(r["store_id"] == store.id for r in _repo().list_stores()):
+                raise StoreError(f"{path} is already a store of this cluster", 409)
+        else:
+            secret = backup_store.new_key() if encrypted else None
+            store = backup_store.create(path, encrypted_with=secret)
+            shown = backup_store.key_code(secret) if secret else None
+    except backup_store.StoreError as e:
+        raise StoreError(e.message) from None
+    except (OSError, ValueError) as e:
+        raise StoreError(f"{path} cannot be read as a store: {e}") from None
+    if master and not store.encrypted:
+        raise StoreError("A master recovery key is for an encrypted store")
+    if store.encrypted:
+        from app.core import secrets_crypto
+
+        _repo().save_store_key(name, secrets_crypto.encrypt(backup_store.key_code(secret)), _now())
+    _repo().save_store(name, pool, directory, store.id, 1 if store.encrypted else 0, username, _now(), master)
+    return get(name), shown
+
+
+def manifest_extra(name):
+    """What a backup into the store `name` adds to its manifest: its key sealed with the master recovery key."""
+    row = get(name)
+    if not row.get("master_public_key"):
+        return {}
+    store = open_store(name)
+    return {"recovery_key": store.sealed_key(row["master_public_key"].encode())}
 
 
 def users_of(name):
@@ -156,6 +216,7 @@ def describe(row):
     """A store's row with what this node sees of it: reachable, space, backups."""
     out = {k: row[k] for k in ("name", "pool", "directory", "store_id", "created_by", "created_at")}
     out["encrypted"] = bool(row["encrypted"])
+    out["master_key"] = bool(row.get("master_public_key"))
     try:
         store = open_store(row["name"])
     except StoreError as e:
