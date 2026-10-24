@@ -126,7 +126,8 @@ def get_state(vm_name):
     }
 
 
-def _save_state(vm_name, username, keys, custom):
+def save_state(vm_name, username, keys, custom):
+    """The account, keys and customisation last written on the VM's drive, kept in the database (the API's)."""
     now = datetime.now(UTC).isoformat()
     _store().save_cloudinit(vm_name, username, json.dumps(keys), now)
     _store().save_cloudinit_custom(vm_name, json.dumps(custom or empty_custom()), now)
@@ -316,9 +317,16 @@ def interface_macs(domain):
 
 
 def rewrite_drive(vm_name, iso_path, username, password, keys, custom=None, macs=()):
+    """write_drive, then save_state."""
+    write_drive(vm_name, iso_path, username, password, keys, custom, macs)
+    save_state(vm_name, username, keys, custom)
+
+
+def write_drive(vm_name, iso_path, username, password, keys, custom=None, macs=()):
     """Write the new drive next to the old one, then swap them: a failure leaves the old drive in place. `custom`: the
     customisation, already through validate_custom (None: none); `macs`: the VM's interfaces, for its network
-    configuration."""
+    configuration. Root's work (hyperlite-daemon, app/daemon/ops/vm.py): the drive is private to root, and holds the
+    automation key."""
     custom = custom or empty_custom()
     automation_key = get_or_create_automation_pubkey()
     workdir = Path(tempfile.mkdtemp(prefix="hyperlite-cloudinit-edit-"))
@@ -347,4 +355,3 @@ def rewrite_drive(vm_name, iso_path, username, password, keys, custom=None, macs
         tmp_iso.replace(iso_path)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-    _save_state(vm_name, username, keys, custom)

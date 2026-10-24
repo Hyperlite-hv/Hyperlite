@@ -88,7 +88,7 @@ def test_the_user_data_carries_the_host_name_and_the_users_cloud_config():
 
 
 @pytest.fixture()
-def drive(database, tmp_path, monkeypatch):
+def drive(database, tmp_path, monkeypatch, daemon_libvirt):
     """A VM `web` with two interfaces and a cloud-init drive; cloud-localds records what it is given."""
     iso = tmp_path / "web-cloudinit.iso"
     iso.write_bytes(b"old")
@@ -105,6 +105,7 @@ def drive(database, tmp_path, monkeypatch):
     conn = Mock()
     conn.lookupByName.return_value = domain
     monkeypatch.setattr(settings, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon writes the drive, in this process in the tests
     # The drive's directory: vm_builder's, which finds a VM's own drives (and cloudinit_edit's copy of it while the
     # module still imports one), so the test holds whichever lands first.
     monkeypatch.setattr(vm_builder, "IMAGES_DIR", tmp_path)
@@ -201,7 +202,7 @@ def test_an_iso_installation_takes_no_customisation(client, auth_headers, monkey
 def test_the_customisation_follows_a_renamed_vm_and_goes_with_a_deleted_one(database):
     from app.core import renaming, vm_records
 
-    ce._save_state("web", "debian", [], {**ce.empty_custom(), "hostname": "web-1"})
+    ce.save_state("web", "debian", [], {**ce.empty_custom(), "hostname": "web-1"})
     renaming.vm_records("web", "www")
     assert ce.get_custom("www")["hostname"] == "web-1" and ce.get_custom("web") == ce.empty_custom()
     vm_records.forget("www")

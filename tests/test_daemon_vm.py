@@ -182,3 +182,47 @@ def test_the_last_interface_is_kept_whatever_the_api_checked(host):
     with pytest.raises(DaemonError) as e:
         privileged.run("vm.detach_interface", vm="web", mac="52:54:00:00:00:01")
     assert e.value.kind == "refused"
+
+
+# --- Part 2c: a VM's firewall, hook script, name and cloud-init drive ---
+
+
+@pytest.mark.parametrize(
+    "op, args",
+    [
+        (
+            "vm.set_firewall",
+            {
+                "vm": "web",
+                "config": {
+                    "default_policy": "drop",
+                    "rules": [{"action": "accept", "direction": "in", "protocol": "tcp' />", "port": 22}],
+                },
+            },
+        ),
+        ("vm.set_firewall", {"vm": "web", "config": {"default_policy": "reject", "rules": []}}),
+        ("vm.set_hookscript", {"vm": "web", "script": "x" * 101}),
+        ("vm.rename", {"vm": "web", "new_name": "y" * 65}),
+        ("vm.cloudinit_write", {"vm": "web", "account": "ana", "custom": {}, "path": "/etc/shadow"}),
+    ],
+)
+def test_the_fields_are_checked_by_the_daemon(host, op, args):
+    with pytest.raises(DaemonError) as e:
+        privileged.run(op, **args)
+    assert e.value.kind == "invalid_arguments", op
+
+
+def test_a_running_vm_keeps_its_name_whatever_the_api_checked(host):
+    host.domains["db"].snapshotNum = lambda flags=0: 0
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.rename", vm="db", new_name="db2")
+    assert e.value.kind == "in_use"
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.rename", vm="web", new_name="bad name!")
+    assert e.value.kind == "refused"
+
+
+def test_only_a_script_of_the_root_library_is_attached(host):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.set_hookscript", vm="web", script="../../tmp/evil.sh")
+    assert e.value.kind == "refused"
