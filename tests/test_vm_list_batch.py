@@ -66,6 +66,10 @@ class FakeConn:
         for d in domains:
             d.conn = self
 
+    def lookupByName(self, name):
+        """hyperlite-daemon's own lookup, to ask the running VMs' agents (app/daemon/ops/vm.py)."""
+        return next(d for d in self.domains if d.name() == name)
+
     def getAllDomainStats(self, stats):
         assert stats == libvirt.VIR_DOMAIN_STATS_STATE
         return [(d, {"state.state": d.state()[0]}) for d in self.domains]
@@ -82,10 +86,10 @@ def make_conn():
     return FakeConn([web, db, old])
 
 
-def test_the_list_reads_each_xml_once_and_the_leases_once(database, fake_agent):
+def test_the_list_reads_each_xml_once_and_the_leases_once(database, fake_agent, daemon_libvirt):
     set_vm_ssh_user("web", "antho")
     set_vm_os_label("old", "Debian 13")
-    conn = make_conn()
+    conn = daemon_libvirt(make_conn())  # the daemon asks the agents through the same libvirt, in the tests
     by_name = {v["name"]: v for v in _shared._domain_summaries(conn)}
 
     assert [d.xml_reads for d in conn.domains] == [1, 1, 1]

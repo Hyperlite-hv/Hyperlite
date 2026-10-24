@@ -85,11 +85,17 @@ def local_conn():
     """This node's own libvirt, closed on the way out: the one hyperlite-daemon's operations read and write
     (app/daemon/ops), never another member's nor a URI the API names. Called as libvirt_utils.local_conn(), so the
     tests fake the daemon's libvirt in one place (the daemon_libvirt fixture)."""
-    conn = libvirt.open(LIBVIRT_URI)
+    conn = open_local()
     try:
         yield conn
     finally:
         conn.close()
+
+
+def open_local():
+    """This node's own libvirt, left open: for a caller whose work outlives the call (the guest agents' questions in
+    flight, app/daemon/ops/vm.py); libvirt closes it once nothing holds it any more."""
+    return libvirt.open(LIBVIRT_URI)
 
 
 def get_vm_uptime_s(vm_name):

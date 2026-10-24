@@ -5,7 +5,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cloudinit_edit, cpu_pinning, vm_boot, vm_pending
+from app.core import cloudinit_edit, cpu_pinning, privileged, vm_boot, vm_pending
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -298,8 +298,12 @@ def set_vm_boot(
         domain = _lookup(conn, name)
         vm_boot.set_setting(name, payload.autostart, payload.position, payload.delay_s, node)
         if payload.autostart and domain.autostart():
-            # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over.
-            domain.setAutostart(0)
+            # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over. The flag is
+            # libvirt's, written by hyperlite-daemon on this node (app/daemon/ops/vm.py).
+            if node and node != "local":
+                domain.setAutostart(0)
+            else:
+                privileged.ask("vm.autostart", user, "set_vm_boot", name, vm=name, autostart=False)
         detail = (
             f"on, order {payload.position if payload.position is not None else '-'}, delay {payload.delay_s} s"
             if payload.autostart
