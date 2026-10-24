@@ -160,3 +160,59 @@ def test_an_upload_swapped_for_a_link_after_it_is_staged_never_reaches_the_libra
     stored = library / "isos" / "alpine.iso"
     assert not stored.is_symlink() and stored.read_bytes() == b"x"
     assert list((library / "staging").iterdir()) == []
+
+
+# --- Part 2: a VM's disk, grown or moved, asked by the VM's name and the disk's target ---
+
+
+@pytest.mark.parametrize("target", ["../vda", "vda; rm -rf /", "/dev/sda", "VDA"])
+def test_a_disk_is_named_by_its_target_never_a_path(target):
+    for op, args in [
+        ("disk.resize", {"vm": "web", "target": target, "size_gb": 10}),
+        ("disk.move", {"vm": "web", "target": target, "pool": "fast", "task_id": "t1"}),
+    ]:
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, **args)
+        assert e.value.kind == "invalid_arguments", (op, target)
+
+
+def test_a_move_runs_until_cancelled_from_another_call(monkeypatch, daemon_libvirt):
+    """The API cancels the task with disk.cancel: the copy stops in the daemon, the move ends refused (409)."""
+    import threading
+
+    from app.core import checkpoints, disk_move
+
+    class Conn:
+        def lookupByName(self, name):
+            return object()
+
+    daemon_libvirt(Conn())
+    monkeypatch.setattr(disk_move, "plan", lambda conn, domain, target, pool: {"live": True})
+    monkeypatch.setattr(checkpoints, "drop", lambda domain: 0)
+    monkeypatch.setattr("app.core.tasks.task_log", lambda task_id, line: None)
+    started = threading.Event()
+
+    def copy(domain, target, how, delete_source, progress, stop):
+        started.set()
+        assert stop.wait(5), "never cancelled"
+        raise disk_move.MoveError(disk_move.CANCELLED, 409)
+
+    monkeypatch.setattr(disk_move, "move", copy)
+    outcome = {}
+
+    def run():
+        try:
+            privileged.run("disk.move", vm="web", target="vda", pool="fast", task_id="t42")
+        except DaemonError as e:
+            outcome["kind"] = e.kind
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    assert started.wait(5)
+    with pytest.raises(DaemonError) as e:  # one copy per task
+        privileged.run("disk.move", vm="web", target="vda", pool="fast", task_id="t42")
+    assert e.value.kind == "in_use"
+    assert privileged.run("disk.cancel", task_id="t42") == {"cancelled": True}
+    worker.join(5)
+    assert outcome == {"kind": "in_use"}
+    assert privileged.run("disk.cancel", task_id="t42") == {"cancelled": False}
