@@ -36,6 +36,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"storage.pool_create", "storage.pool_rename", "storage.pool_delete", "storage.pool_check"} <= named
     assert {"storage.volume_create", "storage.volume_delete", "storage.pool_refresh", "storage.lvm_volumes"} <= named
     assert {"disk.library_store", "disk.library_rename", "disk.library_delete", "disk.ova_extract"} <= named
+    assert {"disk.resize", "disk.move", "disk.cancel"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 

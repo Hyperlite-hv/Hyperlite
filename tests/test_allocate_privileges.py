@@ -194,7 +194,7 @@ def test_an_existing_vm_gets_a_disk_or_an_interface_only_with_the_right_on_it(cl
         assert getattr(client, method)(path, json=body, headers=h).status_code == 404, path
 
 
-def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager, monkeypatch):
+def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager, monkeypatch, daemon_libvirt):
     from app.core import disk_resize
     from app.routers.vms import devices
 
@@ -206,6 +206,7 @@ def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager
             pass
 
     monkeypatch.setattr(devices, "open_conn", lambda *a, **k: OneVm())
+    daemon_libvirt(OneVm())  # hyperlite-daemon grows the disk, in this process in the tests
     monkeypatch.setattr(disk_resize, "grow", lambda *a, **k: (1 << 30, 2 << 30, False))
     h = manager["headers"]
     monkeypatch.setattr(disk_resize, "storage_pool_name", lambda conn, domain, dev: None)
