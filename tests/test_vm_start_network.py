@@ -30,6 +30,9 @@ class _Domain:
     def create(self):
         self.started = True
 
+    def name(self):
+        return "web"
+
 
 class _Conn:
     def __init__(self, domain, nets):
@@ -60,7 +63,7 @@ def test_a_stopped_network_is_named_before_starting(client, auth_headers, monkey
     assert lifecycle._stopped_networks(_Conn(domain, {"default": _Net(True)}), domain) == ["lan"]  # gone: stopped too
 
 
-def test_a_vm_busy_with_a_restore_or_a_copy_is_not_started(client, auth_headers, monkeypatch):
+def test_a_vm_busy_with_a_restore_or_a_copy_is_not_started(client, auth_headers, monkeypatch, daemon_libvirt):
     """A restore swaps the disks of a stopped VM after minutes of copying: started meanwhile, the VM kept writing to the
     replaced files, which the swap then deleted (#448, F10). As Proxmox's lock, the start is refused while an
     operation holds the VM."""
@@ -69,6 +72,7 @@ def test_a_vm_busy_with_a_restore_or_a_copy_is_not_started(client, auth_headers,
     domain = _Domain()
     conn = _Conn(domain, {"default": _Net(True), "lan": _Net(True)})
     monkeypatch.setattr(lifecycle, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon starts the VM, in this process in the tests
     monkeypatch.setattr(lifecycle, "_domain_summary", lambda domain, *a, **k: {"name": "web"})
     headers = auth_headers("root")
     held = vm_locks.claim("web", "a backup restore")
