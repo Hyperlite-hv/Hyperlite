@@ -428,3 +428,37 @@ def test_a_leader_that_loses_the_lead_mid_round_restarts_nothing_more(cluster, d
     monkeypatch.setattr(cluster_lead, "is_leader", lambda: next(leads, False))
     ha_recovery.tick()
     assert cluster["started"] == [("a", "n3")]
+
+
+# --- Found by a review of the whole code (ECC's python-reviewer, in a sandbox) ---------------------------------------
+
+
+def test_a_member_back_with_one_vm_running_never_gets_it_started_elsewhere_later(cluster, database, monkeypatch):
+    protect(database, "web", n=1)
+    protect(database, "db", n=2)
+    cluster["ages"]["n2"] = 70.0
+    cluster["watchdog"] = {"armed": True, "reset_within_s": 120}
+    cluster["last_vms"]["n2"] = [{"name": "web", "state": "active"}, {"name": "db", "state": "active"}]
+    ha_recovery.tick()  # lost
+    cluster["ages"]["n2"] = 2.0  # back before its watchdog reset it: web ran through, db died
+    monkeypatch.setattr(ha_recovery, "_running_on", lambda member: {"web"})
+    ha_recovery.tick()
+    assert cluster["started"] == [("db", "n3")]
+    for _ in range(3):  # every round after used to restart web too, which still runs on n2
+        ha_recovery.tick()
+    assert cluster["started"] == [("db", "n3")] and ha.get_protected("web")["node"] == "n2"
+    assert "n2" not in ha_recovery._lost  # nothing left to recover: it is back
+
+
+def test_a_vm_stopped_on_purpose_on_a_fenced_member_stays_stopped_once_it_answers(cluster, database):
+    protect(database, "web", n=1)
+    protect(database, "idle", n=2)
+    cluster["ages"]["n2"] = 61.0
+    cluster["fencing"] = "ipmi"
+    cluster["last_vms"]["n2"] = [{"name": "web", "state": "active"}, {"name": "idle", "state": "stopped"}]
+    ha_recovery.tick()
+    assert cluster["started"] == [("web", "n3")]
+    cluster["ages"]["n2"] = 2.0  # powered on again by hand
+    ha_recovery.tick()
+    ha_recovery.tick()
+    assert cluster["started"] == [("web", "n3")] and "n2" not in ha_recovery._lost
