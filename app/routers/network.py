@@ -262,7 +262,7 @@ def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depend
         conn.close()
 
 
-# --- Starting, stopping and autostart of a network. A network defined purpose not started (libvirt's "default" NAT
+# --- Starting, stopping and autostart of a network. A network defined but not started (libvirt's "default" NAT
 # network is shipped that way on some installations) could not be brought back from the dashboard: its VMs could
 # not start and a Docker container could not be put on it. ---
 

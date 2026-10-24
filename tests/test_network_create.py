@@ -1,6 +1,6 @@
 """Creating a NAT or isolated network: an address range already in use is refused before anything is defined, and a
 network that fails to start is not left behind (found on a real host: a 500 with libvirt's own message, and the
-network stayed listed, defined purpose inactive)."""
+network stayed listed, defined but inactive)."""
 
 import ipaddress
 

@@ -234,7 +234,7 @@ def tick():
             note = {
                 OK: "Node reachable again" if previous != OK else "",
                 SUSPECT: f"Node {name} is not answering (libvirt and SSH)",
-                LIBVIRT_DOWN: f"libvirt does not answer on {name} purpose SSH does: the VMs most likely still run",
+                LIBVIRT_DOWN: f"libvirt does not answer on {name} but SSH does: the VMs most likely still run",
             }[current]
             for vm in vms:
                 _record(vm, current, note)
@@ -298,7 +298,7 @@ def _lockd_state(qemu_conf, lockd_conf):
     if not lockspace:
         return {
             "active": False,
-            "detail": "lockd is on, purpose file_lockspace_dir is not set in /etc/libvirt/qemu-lockd.conf",
+            "detail": "lockd is on, but file_lockspace_dir is not set in /etc/libvirt/qemu-lockd.conf",
         }
     return {"active": True, "detail": f"lockd with its lockspace in {lockspace} (it must be on the shared NFS storage)"}
 

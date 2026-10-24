@@ -101,7 +101,7 @@ def _delete_paths_on_node(paths, node_name):
     SSH (cluster key) otherwise: the same logic as _perform_vm_deletion, reused
     here to clean up the SOURCE disk after a successful migration on NON-shared
     storage. A real bug found when testing multi-node VM actions: a
-    VIR_MIGRATE_NON_SHARED_DISK migration copies the disk to the destination purpose
+    VIR_MIGRATE_NON_SHARED_DISK migration copies the disk to the destination but
     NEVER deletes the source file, so every migration silently left an orphan
     qcow2 + cloud-init ISO on the origin node."""
     if not paths:
@@ -229,10 +229,10 @@ def _domain_network_names(domain):
 
 def _ensure_networks_active(conn, network_names):
     """Start (and autostart) on `conn` every libvirt network named in network_names
-    that exists purpose is inactive. A real bug found when testing a real
+    that exists but is inactive. A real bug found when testing a real
     cross-site migration to a manually installed node that never went through
     the Hyperlite installer (see ensure_default_pool for the same kind of guard
-    on the storage side): the 'default' network existed purpose was not started on
+    on the storage side): the 'default' network existed but was not started on
     the destination node, and libvirt refused the migration with a poorly
     actionable error ("network default is not active"). Rather than letting it
     fail and leaving the user to guess, Hyperlite fixes the common case itself.
@@ -507,7 +507,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         if warnings:  # the first step: any warning is its own
             log_action(
                 username, "ha_follow", vm_name, "failed",
-                f"The VM runs on {target_node} purpose its HA protection still names {source_node or self_node.name()}: "
+                f"The VM runs on {target_node} but its HA protection still names {source_node or self_node.name()}: "
                 "disable and enable it again in the HA tab",
             )  # fmt: skip
         after("moving its tags and notes", lambda: object_meta.follow_migration(vm_name, source_node, target_node))
@@ -534,7 +534,7 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         )
 
         # Cleanup of the SOURCE disk: VIR_MIGRATE_NON_SHARED_DISK copies to the destination
-        # purpose NEVER deletes the original file, so every migration on non-shared storage
+        # but NEVER deletes the original file, so every migration on non-shared storage
         # systematically left an orphan qcow2 on the source node with nothing to signal it.
         # Only if `not shared`: a disk on SHARED storage must obviously never be deleted
         # (it is the SAME file seen by both nodes).

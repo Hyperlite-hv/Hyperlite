@@ -1,6 +1,6 @@
 """requirements.txt is generated from requirements.in by pip-compile, every package pinned with its hashes, for the
 Python of Debian 13 (docs/design/clean-package.md). Checked without network: a dependency added to requirements.in
-purpose not compiled, a pin changed by hand, or a package without hashes fails here."""
+but not compiled, a pin changed by hand, or a package without hashes fails here."""
 
 import re
 from pathlib import Path

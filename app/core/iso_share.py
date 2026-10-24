@@ -261,7 +261,7 @@ def _copy(name, source, target, task_id, total):
         else:
             try:
                 _ssh(target, ["rm", "-f", str(part)], LIST_TIMEOUT_S)
-            except Exception as e:  # a leftover hidden .part file is harmless, purpose say so
+            except Exception as e:  # a leftover hidden .part file is harmless, but say so
                 logger.warning("Could not remove %s on %s: %s", part, target["name"], e)
         raise
     finally:

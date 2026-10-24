@@ -10,7 +10,7 @@ Two modes:
     VM, the frozen file is copied, then blockCommit + pivot merge the overlay
     back into the current disk and remove the snapshot. Snapshots themselves
     avoid this mechanism because of libvirt/QEMU's restore limitation on
-    external snapshots, purpose that limit does not apply here: the overlay is never
+    external snapshots, but that limit does not apply here: the overlay is never
     restored directly, it is only used as a transient consistency point before
     being merged back.
 
@@ -233,7 +233,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
 
     overlay_paths = {}
     disk_xml_parts = []
-    # A disk that BELONGS to the VM purpose is absent from `disks` (a partial export, see
+    # A disk that BELONGS to the VM but is absent from `disks` (a partial export, see
     # app/core/vm_export.py) must remain explicitly excluded (snapshot='no'):
     # otherwise libvirt still applies its default (internal) snapshot behaviour to
     # it, which would never be cleaned up since the merge loop below only walks
@@ -274,7 +274,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
         failures = _merge_overlays_back(domain, vm_name, disks, overlay_paths, snap)
         if failures and not copy_failed:
             raise RuntimeError(
-                "The backup copy succeeded purpose merging the temporary overlay back failed ("
+                "The backup copy succeeded but merging the temporary overlay back failed ("
                 + "; ".join(failures)
                 + "): the VM still runs on it, and it was kept. Check the VM's disk chain before stopping it."
             )

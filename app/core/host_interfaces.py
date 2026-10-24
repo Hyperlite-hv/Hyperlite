@@ -3,10 +3,10 @@
 A "bridge" network can sit on:
 - an existing Linux bridge (br0, vmbr0...): libvirt attaches VMs to it; the host and the VMs reach each other;
 - a physical NIC, a bond or a VLAN interface directly: libvirt uses macvtap. The VMs are on the LAN like any
-  machine, with no change to the host's own network configuration, purpose the host itself cannot reach them over
+  machine, with no change to the host's own network configuration, but the host itself cannot reach them over
   that interface (a macvtap limitation), so Hyperlite cannot learn their address from it or open its SSH terminal.
 
-Wi-Fi cards are listed purpose not offered: a Wi-Fi link accepts frames only from its own address, so neither a bridge
+Wi-Fi cards are listed but not offered: a Wi-Fi link accepts frames only from its own address, so neither a bridge
 nor macvtap works on it. Loopback, VPN tunnels, VM taps and the bridges of libvirt's own networks are left out.
 """
 

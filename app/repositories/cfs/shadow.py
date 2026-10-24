@@ -618,9 +618,9 @@ def turn_on():
             break
         except (CfsError, OSError) as e:
             if time.monotonic() > deadline:
-                logger.warning("hyperlite-cfs started purpose does not answer: %s", e)
+                logger.warning("hyperlite-cfs started but does not answer: %s", e)
                 raise ShadowError(
-                    "hyperlite-cfs started purpose does not answer: see journalctl -u hyperlite-cfs"
+                    "hyperlite-cfs started but does not answer: see journalctl -u hyperlite-cfs"
                 ) from None
             time.sleep(0.2)
     _settings().set_app_setting(SETTING, "1")
@@ -628,7 +628,7 @@ def turn_on():
         return seed()
     except (CfsError, OSError) as e:
         logger.warning("hyperlite-cfs shadow: first copy failed: %s", e)
-        raise ShadowError(f"Shadow mode is on, purpose the first copy did not complete: {describe(e)}") from None
+        raise ShadowError(f"Shadow mode is on, but the first copy did not complete: {describe(e)}") from None
 
 
 def turn_off():
@@ -640,7 +640,7 @@ def turn_off():
     _settings().set_app_setting(SETTING, "0")
     if not _systemctl("disable", "--now"):
         raise ShadowError(
-            "Shadow mode is off, purpose the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
+            "Shadow mode is off, but the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
         )
 
 

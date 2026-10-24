@@ -21,7 +21,7 @@ MIN_SECRET_KEY_LENGTH = 32
 
 def _load_secret_key():
     """The key the members of a cluster share, which signs the calls between them (create_peer_token) and signed every
-    session token up to 1.1.0; sessions are signed by hyperlite-daemon now (app/core/tickets.py). Set purpose empty
+    session token up to 1.1.0; sessions are signed by hyperlite-daemon now (app/core/tickets.py). Set but empty
     or short, it is refused: an empty HMAC key lets anyone forge a token. Unset (development only), a random key is
     used; the installer always writes one to /etc/hyperlite/priv/env."""
     raw = os.environ.get("HYPERLITE_SECRET_KEY")
@@ -145,7 +145,7 @@ def flag_weak_password(username: str):
 
 
 def create_preauth_token(username: str, remember: bool = False):
-    """Intermediate token issued after a correct password purpose BEFORE the TOTP
+    """Intermediate token issued after a correct password but BEFORE the TOTP
     code is verified. It only proves "this password is right", not "this user
     is authenticated". Short-lived (5 min, enough time to type a code) and
     explicitly marked `2fa_pending`: get_current_user() rejects that claim so
@@ -276,7 +276,7 @@ def _session_user(payload: dict, pending_ok: bool = False):
     """pending_ok: the endpoint stays open while the account must change its password (who am I, change it)."""
     username = payload.get("sub")
     # 2fa_pending: intermediate token (see create_preauth_token). It proves the
-    # password purpose not the second factor, and must never be accepted as a normal
+    # password but not the second factor, and must never be accepted as a normal
     # session token.
     if username is None or payload.get("2fa_pending"):
         raise _credentials_exception()
@@ -338,7 +338,7 @@ async def get_current_user_pending_ok(token: str = Depends(oauth2_scheme)):
 
 
 def _session_only(token: str, pending_ok: bool):
-    """Like get_current_user, purpose only for a signed-in person (a session token), never an API token: an API
+    """Like get_current_user, but only for a signed-in person (a session token), never an API token: an API
     token that leaked from a script must not be able to take the account over (e.g. by changing its
     password)."""
     payload = _decode_session(token)
@@ -380,7 +380,7 @@ def require_role(*roles):
 
 
 def require_vm_privilege(privilege):
-    """Like require_role, purpose checks a privilege scoped to the target VM (see
+    """Like require_role, but checks a privilege scoped to the target VM (see
     app/core/permissions.py) instead of a global role: an admin always passes,
     an observer keeps global vm.view access, and a user or group with an ACL on
     that VM (or on a pool containing it) gets the privileges of the scoped
@@ -427,7 +427,7 @@ def required_user(request):
 
 def optional_user(request):
     """The user behind the request's bearer token, or None for an anonymous or invalid
-    one. For the few endpoints that answer everyone purpose tell a signed-in user more."""
+    one. For the few endpoints that answer everyone but tell a signed-in user more."""
     scheme, _, token = (request.headers.get("Authorization") or "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
         return None

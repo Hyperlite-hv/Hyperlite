@@ -12092,7 +12092,7 @@
   },
   "/api/v1/jobs/runs/{run_id}": {
    "get": {
-    "description": "What a run printed is for administrators: the commands run as root on the host or in VMs, and their output\nmay carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,\nas the notification channels show them their name purpose not their configuration.",
+    "description": "What a run printed is for administrators: the commands run as root on the host or in VMs, and their output\nmay carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,\nas the notification channels show them their name but not their configuration.",
     "operationId": "get_job_run_api_v1_jobs_runs__run_id__get",
     "parameters": [
      {
@@ -15739,7 +15739,7 @@
   },
   "/api/v1/storage": {
    "get": {
-    "description": "node: the same convention as GET /vms: list the pools of a registered remote\nnode instead of the local host.\n\nZFS pools are merged into the same list (type='zfs') for a unified display\nin the UI, purpose only when `node` designates the LOCAL host: unlike libvirt\npools (dir/netfs), ZFS management is still single-node (direct `zpool`/`zfs`\ncalls on THIS server, no remote management over SSH; see\napp/core/zfs_storage.py). A ZFS pool of a registered remote node is\ntherefore not visible here for now.",
+    "description": "node: the same convention as GET /vms: list the pools of a registered remote\nnode instead of the local host.\n\nZFS pools are merged into the same list (type='zfs') for a unified display\nin the UI, but only when `node` designates the LOCAL host: unlike libvirt\npools (dir/netfs), ZFS management is still single-node (direct `zpool`/`zfs`\ncalls on THIS server, no remote management over SSH; see\napp/core/zfs_storage.py). A ZFS pool of a registered remote node is\ntherefore not visible here for now.",
     "operationId": "list_pools_api_v1_storage_get",
     "parameters": [
      {
@@ -23054,7 +23054,7 @@
   },
   "/health": {
    "get": {
-    "description": "Answers everyone (the sign-in page reads the environment label before any\nsign-in), purpose host name and software versions only go to a signed-in caller: to\nanyone else they are a precise fingerprint of the host. The update watchdog\n(scripts/update_watchdog.sh) polls from the host itself without a session and\nneeds the running version, so a loopback caller gets that one field.",
+    "description": "Answers everyone (the sign-in page reads the environment label before any\nsign-in), but host name and software versions only go to a signed-in caller: to\nanyone else they are a precise fingerprint of the host. The update watchdog\n(scripts/update_watchdog.sh) polls from the host itself without a session and\nneeds the running version, so a loopback caller gets that one field.",
     "operationId": "health_health_get",
     "responses": {
      "200": {
