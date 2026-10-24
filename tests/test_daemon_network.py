@@ -3,7 +3,6 @@
 daemon reads the bridge and the ports itself, so the API never names an interface; the database stays the API's."""
 
 import xml.etree.ElementTree as ET
-from typing import ClassVar
 
 import libvirt
 import pytest
@@ -51,7 +50,8 @@ WEB_XML = (
 class Conn:
     """The libvirt connection hyperlite-daemon opens itself (here, in the tests' own process)."""
 
-    domains: ClassVar[dict] = {}
+    def __init__(self):
+        self.domains = {}
 
     def networkLookupByName(self, name):
         if name not in NETS:
@@ -68,11 +68,8 @@ class Conn:
 
 
 @pytest.fixture()
-def daemon_libvirt(monkeypatch):
-    monkeypatch.setattr(network_firewall, "_connect", Conn)
-    monkeypatch.setattr(bridge_vlan, "_connect", Conn)
-    Conn.domains = {}
-    return Conn
+def host(daemon_libvirt):
+    return daemon_libvirt(Conn())
 
 
 @pytest.fixture()
@@ -90,7 +87,7 @@ def iptables(monkeypatch):
     return calls
 
 
-def test_no_operation_takes_an_interface_from_the_api(daemon_libvirt, iptables):
+def test_no_operation_takes_an_interface_from_the_api(host, iptables):
     """A bridge or a port named by the caller is refused: the daemon reads them from libvirt."""
     for op, args in [
         ("network.firewall_apply", {"network": "lan", "config": RULES, "bridge": "eth0"}),
@@ -113,14 +110,14 @@ def test_no_operation_takes_an_interface_from_the_api(daemon_libvirt, iptables):
         {"direction": "in", "protocol": "tcp", "action": "accept", "jump": "LOG"},
     ],
 )
-def test_a_rule_is_checked_again_by_the_daemon(daemon_libvirt, iptables, rule):
+def test_a_rule_is_checked_again_by_the_daemon(host, iptables, rule):
     with pytest.raises(DaemonError) as e:
         privileged.run("network.firewall_apply", network="lan", config={"default_policy": "drop", "rules": [rule]})
     assert e.value.kind == "invalid_arguments"
     assert iptables == []
 
 
-def test_the_firewall_is_applied_on_the_bridge_the_daemon_reads(daemon_libvirt, iptables, database):
+def test_the_firewall_is_applied_on_the_bridge_the_daemon_reads(host, iptables, database):
     result = network_firewall.apply_network_firewall("lan", RULES, user="ana")
     assert result == {"bridge": "br0", "applied_rules": 1}
     rules = [args for args in iptables if args[0] == "-A" and args[1].startswith("HLNET")]
@@ -128,7 +125,7 @@ def test_the_firewall_is_applied_on_the_bridge_the_daemon_reads(daemon_libvirt, 
     assert network_firewall.get_network_firewall("lan") == RULES  # kept by the API, to replay after a reboot
 
 
-def test_an_unknown_network_is_refused_and_nothing_is_kept(daemon_libvirt, iptables, database):
+def test_an_unknown_network_is_refused_and_nothing_is_kept(host, iptables, database):
     with pytest.raises(network_firewall.Refused):
         network_firewall.apply_network_firewall("nowhere", RULES)
     assert network_firewall.get_network_firewall("nowhere")["rules"] == []
@@ -149,7 +146,7 @@ def test_without_the_daemon_the_firewall_route_says_so(client, auth_headers, mon
     assert network_firewall.get_network_firewall("lan")["rules"] == []
 
 
-def test_a_bridge_is_made_vlan_aware_only_through_its_network(daemon_libvirt, monkeypatch):
+def test_a_bridge_is_made_vlan_aware_only_through_its_network(host, monkeypatch):
     started = []
     monkeypatch.setattr(bridge_vlan, "is_linux_bridge", lambda name: name == "br0")
     monkeypatch.setattr(bridge_vlan, "start_trial", lambda bridge, seconds=60: started.append(bridge) or "t0k")
@@ -165,11 +162,11 @@ def test_a_bridge_is_made_vlan_aware_only_through_its_network(daemon_libvirt, mo
     assert started == ["br0"]
 
 
-def test_a_vms_vlans_are_set_from_the_ports_the_daemon_reads(daemon_libvirt, monkeypatch):
+def test_a_vms_vlans_are_set_from_the_ports_the_daemon_reads(host, monkeypatch):
     applied = []
     monkeypatch.setattr(bridge_vlan, "filters_vlans", lambda bridge, node=None: bridge == "br0")
     monkeypatch.setattr(bridge_vlan, "apply_port", lambda tap, tag, trunks, node=None: applied.append((tap, tag)))
-    daemon_libvirt.domains = {"web": Domain("web", WEB_XML, active=True), "off": Domain("off", WEB_XML, active=False)}
+    host.domains = {"web": Domain("web", WEB_XML, active=True), "off": Domain("off", WEB_XML, active=False)}
     assert privileged.run("network.vlan_apply_vm", vm="web") == {"errors": []}
     assert applied == [("vnet7", 20)]
     assert privileged.run("network.vlan_apply_vm", vm="off") == {"errors": []}  # the hook sets it when it starts
@@ -179,7 +176,7 @@ def test_a_vms_vlans_are_set_from_the_ports_the_daemon_reads(daemon_libvirt, mon
     assert e.value.kind == "refused"
 
 
-def test_the_service_start_sets_the_vlans_of_the_running_vms(daemon_libvirt, monkeypatch):
+def test_the_service_start_sets_the_vlans_of_the_running_vms(host, monkeypatch):
     seen = []
     monkeypatch.setattr(bridge_vlan, "boot", lambda: seen.append("boot") or [])
     monkeypatch.setattr(bridge_vlan, "apply_running", lambda conn=None, node=None: seen.append("running") or ["x"])
@@ -193,8 +190,6 @@ def test_the_ports_are_read_from_the_live_definition():
 
 
 # --- Part 2a: libvirt's networks ---
-
-import app.daemon.ops.network as ops_network  # noqa: E402
 
 
 class Lib:
@@ -251,9 +246,9 @@ class LibNet:
 
 
 @pytest.fixture()
-def lib(monkeypatch):
+def lib(monkeypatch, daemon_libvirt):
     lib = Lib()
-    monkeypatch.setattr(ops_network, "_connect", lambda: lib)
+    daemon_libvirt(lib)
     monkeypatch.setattr("app.core.libvirt_utils.open_lxc_conn_if_any", lambda: None)
     return lib
 
@@ -319,7 +314,7 @@ def test_start_stop_autostart_and_edit_are_the_daemons(lib):
     assert lib.nets["lab"].isActive() and not lib.nets["lab"].autostart()
     with pytest.raises(DaemonError) as e:
         privileged.run("network.start", network="nowhere")
-    assert e.value.kind == "refused"
+    assert e.value.kind == "not_found"
 
 
 def test_listing_the_networks_asks_the_daemon_only_for_a_missing_isolated_network(monkeypatch):

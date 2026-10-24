@@ -873,8 +873,7 @@ def _start_job(user, kind, task_id, system=True):
     except DaemonError as e:
         finish_task(task_id, "failed", e.detail)
         log_action(user["username"], "hyperlite_update", e.detail, "failed")
-        status = 409 if e.kind == "refused" else 503 if e.kind == "unavailable" else 502
-        raise HTTPException(status_code=status, detail=e.detail) from None
+        raise privileged.http_error(e, refused=409) from None
 
 
 def _update_in_progress():
@@ -1052,7 +1051,7 @@ def _set_channel(user, name):
     except DaemonError as e:
         if e.kind == "refused":
             raise host_system.SettingError(e.detail) from None
-        raise HTTPException(status_code=503 if e.kind == "unavailable" else 502, detail=e.detail) from None
+        raise privileged.http_error(e) from None
 
 
 @router.put("/channel")
