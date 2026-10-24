@@ -1,8 +1,6 @@
 """Backups as the API manages them: the catalogue of VM backups, their schedules, deletion, and container backups.
 Running, verifying and restoring backups stays in app/core/backups.py (long operations in threads)."""
 
-import contextlib
-import shutil
 from pathlib import Path
 
 from app.core import backup_use
@@ -44,10 +42,9 @@ def delete(backup_id):
     if not row:
         raise BackupNotFound(backup_id)
     backup_use.refuse_if_in_use(backup_id)
-    shutil.rmtree(row["path"], ignore_errors=True)
-    # <target>/<vm>/<timestamp>: the VM's directory goes with its last backup (rmdir leaves a non-empty one).
-    with contextlib.suppress(OSError):
-        Path(row["path"]).parent.rmdir()
+    from app.core.backups import remove_backup_files
+
+    remove_backup_files(row["path"])
     store.delete(backup_id)
     return row
 
@@ -60,10 +57,14 @@ async def get_schedule(vm_name):
     return await registry.backups().get_schedule(vm_name)
 
 
-def set_schedule(vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run):
+def set_schedule(vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run, store=None):
     registry.backups().sync.upsert_schedule(
-        vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run
+        vm_name, frequency, time, target_dir, retention_count, jours, semaines, mois, next_run, store
     )
+
+
+def list_stores():
+    return registry.backups().sync.list_stores()
 
 
 def delete_schedule(vm_name):

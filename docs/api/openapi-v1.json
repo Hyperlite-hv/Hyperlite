@@ -181,6 +181,17 @@
    },
    "BackupRequest": {
     "properties": {
+     "store": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Store"
+     },
      "target_dir": {
       "anyOf": [
        {
@@ -1640,6 +1651,17 @@
      "selection": {
       "title": "Selection",
       "type": "string"
+     },
+     "store": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Store"
      },
      "target_dir": {
       "anyOf": [
@@ -3130,6 +3152,17 @@
       "title": "Retention Count",
       "type": "integer"
      },
+     "store": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Store"
+     },
      "target_dir": {
       "anyOf": [
        {
@@ -3218,6 +3251,38 @@
      "addresses"
     ],
     "title": "StaticInterface",
+    "type": "object"
+   },
+   "StoreCreate": {
+    "properties": {
+     "directory": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Its directory inside the pool (default: hyperlite-store)",
+      "title": "Directory"
+     },
+     "name": {
+      "description": "The store's name",
+      "title": "Name",
+      "type": "string"
+     },
+     "pool": {
+      "description": "A storage pool of files (directory, NFS, SMB) of this node",
+      "title": "Pool",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "pool"
+    ],
+    "title": "StoreCreate",
     "type": "object"
    },
    "SyslogSettings": {
@@ -6892,6 +6957,209 @@
      }
     ],
     "summary": "List Backup Schedules",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-stores": {
+   "get": {
+    "description": "Every store of the cluster, with what this node sees of each (reachable, space, backups).",
+    "operationId": "list_backup_stores_api_v1_backup_stores_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Backup Stores",
+    "tags": [
+     "backups"
+    ]
+   },
+   "post": {
+    "description": "Make a store in a directory of a storage pool, or take over the store already there.",
+    "operationId": "create_backup_store_api_v1_backup_stores_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StoreCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Backup Store",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-stores/{name}": {
+   "delete": {
+    "description": "Forget a store no job uses; its directory and backups stay on the pool.",
+    "operationId": "delete_backup_store_api_v1_backup_stores__name__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Backup Store",
+    "tags": [
+     "backups"
+    ]
+   },
+   "get": {
+    "operationId": "get_backup_store_api_v1_backup_stores__name__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Backup Store",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-stores/{name}/gc": {
+   "post": {
+    "description": "Free the chunks no backup uses any more, in the background (a large store takes a while).",
+    "operationId": "collect_store_garbage_api_v1_backup_stores__name__gc_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Collect Store Garbage",
     "tags": [
      "backups"
     ]

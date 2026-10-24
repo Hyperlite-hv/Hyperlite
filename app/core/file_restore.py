@@ -83,6 +83,8 @@ def backup_disks(backup_id):
         raise RestoreError("Backup not found")
     if row["status"] != "succeeded":
         raise RestoreError("Only a finished backup can be browsed")
+    if row.get("store"):
+        raise RestoreError("Files cannot be browsed in a backup kept in a backup store yet: restore its VM instead")
     root = Path(row["path"])
     manifest = backup_integrity.read_manifest(root)
     if manifest:

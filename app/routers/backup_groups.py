@@ -27,6 +27,7 @@ class GroupJob(BaseModel):
     keep_weeks: int | None = None
     keep_months: int | None = None
     active: bool = True
+    store: str | None = None  # a backup store (GET /backup-stores) instead of a directory
 
 
 @router.get("")
