@@ -204,3 +204,17 @@ def test_a_fingerprint_the_cluster_refused_is_published_again_soon(monkeypatch):
         time.sleep(0.01)
     stop.set()
     assert len(rounds) >= 2
+
+
+def test_an_export_is_read_while_it_arrives_on_a_connection_of_its_own(server):
+    answer = peer_https.stream(server["node"], "tok", "/api/v1/tasks/export.csv")
+    assert answer.status == 200
+    assert json.loads(answer.lines.read()) == {"path": "/api/v1/tasks/export.csv", "method": "GET"}
+    answer.close()
+    assert Handler.seen[-1][2] == "Bearer tok"
+    assert peer_https._pools == {}  # never a kept connection: the caller closes it once read
+    server["published"]["pve-a"] = "0" * 64
+    with pytest.raises(peer_https.Unavailable, match="does not match"):
+        peer_https.stream(server["node"], "tok", "/api/v1/tasks/export.csv")
+    with pytest.raises(peer_https.Unavailable):
+        peer_https.stream({"name": "pve-b", "hostname": "127.0.0.1"}, "tok", "/api/v1/tasks/export.csv")
