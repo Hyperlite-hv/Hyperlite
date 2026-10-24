@@ -28,7 +28,9 @@ func TestNormalizeURL(t *testing.T) {
 }
 
 func TestParseFlags(t *testing.T) {
-	f, err := parseFlags([]string{"vm1", "--server", "https://a", "-L", "8080:localhost:80", "uptime"}, true)
+	// In passthrough mode hyperlite's own flags are recognised only before the VM
+	// name; everything after it is the remote command, verbatim (#672).
+	f, err := parseFlags([]string{"--server", "https://a", "vm1", "-L", "8080:localhost:80", "uptime"}, true)
 	if err != nil || f.server != "https://a" || strings.Join(f.rest, " ") != "vm1 -L 8080:localhost:80 uptime" {
 		t.Fatalf("got %+v, %v", f, err)
 	}
@@ -38,6 +40,29 @@ func TestParseFlags(t *testing.T) {
 	f, _ = parseFlags([]string{"vm", "22", "--listen=127.0.0.1:2222"}, false)
 	if f.listen != "127.0.0.1:2222" {
 		t.Fatalf("listen = %q", f.listen)
+	}
+}
+
+func TestParseFlagsStopsAtTheVMName(t *testing.T) {
+	// hyperlite ssh vm sudo apt install -y nginx must hand -y to apt (#672).
+	f, err := parseFlags([]string{"vm", "sudo", "apt", "install", "-y", "nginx"}, true)
+	if err != nil || f.yes || strings.Join(f.rest, " ") != "vm sudo apt install -y nginx" {
+		t.Fatalf("got %+v, %v", f, err)
+	}
+	// A -- after the VM name belongs to the remote command, not to hyperlite.
+	f, err = parseFlags([]string{"vm", "--", "uptime"}, true)
+	if err != nil || strings.Join(f.rest, " ") != "vm -- uptime" {
+		t.Fatalf("got %+v, %v", f, err)
+	}
+	// --server after the VM name is a remote argument too.
+	f, err = parseFlags([]string{"vm", "--server", "https://evil"}, true)
+	if err != nil || f.server != "" || strings.Join(f.rest, " ") != "vm --server https://evil" {
+		t.Fatalf("got %+v, %v", f, err)
+	}
+	// -- before the VM name still stops hyperlite's own parsing.
+	f, err = parseFlags([]string{"--server", "https://a", "--", "vm", "-y"}, true)
+	if err != nil || f.server != "https://a" || strings.Join(f.rest, " ") != "vm -y" {
+		t.Fatalf("got %+v, %v", f, err)
 	}
 }
 
