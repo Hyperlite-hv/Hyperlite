@@ -221,7 +221,7 @@ jobs:
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/lab"
           sudo systemctl start libvirtd
-          pip install pytest==9.1.1
+          pip install pytest==9.1.1 websockets==17.2
           sudo iptables -P FORWARD ACCEPT
           sudo sysctl -qw net.ipv4.ip_forward=1
           deb=$(ls "$PWD"/installer/hyperlite_*_amd64.deb)
