@@ -1,0 +1,1 @@
+- HA recovery (#333): a member back after it was fenced never gets a VM that runs there, or one stopped on purpose, started elsewhere later; a service stop never lets a round re-arm the watchdog; a libvirt error no longer turns a VM's protection off; a failed manual recovery leaves nothing that refuses the next one.

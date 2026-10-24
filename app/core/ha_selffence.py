@@ -194,6 +194,10 @@ def tick():
         return
     publish = None
     with state.lock:
+        if state.stop.is_set():
+            # The service stops: a round that started before must not arm what stop() just disarmed, or the node
+            # would reset once this process is gone.
+            return
         if needed and state.fd is None:
             try:
                 fd, timeout = _open()

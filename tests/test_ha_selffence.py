@@ -168,3 +168,14 @@ def test_what_is_published_is_the_devices_reset_time(node, monkeypatch):
     REAL_PUBLISH(True)
     entry = json.loads(puts[0])
     assert entry["delay_s"] == 300 and entry["reset_within_s"] == 605
+
+
+def test_a_round_that_started_before_a_stop_never_arms_it_after(node, monkeypatch):
+    # stop() runs while the round asks libvirt whether HA VMs run here (found by ECC's python-reviewer).
+    def hosts_then_stop():
+        ha_selffence.state.stop.set()
+        return True
+
+    monkeypatch.setattr(ha_selffence, "_hosts_running_ha_vm", hosts_then_stop)
+    ha_selffence.tick()
+    assert not ha_selffence.report()["armed"] and node["published"] == []
