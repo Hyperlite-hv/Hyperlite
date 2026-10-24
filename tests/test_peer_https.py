@@ -122,6 +122,8 @@ def test_peer_api_uses_https_and_falls_back_to_ssh(server, monkeypatch):
         return subprocess.CompletedProcess(args, 0, json.dumps({"status": 200, "body": "[]"}), "")
 
     monkeypatch.setattr(rolling_update, "_ssh", fake_ssh)
+    # hyperlite-daemon reads the member's address from the node registry, for the fallback.
+    monkeypatch.setattr(rolling_update.cluster, "get_node", lambda name: dict(server["node"]))
     status, body = rolling_update.peer_api(server["node"], "ana", "GET", "/vms")
     assert status == 200 and body["path"] == "/api/v1/vms" and ssh == []  # the members' API prefix
     server["published"].clear()  # no fingerprint: SSH, as before

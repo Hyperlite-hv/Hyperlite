@@ -283,7 +283,7 @@ def vm_routes(monkeypatch, daemon_libvirt):
     from app.routers.vms import rename
 
     def install(conn):
-        monkeypatch.setattr(rename, "open_conn", lambda node=None: conn)
+        monkeypatch.setattr(rename, "open_conn", lambda node=None, **_k: conn)
         daemon_libvirt(conn)  # hyperlite-daemon renames, in this process in the tests (app/core/vm_rename.py)
         monkeypatch.setattr(rename, "_domain_summary", lambda d: {"name": d.renamed_to or d.name()})
         monkeypatch.setattr(vm_rename, "refresh_pools_for_paths", lambda conn, paths: None)

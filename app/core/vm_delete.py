@@ -11,6 +11,7 @@ or a device attached by hand: Hyperlite did not make it), when another VM uses i
 through it. What is kept is said, with its reason, as vSphere's and Proxmox VE's tasks do."""
 
 import logging
+import shlex
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -136,10 +137,24 @@ def kept(conn, name, found, local=True):
     return reasons
 
 
-def delete(conn, name):
-    """Delete the stopped VM `name` of this node and what goes with it (leftovers, but what kept() keeps). A disk
-    already gone, or a zvol or a logical volume removed by hand, does not make the deletion fail. Returns {path: reason}
-    of the disks kept."""
+def _remove_on_node(node, paths, name):
+    """Another node's files, removed there over SSH with the cluster's key (hyperlite-daemon's): its paths are paths
+    on that node, which a local unlink() would miss, or worse."""
+    from app.core.cluster import _run_ssh, get_node
+
+    remote = get_node(node)
+    if remote is None:
+        return
+    for path in paths:
+        result = _run_ssh(remote, ["rm", "-f", "--", shlex.quote(str(path))])
+        if result.returncode != 0:
+            logger.warning("Disk %s of the deleted VM %s left on %s: %s", path, name, node, result.stderr.strip())
+
+
+def delete(conn, name, node=None):
+    """Delete the stopped VM `name` and what goes with it (leftovers, but what kept() keeps), on this node or, `node`,
+    a node registered over SSH only (`conn` that node's libvirt). A disk already gone, or a zvol or a logical volume
+    removed by hand, does not make the deletion fail. Returns {path: reason} of the disks kept."""
     try:
         domain = conn.lookupByName(name)
     except libvirt.libvirtError:
@@ -148,7 +163,8 @@ def delete(conn, name):
     if domain.isActive():
         raise DeleteError("in_use", f"VM '{name}' is running. Stop it before deleting it")
     found = leftovers(domain, name)
-    keep = kept(conn, name, found)
+    # Another node's qcow2 headers are not read from here: its linked disks are not looked for.
+    keep = kept(conn, name, found, local=not node)
     try:
         undefine(domain, found)
     except libvirt.libvirtError as e:
@@ -158,6 +174,10 @@ def delete(conn, name):
     found.devices = [dev for dev in found.devices if dev not in keep]
     for path in keep:
         logger.warning("Disk %s of the deleted VM %s kept: %s", path, name, keep[path])
+    if node:
+        _remove_on_node(node, found.files, name)
+        delete_logical_volumes(conn, found, name, node)
+        return keep
     for path in found.files:
         path.unlink(missing_ok=True)
     # Removed behind libvirt's back: without a refresh their pools kept listing them.

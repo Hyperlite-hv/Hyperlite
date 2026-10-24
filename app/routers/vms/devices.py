@@ -294,7 +294,7 @@ def _disk_size(domain, conn, target, source):
 
 @router.get("/{name}/disks")
 def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_current_user)):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -332,7 +332,7 @@ def get_vm_disks(name: str, node: str | None = None, user: dict = Depends(get_cu
 
 @router.get("/{name}/network")
 def get_vm_network(name: str, node: str | None = None, user: dict = Depends(get_current_user)):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)

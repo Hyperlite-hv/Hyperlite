@@ -240,7 +240,7 @@ def test_stop_guests_reports_what_did_not_stop(monkeypatch):
 
     import app.core.libvirt_utils as lu
 
-    monkeypatch.setattr(lu, "open_conn", lambda node=None: Conn())
+    monkeypatch.setattr(lu, "open_conn", lambda node=None, **_k: Conn())
     monkeypatch.setattr(lu, "open_lxc_conn", lambda: Conn())
     lines = []
     left = hs.stop_guests([("vm", "web"), ("vm", "db")], lines.append, timeout_s=0.02, poll_s=0.01)

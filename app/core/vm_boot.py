@@ -84,7 +84,7 @@ def run_sequence(node=None, sleep=time.sleep):
     if not steps:
         return []
     results = []
-    conn = open_conn(None if _node_key(node) == LOCAL else node)
+    conn = open_conn(None if _node_key(node) == LOCAL else node, readonly=True)
     try:
         for step in steps:
             name = step["name"]
@@ -110,13 +110,11 @@ def run_sequence(node=None, sleep=time.sleep):
                 results.append((name, "busy"))
                 continue
             try:
-                if _node_key(node) == LOCAL:
-                    # Started by hyperlite-daemon (app/daemon/ops/vm.py); another node's VM over its own libvirt.
-                    from app.core import privileged
+                # Started by hyperlite-daemon (app/daemon/ops/vm.py), here or on the node registered over SSH only.
+                from app.core import privileged
 
-                    privileged.run("vm.power", user="system", vm=name, action="start")
-                else:
-                    domain.create()
+                remote = None if _node_key(node) == LOCAL else node
+                privileged.run("vm.power", user="system", vm=name, action="start", node=remote)
             except (libvirt.libvirtError, DaemonError) as e:
                 reason = e.detail if isinstance(e, DaemonError) else str(e)
                 logger.error("Start at boot: VM %s did not start on %s: %s", name, _node_key(node), reason)
@@ -141,18 +139,15 @@ def _local_boot_id():
 
 
 def remote_boot_id(node_row):
-    """The boot id of a registered node, read over the cluster's SSH trust; None when unreachable."""
-    from app.core.cluster import _run_ssh  # late import: cluster.py imports much of the core
+    """The boot id of a registered node, read by hyperlite-daemon over the cluster's SSH trust (node.facts); None when
+    unreachable."""
+    from app.core import privileged
 
     try:
-        r = _run_ssh(node_row, ["cat", str(BOOT_ID_FILE)], timeout=10)
-    except (OSError, ValueError) as e:
-        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], e)
+        return privileged.run("node.facts", node=node_row["name"])["boot_id"]
+    except DaemonError as e:
+        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], e.detail)
         return None
-    if r.returncode != 0:
-        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], r.stderr.strip())
-        return None
-    return r.stdout.strip() or None
 
 
 def boot_if_new(node, boot_id):

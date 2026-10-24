@@ -233,7 +233,7 @@ def test_a_store_backup_records_its_directory_and_size(database, pools, monkeypa
         def close(self):
             pass
 
-    monkeypatch.setattr(backups, "open_conn", lambda: Conn())
+    monkeypatch.setattr(backups, "open_conn", lambda **_k: Conn())
     monkeypatch.setattr(
         backup_store_vm,
         "backup_vm",

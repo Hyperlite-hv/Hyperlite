@@ -40,7 +40,7 @@ def run(database, monkeypatch, daemon_libvirt):
     monkeypatch.setattr(guest_agent, "shutdown", lambda d: setattr(d, "requests", d.requests + 1) or "acpi")
 
     def go(domain, seconds=60):
-        monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(domain))
+        monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: _Conn(domain))
         daemon_libvirt(_Conn(domain))  # hyperlite-daemon asks again and forces, in this process in the tests
         domain.requests = 1  # the request the endpoint sent
         lifecycle._watch_stop("web", None, "alice", seconds)
@@ -66,7 +66,7 @@ def test_the_delay_is_bounded(client, auth_headers):
 
 def test_a_plain_stop_asks_again_and_never_forces(run, monkeypatch, daemon_libvirt):
     d = _Domain(stops_after_requests=99)
-    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(d))
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: _Conn(d))
     daemon_libvirt(_Conn(d))
     d.requests = 1
     lifecycle._watch_stop("web", None, "alice")
@@ -75,7 +75,7 @@ def test_a_plain_stop_asks_again_and_never_forces(run, monkeypatch, daemon_libvi
 
 def test_a_plain_stop_lost_once_stops_on_the_next_request(run, monkeypatch, daemon_libvirt):
     d = _Domain(stops_after_requests=2)
-    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(d))
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: _Conn(d))
     daemon_libvirt(_Conn(d))
     d.requests = 1
     lifecycle._watch_stop("web", None, "alice")

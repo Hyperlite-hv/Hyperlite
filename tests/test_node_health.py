@@ -145,7 +145,7 @@ def test_the_vm_list_names_a_member_seen_down_without_asking_it(client, auth_hea
         return 200, [{"name": "from-" + node["name"]}]
 
     monkeypatch.setattr(cluster_view, "forward", forward)
-    monkeypatch.setattr(inventory, "open_conn", lambda node=None: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr(inventory, "open_conn", lambda node=None, **_k: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(inventory, "_domain_summaries", lambda c, node: [])
     body = client.get("/vms?cluster=true", headers=auth_headers("ana")).json()
     assert asked == ["pve-a"] and body["unreachable"] == ["bico"]

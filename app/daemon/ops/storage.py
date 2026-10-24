@@ -161,6 +161,9 @@ class LibvirtPoolCreateArgs(Args):
     lvm_vg: str | None = Field(None, max_length=FIELD)
     lvm_device: str | None = Field(None, max_length=FIELD)
     lvm_thin_pool: str | None = Field(None, max_length=FIELD)
+    # A node registered over SSH only, or a shared pool's other node, reached with the cluster's key (the cluster
+    # domain, part 2); absent: this node.
+    node: str | None = Field(None, min_length=1, max_length=63)
 
 
 @operation("storage.pool_create", LibvirtPoolCreateArgs)
@@ -171,12 +174,13 @@ def pool_create(args, ctx):
     from app.core import libvirt_utils, storage_pools
 
     _pool_name(args.name)
-    with libvirt_utils.local_conn() as conn:
-        return storage_pools.create(conn, args)
+    with libvirt_utils.node_conn(args.node) as conn:
+        return storage_pools.create(conn, args, args.node)
 
 
 class LibvirtPoolArgs(Args):
     pool: str = Field(min_length=1, max_length=LIBVIRT_NAME)
+    node: str | None = Field(None, min_length=1, max_length=63)
 
 
 class LibvirtPoolRenameArgs(LibvirtPoolArgs):
@@ -196,7 +200,7 @@ def pool_rename(args, ctx):
 
     _pool_name(args.new_name)
     _not_default(args.pool, args.new_name)
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         storage_pools.rename(conn, args.pool, args.new_name)
 
 
@@ -212,8 +216,8 @@ def pool_delete(args, ctx):
     from app.core import libvirt_utils, storage_pools
 
     _not_default(args.pool)
-    with libvirt_utils.local_conn() as conn:
-        storage_pools.delete(conn, args.pool, detach=args.detach)
+    with libvirt_utils.node_conn(args.node) as conn:
+        storage_pools.delete(conn, args.pool, detach=args.detach, node=args.node)
 
 
 @operation("storage.pool_check", LibvirtPoolArgs)
@@ -226,13 +230,18 @@ def pool_check(args, ctx):
         return storage_pools.check_permissions(conn, args.pool)
 
 
-@operation("storage.ensure_default_pool", NoArgs)
+class NodeOnlyArgs(Args):
+    node: str | None = Field(None, min_length=1, max_length=63)
+
+
+@operation("storage.ensure_default_pool", NodeOnlyArgs)
 @_pools
 def ensure_default_pool(args, ctx):
-    """The 'default' pool Hyperlite relies on (libvirt_utils.ensure_default_pool), defined, started and autostarted."""
+    """The 'default' pool Hyperlite relies on (libvirt_utils.ensure_default_pool), defined, started and autostarted,
+    here or on a node registered over SSH only."""
     from app.core import libvirt_utils
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         libvirt_utils.ensure_default_pool(conn)
 
 
@@ -277,12 +286,13 @@ def pool_refresh(args, ctx):
     refresh is refused on libvirt's read-only connection, the one the API will keep."""
     from app.core import libvirt_utils, storage_pools
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         storage_pools.refresh(conn, args.pool)
 
 
 class VolumeGroupArgs(Args):
     vg: str = Field(min_length=1, max_length=128)
+    node: str | None = Field(None, min_length=1, max_length=63)  # read there over SSH with the cluster's key
 
 
 @operation("storage.lvm_volumes", VolumeGroupArgs)
@@ -295,7 +305,12 @@ def lvm_volumes(args, ctx):
         lvm_storage.check_name(args.vg)
     except lvm_storage.LvmError as e:
         raise DaemonError("refused", str(e)) from e
+    if args.node:
+        from app.core import cluster
+
+        if cluster.get_node(args.node) is None:
+            raise DaemonError("not_found", f"Node '{args.node}' not found")
     try:
-        return lvm_storage.logical_volumes(args.vg)
+        return lvm_storage.logical_volumes(args.vg, args.node)
     except lvm_storage.LvmError as e:
         raise DaemonError("failed", str(e)) from e

@@ -101,7 +101,7 @@ def protected(database, monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr(ha, "open_conn", lambda key=None: Conn())
+    monkeypatch.setattr(ha, "open_conn", lambda key=None, **_k: Conn())
     monkeypatch.setattr(ha, "_attempt_ssh_fence", lambda node, vm: pytest.fail("SSH fence used despite a BMC"))
     return started
 

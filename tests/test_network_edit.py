@@ -159,7 +159,7 @@ def conn(database, monkeypatch, daemon_libvirt):
     from app.routers import network
 
     c = _Conn(_Net(NAT))
-    monkeypatch.setattr(network, "open_conn", lambda node=None: c)
+    monkeypatch.setattr(network, "open_conn", lambda node=None, **_k: c)
     daemon_libvirt(c)  # hyperlite-daemon's own connection, in this process
     return c
 
