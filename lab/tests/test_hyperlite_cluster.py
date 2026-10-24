@@ -10,7 +10,9 @@ The VMs sit on the lab's own NAT network; their certificates are self-signed, so
 them (the members pin each other's, which is what is tested).
 """
 
+import csv
 import hashlib
+import io
 import json
 import os
 import secrets
@@ -242,6 +244,29 @@ def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
     status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])
     assert status == 409 and "not a member" in body["detail"]
+
+
+def test_the_csv_exports_hold_every_members_rows(cluster):
+    """The audit log's and the tasks' exports with cluster=true, from node 1: each member's own export read over the
+    members' pinned HTTPS and merged newest first, every row naming the member that holds it."""
+    t, names = cluster["tokens"], cluster["names"]
+    # Every node holds audit entries of its own: the administrator's sign-ins and password change of the fixture.
+    rows = list(csv.reader(io.StringIO(ok(api(1, "GET", "/audit/export.csv?cluster=true", token=t[1])))))
+    assert rows[0][0] == "timestamp" and rows[0][-1] == "member", rows[0]
+    assert {row[-1] for row in rows[1:]} == set(names.values()), rows[:5]
+    assert [row[0] for row in rows[1:]] == sorted((row[0] for row in rows[1:]), reverse=True)
+
+    # Each member records the export of its own entries.
+    def exported(n):
+        return any(
+            e["action"] == "export_audit" for e in ok(api(n, "GET", "/audit?action=export_audit", token=t[n]))["items"]
+        )
+
+    wait("node 2's audit log naming the export", lambda: exported(2), 30, 1)
+    rows = list(csv.reader(io.StringIO(ok(api(1, "GET", "/tasks/export.csv?cluster=true", token=t[1])))))
+    assert rows[0][0] == "id" and rows[0][-1] == "member", rows[0]
+    assert {row[-1] for row in rows[1:]} <= set(names.values())
+    assert [row[1] for row in rows[1:]] == sorted((row[1] for row in rows[1:]), reverse=True)
 
 
 def test_an_iso_upload_goes_to_the_member_it_names(cluster):
