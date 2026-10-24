@@ -56,6 +56,7 @@ class SqliteHaStore:
     def unprotect(self, vm_name):
         _write("DELETE FROM ha_protected_vms WHERE vm_name = ?", (vm_name,))
         self.drop_policy(vm_name)
+        _write("DELETE FROM ha_monitoring WHERE vm_name = ?", (vm_name,))
 
     def sync_definition(self, vm_name, domain_xml, now, node=None):
         """A fresher copy of the VM's definition; `node` too after a recovery onto another node."""
@@ -109,6 +110,30 @@ class SqliteHaStore:
 
     def drop_policy(self, vm_name):
         _write("DELETE FROM ha_policies WHERE vm_name = ?", (vm_name,))
+
+    # ---- VM monitoring per VM (ha_monitoring) ----
+
+    def monitoring(self, vm_name):
+        """{"enabled", "resets"}: off, with no reset, for a VM that has no row."""
+        row = _one("SELECT * FROM ha_monitoring WHERE vm_name = ?", (vm_name,))
+        if not row:
+            return {"enabled": False, "resets": []}
+        return {"enabled": bool(row["enabled"]), "resets": json.loads(row["resets"] or "[]")}
+
+    def set_monitoring(self, vm_name, enabled):
+        _write(
+            "INSERT INTO ha_monitoring (vm_name, enabled) VALUES (?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET enabled = excluded.enabled",
+            (vm_name, 1 if enabled else 0),
+        )
+
+    def record_reset(self, vm_name, resets):
+        """The VM's monitoring resets within the last hour, the newest included."""
+        _write(
+            "INSERT INTO ha_monitoring (vm_name, resets) VALUES (?, ?) "
+            "ON CONFLICT(vm_name) DO UPDATE SET resets = excluded.resets",
+            (vm_name, json.dumps(list(resets))),
+        )
 
     def record_watch(self, vm_name, state, action, now):
         _write(
