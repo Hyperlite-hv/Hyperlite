@@ -226,3 +226,43 @@ def test_only_a_script_of_the_root_library_is_attached(host):
     with pytest.raises(DaemonError) as e:
         privileged.run("vm.set_hookscript", vm="web", script="../../tmp/evil.sh")
     assert e.value.kind == "refused"
+
+
+SPEC = {"name": "new", "vcpu": 1, "memory_mb": 512, "disks": [{"size_gb": 1}], "iso": "debian.iso"}
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"spec": {**SPEC, "xml": "<domain/>"}},
+        {"spec": {**SPEC, "disks": [{"size_gb": 1, "path": "/etc/shadow"}]}},
+        {"spec": SPEC, "pending": ["a.iso", "b.iso", "c.iso", "d.iso", "e.iso"]},
+    ],
+)
+def test_a_creation_takes_a_specification_never_a_definition_or_a_path(host, args):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.create", **args)
+    assert e.value.kind == "invalid_arguments"
+
+
+def test_a_creation_is_checked_again_by_the_daemon(daemon_libvirt, monkeypatch, tmp_path):
+    """What the API checked does not count: the daemon reads its own library and the VMs of this node, and answers every
+    refusal at once, before anything is made."""
+    from unittest.mock import Mock
+
+    from app.core import disk_library, vm_create
+
+    monkeypatch.setattr(disk_library, "ISOS", tmp_path)
+    monkeypatch.setattr(vm_create, "validate_vm_resources", lambda *a: [])
+    monkeypatch.setattr(vm_create.firmware, "check_choice", lambda conn, choice: None)
+    monkeypatch.setattr(vm_create, "create_disk", Mock(side_effect=AssertionError("nothing is made")))
+    conn = daemon_libvirt(Mock())
+    with pytest.raises(DaemonError) as e:
+        privileged.run("vm.create", spec={**SPEC, "name": "web"}, check_only=False)
+    assert e.value.kind == "refused"
+    assert any("already exists" in m for m in e.value.detail) and any("not found" in m for m in e.value.detail)
+    conn.defineXML.assert_not_called()
+    (tmp_path / "debian.iso").touch()
+    conn.lookupByName.side_effect = libvirt.libvirtError("no domain")
+    assert privileged.run("vm.create", spec=SPEC, pending=["debian.iso"], check_only=True) is None
+    conn.defineXML.assert_not_called()

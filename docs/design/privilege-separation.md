@@ -369,7 +369,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | VMs, part 2a: processors, memory, limits, CPU pinning, advanced hardware (`vm.set_resources`, `vm.set_limits`, `vm.set_cpu_pinning`, `vm.set_disk_options`, `vm.set_boot_order`, `vm.set_balloon`, `vm.set_machine`) | done |
 | VMs, part 2b: a VM's devices (`app/core/vm_devices.py`): disks (`vm.attach_disk`, the image check included; `vm.detach_disk`), interfaces with their VLANs (`vm.set_interface`, `vm.attach_interface`, `vm.detach_interface`; the daemon sets the ports itself, so `network.vlan_apply_vm` is gone), host devices (`vm.attach_hostdev`, `vm.detach_hostdev`), CD-ROM drives (`vm.set_cdrom`, `vm.eject_cdrom`, an ISO of the daemon's own library) | done |
 | VMs, part 2c: a VM's firewall (`vm.set_firewall`, the nwfilter built from checked rules, `app/core/vm_firewall.py`), hook script (`vm.set_hookscript`, checked again in the root library), name (`vm.rename`, with the files named after it, `app/core/vm_rename.py`) and cloud-init drive (`vm.cloudinit_write`: written private to root, the API keeping the state) | done |
-| VMs, parts 3 and 4; containers, cluster, consoles; then backups | next: VMs, part 3 |
+| VMs, part 3a: creation (`vm.create`, `app/core/vm_create.py`): the specification of POST /vms checked again by the daemon (its unknown fields refused at any depth), the disks, the cloud-init drive, the DHCP reservation and the definition made by it; `check_only` runs the checks alone (`?wait=false`, an ISO being copied from another node). The API keeps the lock, the task and what it records | done |
+| VMs, parts 3b, 3c and 4; containers, cluster, consoles; then backups | next: VMs, part 3b |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
