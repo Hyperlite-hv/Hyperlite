@@ -99,6 +99,11 @@ def _key_of(row):
     from app.core import secrets_crypto
 
     sealed = _repo().get_store_key(row["name"])
+    if not sealed and row.get("copy_of"):
+        raise StoreError(
+            f"The copy '{row['name']}' keeps no key on this site: unlock it with its source's key to restore from it",
+            409,
+        )
     if not sealed:
         raise StoreError(f"The key of the backup store '{row['name']}' is missing from this cluster's secrets", 409)
     try:
@@ -148,7 +153,18 @@ def create(
     encrypted with it. copy_of: a new store made as the copy of that store of this cluster (backup_store_sync): its
     chunk size and its key, so chunks are copied as they are. Returns (row, the key's code for a new encrypted store,
     to be shown once, else None)."""
-    source = get(copy_of) if copy_of else None
+    from app.core import backup_remotes
+
+    remote = backup_remotes.split_source(copy_of)
+    source = get(copy_of) if copy_of and not remote else None
+    remote_config = None
+    if remote:  # another cluster's store: its configuration read now, its key never here
+        try:
+            reader = backup_remotes.RemoteStore(*remote)
+        except backup_remotes.RemoteError as e:
+            raise StoreError(e.message, e.status) from None
+        remote_config = reader.config
+        reader.close()
     if not NAME.match(name or ""):
         raise StoreError("Invalid name: letters, digits, '.', '-' and '_', 63 characters at most")
     if _repo().get_store(name):
@@ -171,6 +187,9 @@ def create(
             store = backup_store.Store(path, secret)
             if any(r["store_id"] == store.id for r in _repo().list_stores()):
                 raise StoreError(f"{path} is already a store of this cluster", 409)
+        elif remote_config is not None:
+            secret = None
+            store = backup_store.create(path, like=remote_config)
         elif source is not None:
             secret = _key_of(source)
             store = backup_store.create(
@@ -186,17 +205,46 @@ def create(
         raise StoreError(f"{path} cannot be read as a store: {e}") from None
     if master and not store.encrypted:
         raise StoreError("A master recovery key is for an encrypted store")
-    if store.encrypted:
+    if store.encrypted and secret is not None:
         from app.core import secrets_crypto
 
         _repo().save_store_key(name, secrets_crypto.encrypt(backup_store.key_code(secret)), _now())
     _repo().save_store(name, pool, directory, store.id, 1 if store.encrypted else 0, username, _now(), master)
-    if source is not None:
-        if not store.same_chunks_as(open_store(copy_of, raw=True)):
+    if source is not None or remote_config is not None:
+        if source is not None:
+            alike = store.same_chunks_as(open_store(copy_of, raw=True))
+        else:
+            alike = _alike(store.config, remote_config)
+        if not alike:
             _repo().delete_store(name)
             raise StoreError(f"{path} holds a store whose chunks are not named as those of '{copy_of}'")
         _repo().set_store_copy_of(name, copy_of)
     return get(name), shown
+
+
+def _alike(config, other):
+    return (
+        int(config["chunk_size"]) == int(other["chunk_size"])
+        and bool(config.get("encrypted")) == bool(other.get("encrypted"))
+        and config.get("key_fingerprint") == other.get("key_fingerprint")
+    )
+
+
+def unlock(name, code, username="system"):
+    """Give an encrypted copy its key, the day its backups are to be restored here: the copy kept none until then
+    (Antho, 2026-10-24). The key's fingerprint must be the store's."""
+    from app.core import secrets_crypto
+
+    row = get(name)
+    if not row["encrypted"]:
+        raise StoreError(f"The store '{name}' is not encrypted: it needs no key")
+    try:
+        key = backup_store.key_from_code(code or "")
+        backup_store.Store(path_of(row), key)
+    except backup_store.StoreError as e:
+        raise StoreError(e.message) from None
+    _repo().save_store_key(name, secrets_crypto.encrypt(backup_store.key_code(key)), _now())
+    return get(name)
 
 
 def manifest_extra(name):
@@ -235,6 +283,8 @@ def describe(row):
     out["encrypted"] = bool(row["encrypted"])
     out["master_key"] = bool(row.get("master_public_key"))
     out["copy_of"] = row.get("copy_of")
+    # An encrypted copy of another cluster's store keeps no key until the day it is restored from (unlock).
+    out["locked"] = bool(row["encrypted"]) and not _repo().get_store_key(row["name"])
     try:
         store = open_store(row["name"])
     except StoreError as e:
