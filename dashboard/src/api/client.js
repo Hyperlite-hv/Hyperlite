@@ -567,6 +567,9 @@ async function downloadCsv(path, filters, fallbackName) {
   const a = document.createElement("a");
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+  // A cluster's export names the members that did not answer: their rows are not in the file.
+  const unreachable = res.headers.get("Hyperlite-Unreachable");
+  return { unreachable: unreachable ? unreachable.split(",").map((n) => n.trim()).filter(Boolean) : [] };
 }
 // File-level restore: a browsing session on a backup's disks, its folders, and a file (or a folder as .tar.gz).
 export async function openBackupFiles(backupId, on) {
@@ -581,11 +584,12 @@ export function downloadBackupFile(session, device, path) {
 export async function closeBackupFiles(session) {
   return realFetch(`/file-restore/${encodeURIComponent(session)}`, { method: "DELETE" });
 }
+// Every member's rows in a cluster, as the lists show them, with a last column "member".
 export function downloadAuditCsv(filters = {}) {
-  return downloadCsv("/audit/export.csv", filters, "hyperlite-audit.csv");
+  return downloadCsv("/audit/export.csv", { ...filters, cluster: "true" }, "hyperlite-audit.csv");
 }
 export function downloadTasksCsv(filters = {}) {
-  return downloadCsv("/tasks/export.csv", filters, "hyperlite-tasks.csv");
+  return downloadCsv("/tasks/export.csv", { ...filters, cluster: "true" }, "hyperlite-tasks.csv");
 }
 
 // The activity of a cluster (tasks and audit log, app/core/cluster_view.py) is asked of every member: cluster=true.
