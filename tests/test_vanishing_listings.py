@@ -79,7 +79,6 @@ def test_a_vanished_snapshot_does_not_break_the_list(database, client, auth_head
     from app.routers.vms import snapshots
 
     monkeypatch.setattr(snapshots, "open_conn", lambda node=None: _Conn())
-    monkeypatch.setattr(snapshots, "_zvol_disks_of_domain", lambda domain: [], raising=False)
     r = client.get("/vms/vm1/snapshots", headers=auth_headers("admin"))
     assert r.status_code == 200, r.text
     assert [s["name"] for s in r.json()["items"]] == ["kept"]
