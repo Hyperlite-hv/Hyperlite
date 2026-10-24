@@ -3304,6 +3304,7 @@ export default {
   "cfs.domainName.backup_stores": "Backup stores",
   "cfs.domainName.backup_store_keys": "Backup store keys",
   "cfs.domainName.backup_store_syncs": "Backup store copies",
+  "cfs.domainName.backup_remotes": "Remote clusters of the backup stores",
   "cfs.domainName.network_firewall": "Network firewalls",
   "cfs.domainName.backup_jobs": "Backup jobs",
   "cfs.domainName.backup_group_jobs": "Group backup jobs",
