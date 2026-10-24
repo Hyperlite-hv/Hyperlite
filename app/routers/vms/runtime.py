@@ -3,13 +3,12 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Literal
-from xml.sax.saxutils import escape
 
 import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core import firmware
+from app.core import privileged
 from app.core.audit import log_action
 from app.core.libvirt_utils import (
     open_conn,
@@ -34,7 +33,7 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
     conn = open_conn()
     try:
         try:
-            domain = conn.lookupByName(name)
+            conn.lookupByName(name)
         except libvirt.libvirtError:
             log_action(user["username"], "set_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
@@ -46,55 +45,8 @@ def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_
         if not iso_path.exists():
             raise HTTPException(status_code=404, detail=f"ISO '{iso_filename}' not found")
 
-        root = ET.fromstring(domain.XMLDesc(0))
-        vm_firmware = firmware.of_domain(root)
-        slot_dev, slot_bus = firmware.cdrom_target(payload.target_dev or "hdc", vm_firmware)
-        devices_el = root.find(".//devices")
-        cdrom = None
-        if devices_el is not None:
-            for disk in devices_el.findall("disk"):
-                target = disk.find("target")
-                if payload.target_dev and target is not None and target.get("dev") == slot_dev:
-                    if disk.get("device") != "cdrom":
-                        raise HTTPException(status_code=409, detail="This target is already used by a disk")
-                    cdrom = disk
-                    break
-                if disk.get("device") == "cdrom" and payload.target_dev is None:
-                    cdrom = disk
-                    break
-
-        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
-        if domain.isActive():
-            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
-
-        try:
-            if cdrom is not None:
-                source = cdrom.find("source")
-                if source is None:
-                    source = ET.SubElement(cdrom, "source")
-                source.set("file", str(iso_path))
-                new_xml = ET.tostring(cdrom, encoding="unicode")
-                domain.updateDeviceFlags(new_xml, flags)
-            else:
-                # IDE and SATA drives cannot be hot-plugged. Existing drives can still
-                # change media live, including while Windows Setup is running.
-                if domain.isActive():
-                    raise HTTPException(status_code=409, detail="Shut down the VM before adding a CD drive")
-                if any(target.get("dev") == slot_dev for target in root.findall("./devices/disk/target")):
-                    raise HTTPException(status_code=409, detail="This target is already used by a disk")
-                new_cdrom_xml = (
-                    '<disk type="file" device="cdrom">'
-                    '<driver name="qemu" type="raw"/>'
-                    f'<source file="{escape(str(iso_path))}"/>'
-                    f'<target dev="{slot_dev}" bus="{slot_bus}"/>'
-                    "<readonly/>"
-                    "</disk>"
-                )
-                domain.attachDeviceFlags(new_cdrom_xml, flags)
-        except libvirt.libvirtError as exc:
-            log_action(user["username"], "set_vm_cdrom", name, "failed", str(exc))
-            raise HTTPException(status_code=500, detail=f"Mount failed: {exc}") from exc
-
+        # Put in the drive by hyperlite-daemon (app/core/vm_devices.py), which finds the ISO in its own library.
+        privileged.ask("vm.set_cdrom", user, "set_vm_cdrom", name, vm=name, iso=iso_filename, target=payload.target_dev)
         log_action(user["username"], "set_vm_cdrom", name, "success", iso_filename)
         return {"vm": name, "iso": iso_filename}
     finally:
@@ -110,41 +62,12 @@ def eject_vm_cdrom(
     conn = open_conn()
     try:
         try:
-            domain = conn.lookupByName(name)
+            conn.lookupByName(name)
         except libvirt.libvirtError:
             log_action(user["username"], "eject_vm_cdrom", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        root = ET.fromstring(domain.XMLDesc(0))
-        slot_dev = firmware.cdrom_target(target_dev, firmware.of_domain(root))[0] if target_dev else None
-        devices_el = root.find(".//devices")
-        cdrom = None
-        if devices_el is not None:
-            for disk in devices_el.findall("disk"):
-                target = disk.find("target")
-                if disk.get("device") == "cdrom" and (
-                    slot_dev is None or (target is not None and target.get("dev") == slot_dev)
-                ):
-                    cdrom = disk
-                    break
-        if cdrom is None:
-            raise HTTPException(status_code=404, detail="No CD drive on this VM")
-
-        source = cdrom.find("source")
-        if source is not None:
-            cdrom.remove(source)
-
-        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
-        if domain.isActive():
-            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
-
-        try:
-            new_xml = ET.tostring(cdrom, encoding="unicode")
-            domain.updateDeviceFlags(new_xml, flags)
-        except libvirt.libvirtError as exc:
-            log_action(user["username"], "eject_vm_cdrom", name, "failed", str(exc))
-            raise HTTPException(status_code=500, detail=f"Eject failed: {exc}") from exc
-
+        privileged.ask("vm.eject_cdrom", user, "eject_vm_cdrom", name, vm=name, target=target_dev)
         log_action(user["username"], "eject_vm_cdrom", name, "success")
         return {"vm": name, "ejected": True}
     finally:

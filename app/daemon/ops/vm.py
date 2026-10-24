@@ -159,7 +159,7 @@ def _definition(fn):
 
     @functools.wraps(fn)
     def wrapper(args, ctx):
-        from app.core import cpu_pinning, libvirt_utils
+        from app.core import cpu_pinning, libvirt_utils, vm_devices
         from app.core import vm_hardware_opts as opts
 
         with libvirt_utils.local_conn() as conn:
@@ -170,6 +170,8 @@ def _definition(fn):
                 raise DaemonError("refused", str(e)) from e
             except cpu_pinning.PinningError as e:
                 raise DaemonError("refused" if e.status == 422 else "in_use", e.message) from e
+            except vm_devices.DeviceError as e:
+                raise DaemonError(e.kind, e.message) from e
 
     return _libvirt(wrapper)
 
@@ -314,3 +316,138 @@ def set_machine(args, conn, domain):
     from app.core import vm_hardware_opts as opts
 
     return opts.set_machine(conn, domain, args.machine)
+
+
+# --- Part 2b: a VM's devices (app/core/vm_devices.py) ---
+
+TARGET = r"^[a-z]{2,4}[0-9]{0,2}$"  # the routes' own rule (app/routers/vms/_shared.py, TARGET_DEV_RE)
+MAC = r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$"
+NAME = 64
+
+
+class AttachDiskArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    pool: str = Field(min_length=1, max_length=NAME)
+    volume: str = Field(min_length=1, max_length=256)
+    target: str = Field(pattern=TARGET)
+
+
+@operation("vm.attach_disk", AttachDiskArgs)
+@_definition
+def attach_disk(args, conn, domain):
+    """A volume of a pool, found here, attached with the format it really has, once it names no other file to read."""
+    from app.core import vm_devices
+
+    vm_devices.attach_disk(conn, domain, args.pool, args.volume, args.target)
+
+
+class DiskTargetArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    target: str = Field(pattern=TARGET)
+
+
+@operation("vm.detach_disk", DiskTargetArgs)
+@_definition
+def detach_disk(args, conn, domain):
+    from app.core import vm_devices
+
+    vm_devices.detach_disk(domain, args.target)
+
+
+class InterfaceArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    network: str = Field(min_length=1, max_length=NAME)
+    vlan_tag: int | None = Field(None, ge=1, le=4094)
+    vlan_trunks: str | None = Field(None, max_length=200)
+
+
+class SetInterfaceArgs(InterfaceArgs):
+    mac: str | None = Field(None, max_length=32)
+
+
+@operation("vm.set_interface", SetInterfaceArgs)
+@_definition
+def set_interface(args, conn, domain):
+    """An interface moved to another network in place, keeping its MAC address, with its VLANs."""
+    from app.core import vm_devices
+
+    vm_devices.set_interface(conn, domain, args.mac, args.network, args.vlan_tag, args.vlan_trunks)
+
+
+@operation("vm.attach_interface", InterfaceArgs)
+@_definition
+def attach_interface(args, conn, domain):
+    from app.core import vm_devices
+
+    vm_devices.attach_interface(conn, domain, args.network, args.vlan_tag, args.vlan_trunks)
+
+
+class DetachInterfaceArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    mac: str = Field(pattern=MAC)
+
+
+@operation("vm.detach_interface", DetachInterfaceArgs)
+@_definition
+def detach_interface(args, conn, domain):
+    """Never the VM's last interface."""
+    from app.core import vm_devices
+
+    vm_devices.detach_interface(domain, args.mac)
+
+
+class HostdevArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    device: str = Field(min_length=1, max_length=80)
+    confirm: bool = False
+
+
+@operation("vm.attach_hostdev", HostdevArgs)
+@_definition
+def attach_hostdev(args, conn, domain):
+    """A host device given to the VM whole or not at all, checked against the host's own use of it
+    (passthrough.plan_attach); a PCI device only when confirmed."""
+    from app.core import vm_devices
+
+    return vm_devices.attach_hostdev(conn, domain, args.device, args.confirm)
+
+
+class DetachHostdevArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    device: str = Field(min_length=1, max_length=80)
+
+
+@operation("vm.detach_hostdev", DetachHostdevArgs)
+@_definition
+def detach_hostdev(args, conn, domain):
+    from app.core import vm_devices
+
+    vm_devices.detach_hostdev(conn, domain, args.device)
+
+
+class CdromArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    iso: str = Field(min_length=1, max_length=256)
+    target: Literal["hda", "hdb", "hdc", "hdd"] | None = None
+
+
+@operation("vm.set_cdrom", CdromArgs)
+@_definition
+def set_cdrom(args, conn, domain):
+    """An ISO of this node's library, named, put in a CD-ROM drive (never a path from the API)."""
+    from app.core import vm_devices
+
+    return {"iso": vm_devices.set_cdrom(domain, args.iso, args.target)}
+
+
+class EjectArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    target: Literal["hda", "hdb", "hdc", "hdd"] | None = None
+
+
+@operation("vm.eject_cdrom", EjectArgs)
+@_definition
+def eject_cdrom(args, conn, domain):
+    from app.core import vm_devices
+
+    vm_devices.eject_cdrom(domain, args.target)
