@@ -22,12 +22,14 @@ def _named_operations():
         text = path.read_text()
         names |= set(re.findall(r'privileged\.run\(\s*"([a-z_]+\.[a-z_]+)"', text))
         names |= set(re.findall(r'_ask\(\s*\w+,\s*"[a-z_]+",\s*"([a-z_]+\.[a-z_]+)"', text))
+        names |= set(re.findall(r'_daemon\(\s*"([a-z_]+\.[a-z_]+)"', text))
     return names
 
 
 def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     named = _named_operations()
     assert {"host.set_dns", "host.upgrade", "host.schedule_power"} <= named  # the scan finds them
+    assert {"network.firewall_apply", "network.vlan_aware_start", "network.vlan_apply_vm", "network.vlan_boot"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 

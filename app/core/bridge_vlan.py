@@ -17,6 +17,11 @@ VLANs 2-4094 tagged on its uplinks (a NIC, a bond, a VLAN interface) and on the 
 host's own address, the VMs and containers) stays on VLAN 1. The change is a trial until the dashboard confirms it from
 a new request (start_trial, confirm_trial), and undone otherwise; confirmed, the bridge is listed in AWARE_FILE and made
 VLAN-aware again at boot, before libvirt (`python -m app.core.bridge_vlan boot`, installer/hyperlite-vlan-bridges.service).
+
+What needs root (`ip link`, `bridge vlan`, the list of bridges kept VLAN-aware) is run by hyperlite-daemon
+(app/daemon/ops/network.py, docs/design/privilege-separation.md section 13), from a network's or a VM's name: it reads
+the bridge and the VM's ports itself, so the API cannot point it at another interface. Reading the bridges' state
+needs no root and stays in the API; the libvirt hook and the boot unit are root already.
 """
 
 import json
@@ -253,10 +258,17 @@ def apply_domain(root, node=None):
     return errors
 
 
-def apply_running(conn, node=None):
-    """Every running VM of `conn`: what the service does when it starts, for VMs started while it was not running."""
+def apply_running(conn=None, node=None):
+    """Every running VM of `conn` (this node's by default): what the service does when it starts, for VMs started
+    while it was not running."""
     import libvirt
 
+    if conn is None:
+        conn = _connect()
+        try:
+            return apply_running(conn, node)
+        finally:
+            conn.close()
     errors = []
     for domain in conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE):
         try:
@@ -303,6 +315,62 @@ def _aware_file():
 
 def is_linux_bridge(bridge):
     return bool(bridge) and BRIDGE_NAME_RE.fullmatch(bridge) is not None and (SYS_NET / bridge / "bridge").is_dir()
+
+
+def linux_bridge_of_network(root):
+    """The host Linux bridge a bridge network (its parsed XML) sits on, or None (NAT, isolated, macvtap, Open vSwitch)."""
+    from app.core import network_edit
+
+    forward = root.find("forward")
+    bridge = root.find("bridge")
+    if forward is None or forward.get("mode") != "bridge" or bridge is None or network_edit.carries_vlan_tags(root):
+        return None
+    name = bridge.get("name")
+    return name if is_linux_bridge(name) else None
+
+
+def _connect():
+    import libvirt
+
+    from app.core.libvirt_utils import LIBVIRT_URI
+
+    return libvirt.open(LIBVIRT_URI)
+
+
+def network_bridge(network):
+    """The Linux bridge of this node's libvirt network `network`, read here: what the daemon acts on."""
+    import libvirt
+
+    conn = _connect()
+    try:
+        try:
+            root = ET.fromstring(conn.networkLookupByName(network).XMLDesc(0))
+        except libvirt.libvirtError:
+            raise VlanError(f"Network '{network}' not found") from None
+    finally:
+        conn.close()
+    bridge = linux_bridge_of_network(root)
+    if bridge is None:
+        raise VlanError(f"Network '{network}' is not on a Linux bridge of this host")
+    return bridge
+
+
+def apply_vm(vm):
+    """The VLANs of the running VM `vm` of this node set on its bridge ports, from its live definition read here.
+    Returns the errors, one per port; a stopped VM gets its VLANs from the libvirt hook when it starts."""
+    import libvirt
+
+    conn = _connect()
+    try:
+        try:
+            domain = conn.lookupByName(vm)
+        except libvirt.libvirtError:
+            raise VlanError(f"VM '{vm}' not found") from None
+        if not domain.isActive():
+            return []
+        return apply_domain(ET.fromstring(domain.XMLDesc(0)))
+    finally:
+        conn.close()
 
 
 def uplinks(bridge):

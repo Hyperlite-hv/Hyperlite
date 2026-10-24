@@ -15,7 +15,12 @@ for NAT (LIBVIRT_FWI/FWO/FWX, present for every started NAT/isolated network).
 
 Our chain (HYPERLITENETFW) is inserted at position 1 of FORWARD, so it is
 evaluated BEFORE libvirt's chains: an explicit DROP here blocks the traffic
-before libvirt has any chance to allow it."""
+before libvirt has any chance to allow it.
+
+iptables needs root: hyperlite-daemon runs it (app/daemon/ops/network.py, docs/design/privilege-separation.md section
+13), from the network's name alone; it reads the network's bridge itself, so the API cannot point a rule at another
+interface. The API keeps the rules in the database and asks for them by name (apply_network_firewall,
+remove_network_firewall, reapply_all)."""
 
 import hashlib
 import json
@@ -66,6 +71,20 @@ def _ensure_umbrella_chain():
     check = _run("-C", "FORWARD", "-j", UMBRELLA_CHAIN)
     if check.returncode != 0:
         _run("-I", "FORWARD", "1", "-j", UMBRELLA_CHAIN)
+
+
+class Refused(ValueError):
+    """Not applied: the network is unknown or has no bridge of its own. The message is for the user."""
+
+
+class Unavailable(RuntimeError):
+    """hyperlite-daemon does not answer."""
+
+
+def _connect():
+    from app.core.libvirt_utils import LIBVIRT_URI
+
+    return libvirt.open(LIBVIRT_URI)
 
 
 def _bridge_name(conn, network_name: str):
@@ -122,15 +141,18 @@ def _build_rule_specs(bridge: str, config: dict):
     return specs
 
 
-def apply_network_firewall(conn, network_name: str, config: dict):
-    """Fully rebuild the network's dedicated chain (flush + rules in order), the same
-    principle as nwfilterDefineXML for the per-VM firewall: everything is
-    redefined instead of applying an incremental patch, so it never diverges
-    from `config`. Returns a summary and raises ValueError/RuntimeError on
-    failure (the caller translates them to HTTPException)."""
-    bridge = _bridge_name(conn, network_name)
+def apply_rules(network_name: str, config: dict):
+    """As root (hyperlite-daemon): fully rebuild the network's dedicated chain (flush + rules in order), the same
+    principle as nwfilterDefineXML for the per-VM firewall: everything is redefined instead of applying an incremental
+    patch, so it never diverges from `config`. Returns the bridge; raises Refused or RuntimeError (iptables refused a
+    rule)."""
+    conn = _connect()
+    try:
+        bridge = _bridge_name(conn, network_name)
+    finally:
+        conn.close()
     if not bridge:
-        raise ValueError(
+        raise Refused(
             f"Network '{network_name}' not found or has no associated bridge ('bridge' mode towards a host bridge not managed by Hyperlite?)"
         )
 
@@ -144,10 +166,45 @@ def apply_network_firewall(conn, network_name: str, config: dict):
         if result.returncode != 0:
             raise RuntimeError(f"iptables refused a rule ({' '.join(spec)}): {result.stderr.strip()}")
     _ensure_network_jump(bridge, chain)
+    return {"bridge": bridge}
 
+
+def remove_rules(network_name: str):
+    """As root (hyperlite-daemon): the network's chain and its jumps, while its bridge can still be read."""
+    conn = _connect()
+    try:
+        bridge = _bridge_name(conn, network_name)
+    finally:
+        conn.close()
+    chain = _chain_name(network_name)
+    if bridge:
+        _remove_network_jump(bridge, chain)
+    if _chain_exists(chain):
+        _run("-F", chain)
+        _run("-X", chain)
+
+
+def _daemon(op, user, **args):
+    """hyperlite-daemon's answer to `op`: its refusal as Refused, any other failure as RuntimeError."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        return privileged.run(op, user=user, **args)
+    except DaemonError as e:
+        if e.kind == "refused":
+            raise Refused(e.detail) from None
+        if e.kind == "unavailable":
+            raise Unavailable(e.detail) from None
+        raise RuntimeError(e.detail) from None
+
+
+def apply_network_firewall(network_name: str, config: dict, user=None):
+    """Apply `config` to the network's bridge (hyperlite-daemon) and keep it, to replay after a reboot. Returns a
+    summary; raises Refused (a ValueError) or RuntimeError, which the caller translates to HTTPException."""
+    result = _daemon("network.firewall_apply", user, network=network_name, config=config)
     _store().save_network_firewall(network_name, config["default_policy"], json.dumps(config["rules"]))
-
-    return {"bridge": bridge, "applied_rules": len(config["rules"])}
+    return {"bridge": result["bridge"], "applied_rules": len(config["rules"])}
 
 
 def get_network_firewall(network_name: str) -> dict:
@@ -160,23 +217,16 @@ def get_network_firewall(network_name: str) -> dict:
     return {"default_policy": row["default_policy"], "rules": json.loads(row["rules_json"])}
 
 
-def remove_network_firewall(conn, network_name: str):
-    """Called when a network is deleted (app/routers/network.py). Without it, the
-    jump from HYPERLITENETFW and the dedicated chain would stay referenced to a
-    bridge that no longer exists (harmless in practice, since iptables never
-    matches anything for a vanished bridge, purpose an orphan chain accumulating
-    with every recreated network would eventually pollute the table)."""
-    bridge = _bridge_name(conn, network_name)
-    chain = _chain_name(network_name)
-    if bridge:
-        _remove_network_jump(bridge, chain)
-    if _chain_exists(chain):
-        _run("-F", chain)
-        _run("-X", chain)
+def remove_network_firewall(network_name: str, user=None):
+    """Called when a network is deleted or renamed (app/routers/network.py), before libvirt forgets its bridge.
+    Without it, the jump from HYPERLITENETFW and the dedicated chain would stay referenced to a bridge that no longer
+    exists (harmless in practice, since iptables never matches anything for a vanished bridge, but an orphan chain
+    accumulating with every recreated network would eventually pollute the table)."""
+    _daemon("network.firewall_remove", user, network=network_name)
     _store().delete_network_firewall(network_name)
 
 
-def reapply_all(conn):
+def reapply_all(user=None):
     """Called when the service starts (app/main.py::on_startup). iptables rules do
     NOT survive a HOST reboot (unlike the per-VM firewall's nwfilter, which
     libvirt itself stores and reapplies automatically). Without this reapply, a
@@ -186,6 +236,6 @@ def reapply_all(conn):
     for row in _store().network_firewalls():
         config = {"default_policy": row["default_policy"], "rules": json.loads(row["rules_json"])}
         try:
-            apply_network_firewall(conn, row["network_name"], config)
+            _daemon("network.firewall_apply", user, network=row["network_name"], config=config)
         except Exception:
             logger.exception("Reapplying the firewall of network %s failed", row["network_name"])

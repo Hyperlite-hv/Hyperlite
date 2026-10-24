@@ -52,11 +52,17 @@ class Conn:
             raise fw.libvirt.libvirtError("no network")
         return Net()
 
+    def close(self):
+        pass
+
 
 @pytest.fixture()
 def iptables(monkeypatch):
+    """iptables, and the libvirt connection hyperlite-daemon opens to read the network's bridge (the operations run in
+    this process in the tests, app/core/privileged.py)."""
     fake = FakeIptables()
     monkeypatch.setattr(fw, "_run", fake)
+    monkeypatch.setattr(fw, "_connect", Conn)
     return fake
 
 
@@ -79,23 +85,23 @@ def test_rules_are_stateful_ordered_and_end_with_the_default_policy():
 
 def test_applying_puts_our_chain_first_in_forward_and_rebuilds_it(iptables, database):
     iptables.chains["FORWARD"] = [["-j", "LIBVIRT_FWX"]]
-    result = fw.apply_network_firewall(Conn(), "lab", CONFIG)
+    result = fw.apply_network_firewall("lab", CONFIG)
     assert result == {"bridge": "virbr7", "applied_rules": 2}
     assert iptables.chains["FORWARD"][0] == ["-j", fw.UMBRELLA_CHAIN]  # evaluated before libvirt's chains
     chain = fw._chain_name("lab")
     assert iptables.chains[chain] == fw._build_rule_specs("virbr7", CONFIG)
     # Applying again replaces the rules (flush), never appends a second copy.
-    fw.apply_network_firewall(Conn(), "lab", CONFIG)
+    fw.apply_network_firewall("lab", CONFIG)
     assert iptables.chains[chain] == fw._build_rule_specs("virbr7", CONFIG)
     assert iptables.chains["FORWARD"].count(["-j", fw.UMBRELLA_CHAIN]) == 1
     assert iptables.chains[fw.UMBRELLA_CHAIN].count(["-i", "virbr7", "-j", chain]) == 1
 
 
 def test_the_configuration_is_stored_and_replayed_after_a_reboot(iptables, database):
-    fw.apply_network_firewall(Conn(), "lab", CONFIG)
+    fw.apply_network_firewall("lab", CONFIG)
     assert fw.get_network_firewall("lab") == {"default_policy": "drop", "rules": CONFIG["rules"]}
     iptables.chains = {"FORWARD": []}  # a reboot: iptables starts empty
-    fw.reapply_all(Conn())
+    fw.reapply_all()
     assert iptables.chains[fw._chain_name("lab")] == fw._build_rule_specs("virbr7", CONFIG)
 
 
@@ -110,12 +116,12 @@ def test_a_rule_iptables_refuses_is_an_error(iptables, database, monkeypatch):
 
     monkeypatch.setattr(fw, "_run", refuse_port)
     with pytest.raises(RuntimeError, match="refused a rule"):
-        fw.apply_network_firewall(Conn(), "lab", CONFIG)
+        fw.apply_network_firewall("lab", CONFIG)
 
 
 def test_removal_leaves_no_chain_nor_jump(iptables, database):
-    fw.apply_network_firewall(Conn(), "lab", CONFIG)
-    fw.remove_network_firewall(Conn(), "lab")
+    fw.apply_network_firewall("lab", CONFIG)
+    fw.remove_network_firewall("lab")
     assert fw._chain_name("lab") not in iptables.chains
     assert iptables.chains[fw.UMBRELLA_CHAIN] == []
     assert fw.get_network_firewall("lab")["rules"] == []
@@ -128,5 +134,5 @@ def test_chain_names_are_distinct_and_within_the_iptables_limit():
 
 def test_an_unknown_network_is_refused(iptables, database):
     with pytest.raises(ValueError):
-        fw.apply_network_firewall(Conn(), "nope", CONFIG)
+        fw.apply_network_firewall("nope", CONFIG)
     assert json.loads(json.dumps(fw.get_network_firewall("nope")))["default_policy"] == "accept"
