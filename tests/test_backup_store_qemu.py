@@ -68,7 +68,7 @@ def vm(database, monkeypatch):
     yield {"domain": domain, "store": store, "qcow2": qcow2, "raw": raw, "device": device, "tmp": tmp}
     if domain.isActive():
         domain.destroy()
-    domain.undefine()
+    domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_CHECKPOINTS_METADATA)  # a backup's checkpoints with it
     subprocess.run(["losetup", "-d", device], check=False)
     for path in (qcow2, raw, loop_file):
         path.unlink(missing_ok=True)
@@ -193,3 +193,69 @@ def test_a_backup_job_into_a_store_and_its_restores(vm, monkeypatch, encrypted):
             pass
         conn.close()
         shutil.rmtree(store.root.parent / f"{VM}-enc", ignore_errors=True)
+
+
+def _write_through_the_guest(offset_mib, length_mib, pattern):
+    """A write as the guest makes it: through the virtio disk's own block backend, so its dirty bitmap counts it."""
+    command = (
+        f'qemu-io -d /machine/peripheral/virtio-disk0/virtio-backend "write -P {pattern} {offset_mib}M {length_mib}M"'
+    )
+    subprocess.run(["virsh", "qemu-monitor-command", "--hmp", VM, command], check=True, capture_output=True)
+
+
+def _manifest(store, index=-1):
+    return store.backups()[index][2]
+
+
+def test_a_second_backup_reads_only_the_chunks_the_guest_changed(vm):
+    """The qcow2 disk keeps a dirty bitmap from one backup to the next; the raw file and the block device are read
+    whole. Only this store's last checkpoint stays; a backup made incrementally restores identical."""
+    domain, store = vm["domain"], vm["store"]
+    domain.create()
+    backup_store_vm.backup_vm(domain, store)
+    first = _manifest(store)
+    assert first["read"] == {"vda": "full", "vdb": "full", "vdc": "full"} and first["checkpoint"]
+    _write_through_the_guest(8, 10, "0x5a")  # chunks 2, 3 and 4 of 4 MiB
+    backup_store_vm.backup_vm(domain, store)
+    second = _manifest(store)
+    assert second["read"] == {"vda": "incremental", "vdb": "full", "vdc": "full"}
+    assert second["chunks_read"]["vda"] == 3 and second["full_at"] == first["full_at"]
+    assert [c.getName() for c in domain.listAllCheckpoints()] == [second["checkpoint"]]
+    backup_store_vm.backup_vm(domain, store)
+    assert _manifest(store)["chunks_read"]["vda"] == 0  # nothing changed
+    domain.destroy()
+    vm_uuid, stamp, _ = store.backups()[1]
+    assert same("qcow2", vm["qcow2"], "qcow2", _restored(store, vm_uuid, stamp, "vda", "qcow2"))
+    assert store.verify(vm_uuid, stamp) == []
+
+
+def test_a_backup_of_the_stopped_vm_keeps_the_next_one_incremental(vm):
+    domain, store = vm["domain"], vm["store"]
+    domain.create()
+    backup_store_vm.backup_vm(domain, store)
+    domain.destroy()
+    backup_store_vm.backup_vm(domain, store)  # stopped: read whole, no checkpoint of its own
+    stopped = _manifest(store)
+    assert stopped["read"]["vda"] == "full" and "checkpoint" not in stopped
+    domain.create()
+    _write_through_the_guest(0, 1, "0x3c")
+    backup_store_vm.backup_vm(domain, store)
+    last = _manifest(store)
+    assert last["read"]["vda"] == "incremental" and last["chunks_read"]["vda"] == 1
+    domain.destroy()
+    vm_uuid, stamp, _ = store.backups()[-1]
+    assert same("qcow2", vm["qcow2"], "qcow2", _restored(store, vm_uuid, stamp, "vda", "qcow2"))
+
+
+def test_without_its_checkpoint_a_backup_reads_whole(vm):
+    """Hyperlite drops the checkpoints before what libvirt refuses with one (a snapshot, a move, a restore): the next
+    backup cannot count the changed blocks and reads the disk whole."""
+    from app.core import checkpoints
+
+    domain, store = vm["domain"], vm["store"]
+    domain.create()
+    backup_store_vm.backup_vm(domain, store)
+    checkpoints.release(domain)
+    backup_store_vm.backup_vm(domain, store)
+    assert _manifest(store)["read"]["vda"] == "full"
+    domain.destroy()
