@@ -137,7 +137,9 @@ class Index:
 class Store:
     """A store opened at `root`, with its key when it is encrypted (32 bytes)."""
 
-    def __init__(self, root, key=None):
+    def __init__(self, root, key=None, raw=False):
+        """raw: open an encrypted store without its key, to copy its chunks and backups as they are (the copy of an
+        off-site store never needs the key); nothing is encoded, decoded or verified beyond CRCs then."""
         self.root = Path(root)
         try:
             self.config = json.loads((self.root / CONFIG).read_text())
@@ -149,7 +151,8 @@ class Store:
             raise StoreError(f"{self.root}: store format {self.config.get('format')} is not supported")
         self.chunk_size = int(self.config["chunk_size"])
         self.encrypted = bool(self.config.get("encrypted"))
-        if self.encrypted:
+        self.raw = raw and key is None
+        if self.encrypted and not self.raw:
             if key is None:
                 raise StoreError(f"{self.root} is encrypted: its key is needed")
             if not hmac.compare_digest(fingerprint(key), self.config.get("key_fingerprint", "")):
@@ -353,6 +356,76 @@ class Store:
         if hashlib.sha256(raw).hexdigest() != manifest["disks"][disk]["sha256"]:
             raise ValueError(f"index of {disk} does not match the manifest")
         return Index.decode(raw)
+
+    def same_chunks_as(self, other):
+        """Whether `other`'s chunks are named and sealed as this store's: the same chunk size and the same key (or
+        both unencrypted), so a chunk is copied from one to the other as it is."""
+        return (
+            self.chunk_size == other.chunk_size
+            and self.encrypted == other.encrypted
+            and self.config.get("key_fingerprint") == other.config.get("key_fingerprint")
+        )
+
+    def check_blob(self, digest):
+        """A chunk's CRC, without its key: what a store that only keeps copies can check (bit rot, a cut copy)."""
+        blob = self.chunk_path(digest).read_bytes()
+        if len(blob) < _HEADER.size:
+            raise DamagedChunk(digest, "too short")
+        magic, fmt, _flags, _, _length, crc = _HEADER.unpack_from(blob)
+        if magic != _MAGIC or fmt != FORMAT or zlib.crc32(blob[_HEADER.size :]) != crc:
+            raise DamagedChunk(digest, "CRC does not match")
+        return blob
+
+    def copy_backup_from(self, source, vm_uuid, stamp):
+        """Copy one backup of `source` here as it is: the chunks this store lacks (each checked against its CRC
+        first), then its indexes and files, then its manifest, last, as every backup is written. Returns the number
+        of chunks copied. Refused unless the two stores name and seal chunks alike (same_chunks_as)."""
+        if not self.same_chunks_as(source):
+            raise StoreError(
+                "The two stores do not share their chunk size and key: a copy store is made from its source"
+            )
+        if (self.backup_dir(vm_uuid, stamp) / "manifest.json").exists():
+            return 0
+        src = source.backup_dir(vm_uuid, stamp)
+        manifest = json.loads((src / "manifest.json").read_text())
+        copied = 0
+        for disk in manifest["disks"]:
+            for digest in set(source.index_of(vm_uuid, stamp, disk).digests) - {ZERO}:
+                path = self.chunk_path(digest)
+                try:
+                    os.utime(path)  # already here: kept for this backup, as put() does
+                    continue
+                except FileNotFoundError:
+                    pass
+                blob = source.check_blob(digest)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                _write_atomic(path, blob)
+                copied += 1
+        directory = self.backup_dir(vm_uuid, stamp)
+        directory.mkdir(parents=True, exist_ok=True)
+        for item in sorted(src.iterdir()):
+            if item.name != "manifest.json" and item.is_file():
+                _write_atomic(directory / _safe(item.name), item.read_bytes())
+        copy = {**manifest, "store": self.id, "copied_from": source.id}
+        _write_atomic(directory / "manifest.json", json.dumps(copy, indent=1).encode())
+        return copied
+
+    def verify_raw(self, vm_uuid, stamp):
+        """verify() for a store opened raw: every chunk's CRC, its index's checksum (not the content: no key)."""
+        manifest = json.loads((self.backup_dir(vm_uuid, stamp) / "manifest.json").read_text())
+        bad, checked = [], set()
+        for disk in manifest["disks"]:
+            for digest in self.index_of(vm_uuid, stamp, disk).digests:
+                if digest == ZERO or digest in checked:
+                    continue
+                checked.add(digest)
+                try:
+                    self.check_blob(digest)
+                except FileNotFoundError:
+                    bad.append(digest)
+                except DamagedChunk:
+                    bad.append(digest)
+        return bad
 
     def delete_backup(self, vm_uuid, stamp):
         """Remove a backup's index and files; its chunks go at the next garbage collection. The manifest goes first,

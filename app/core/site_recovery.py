@@ -16,6 +16,7 @@ a site is lost stays with an administrator: from the other site, a dead site and
 starting the same VMs on both sides would corrupt their data.
 """
 
+import json
 import logging
 import os
 import threading
@@ -23,7 +24,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import backup_integrity, paths
+from app.core import backup_integrity, backup_store, paths
 from app.core.backup_groups import GroupError, validate_target
 from app.core.tasks import create_task, finish_task, update_task_progress
 
@@ -123,11 +124,13 @@ def scan(directory):
     """[{"vm", "exists_here", "backups": [newest first]}] for every VM with at least one complete backup (a
     manifest listing at least one disk) under `directory`. Symbolic links are not followed: a link planted on a
     shared storage must not make this node read elsewhere."""
-    from app.core.libvirt_utils import open_conn
     from app.core.vm_builder import validate_name
 
     root = _directory(directory)
     known = {r["path"]: r for r in _store().list_all(limit=100000)}
+    if (root / backup_store.CONFIG).is_file():
+        vms = _scan_store(root, known)
+        return _mark_existing(vms)
     vms = []
     try:
         vm_dirs = sorted(os.scandir(root), key=lambda e: e.name)
@@ -157,6 +160,12 @@ def scan(directory):
             backups.sort(key=lambda b: b["created_at"] or "", reverse=True)
             vms.append({"vm": vm_entry.name, "backups": backups})
 
+    return _mark_existing(vms)
+
+
+def _mark_existing(vms):
+    from app.core.libvirt_utils import open_conn
+
     conn = open_conn()
     try:
         local = {d.name() for d in conn.listAllDomains()}
@@ -167,10 +176,72 @@ def scan(directory):
     return vms
 
 
+def _store_row(root):
+    """The backup store of this cluster at `root`, and the store itself (with its key, an encrypted one's): a backup
+    is restored from a store this cluster knows, never from one it was not given."""
+    from app.core import backup_stores
+
+    try:
+        store_id = json.loads((Path(root) / backup_store.CONFIG).read_text())["id"]
+    except (OSError, ValueError, KeyError):
+        raise RecoveryError(f"{root} is not a backup store this node can read") from None
+    row = next((r for r in _store().list_stores() if r["store_id"] == store_id), None)
+    if row is None:
+        raise RecoveryError(
+            f"{root} is a backup store this cluster does not know: add it in Backups > Backup stores (it is taken "
+            "over, with its key when it is encrypted), then scan it again"
+        )
+    try:
+        return row, backup_stores.open_store(row["name"])
+    except backup_stores.StoreError as e:
+        raise RecoveryError(e.message) from None
+
+
+def _store_summary(backup_dir, manifest, known, row):
+    path = str(backup_dir)
+    known_row = known.get(path)
+    return {
+        "path": path,
+        "created_at": manifest.get("time"),
+        "mode": manifest.get("mode") if manifest.get("mode") in ("live", "cold") else "cold",
+        "firmware": None,  # in the backup's files, encrypted in an encrypted store: read by the restore
+        "source": f"{row['name']}" + (f" (copy of {row['copy_of']})" if row.get("copy_of") else ""),
+        "disks": len(manifest.get("disks") or {}),
+        "size_bytes": sum(int(d.get("size") or 0) for d in (manifest.get("disks") or {}).values()),
+        "backup_id": known_row["id"] if known_row else None,
+    }
+
+
+def _scan_store(root, known):
+    """scan() of a backup store: its backups by VM name, newest first."""
+    from app.core.vm_builder import validate_name
+
+    row, store = _store_row(root)
+    by_vm = {}
+    for vm_uuid, stamp, manifest in store.backups():
+        vm = manifest.get("vm") or ""
+        if validate_name(vm) or not manifest.get("disks"):
+            continue
+        by_vm.setdefault(vm, []).append(_store_summary(store.backup_dir(vm_uuid, stamp), manifest, known, row))
+    vms = []
+    for vm in sorted(by_vm)[:MAX_VMS]:
+        backups = sorted(by_vm[vm], key=lambda b: b["created_at"] or "", reverse=True)[:MAX_BACKUPS_PER_VM]
+        vms.append({"vm": vm, "backups": backups})
+    return vms
+
+
 def _backup_dir(path):
     """A backup directory given by a client: absolute, no '..', no symbolic link anywhere, under an allowed root,
     holding a manifest of a backup with at least one disk."""
     backup_dir = _allowed(path)
+    if len(backup_dir.parents) >= 3 and (backup_dir.parents[2] / backup_store.CONFIG).is_file():
+        try:
+            manifest = json.loads((backup_dir / "manifest.json").read_text())
+        except (OSError, ValueError):
+            manifest = None
+        if not isinstance(manifest, dict) or not manifest.get("disks"):
+            raise RecoveryError(f"No Hyperlite backup in {backup_dir}")
+        return backup_dir, manifest
     manifest = backup_integrity.read_manifest(str(backup_dir))
     if not isinstance(manifest, dict) or not any(f.get("role") == "disk" for f in manifest.get("files") or []):
         raise RecoveryError(f"No Hyperlite backup in {backup_dir}")
@@ -189,6 +260,15 @@ def register(path, username="system"):
     vm = manifest.get("vm") or ""
     if validate_name(vm):
         raise RecoveryError("The backup's manifest names an invalid VM")
+    if "disks" in manifest and isinstance(manifest["disks"], dict):  # a backup in a store
+        row, _store_obj = _store_row(backup_dir.parents[2])
+        summary = _store_summary(backup_dir, manifest, {}, row)
+        backup_id = _store().register_imported(
+            vm, str(backup_dir), summary["mode"], summary["created_at"] or "", summary["size_bytes"], None,
+            summary["source"][:255], store=row["name"],
+        )  # fmt: skip
+        log_action(username, "import_backup", vm, "success", f"#{backup_id} from the store {row['name']}")
+        return backup_id
     summary = _summary(backup_dir, manifest, {})
     disks = [f for f in manifest.get("files") or [] if f.get("role") == "disk"]
     checksum = disks[0].get("sha256") if len(disks) == 1 else None
