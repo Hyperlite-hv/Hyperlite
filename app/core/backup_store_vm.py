@@ -383,7 +383,7 @@ def backup_vm(domain, store, mode="live", disks=None, progress=None, files=None,
     disks = disks if disks is not None else disks_of(domain)
     if not disks:
         raise BackupFailed("This VM has no disk to back up")
-    stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = _free_stamp(domain, store)
     running = domain.isActive()
     workdir = _workdir(for_qemu=running)
     # The qcow2 files keep a dirty bitmap from one backup to the next; other disks are read whole each time.
@@ -457,6 +457,20 @@ def backup_vm(domain, store, mode="live", disks=None, progress=None, files=None,
     if running:
         _drop_checkpoints(domain, store, checkpoint[0] if checkpoint else None)
     return directory
+
+
+def _free_stamp(domain, store):
+    """The backup's time, to the second, as its directory and its checkpoint are named: a second backup of the VM
+    within the same second (an unchanged VM's incremental takes less) waits for the next one rather than collide with
+    the first."""
+    while True:
+        stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        taken = store.backup_dir(domain.UUIDString(), stamp).exists() or _checkpoint_name(store, stamp) in (
+            checkpoints.names(domain) if domain.isActive() else []
+        )
+        if not taken:
+            return stamp
+        time.sleep(1.05 - datetime.now(UTC).microsecond / 1e6)
 
 
 def _now_iso():

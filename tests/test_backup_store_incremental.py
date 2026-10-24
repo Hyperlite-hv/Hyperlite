@@ -134,3 +134,17 @@ def test_a_backup_reads_only_the_changes_when_its_base_is_sound(tmp_path):
     old = (datetime.now(UTC) - timedelta(days=backup_store_vm.FULL_EVERY_DAYS + 1)).isoformat()
     _recorded(store, "t3", checkpoint="c3", full_at=old)
     assert backup_store_vm._incremental_base(_Domain(checkpoints=["c3"]), store) is None  # time for a whole read
+
+
+def test_a_second_backup_within_the_same_second_waits_for_the_next(tmp_path):
+    """Seen on CI: two backups of a small, unchanged VM in one second, the second finding the first's directory or
+    checkpoint already named."""
+    store = backup_store.create(tmp_path / "s", chunk_size=CHUNK)
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    store.backup_dir(VM, now).mkdir(parents=True)
+    domain = _Domain(checkpoints=[])
+    stamp = backup_store_vm._free_stamp(domain, store)
+    assert stamp > now and not store.backup_dir(VM, stamp).exists()
+    taken = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = backup_store_vm._free_stamp(_Domain(checkpoints=[backup_store_vm._checkpoint_name(store, taken)]), store)
+    assert stamp > taken
