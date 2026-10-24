@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app.core import audit, tasks, vm_clone, vm_locks
+from app.core import audit, tasks, vm_clone, vm_locks, vm_templates
 from app.routers import templates
 from app.routers.vms import create
 from tests.test_clone_safety import FakeConn
@@ -92,13 +92,14 @@ def test_a_clone_that_fails_after_the_answer_closes_its_task(cloning, client, au
 
 
 @pytest.fixture()
-def deploying(database, tmp_path, monkeypatch):
+def deploying(database, tmp_path, monkeypatch, daemon_libvirt):
     conn = _Conn()
-    monkeypatch.setattr(templates, "IMAGES_DIR", tmp_path)
-    monkeypatch.setattr(templates, "open_conn", lambda *a: conn)
-    monkeypatch.setattr(templates, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_templates, "IMAGES_DIR", tmp_path)
+    conn_ = daemon_libvirt(conn)
+    monkeypatch.setattr(templates, "open_conn", lambda *a: conn_)
+    monkeypatch.setattr(vm_templates, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(templates.maintenance, "refuse_if_in_maintenance", lambda *a: None)
-    monkeypatch.setattr(templates.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(vm_templates.subprocess, "run", lambda *a, **k: None)
     monkeypatch.setattr(
         templates.templates_store, "get_template", lambda n: {"xml": _xml(None), "disk_path": "/t/base.qcow2"}
     )
