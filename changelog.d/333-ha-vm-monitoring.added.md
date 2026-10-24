@@ -1,0 +1,1 @@
+- VM monitoring of HA VMs (#333, step 6), off by default per VM (`monitoring` when HA is turned on, or `PUT /ha/{vm}/monitoring`): a guest whose agent answered before, then stays silent for three rounds of 30 s with no disk or network I/O, is reset in place by its node, at most three times an hour, then left to an administrator. It needs qemu-guest-agent in the guest.
