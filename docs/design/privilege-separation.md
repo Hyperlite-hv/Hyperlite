@@ -410,7 +410,7 @@ pools' files (owned by root or by QEMU, mode 0600). It moves in four parts, each
 | Disks, part 1: the libraries | The ISOs and the disks to import (`app/routers/isos.py`, `app/routers/vm_disks.py`): an upload stored, an ISO renamed, a file deleted, an OVA's disks extracted (`app/core/ova.py`), the pool holding an ISO refreshed | `disk.library_store`, `disk.library_rename`, `disk.library_delete`, `disk.ova_extract` |
 | Disks, part 2: a VM's disk | Growing a disk (`app/core/disk_resize.py`) and moving it to another pool (`app/core/disk_move.py`): asked by the VM's name and the disk's target, never a path | `disk.resize`, `disk.move` (one call that waits, its progress written into the task) |
 | With the VM domain | The disks VM creation, clones, templates and linked clones make (`app/core/vm_builder.py`, `app/core/linked_disks.py`), and the check of an image Hyperlite did not write before a VM uses it (`app/core/disk_images.py`, `qemu-img info`): they go with the domain that uses them | moved with `vm.*` |
-| A domain of its own: backups | Backups, restores, replication, exports and OVA (`app/core/backups.py`, `replication.py`, `vm_export.py`, `ova.py`, `checkpoints.py`, `backup_integrity.py`): added after the VMs to section 5's list, with the live restore of #513 | `backup.*` |
+| A domain of its own: backups | Backups, restores, replication and exports, an OVA export included (`app/core/backups.py`, `replication.py`, `vm_export.py`, `checkpoints.py`, `backup_integrity.py`): added after the VMs to section 5's list, with the live restore of #513 | `backup.*` |
 
 **An upload goes through a spool, as on Proxmox VE.** pveproxy writes an upload into a temporary file it owns, and
 pvedaemon copies it into the storage. Hyperlite does the same. The API streams the upload into
@@ -420,9 +420,10 @@ again, refuses an ISO that would replace another, moves the file into the librar
 needs, and refreshes the pool that lists it. The spool is emptied of anything older than a day at start-up. Until step
 4, the API still runs as root and the spool is only a directory: nothing changes for the user.
 
-**What the API keeps.** It keeps listing the libraries (their directories made readable to the API's group at step 4) and
-the checks that need no file (the name, an upload's size, a VM that has the ISO in its drive). It also keeps the audit log, the tasks and
-`?node=`. Sharing an ISO with another node (`app/core/iso_share.py`, over SSH) moves with the cluster domain.
+**What the API keeps.** It keeps listing the libraries (their directories made readable to the API's group at step 4)
+and the checks that need no file (the name, an upload's size, a VM that has the ISO in its drive). It also keeps the
+audit log, the tasks and `?node=`. Sharing an ISO with another node (`app/core/iso_share.py`, over SSH) moves with the
+cluster domain.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of
