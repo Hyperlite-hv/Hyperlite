@@ -196,15 +196,15 @@ def display_relay(node, port):
     return [*node_ssh(node), "-W", f"127.0.0.1:{int(port)}", "--", f"{node['ssh_user']}@{node['hostname']}"]
 
 
-def guest_ssh(address, user, node=None):
-    """ssh to a guest with the automation key, in a terminal; through its node for a VM of another node (the guest's
-    address is on that node's networks). The guest's host key is not checked, as before: it is made at its first boot
-    and Hyperlite never recorded it."""
+def guest_ssh(address, user, node=None, terminal=True):
+    """ssh to a guest with the automation key, in a terminal (or for one command: an automation job's step); through
+    its node for a VM of another node (the guest's address is on that node's networks). The guest's host key is not
+    checked, as before: it is made at its first boot and Hyperlite never recorded it."""
     from app.core.vm_builder import get_automation_private_key_path
 
     argv = [
         "ssh",
-        "-tt",
+        *(["-tt"] if terminal else []),
         "-i",
         str(get_automation_private_key_path()),
         "-o",

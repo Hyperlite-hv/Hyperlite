@@ -381,7 +381,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Cluster, part 3: migration (`vm.migrate`, `vm.migrate_finish`, `vm.migrate_cancel`, `app/core/vm_migrate.py`): the move and its progress by the daemon; the API writes where the VM runs (HA first), then the daemon cleans the source up from what it kept, never from paths the API gives | done |
 | Cluster, part 4: the copies and the commands (`iso.list`, `iso.size`, `iso.copy`, `iso.delete_remote`, `config.copy`, `node.facts`, `node.probe`, `node.peer_call`): an ISO, the configuration (built by the daemon, keys included), a boot id and a host name, the fixed probes, the peer calls' SSH fallback; the remaining reads of another node through the read-only tunnel. What still reads the cluster's key in the API: the consoles' tunnels (the consoles domain) and HA's own calls (`ha*.py`, with HA's owner) | done |
 | Consoles: the host shell, a container's shell and terminal, a VM's serial console, terminal, VNC and SPICE displays, opened by the daemon and handed to the API as a file descriptor (`console.*`, `vm.add_console`, `vm.spice_password`) | done |
-| Backups; the automation jobs' SSH steps (`app/core/jobs.py`) | next: the backups |
+| The automation jobs' steps (`app/core/jobs.py`): a command as root on the host, or over SSH with the automation key on a VM whose address and account the daemon reads (`job.step`, `job.cancel`) | done |
+| Backups | next: proposed on #298 |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -549,6 +550,12 @@ the API keeps the tickets, who may open what, the audit log and the bridge to th
 
 The workstation tunnel (`app/routers/vms/tunnel.py`) stays in the API: a TCP connection to a guest's address on this
 node, which needs no key and no root.
+
+**The automation jobs' steps.** A job's step runs an administrator's command as root on the host, or over SSH with
+the automation key on a VM (`app/core/jobs.py`): arbitrary code by design, as the host shell is. It is the one
+operation that takes a command, `job.step(task_id, target_type, target, command)`, under the same decision as the
+host shell (section 8): the API decides who may run a job, the daemon runs the step, reads the VM's address and
+account itself, keeps at most 1 MiB of each output and stops the step when the run is cancelled (`job.cancel`).
 
 **Who may open a root session: a question for step 4.** As decided (section 8), the API decides who may open the host
 shell, a container's shell or a terminal, and the daemon runs what the API asks. So a compromised API can still open a
