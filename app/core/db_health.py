@@ -5,7 +5,7 @@ writes is enough to damage the indexes of the busiest tables, and a background l
 `database disk image is malformed` at every round while the dashboard shows nothing. So:
 
 - `PRAGMA quick_check` runs at start and every CHECK_INTERVAL_S. It reads every page, but does not compare an index
-  with its table;
+  with its table: at most, from SQLite 3.46 (Debian 13's), the number of its entries with the table's rows;
 - the background loops report their rounds (`failed`, `succeeded`). REPEAT corruption errors in a row in one loop run
   the full `PRAGMA integrity_check`, which does compare them. A loop that keeps failing while both checks pass is shown
   as well: the check is what can be wrong then;
