@@ -151,3 +151,72 @@ def clone(args, ctx):
 
     with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
         return container_create.clone(qemu, conn, args.container, args.new_name, args.app)
+
+
+# --- Part 3: snapshots and the console log ---
+
+
+class SnapshotArgs(ContainerArgs):
+    snapshot: str = Field(min_length=1, max_length=NAME)
+
+
+class SnapshotCreateArgs(SnapshotArgs):
+    description: str | None = Field(default=None, max_length=4096)
+    check_only: bool = False
+
+
+class SnapshotRestoreArgs(SnapshotArgs):
+    check_only: bool = False
+
+
+@operation("container.snapshot_list", ContainerArgs)
+@_container
+def snapshot_list(args, ctx):
+    """The snapshots are root's (0700): listed here."""
+    from app.core import container_ops, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        return {"snapshots": container_ops.snapshots(qemu, conn, args.container)}
+
+
+# One call that waits: the container's files are copied.
+@operation("container.snapshot_create", SnapshotCreateArgs)
+@_container
+def snapshot_create(args, ctx):
+    from app.core import container_ops, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        return container_ops.snapshot_create(
+            qemu, conn, args.container, args.snapshot, args.description, check_only=args.check_only
+        )
+
+
+@operation("container.snapshot_restore", SnapshotRestoreArgs)
+@_container
+def snapshot_restore(args, ctx):
+    from app.core import container_ops, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        container_ops.snapshot_restore(qemu, conn, args.container, args.snapshot, check_only=args.check_only)
+
+
+@operation("container.snapshot_delete", SnapshotArgs)
+@_container
+def snapshot_delete(args, ctx):
+    from app.core import container_ops, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        container_ops.snapshot_delete(qemu, conn, args.container, args.snapshot)
+
+
+class LogArgs(ContainerArgs):
+    lines: int = Field(default=300, ge=1, le=5000)
+
+
+@operation("container.log", LogArgs)
+@_container
+def log(args, ctx):
+    from app.core import container_ops, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        return container_ops.log(qemu, conn, args.container, args.lines)
