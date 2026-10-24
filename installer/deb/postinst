@@ -92,6 +92,12 @@ if ! bash "$CODE/scripts/ensure-libvirt-hooks.sh"; then
     log "WARNING: libvirt's hooks could not be installed on this node: bash $CODE/scripts/ensure-libvirt-hooks.sh"
 fi
 
+# Backups into a backup store (docs/design/backup-store.md): QEMU may bind a running VM's export. A failure leaves
+# backups of running VMs into a store unavailable on this node, never the installation.
+if ! bash "$CODE/scripts/ensure-backup-apparmor.sh"; then
+    log "WARNING: backups of running VMs into a store need: bash $CODE/scripts/ensure-backup-apparmor.sh"
+fi
+
 log "systemd service"
 cp "$CODE/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
 cp "$CODE/installer/hyperlite-cfs.service" /etc/systemd/system/hyperlite-cfs.service
