@@ -1,5 +1,4 @@
 import logging
-import xml.etree.ElementTree as ET
 
 import libvirt
 from fastapi import Depends, HTTPException
@@ -12,7 +11,7 @@ from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.security import require_vm_privilege
-from app.core.vm_limits import validate_vm_resources
+from app.core.vm_limits import CPU_PERIOD_US, UNLIMITED_KB, validate_vm_resources
 from app.core.vm_meta import get_vm_ssh_user, set_vm_os_label, set_vm_ssh_user
 from app.routers.vms._shared import _domain_summary, router
 
@@ -61,20 +60,17 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
             log_action(user["username"], "update_vm", name, "failed", "VM active")
             raise HTTPException(status_code=409, detail="Stop the VM before changing its resources")
 
-        try:
-            if payload.vcpu is not None:
-                # The max must be adjusted before (or at the same time as) the current value,
-                # otherwise libvirt refuses a "current" value above the old max.
-                domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_VCPU_MAXIMUM)
-                domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-            if payload.memory_mb is not None:
-                kib = payload.memory_mb * 1024
-                domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_MEM_MAXIMUM)
-                domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "update_vm", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Resource update error: {msg}") from e
+        # Written by hyperlite-daemon (app/daemon/ops/vm.py), which checks again that the VM is stopped.
+        privileged.ask(
+            "vm.set_resources",
+            user,
+            "update_vm",
+            name,
+            failed="Resource update error: {}",
+            vm=name,
+            vcpu=payload.vcpu,
+            memory_mb=payload.memory_mb,
+        )
 
         if payload.os_label is not None:
             set_vm_os_label(name, payload.os_label.strip())
@@ -110,9 +106,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
 #   allocated RAM (<memtune><hard_limit>, cgroup memory.limit_in_bytes), useful
 #   to cap a qemu process that would drift beyond the RAM allocated to the guest,
 #   not to guarantee a minimum.
-UNLIMITED_KB = 9007199254740991  # sentinel documented by libvirt for "no limit"
 DEFAULT_CPU_SHARES = 1024
-CPU_PERIOD_US = 100000  # standard cgroup period (100 ms), consistent with the libvirt default
 
 
 class ResourceLimits(BaseModel):
@@ -166,25 +160,18 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
             log_action(user["username"], "set_vm_limits", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        nvcpu = domain.info()[3] or 1
-        # libvirt convention: -1 means unlimited
-        vcpu_quota = -1 if payload.cpu_limit_pct is None else int(CPU_PERIOD_US * nvcpu * payload.cpu_limit_pct / 100)
-
-        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
-        if domain.isActive():
-            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
-
-        try:
-            domain.setSchedulerParametersFlags(
-                {"cpu_shares": payload.cpu_shares, "vcpu_period": CPU_PERIOD_US, "vcpu_quota": vcpu_quota},
-                flags,
-            )
-            hard_limit_kb = UNLIMITED_KB if payload.mem_hard_limit_mb is None else payload.mem_hard_limit_mb * 1024
-            domain.setMemoryParameters({"hard_limit": hard_limit_kb}, flags)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "set_vm_limits", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Error applying the limits: {msg}") from e
+        # Applied by hyperlite-daemon (app/daemon/ops/vm.py); -1 for vcpu_quota is libvirt's "unlimited".
+        privileged.ask(
+            "vm.set_limits",
+            user,
+            "set_vm_limits",
+            name,
+            failed="Error applying the limits: {}",
+            vm=name,
+            cpu_shares=payload.cpu_shares,
+            cpu_limit_pct=payload.cpu_limit_pct,
+            mem_hard_limit_mb=payload.mem_hard_limit_mb,
+        )
 
         log_action(user["username"], "set_vm_limits", name, "success")
         return _limits_summary(domain)
@@ -230,24 +217,18 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
             log_action(user["username"], "set_vm_cpu_pinning", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
-        nvcpu = int((root.findtext("vcpu") or "1").strip())
         before = cpu_pinning.read(domain)
-        try:
-            how = cpu_pinning.plan(cpu_pinning.host_topology(conn), nvcpu, payload.cpuset, payload.strict)
-        except cpu_pinning.PinningError as e:
-            log_action(user["username"], "set_vm_cpu_pinning", name, "failed", e.message)
-            raise HTTPException(status_code=e.status, detail=e.message) from e
-
-        cpu_pinning.apply_to_xml(root, nvcpu, how)
-        try:
-            conn.defineXML(ET.tostring(root, encoding="unicode"))
-            if domain.isActive():
-                cpu_pinning.apply_live(domain, conn, domain.info()[3] or nvcpu, how)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "set_vm_cpu_pinning", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"CPU pinning error: {msg}") from e
+        # Checked against this host's topology, written and applied live by hyperlite-daemon (app/daemon/ops/vm.py).
+        how = privileged.ask(
+            "vm.set_cpu_pinning",
+            user,
+            "set_vm_cpu_pinning",
+            name,
+            failed="CPU pinning error: {}",
+            vm=name,
+            cpuset=payload.cpuset,
+            strict=payload.strict,
+        )
 
         detail = (
             f"CPUs {cpu_pinning.format_cpuset(how['cpus'])}{' strict' if how['strict'] else ''}"
