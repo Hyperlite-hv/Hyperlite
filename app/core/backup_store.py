@@ -349,6 +349,16 @@ class Store:
                     continue  # a backup that stopped midway: its chunks go at the next garbage collection
         return out
 
+    def manifest(self, vm_uuid, stamp):
+        return json.loads((self.backup_dir(vm_uuid, stamp) / "manifest.json").read_text())
+
+    def backup_files(self, vm_uuid, stamp):
+        """[(name, bytes)] of a backup's files but its manifest, as they are on disk (indexes, sealed files)."""
+        directory = self.backup_dir(vm_uuid, stamp)
+        return [
+            (p.name, p.read_bytes()) for p in sorted(directory.iterdir()) if p.is_file() and p.name != "manifest.json"
+        ]
+
     def index_of(self, vm_uuid, stamp, disk):
         directory = self.backup_dir(vm_uuid, stamp)
         manifest = json.loads((directory / "manifest.json").read_text())
@@ -369,11 +379,7 @@ class Store:
     def check_blob(self, digest):
         """A chunk's CRC, without its key: what a store that only keeps copies can check (bit rot, a cut copy)."""
         blob = self.chunk_path(digest).read_bytes()
-        if len(blob) < _HEADER.size:
-            raise DamagedChunk(digest, "too short")
-        magic, fmt, _flags, _, _length, crc = _HEADER.unpack_from(blob)
-        if magic != _MAGIC or fmt != FORMAT or zlib.crc32(blob[_HEADER.size :]) != crc:
-            raise DamagedChunk(digest, "CRC does not match")
+        check_blob_bytes(digest, blob)
         return blob
 
     def copy_backup_from(self, source, vm_uuid, stamp):
@@ -386,8 +392,7 @@ class Store:
             )
         if (self.backup_dir(vm_uuid, stamp) / "manifest.json").exists():
             return 0
-        src = source.backup_dir(vm_uuid, stamp)
-        manifest = json.loads((src / "manifest.json").read_text())
+        manifest = source.manifest(vm_uuid, stamp)
         copied = 0
         for disk in manifest["disks"]:
             for digest in set(source.index_of(vm_uuid, stamp, disk).digests) - {ZERO}:
@@ -403,9 +408,8 @@ class Store:
                 copied += 1
         directory = self.backup_dir(vm_uuid, stamp)
         directory.mkdir(parents=True, exist_ok=True)
-        for item in sorted(src.iterdir()):
-            if item.name != "manifest.json" and item.is_file():
-                _write_atomic(directory / _safe(item.name), item.read_bytes())
+        for name, data in source.backup_files(vm_uuid, stamp):
+            _write_atomic(directory / _safe(name), data)
         copy = {**manifest, "store": self.id, "copied_from": source.id}
         _write_atomic(directory / "manifest.json", json.dumps(copy, indent=1).encode())
         return copied
@@ -504,6 +508,15 @@ class Store:
         return {"marked": marked, "removed": removed, "freed_bytes": freed, "kept": kept}
 
 
+def check_blob_bytes(digest, blob):
+    """A chunk's blob, checked against its CRC (no key needed): DamagedChunk when it is not sound."""
+    if len(blob) < _HEADER.size:
+        raise DamagedChunk(digest, "too short")
+    magic, fmt, _flags, _, _length, crc = _HEADER.unpack_from(blob)
+    if magic != _MAGIC or fmt != FORMAT or zlib.crc32(blob[_HEADER.size :]) != crc:
+        raise DamagedChunk(digest, "CRC does not match")
+
+
 def _sweep(path, cutoff):
     """Delete `path` when it was not touched since `cutoff`: its size, or None when it is kept. A backup may touch the
     chunk between the check and the deletion: the chunk is first renamed, so a touch after the rename finds nothing
@@ -594,10 +607,11 @@ def key_from_code(code):
     return key
 
 
-def create(root, encrypted_with=None, chunk_size=CHUNK_SIZE):
+def create(root, encrypted_with=None, chunk_size=CHUNK_SIZE, like=None):
     """Make a new store in the directory `root` (created when missing, refused when it already holds anything).
-    `encrypted_with`: the store's key, for an encrypted store. Refused on a file system that does not keep a set
-    access time, which garbage collection needs."""
+    `encrypted_with`: the store's key, for an encrypted store. `like`: another store's configuration, for its copy
+    made without its key (opened raw; the key is given on the day it is restored). Refused on a file system that does
+    not keep a set access time, which garbage collection needs."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     if any(root.iterdir()):
@@ -616,5 +630,9 @@ def create(root, encrypted_with=None, chunk_size=CHUNK_SIZE):
     config["encrypted"] = encrypted_with is not None
     if encrypted_with is not None:
         config["key_fingerprint"] = fingerprint(encrypted_with)
+    if like is not None:  # the copy of a store this side holds no key of: its chunks' names and seals, not the key
+        config.update(chunk_size=int(like["chunk_size"]), encrypted=bool(like.get("encrypted")))
+        if like.get("encrypted"):
+            config["key_fingerprint"] = like["key_fingerprint"]
     _write_atomic(root / CONFIG, json.dumps(config, indent=1).encode())
-    return Store(root, encrypted_with)
+    return Store(root, raw=True) if like is not None else Store(root, encrypted_with)
