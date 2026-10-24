@@ -631,8 +631,10 @@ def test_an_lvm_thin_pool_is_made_with_its_pool_or_the_pool_is_not(client, auth_
     admin = auth_headers("root")
     made = []
     monkeypatch.setattr(lvm_storage, "ensure_thin_pool", lambda vg, name, node=None: made.append((vg, name, node)))
+    # What hyperlite-daemon's LVM report says of the group (storage.lvm_volumes): the pool's thin pool, a quarter full.
+    thin_pool = {"name": "vmthin", "size": 8 * 2**30, "data_percent": 25.0, "kind": "thin_pool"}
     monkeypatch.setattr(
-        lvm_storage, "thin_pool_of", lambda vg, node=None: {"name": "vmthin", "size": 8 * 2**30, "data_percent": 25.0}
+        lvm_storage, "logical_volumes", lambda vg, node=None: [{**thin_pool, "tags": [lvm_storage.THIN_TAG]}]
     )
     r = client.post(
         "/storage",
