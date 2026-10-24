@@ -283,3 +283,16 @@ def daemon_libvirt(monkeypatch):
         return conn
 
     return use
+
+
+@pytest.fixture()
+def daemon_lxc(monkeypatch):
+    """The LXC driver hyperlite-daemon's container operations open (libvirt_utils.local_lxc_conn), in this process
+    in the tests: call it with the fake connection they get. The API's own (open_lxc_conn) is faked apart."""
+    from app.core import libvirt_utils
+
+    def use(conn):
+        monkeypatch.setattr(libvirt_utils, "local_lxc_conn", lambda: contextlib.nullcontext(conn))
+        return conn
+
+    return use
