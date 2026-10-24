@@ -116,12 +116,13 @@ def auth_headers(client, make_user):
 def cluster(database, tmp_path, monkeypatch):
     """Registered remote nodes simulated by one directory each: ssh and scp are replaced by fakes that act on
     those directories, so ISO sharing is tested without any real host."""
-    from app.core import iso_share
+    from app.core import disk_library, iso_share
     from app.routers import isos
 
     local = tmp_path / "local"
     local.mkdir()
     monkeypatch.setattr(isos, "ISOS_DIR", local)
+    monkeypatch.setattr(disk_library, "ISOS", local)  # the library hyperlite-daemon writes
     roots = {}
 
     def add_node(name, hostname, reachable=True, library=True, layout="old"):

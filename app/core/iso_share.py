@@ -43,9 +43,9 @@ _active_lock = threading.Lock()
 
 
 def isos_dir():
-    from app.routers.isos import ISOS_DIR
+    from app.core import disk_library
 
-    return ISOS_DIR
+    return disk_library.ISOS
 
 
 def valid_iso_name(name):

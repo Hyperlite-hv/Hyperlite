@@ -552,6 +552,11 @@ def on_startup():
     # reapply everything persisted in the database each time the service starts.
     # Both need root: hyperlite-daemon does them (app/daemon/ops/network.py); a failure is logged, the service starts.
     reapply_network_firewalls()
+    # Uploads a stop interrupted, left in the spool before hyperlite-daemon stored them (app/core/disk_library.py).
+    from app.core import disk_library
+
+    if removed := disk_library.clean_spool():
+        logger.info("Removed %d interrupted upload(s) from the spool", removed)
     # VMs started while the service was not running (a host boot runs libvirt's hook too; a VLAN changed by hand would
     # be set back here): their ports on VLAN-aware bridges get their VLANs (app/core/bridge_vlan.py). The boot unit
     # (installer/hyperlite-vlan-bridges.service) has made the bridges VLAN-aware already; this covers a node where it

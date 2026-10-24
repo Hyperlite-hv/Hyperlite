@@ -5,6 +5,7 @@ import io
 import libvirt
 import pytest
 
+from app.core import disk_library
 from app.routers import isos
 
 
@@ -25,6 +26,7 @@ def iso_dir(tmp_path, monkeypatch):
     target = tmp_path / "isos"
     target.mkdir()
     monkeypatch.setattr(isos, "ISOS_DIR", target)
+    monkeypatch.setattr(disk_library, "ISOS", target)  # the library hyperlite-daemon writes
 
     def _no_libvirt(*_a, **_k):
         raise libvirt.libvirtError("no libvirt in the test suite")
