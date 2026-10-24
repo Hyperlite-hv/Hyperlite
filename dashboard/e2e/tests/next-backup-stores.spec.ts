@@ -69,7 +69,7 @@ test("an encrypted store: its keys are shown once and must be kept before the dr
 
     const keys = page.getByRole("dialog", { name: `Keep the keys of ${store}` });
     await expect(keys.getByText("Hyperlite shows these keys now and never again")).toBeVisible({ timeout: 30_000 });
-    await expect(keys.getByLabel("Store key")).toHaveValue(/^[A-Z2-7]{4}(-[A-Z2-7]{1,4})+$/);
+    await expect(keys.getByRole("textbox", { name: "Store key" })).toHaveValue(/^[A-Z2-7]{4}(-[A-Z2-7]{1,4})+$/);
     await expect(keys.getByRole("img", { name: "QR code of the store key" })).toBeVisible();
     await expect(keys.getByRole("button", { name: "Download the master recovery key" })).toBeVisible();
     await expect(keys.getByRole("button", { name: "Done" })).toBeDisabled();
