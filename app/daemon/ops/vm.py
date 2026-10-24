@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.daemon.ops.network import FirewallConfig
 from app.daemon.registry import Args, DaemonError, operation
 
 VM_NAME = 64
@@ -451,3 +452,107 @@ def eject_cdrom(args, conn, domain):
     from app.core import vm_devices
 
     vm_devices.eject_cdrom(domain, args.target)
+
+
+# --- Part 2c: a VM's firewall, hook script, name and cloud-init medium ---
+
+
+class VmFirewallArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    config: FirewallConfig
+
+
+@operation("vm.set_firewall", VmFirewallArgs)
+@_definition
+def set_firewall(args, conn, domain):
+    """The VM's nwfilter, built from checked rules, referenced on every interface (app/core/vm_firewall.py)."""
+    from app.core import vm_firewall
+
+    try:
+        return {"applied": vm_firewall.apply(conn, domain, args.config.model_dump())}
+    except vm_firewall.FirewallError as e:
+        raise DaemonError(e.kind, e.message) from e
+
+
+class HookScriptArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    script: str | None = Field(None, max_length=100)
+
+
+@operation("vm.set_hookscript", HookScriptArgs)
+@_definition
+def set_hookscript(args, conn, domain):
+    """A script of this node's root library attached to the VM, checked again here (hookscript.check: root's, not
+    writable by others), or the VM's script detached (None). It runs as root at the VM's every start and stop."""
+    from app.core import hookscript
+
+    try:
+        if args.script:
+            hookscript.check(args.script)
+        hookscript.set_script(domain, args.script)
+    except hookscript.HookError as e:
+        raise DaemonError("refused", str(e)) from e
+
+
+class RenameArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    new_name: str = Field(min_length=1, max_length=VM_NAME)
+
+
+@operation("vm.rename", RenameArgs)
+@_definition
+def rename(args, conn, domain):
+    """The VM renamed with the files named after it, refused while it runs, has snapshots or the name is taken
+    (app/core/vm_rename.py). Returns the replication checkpoints dropped, for the API to forget the chain."""
+    from app.core import vm_rename
+    from app.core.vm_builder import validate_name
+
+    error = validate_name(args.new_name, "VM")
+    if error:
+        raise DaemonError("refused", error)
+    try:
+        return {"dropped": vm_rename.rename(conn, domain, args.vm, args.new_name)}
+    except vm_rename.RenameError as e:
+        raise DaemonError(e.kind, e.message) from e
+
+
+class CloudInitArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    # The guest's account; not `user`, which privileged.run keeps for the Hyperlite account asking.
+    account: str = Field(min_length=1, max_length=32)
+    password: str | None = Field(None, max_length=256)
+    ssh_keys: list[str] = Field(default_factory=list, max_length=50)
+    custom: dict
+
+
+@operation("vm.cloudinit_write", CloudInitArgs)
+@_definition
+def cloudinit_write(args, conn, domain):
+    """The VM's cloud-init drive written again from checked fields (cloudinit_edit: the account, its keys, the
+    customisation), private to root, and put in a running VM's drive at once. Returns {"keys", "custom", "reloaded"}:
+    what the API keeps in its database."""
+    import logging
+
+    import libvirt
+
+    from app.core import cloudinit_edit
+
+    drive = cloudinit_edit.drive_path(domain, args.vm)
+    if drive is None:
+        raise DaemonError(
+            "in_use", "This VM has no cloud-init drive: it was installed from an ISO image, not made from a cloud image"
+        )
+    try:
+        keys = cloudinit_edit.validate(args.account, args.password, args.ssh_keys)
+        macs = cloudinit_edit.interface_macs(domain)
+        custom = cloudinit_edit.validate_custom(args.custom, macs)
+        cloudinit_edit.write_drive(args.vm, drive, args.account, args.password, keys, custom, macs)
+    except cloudinit_edit.CloudInitError as e:
+        raise DaemonError("refused", str(e)) from e
+    reloaded = False
+    try:
+        reloaded = cloudinit_edit.reload_media(domain, args.vm)
+    except libvirt.libvirtError as e:
+        # The file is written: the change applies anyway once the VM is powered off and on again.
+        logging.getLogger(__name__).warning("Could not reload the cloud-init drive of %s live: %s", args.vm, e)
+    return {"keys": keys, "custom": custom, "reloaded": reloaded}
