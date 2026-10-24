@@ -17,6 +17,9 @@ from pathlib import Path
 from app.core.host_capabilities import _memory_capabilities_local
 
 MEMORY_MIN_MB = 256  # functional floor for a Linux VM, not a host limit
+# A VM's cgroup limits (routers/vms/settings.py, set by hyperlite-daemon, app/daemon/ops/vm.py).
+UNLIMITED_KB = 9007199254740991  # sentinel documented by libvirt for "no limit"
+CPU_PERIOD_US = 100000  # standard cgroup period (100 ms), consistent with the libvirt default
 _TTL_S = 30
 
 # Beyond these values the request is a typo, not a sizing decision.
