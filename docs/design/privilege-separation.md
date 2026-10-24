@@ -373,7 +373,10 @@ claimed on #511 with `.github/scripts/claim.py`:
 | VMs, part 3b: deletion (`vm.delete`, `app/core/vm_delete.py`), from DELETE /vms/{name} and the automatic clean-up: the daemon checks the VM is stopped again, and deletes its own disks only, as Proxmox VE does, never vSphere's way of taking a disk shared with another VM along: a disk another VM uses or reads through (a linked clone's base), or a file outside every storage pool, is kept and reported (`kept_disks`). The API forgets the VM's records | done |
 | VMs, part 3c: clones (`vm.clone`, `app/core/vm_clone.py`) and templates (`template.make`, `template.deploy`, `template.rename`, `template.delete`, `app/core/vm_templates.py`): the copies, the new definitions and the template files are the daemon's, which checks the source's state, the names, the room and a template's linked clones again; the Kubernetes clusters' VMs started and stopped through `vm.power` | done |
 | VMs, part 4: snapshots (`vm.snapshot_create`, `vm.snapshot_restore`, `vm.snapshot_delete`, `vm.lvm_snapshots`, `app/core/vm_snapshots.py`): libvirt's, ZFS's and LVM-thin's, checked again by the daemon (a rollback only under a stopped VM, a name ZFS would read as a list or a range refused); every check runs first with `check_only`, so the route answers a refusal before it starts the task | done |
-| Containers, cluster, consoles; then backups | next: containers |
+| Containers, part 1: start, stop, settings, rename and deletion (`container.*`, `app/core/container_ops.py`), the filesystem found in the definition and accepted in Hyperlite's container directories only (below) | done |
+| Containers, part 2: creation and clone (`container.create`, `container.clone`, `app/core/container_create.py`): the specification of POST /containers checked again (its unknown fields refused), the directory chosen from the pool's own definition, the image pulled and the filesystem prepared by the daemon; the API keeps the image's required variables (asked of the registry) and the records | done |
+| Containers, part 3: snapshots and the console log (`container.snapshot_*`, `container.log`): read and written beside the filesystem the definition names, every check first with `check_only` | done |
+| Cluster, consoles; then backups | next: the cluster |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -455,6 +458,55 @@ What stays elsewhere: a migration crosses two nodes and moves with the cluster d
 the consoles; HA's own calls (`app/core/ha*.py`) are moved with HA's owner through #298, onto the operations of part 1
 and part 3. Another node's VM (`?node=` naming a node registered over SSH) keeps its connection from the API until the
 cluster domain, as for the pools.
+
+**The containers domain (proposed, 2026-10-24).** A container is a libvirt LXC domain (`lxc:///system`) and a
+directory: its filesystem, its snapshots beside it (`.snapshots/<name>`, rsync copies), its archives. Root deletes,
+renames and writes into those directories, so **the daemon finds a container's filesystem in its definition** (the
+filesystem mounted at `/`), never in the API's records (`container_storage` names the pool a container was put in):
+it must be the directory named after the container in a place Hyperlite puts containers, `/var/lib/libvirt/containers`
+or the `hyperlite-containers` directory of a local directory pool (`app/core/container_ops.py`). A definition naming
+anything else has its filesystem left alone: a deletion keeps it and says so, a rename or a DNS change is refused. The
+daemon opens the LXC driver itself (`libvirt_utils.local_lxc_conn`); the API keeps its own connection for the reads,
+the container's lock (`container_snapshots.claim`) and its records (`container_meta`). Three parts:
+
+| Part | What moves | Operations |
+|---|---|---|
+| Containers, part 1 | Start, stop (SIGTERM to an application image's process, the init's shutdown for a system container, the stop by force after the grace period, which names the run it stops), the settings (processors, memory, start at boot, the DNS servers written into the container's `/etc/resolv.conf`), the rename, the deletion | `container.start`, `container.stop`, `container.update`, `container.rename`, `container.delete` |
+| Containers, part 2 | The creation (system and application containers: the image pulled with skopeo and umoci, the filesystem configured, the definition written from checked fields) and the clone | `container.create`, `container.clone` |
+| Containers, part 3 | The snapshots and the console log read from the container's filesystem | `container.snapshot_*`, `container.log` |
+
+A container's archives move with the backups domain, its terminal and root shell with the consoles.
+
+**The cluster domain (proposed, 2026-10-24).** Hyperlite reaches the other nodes in two ways: a member of the cluster
+through its own API (`app/core/cluster_view.py` forwards `?node=`, `rolling_update.peer_api`, the member's certificate
+pinned), and every node over SSH as root with the cluster's key (`paths.SSH_DIR / "hyperlite_cluster"`, under
+`/etc/hyperlite/priv`): libvirt over `qemu+ssh` for a node registered over SSH only and for a migration, `scp` for the
+ISO and file copies, commands for the stats, the boot id, the LVM, SMB, VLAN and hook-script work of another node, and
+the peer calls' fallback when HTTPS cannot be used. About 75 call sites in 27 files. A process that holds that key is
+root on every node: once the API runs as `www-data` it must not read it. As on Proxmox VE, where the nodes trust each
+other's root over SSH and pveproxy only forwards a request to the node that owns the guest, **only hyperlite-daemon
+holds the cluster's keys**, and the API asks it for named work on a named node, never for a command or a libvirt URI:
+
+- **The node is named, its address read by the daemon** from the node registry (the `nodes` table), the host key pinned
+  in root's `known_hosts` when the node was registered. The API can name a registered node only; registering one stays
+  an administrator's action, as today.
+- **A member is still asked through its own API**, whose daemon does the work on its own host. SSH stays for what has
+  no API: a node registered over SSH only, and the transfers between two hosts' roots (a migration, a disk or an ISO
+  copy).
+- **Each root action on another node is an operation of its domain taking `node`**: `vm.power(vm, action,
+  node=...)`, `storage.lvm_volumes(group, node=...)`, the daemon opening that node's libvirt itself
+  (`libvirt_utils.node_conn`) or running its fixed command there. The `?node=` branches the earlier domains left in
+  the API (marked in their routes) move here.
+
+| Part | What moves | Operations |
+|---|---|---|
+| Cluster, part 1: the keys | The cluster's key pair, root's `known_hosts`, the reverse trust a node is given into this one (`authorized_keys`), and their changes when a node is registered, renamed or removed (`app/core/cluster.py`) | `cluster.key`, `cluster.trust`, `cluster.forget` |
+| Cluster, part 2: a node registered over SSH only | Its VMs' power, definition and deletion, its pools and volumes, its inventory and its host's details, through the daemon's own connection to it | the domains' operations with `node`, `node.inventory`, `node.capabilities`, `node.stats` |
+| Cluster, part 3: migration | The pre-checks, the disks created and the files copied on the target, `migrateToURI3`, its progress, the cleanup on the source (`app/routers/vms/migration.py`) | `vm.migrate`, `vm.migrate_cancel` |
+| Cluster, part 4: the copies and the commands | An ISO copied to a node (`iso_share`), the configuration copied (`config_copy`), a member's boot id (`vm_boot`), the peer calls' SSH fallback (`rolling_update`) | `iso.copy`, `config.copy`, `node.boot_id`, `node.api` |
+
+HA's own calls (`app/core/ha*.py`, its fencing over SSH included) move with HA's owner through #298, onto these
+operations. The consoles' tunnels to another node (`spice.py`, `console.py`) move with the consoles.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of

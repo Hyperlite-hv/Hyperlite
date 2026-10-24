@@ -601,3 +601,35 @@ def test_a_hung_ha_vm_is_reset_by_its_node(cluster):
     ok(api(3, "POST", "/vms/hmvm/stop?force=true", token=t[3]))
     wait("hmvm stopped", lambda: ok(api(3, "GET", "/vms/hmvm", token=t[3]))["state"] == "stopped")
     ok(api(3, "DELETE", "/vms/hmvm?confirm=true", token=t[3]))
+
+
+def test_a_container_lives_and_goes_on_a_member(cluster):
+    """A system container's whole life on a real node, its filesystem written by hyperlite-daemon: made from the
+    local base, stopped, snapshotted, changed, restored, renamed, cloned and deleted, its files where the definition
+    says (docs/design/privilege-separation.md, the containers domain)."""
+    t = cluster["tokens"][2]
+    if "lxc" not in on(2, "sh", "-c", "virsh -c lxc:///system uri 2>/dev/null || true"):
+        pytest.skip("no LXC driver on the lab's nodes")
+    on(2, "apt-get", "install", "-y", "-q", "debootstrap")  # the local base (not a dependency of the package)
+    spec = {"name": "labct", "username": "lab", "password": PASSWORD, "network": "default"}
+    status, answer = api(2, "POST", "/containers", spec, t, timeout=900)
+    assert status == 201, answer
+    root = "/var/lib/libvirt/containers"
+    assert on(2, "test", "-d", f"{root}/labct/etc") == ""
+    wait("labct running", lambda: ok(api(2, "GET", "/containers/labct", token=t))["state"] == "active")
+    ok(api(2, "POST", "/containers/labct/stop?force=true", token=t))
+    wait("labct stopped", lambda: ok(api(2, "GET", "/containers/labct", token=t))["state"] == "stopped")
+    taken = ok(api(2, "POST", "/containers/labct/snapshots", {"name": "clean"}, t))
+    finished(2, t, taken["task_id"])
+    on(2, "sh", "-c", f"echo changed > {root}/labct/etc/motd")
+    restored = ok(api(2, "POST", "/containers/labct/snapshots/clean/restore", token=t))
+    finished(2, t, restored["task_id"])
+    assert "changed" not in on(2, "cat", f"{root}/labct/etc/motd")
+    ok(api(2, "POST", "/containers/labct/rename", {"new_name": "labct2"}, t))
+    assert on(2, "cat", f"{root}/labct2/etc/hostname").strip() == "labct2"
+    status, answer = api(2, "POST", "/containers/labct2/clone", {"new_name": "labct3"}, t, timeout=900)
+    assert status == 201, answer
+    for name in ("labct2", "labct3"):
+        ok(api(2, "DELETE", f"/containers/{name}?confirm=true", token=t))
+        assert on(2, "sh", "-c", f"test -e {root}/{name} && echo left || echo gone").strip() == "gone"
+    assert ok(api(2, "GET", "/containers", token=t))["items"] == []

@@ -107,29 +107,24 @@ class _QemuConn:
     ("pool", "error"),
     [("fast", None), ("nas", "not a local directory"), ("off", "not started"), ("ghost", "not found")],
 )
-def test_only_a_started_local_directory_pool_can_hold_containers(tmp_path, monkeypatch, pool, error):
-    from app.core import libvirt_utils
-    from app.routers import containers
+def test_only_a_started_local_directory_pool_can_hold_containers(tmp_path, pool, error):
+    from app.core import container_create
 
     pools = {
         "fast": _Pool("dir", tmp_path / "ssd"),
         "nas": _Pool("netfs", "/mnt/nas"),
         "off": _Pool("dir", "/x", active=False),
     }
-    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _QemuConn(pools))
     if error:
-        with pytest.raises(ValueError, match=error):
-            containers.resolve_container_storage(pool)
+        with pytest.raises(container_create.ContainerError, match=error):
+            container_create.home_for(_QemuConn(pools), pool)
     else:
-        assert containers.resolve_container_storage(pool) == {
-            "pool": "fast",
-            "base_dir": str(tmp_path / "ssd" / "hyperlite-containers"),
-        }
+        assert container_create.home_for(_QemuConn(pools), pool) == (tmp_path / "ssd" / "hyperlite-containers", "fast")
 
 
 def test_a_container_lives_in_its_pool_and_its_clone_follows(database, tmp_path, monkeypatch):
     from app.core import container_builder
-    from app.core.container_meta import get_container_storage
+    from app.core.container_meta import set_container_storage
 
     monkeypatch.setattr(container_builder, "CONTAINERS_DIR", tmp_path / "default")
     base = tmp_path / "base-rootfs"
@@ -137,15 +132,14 @@ def test_a_container_lives_in_its_pool_and_its_clone_follows(database, tmp_path,
     (base / "bin" / "sh").write_text("")
     monkeypatch.setattr(container_builder, "ensure_base_rootfs", lambda: base)
     monkeypatch.setattr(container_builder, "_reset_container_identity", lambda dest, name: None)
-    storage = {"pool": "fast", "base_dir": str(tmp_path / "ssd" / "hyperlite-containers")}
+    home = tmp_path / "ssd" / "hyperlite-containers"
 
-    rootfs, _ = container_builder.create_container_rootfs("web", storage=storage)
-    assert rootfs == tmp_path / "ssd" / "hyperlite-containers" / "web" and (rootfs / "bin" / "sh").exists()
+    rootfs, _ = container_builder.create_container_rootfs("web", home=home)
+    assert rootfs == home / "web" and (rootfs / "bin" / "sh").exists()
+    set_container_storage("web", "fast", str(home))  # what the API records once hyperlite-daemon made it
     assert container_builder.container_rootfs_path("web") == rootfs
-    clone = container_builder.clone_container_rootfs("web", "web2")
-    assert clone.parent == rootfs.parent and get_container_storage("web2")["pool"] == "fast"
-
-    container_builder.delete_container_rootfs("web")
-    assert not rootfs.exists() and get_container_storage("web") is None
+    clone = container_builder.clone_container_rootfs(rootfs, home / "web2")
+    assert clone.parent == rootfs.parent and (clone / "bin" / "sh").exists()
     # a container without a chosen pool keeps the default place
     assert container_builder.container_rootfs_path("other") == tmp_path / "default" / "other"
+    assert container_builder.create_container_rootfs("other")[0] == tmp_path / "default" / "other"
