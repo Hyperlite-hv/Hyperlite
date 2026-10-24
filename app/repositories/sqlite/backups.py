@@ -197,6 +197,24 @@ class SqliteBackupStore:
     def set_store_copy_of(self, name, source):
         _write("UPDATE backup_stores SET copy_of = ? WHERE name = ?", (source, name))
 
+    # ---- Other clusters' stores (app/core/backup_remotes.py) ----
+
+    def list_remotes(self):
+        return _all("SELECT * FROM backup_remotes ORDER BY name")
+
+    def get_remote(self, name):
+        return _one("SELECT * FROM backup_remotes WHERE name = ?", (name,))
+
+    def save_remote(self, name, address, port, fingerprint, token_encrypted, created_by, created_at):
+        _write(
+            "INSERT INTO backup_remotes (name, address, port, fingerprint, token_encrypted, created_by, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, address, port, fingerprint, token_encrypted, created_by, created_at),
+        )
+
+    def delete_remote(self, name):
+        _write("DELETE FROM backup_remotes WHERE name = ?", (name,))
+
     # ---- Copies of a store (app/core/backup_store_sync.py) ----
 
     SYNC_COLUMNS = (
