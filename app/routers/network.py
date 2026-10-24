@@ -1,8 +1,6 @@
-import hashlib
 import ipaddress
 import json
 import logging
-import re
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -10,10 +8,10 @@ import libvirt
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import bridge_vlan, cluster_view, network_edit, network_firewall, privileged, renaming
+from app.core import bridge_vlan, cluster_view, network_create, network_edit, network_firewall, privileged, renaming
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import ensure_isolated_network, open_conn, open_lxc_conn_if_any
+from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.network_firewall import apply_network_firewall, get_network_firewall, remove_network_firewall
 from app.core.security import get_current_user, require_role
@@ -26,23 +24,6 @@ logger = logging.getLogger(__name__)
 
 # ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
 router = APIRouter(prefix="/networks", tags=["networks"], dependencies=[Depends(cluster_view.on_node)])
-
-# One IPv4 address octet (0-255), reused 4 times to validate a user-supplied
-# address before inserting it into libvirt XML.
-_IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
-
-# Valid Linux interface name (alphanumeric/dash/underscore/dot, at most 15
-# characters, the kernel IFNAMSIZ limit). Found during the security audit:
-# bridge_name went as is into libvirt XML built with an f-string
-# (<bridge name='{bridge_name}'/>) without validation, a possible XML injection
-# for anyone able to reach this endpoint (admins only today, so not exploitable
-# by a third party, purpose fixed anyway since it is not a practice to leave in).
-_IFACE_NAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,15}$")
-
-
-def _valid_ipv4(addr):
-    m = _IPV4_RE.match(addr or "")
-    return bool(m) and all(0 <= int(g) <= 255 for g in m.groups())
 
 
 def _host_subnets():
@@ -140,11 +121,26 @@ def _network_summary(net):
     }
 
 
+def _ensure_isolated(conn, user):
+    """The isolated network Hyperlite relies on, made by hyperlite-daemon only when it is missing or stopped: read here
+    first, so a list of networks costs no call to the daemon."""
+    try:
+        net = conn.networkLookupByName("hyperlite-isolated")
+        if net.isActive() and net.autostart():
+            return
+    except libvirt.libvirtError:
+        pass
+    try:
+        privileged.run("network.ensure_isolated", user=user["username"])
+    except DaemonError as e:
+        logger.error("The isolated network could not be made: %s", e.detail)
+
+
 @router.get("")
 def list_networks(user: dict = Depends(get_current_user)):
     conn = open_conn()
     try:
-        ensure_isolated_network(conn)
+        _ensure_isolated(conn, user)
         result = []
         vm_counts = inventory(conn)["per_network"]
         for net in conn.listAllNetworks():
@@ -301,12 +297,9 @@ def start_network(name: str, user: dict = Depends(require_role("admin"))):
     try:
         net = _lookup(conn, name)
         if not net.isActive():
-            try:
-                net.create()
-            except libvirt.libvirtError as e:
-                msg = describe_exception(e)
-                log_action(user["username"], "start_network", name, "failed", msg)
-                raise HTTPException(status_code=500, detail=f"The network could not start: {msg}") from e
+            _daemon(
+                "network.start", user, "start_network", name, failed="The network could not start: {}", network=name
+            )
             log_action(user["username"], "start_network", name, "success")
         return _network_summary(net)
     finally:
@@ -322,6 +315,21 @@ def _ask(user, action, op, name, **args):
         log_action(user["username"], action, name, "failed", e.detail)
         status = 409 if e.kind == "refused" else 503 if e.kind == "unavailable" else 502
         raise HTTPException(status_code=status, detail=e.detail) from None
+
+
+def _daemon(op, user, action, target, refused=422, failed="{}", **args):
+    """hyperlite-daemon's answer to `op` on libvirt's networks (app/daemon/ops/network.py), with the answers these
+    routes gave when they wrote to libvirt themselves: what it refuses, `refused` with its reason; libvirt's failure,
+    500 with `failed` around libvirt's reason; without the daemon, 503. The failure is in the audit log."""
+    try:
+        return privileged.run(op, user=user["username"], **args)
+    except DaemonError as e:
+        log_action(user["username"], action, target, "failed", e.detail)
+        if e.kind in ("refused", "invalid_arguments"):
+            raise HTTPException(status_code=refused, detail=e.detail) from None
+        if e.kind == "unavailable":
+            raise HTTPException(status_code=503, detail=e.detail) from None
+        raise HTTPException(status_code=500, detail=failed.format(e.detail)) from None
 
 
 class VlanAwareConfirm(BaseModel):
@@ -415,12 +423,7 @@ def stop_network(name: str, confirm: bool = False, user: dict = Depends(require_
             if running:
                 detail += f": running VMs will lose this network: {', '.join(running)}"
             raise HTTPException(status_code=400, detail=detail)
-        try:
-            net.destroy()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "stop_network", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"The network could not stop: {msg}") from e
+        _daemon("network.stop", user, "stop_network", name, failed="The network could not stop: {}", network=name)
         log_action(user["username"], "stop_network", name, "success", ", ".join(running) or None)
         return _network_summary(net)
     finally:
@@ -437,10 +440,7 @@ def set_network_autostart(name: str, payload: AutostartSetting, user: dict = Dep
     conn = open_conn()
     try:
         net = _lookup(conn, name)
-        try:
-            net.setAutostart(1 if payload.autostart else 0)
-        except libvirt.libvirtError as e:
-            raise HTTPException(status_code=500, detail=describe_exception(e)) from e
+        _daemon("network.autostart", user, "network_autostart", name, network=name, autostart=payload.autostart)
         log_action(user["username"], "network_autostart", name, "success", "on" if payload.autostart else "off")
         return _network_summary(net)
     finally:
@@ -465,23 +465,19 @@ def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_r
     On a running network only a DHCP range change is live; the rest waits for its restart (`needs_restart`)."""
     conn = open_conn()
     try:
-        net = _lookup(conn, name)
-        try:
-            restart = network_edit.apply_edit(
-                conn,
-                net,
-                mode=payload.mode,
-                address=payload.address,
-                netmask=payload.netmask,
-                dhcp=payload.dhcp.model_dump() if payload.dhcp else None,
-            )
-        except network_edit.EditError as e:
-            log_action(user["username"], "edit_network", name, "failed", str(e))
-            raise HTTPException(status_code=422, detail=str(e)) from e
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "edit_network", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"The network could not be changed: {msg}") from e
+        _lookup(conn, name)
+        restart = _daemon(
+            "network.edit",
+            user,
+            "edit_network",
+            name,
+            failed="The network could not be changed: {}",
+            network=name,
+            mode=payload.mode,
+            address=payload.address,
+            netmask=payload.netmask,
+            dhcp=payload.dhcp.model_dump() if payload.dhcp else None,
+        )["needs_restart"]
         detail = f"{payload.mode} {payload.address}/{payload.netmask}"
         if payload.dhcp:
             detail += f" dhcp {payload.dhcp.start}-{payload.dhcp.end}"
@@ -576,106 +572,29 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
         except libvirt.libvirtError:
             pass
 
-        if payload.mode == "bridge":
-            if not payload.bridge_name or not _IFACE_NAME_RE.match(payload.bridge_name):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Invalid bridge_name (a Linux interface name is expected: letters/digits/-/_/. , 15 characters max)",
-                )
-            from app.core.host_interfaces import find as find_interface
-
-            iface = find_interface(payload.bridge_name)
-            if iface is None:
-                raise HTTPException(status_code=422, detail=f"No interface '{payload.bridge_name}' on this host")
-            if not iface["usable"]:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"'{payload.bridge_name}' is a Wi-Fi card: a Wi-Fi link cannot carry bridged VMs",
-                )
-            if iface["type"] == "bridge":
-                # An existing Linux bridge: VMs are plugged into it, and the host reaches them.
-                net_xml = f"""
-            <network>
-              <name>{payload.name}</name>
-              <forward mode='bridge'/>
-              <bridge name='{payload.bridge_name}'/>
-            </network>
-            """
-            else:
-                # A NIC, bond or VLAN interface: macvtap puts the VMs straight on it, with no change to the host's
-                # network configuration. The host itself cannot reach them through it (macvtap limitation).
-                net_xml = f"""
-            <network>
-              <name>{payload.name}</name>
-              <forward mode='bridge'>
-                <interface dev='{payload.bridge_name}'/>
-              </forward>
-            </network>
-            """
-        else:
-            if not payload.subnet_address or not _valid_ipv4(payload.subnet_address):
-                raise HTTPException(
-                    status_code=422, detail="Invalid subnet_address (an IPv4 address is expected, e.g. '192.168.150.1')"
-                )
-            try:
-                subnet = ipaddress.ip_network(f"{payload.subnet_address}/{payload.subnet_netmask}", strict=False)
-            except ValueError:
-                raise HTTPException(status_code=422, detail="Invalid subnet_netmask (e.g. '255.255.255.0')") from None
-            conflict = _subnet_conflict(conn, subnet)
-            if conflict:
-                log_action(user["username"], "create_network", payload.name, "failed", conflict)
-                raise HTTPException(status_code=409, detail=f"{conflict}: choose another address range")
-            forward_xml = "<forward mode='nat'/>" if payload.mode == "nat" else ""
-            dhcp_xml = ""
-            if payload.dhcp_start and payload.dhcp_end:
-                if not (_valid_ipv4(payload.dhcp_start) and _valid_ipv4(payload.dhcp_end)):
-                    raise HTTPException(status_code=422, detail="Invalid dhcp_start/dhcp_end")
-                start, end = ipaddress.ip_address(payload.dhcp_start), ipaddress.ip_address(payload.dhcp_end)
-                if start not in subnet or end not in subnet or start > end:
-                    raise HTTPException(
-                        status_code=422, detail=f"The DHCP range must lie inside {subnet}, its start before its end"
-                    )
-                dhcp_xml = f"<dhcp><range start='{payload.dhcp_start}' end='{payload.dhcp_end}'/></dhcp>"
-            # The bridge name is derived from the network name: a short prefix (4
-            # characters, for a bit of readability) plus a SHA-1 hash of the FULL name (5 hex
-            # characters). Kernel interface names are limited to 15 usable characters
-            # (IFNAMSIZ=16 including the terminating NUL), so a plain truncation of the name
-            # either overflows the limit (libvirt then fails with "Numerical result out of
-            # range") or makes two networks with a common prefix collide (e.g. "guest-wifi-1"
-            # and "guest-wifi-2" would generate the same bridge). Two networks can only
-            # collide if their full names are identical, which is rejected earlier ("already
-            # exists").
-            bridge_dev = (
-                f"virbr-{payload.name[:4]}{hashlib.sha1(payload.name.encode(), usedforsecurity=False).hexdigest()[:5]}"
-            )
-            net_xml = f"""
-            <network>
-              <name>{payload.name}</name>
-              {forward_xml}
-              <bridge name='{bridge_dev}' stp='on' delay='0'/>
-              <ip address='{payload.subnet_address}' netmask='{payload.subnet_netmask}'>
-                {dhcp_xml}
-              </ip>
-            </network>
-            """
-
-        net = None
+        fields = payload.model_dump(exclude={"name"})
         try:
-            net = conn.networkDefineXML(net_xml)
-            net.create()
-            net.setAutostart(True)
-        except libvirt.libvirtError as e:
-            # Defined purpose not started: a half-created network would stay listed, inactive.
-            if net is not None:
-                try:
-                    if net.isActive():
-                        net.destroy()
-                    net.undefine()
-                except libvirt.libvirtError:
-                    pass
-            msg = describe_exception(e)
-            log_action(user["username"], "create_network", payload.name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Network creation error: {msg}") from e
+            # Checked here for the answer; hyperlite-daemon checks the same fields again and writes the definition.
+            network_create.network_xml(payload.name, **fields)
+            if payload.mode != "bridge":
+                conflict = _subnet_conflict(
+                    conn, network_create.subnet_of(payload.subnet_address, payload.subnet_netmask)
+                )
+                if conflict:
+                    log_action(user["username"], "create_network", payload.name, "failed", conflict)
+                    raise HTTPException(status_code=409, detail=f"{conflict}: choose another address range")
+        except network_create.SpecError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from None
+        _daemon(
+            "network.create",
+            user,
+            "create_network",
+            payload.name,
+            failed="Network creation error: {}",
+            name=payload.name,
+            **fields,
+        )
+        net = conn.networkLookupByName(payload.name)
 
         log_action(user["username"], "create_network", payload.name, "success")
         return _network_summary(net)
@@ -721,67 +640,51 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
     conn = open_conn()
     lxc = open_lxc_conn_if_any()
     try:
-        net = _lookup(conn, name)
+        _lookup(conn, name)
         try:
             conn.networkLookupByName(new)
             raise HTTPException(status_code=409, detail=f"A network named '{new}' already exists")
         except libvirt.libvirtError:
             pass
-        running, stopped = _guests_on([c for c in (conn, lxc) if c is not None], name)
+        running, _stopped = network_edit.guests_on([c for c in (conn, lxc) if c is not None], name)
         if running:
             raise HTTPException(
                 status_code=409,
                 detail=f"Running guests use this network ({', '.join(d.name() for _c, d, _r in running)}): stop "
                 "them first",
             )
-        old_xml = net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE)
-        was_active, autostart = bool(net.isActive()), bool(net.autostart())
-        root = ET.fromstring(old_xml)
-        root.find("name").text = new
-        firewall = get_network_firewall(name)
-        try:
-            try:
-                remove_network_firewall(name, user=user["username"])
-            except (ValueError, RuntimeError):
-                # The rename goes on: the old chain only matches a bridge that keeps its name, and it is rebuilt below.
-                logger.warning("Removing the firewall of network %s before its rename failed", name, exc_info=True)
-            if was_active:
-                net.destroy()
-            net.undefine()
-            try:
-                renamed = conn.networkDefineXML(ET.tostring(root, encoding="unicode"))
-                if was_active:
-                    renamed.create()
-                renamed.setAutostart(1 if autostart else 0)
-            except libvirt.libvirtError:
-                restored = conn.networkDefineXML(old_xml)
-                if was_active:
-                    restored.create()
-                restored.setAutostart(1 if autostart else 0)
-                raise
-            for guest_conn, _dom, guest_root in stopped:
-                for source in guest_root.findall(".//devices/interface[@type='network']/source"):
-                    if source.get("network") == name:
-                        source.set("network", new)
-                guest_conn.defineXML(ET.tostring(guest_root, encoding="unicode"))
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "rename_network", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
-        renaming.network_records(name, new)
-        if firewall["rules"] or firewall["default_policy"] != "accept":
-            try:
-                apply_network_firewall(new, firewall, user=user["username"])
-            except (ValueError, RuntimeError) as e:
-                log_action(user["username"], "rename_network", new, "failed", f"firewall not reapplied: {e}")
-        log_action(
-            user["username"], "rename_network", name, "success", f"-> {new} ({len(stopped)} guest(s) moved over)"
-        )
-        return {**_network_summary(renamed), "guests_updated": sorted(d.name() for _c, d, _r in stopped)}
     finally:
         conn.close()
         if lxc is not None:
             lxc.close()
+    firewall = get_network_firewall(name)
+    try:
+        remove_network_firewall(name, user=user["username"])
+    except (ValueError, RuntimeError):
+        # The rename goes on: the old chain only matches a bridge that keeps its name, and it is rebuilt below.
+        logger.warning("Removing the firewall of network %s before its rename failed", name, exc_info=True)
+    moved = _daemon(
+        "network.rename",
+        user,
+        "rename_network",
+        name,
+        refused=409,
+        failed="Rename failed: {}",
+        network=name,
+        new_name=new,
+    )["guests_updated"]
+    renaming.network_records(name, new)
+    if firewall["rules"] or firewall["default_policy"] != "accept":
+        try:
+            apply_network_firewall(new, firewall, user=user["username"])
+        except (ValueError, RuntimeError) as e:
+            log_action(user["username"], "rename_network", new, "failed", f"firewall not reapplied: {e}")
+    log_action(user["username"], "rename_network", name, "success", f"-> {new} ({len(moved)} guest(s) moved over)")
+    conn = open_conn()
+    try:
+        return {**_network_summary(conn.networkLookupByName(new)), "guests_updated": moved}
+    finally:
+        conn.close()
 
 
 @router.delete("/{name}")
@@ -792,7 +695,7 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
     conn = open_conn()
     try:
         try:
-            net = conn.networkLookupByName(name)
+            conn.networkLookupByName(name)
         except libvirt.libvirtError:
             log_action(user["username"], "delete_network", name, "failed", "Network not found")
             raise HTTPException(status_code=404, detail=f"Network '{name}' not found") from None
@@ -829,14 +732,7 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
         except (ValueError, RuntimeError):
             logger.warning("Removing the firewall of network %s failed; the deletion goes on", name, exc_info=True)
 
-        try:
-            if net.isActive():
-                net.destroy()
-            net.undefine()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "delete_network", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Deletion error: {msg}") from e
+        _daemon("network.delete", user, "delete_network", name, refused=409, failed="Deletion error: {}", network=name)
 
         log_action(user["username"], "delete_network", name, "success")
         return {"message": f"Network '{name}' deleted"}

@@ -282,3 +282,67 @@ def delete_reservation(net, mac):
             )
             return True
     return False
+
+
+SYSTEM_NETWORKS = ("default", "hyperlite-isolated")
+
+
+def guests_on(conns, network_name):
+    """(running, stopped) guests of these connections (VMs, containers) with an interface on the network, each as
+    (connection, domain, its parsed inactive XML)."""
+    running, stopped = [], []
+    for conn in conns:
+        for dom in conn.listAllDomains():
+            try:
+                root = ET.fromstring(dom.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+            except (libvirt.libvirtError, ET.ParseError):
+                continue
+            if any(
+                s.get("network") == network_name for s in root.findall(".//devices/interface[@type='network']/source")
+            ):
+                (running if dom.isActive() else stopped).append((conn, dom, root))
+    return running, stopped
+
+
+def rename(conn, lxc, name, new):
+    """libvirt cannot rename a network: it is redefined under the new name (same bridge, subnet, DHCP range and
+    reservations), put back as it was if that fails, and the stopped VMs and containers attached to it point at the
+    new name. Returns their names. Raises EditError (a system network, a name taken, a guest running) or
+    libvirt.libvirtError."""
+    if name in SYSTEM_NETWORKS:
+        raise EditError(f"Network '{name}' is a system network: Hyperlite relies on its name")
+    net = conn.networkLookupByName(name)
+    try:
+        conn.networkLookupByName(new)
+        raise EditError(f"A network named '{new}' already exists")
+    except libvirt.libvirtError:
+        pass
+    running, stopped = guests_on([c for c in (conn, lxc) if c is not None], name)
+    if running:
+        raise EditError(
+            f"Running guests use this network ({', '.join(d.name() for _c, d, _r in running)}): stop them first"
+        )
+    old_xml = net.XMLDesc(libvirt.VIR_NETWORK_XML_INACTIVE)
+    was_active, autostart = bool(net.isActive()), bool(net.autostart())
+    root = ET.fromstring(old_xml)
+    root.find("name").text = new
+    if was_active:
+        net.destroy()
+    net.undefine()
+    try:
+        renamed = conn.networkDefineXML(ET.tostring(root, encoding="unicode"))
+        if was_active:
+            renamed.create()
+        renamed.setAutostart(1 if autostart else 0)
+    except libvirt.libvirtError:
+        restored = conn.networkDefineXML(old_xml)
+        if was_active:
+            restored.create()
+        restored.setAutostart(1 if autostart else 0)
+        raise
+    for guest_conn, _dom, guest_root in stopped:
+        for source in guest_root.findall(".//devices/interface[@type='network']/source"):
+            if source.get("network") == name:
+                source.set("network", new)
+        guest_conn.defineXML(ET.tostring(guest_root, encoding="unicode"))
+    return sorted(d.name() for _c, d, _r in stopped)

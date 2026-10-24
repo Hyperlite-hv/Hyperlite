@@ -8,6 +8,9 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
+import app.daemon.ops.network as ops_network
+from app.core import libvirt_utils
+
 
 def _gone():
     e = libvirt.libvirtError("not found")
@@ -266,6 +269,9 @@ def nets(database, monkeypatch):
     qemu.nets["lab"] = _Net(qemu, "<network><name>lab</name><bridge name='virbr7'/><ip address='10.9.0.1'/></network>")
     monkeypatch.setattr(network, "open_conn", lambda node=None: qemu)
     monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda: lxc)
+    # hyperlite-daemon renames the network with connections of its own, in this process in the tests.
+    monkeypatch.setattr(ops_network, "_connect", lambda: qemu)
+    monkeypatch.setattr(libvirt_utils, "open_lxc_conn_if_any", lambda: lxc)
     monkeypatch.setattr(network, "_network_summary", lambda net: {"name": net.name()})
     monkeypatch.setattr(network, "remove_network_firewall", lambda name, user=None: None)
     applied = []
