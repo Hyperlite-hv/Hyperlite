@@ -41,8 +41,8 @@ Virtual networks in NAT, isolated or bridge mode (on a host bridge, or on a NIC,
 - Live migration between hosts, with a compatibility diagnostic (CPU, QEMU/libvirt versions, machine types, storage, networks) before migrating.
 - Node maintenance mode: draining live-migrates the running VMs to a chosen node, one migration task each, and lists the VMs that stay with the reason (stopped, iSCSI disks, compatibility blockers, name taken). A node in maintenance receives no new VM or container and is never a migration or HA recovery target.
 - Configuration copy, for hosts driven over SSH: the controller copies its configuration (database without telemetry, and its keys) to every node every 15 minutes and right after a change; if the controller is lost, `hyperlite-promote` on a node takes over, refusing while the old controller still answers. See [Taking over when the controller is lost](cluster-failover.md).
-- Basic HA: protected VMs (disks on shared storage) are monitored; when a node goes down an alert is raised and an administrator can recover the VM on another node. Recovery is never automatic, and an SSH-based best-effort fence is attempted first.
-- Automatic HA, **dry run** ([design](design/ha-automatic.md)): every 10 s the nodes carrying protected VMs are probed (libvirt and SSH). A node is suspect, then failed after configurable thresholds; a node whose libvirt fails while SSH answers is not counted as failed. For a failed node each protected VM shows what automatic HA *would* do: nothing if this controller may be the isolated one (it must reach a majority of the voters, a witness included), manual recovery on two nodes without a witness or without fencing, otherwise "power off through IPMI/Redfish/AMT or wait for the leases, then restart on <node>". Nothing is powered off or restarted. Per-node fencing settings (IPMI, Redfish, Intel AMT, leases only) are stored encrypted and **Test** only reads the power state (the `fence-agents` package provides the agents). **Leases** checks that libvirt's `lockd` lock manager is on.
+- HA protection per VM, for disks on a share that locks across nodes (NFS, SMB: QEMU's own image locks then refuse a disk another node runs); a share whose locks stay on one node (`nolock`, `local_lock=`, `nobrl`) is refused. An administrator can still recover a VM by hand; a node with a BMC is powered off through it first, and the recovery waits until it reads off.
+- Automatic HA ([design](design/ha-automatic.md)): the leader, with the quorum, restarts the HA VMs of a member whose status is older than 60 s once it is known to be stopped (its BMC powered it off and read it off, or its armed watchdog had its reset delay plus 30 s); only the VMs that were running, one by one by priority, on their first preferred node or the online member with the most free memory, never one in maintenance; at most 3 automatic restarts per VM per hour. Without proof the member stopped, its VMs are left to an administrator. The returning node undefines the VMs that moved. Admission control (`warn` by default, `strict`, `off`) checks that the loss of any member leaves room for its HA VMs. Hosts driven over SSH keep a dry run that only says what it would do.
 
 ## Backups
 
@@ -79,8 +79,8 @@ At start-up and on demand Hyperlite detects the capabilities of the host (CPU, R
 ## Known scope limits
 
 - A cluster needs a low-latency network between its nodes (Corosync). Hosts driven over SSH depend on one controller, whose loss needs a manual takeover.
-- No fencing yet; automatic HA is a dry run and recovery is manual.
-- VLAN tags only on Open vSwitch or SR-IOV networks; VLAN-aware Linux bridges are the next step (`docs/design/network.md`).
+- Automatic HA needs a BMC (IPMI, Redfish) or an armed watchdog on each member; Intel AMT is not available yet (Debian packages no `fence_amt_ws`). VM monitoring (a hung guest reset in place) is not done yet.
+- VLAN tags on VLAN-aware Linux bridges, Open vSwitch or SR-IOV networks; host interfaces (bridges, bonds, VLANs) are not yet created from the dashboard (#512).
 - Backups of ZFS and iSCSI disks are refused; there is no deduplication or encryption of backups yet.
 - VMs on ZFS pools are not live-migratable.
 - ZFS pools created from the interface use loopback files and are local to one node.

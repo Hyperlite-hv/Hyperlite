@@ -5,12 +5,12 @@ Thanks for your interest. Hyperlite is licensed under the PolyForm Noncommercial
 ## Ground rules
 
 - All repository content is **English**: code, comments, commit messages, documentation, user-facing text.
-- The HTTP API and the database keep **French wire identifiers and values** (for example `nom`, `etat`, `memoire_mo`, `en_cours`, `observateur`). Do not rename them silently: they are part of the contract with the dashboard and with existing installations. Translate only what a human reads (messages, labels, comments). See [docs/api.md](docs/api.md).
+- The HTTP API and the database use **English wire identifiers and values** since API v1 (for example `name`, `state`, `memory_mb`, `running`, `viewer`; the 1.0 renames are in [docs/design/api-v1/glossary.md](docs/design/api-v1/glossary.md)). Do not rename them silently: they are part of the contract with the dashboard, the clients and existing installations, and inside v1 a change only adds. See [docs/api.md](docs/api.md).
 - Branching model: `master` is production and `test` is the integration (development) branch.
   - Start every change from `test` on a short-lived branch (`feat/...`, `fix/...`, `docs/...`), open a pull request **into `test`**, and delete the branch after the merge.
   - Never push directly to `master` or `test`.
   - To release, open a pull request from `test` into `master` once `test` is validated (CI green and the end-to-end suite passing). Publishing (APT repository, ISO) only follows `master`.
-  - Dependabot opens its pull requests against  (see ).
+  - Dependabot opens its pull requests against `test` (see `.github/dependabot.yml`).
   - Urgent production fixes use a `hotfix/...` branch from `master`, and are merged back into `test` afterwards.
 - New here, or bringing an AI assistant? Read [docs/onboarding.md](docs/onboarding.md) for the access checklist and the working rules.
 - Keep pull requests small and focused. Explain *why* in the description.
