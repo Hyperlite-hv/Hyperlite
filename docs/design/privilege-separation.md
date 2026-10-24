@@ -477,6 +477,37 @@ the container's lock (`container_snapshots.claim`) and its records (`container_m
 
 A container's archives move with the backups domain, its terminal and root shell with the consoles.
 
+**The cluster domain (proposed, 2026-10-24).** Hyperlite reaches the other nodes in two ways: a member of the cluster
+through its own API (`app/core/cluster_view.py` forwards `?node=`, `rolling_update.peer_api`, the member's certificate
+pinned), and every node over SSH as root with the cluster's key (`paths.SSH_DIR / "hyperlite_cluster"`, under
+`/etc/hyperlite/priv`): libvirt over `qemu+ssh` for a node registered over SSH only and for a migration, `scp` for the
+ISO and file copies, commands for the stats, the boot id, the LVM, SMB, VLAN and hook-script work of another node, and
+the peer calls' fallback when HTTPS cannot be used. About 75 call sites in 27 files. A process that holds that key is
+root on every node: once the API runs as `www-data` it must not read it. As on Proxmox VE, where the nodes trust each
+other's root over SSH and pveproxy only forwards a request to the node that owns the guest, **only hyperlite-daemon
+holds the cluster's keys**, and the API asks it for named work on a named node, never for a command or a libvirt URI:
+
+- **The node is named, its address read by the daemon** from the node registry (the `nodes` table), the host key pinned
+  in root's `known_hosts` when the node was registered. The API can name a registered node only; registering one stays
+  an administrator's action, as today.
+- **A member is still asked through its own API**, whose daemon does the work on its own host. SSH stays for what has
+  no API: a node registered over SSH only, and the transfers between two hosts' roots (a migration, a disk or an ISO
+  copy).
+- **Each root action on another node is an operation of its domain taking `node`**: `vm.power(vm, action,
+  node=...)`, `storage.lvm_volumes(group, node=...)`, the daemon opening that node's libvirt itself
+  (`libvirt_utils.node_conn`) or running its fixed command there. The `?node=` branches the earlier domains left in
+  the API (marked in their routes) move here.
+
+| Part | What moves | Operations |
+|---|---|---|
+| Cluster, part 1: the keys | The cluster's key pair, root's `known_hosts`, the reverse trust a node is given into this one (`authorized_keys`), and their changes when a node is registered, renamed or removed (`app/core/cluster.py`) | `cluster.key`, `cluster.trust`, `cluster.forget` |
+| Cluster, part 2: a node registered over SSH only | Its VMs' power, definition and deletion, its pools and volumes, its inventory and its host's details, through the daemon's own connection to it | the domains' operations with `node`, `node.inventory`, `node.capabilities`, `node.stats` |
+| Cluster, part 3: migration | The pre-checks, the disks created and the files copied on the target, `migrateToURI3`, its progress, the cleanup on the source (`app/routers/vms/migration.py`) | `vm.migrate`, `vm.migrate_cancel` |
+| Cluster, part 4: the copies and the commands | An ISO copied to a node (`iso_share`), the configuration copied (`config_copy`), a member's boot id (`vm_boot`), the peer calls' SSH fallback (`rolling_update`) | `iso.copy`, `config.copy`, `node.boot_id`, `node.api` |
+
+HA's own calls (`app/core/ha*.py`, its fencing over SSH included) move with HA's owner through #298, onto these
+operations. The consoles' tunnels to another node (`spice.py`, `console.py`) move with the consoles.
+
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of
 its own (`systemd-run`, `app/daemon/update_job.py`), as the update watchdog runs: the job keeps going through both
