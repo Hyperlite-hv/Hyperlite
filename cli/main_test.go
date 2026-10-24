@@ -10,7 +10,8 @@ func TestNormalizeURL(t *testing.T) {
 	cases := map[string]string{
 		"hl.example.com":                    "https://hl.example.com",
 		"https://HL.example.com:8443/app/x": "https://hl.example.com:8443",
-		" http://10.0.0.5:8011 ":            "http://10.0.0.5:8011",
+		" http://127.0.0.1:8011 ":           "http://127.0.0.1:8011",
+		"http://localhost:8011":             "http://localhost:8011",
 	}
 	for in, want := range cases {
 		got, err := normalizeURL(in)
@@ -18,7 +19,8 @@ func TestNormalizeURL(t *testing.T) {
 			t.Errorf("normalizeURL(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"ftp://x", "https://", "https:///path"} {
+	// Plain HTTP carries the token in clear: to this computer only (GHSA-m44w-x95g-jp7m).
+	for _, bad := range []string{"ftp://x", "https://", "https:///path", "http://10.0.0.5:8011", "http://hv-01.lan"} {
 		if _, err := normalizeURL(bad); err == nil {
 			t.Errorf("normalizeURL(%q) accepted", bad)
 		}
@@ -132,12 +134,32 @@ func TestServerAddressesCannotCarryShellCharacters(t *testing.T) {
 			t.Errorf("accepted %q as %q", raw, u)
 		}
 	}
-	for _, raw := range []string{"hv.example.com", "https://10.0.0.5:8000", "https://[fd00::1]:8000", "http://hv-01.lan"} {
+	for _, raw := range []string{"hv.example.com", "https://10.0.0.5:8000", "https://[fd00::1]:8000", "http://[::1]:8011"} {
 		if _, err := normalizeURL(raw); err != nil {
 			t.Errorf("refused %q: %v", raw, err)
 		}
 	}
 	if _, err := proxyCommand(&server{URL: "https://x;id"}, "vm1", 22); err == nil {
 		t.Error("proxyCommand accepted an unchecked address")
+	}
+}
+
+func TestOnlyTheServersOwnApprovalPageIsOpened(t *testing.T) {
+	// The system's opener runs what it is given: a hostile server's file or other scheme (GHSA-m44w-x95g-jp7m).
+	ok, err := approvalLink("https://hv.example.com:8443", "https://hv.example.com:8443/cli-login?code=ABCD-EFGH")
+	if err != nil || ok != "https://hv.example.com:8443/cli-login?code=ABCD-EFGH" {
+		t.Fatalf("got %q, %v", ok, err)
+	}
+	for _, bad := range []string{
+		"file:///C:/Windows/System32/calc.exe",
+		"https://elsewhere.example.com/cli-login",
+		"http://hv.example.com:8443/cli-login",
+		"https://user@hv.example.com:8443/cli-login",
+		"https://hv.example.com:8443/cli-login\x1b[2J",
+		"javascript:alert(1)",
+	} {
+		if u, err := approvalLink("https://hv.example.com:8443", bad); err == nil {
+			t.Errorf("accepted %q as %q", bad, u)
+		}
 	}
 }
