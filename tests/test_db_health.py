@@ -128,9 +128,16 @@ def test_a_sound_database_is_ok(database, logged):
     assert logged == []
 
 
-def test_stale_index_entries_are_seen_by_the_full_check_only_and_reindexed_online(database, logged):
+def test_stale_index_entries_are_seen_by_the_full_check_and_reindexed_online(database, logged):
     _stale_index(database.DB_PATH)
-    assert db_health.inspect()["ok"], "quick_check does not compare an index with its table"
+    # The quick check sees them or not depending on SQLite's version: 3.46 (Debian 13's) counts each index's entries
+    # against its table's rows, older ones do not. When it sees them, it names the same index and the same repair.
+    quick = db_health.inspect()
+    if not quick["ok"]:
+        assert (quick["kind"], quick["indexes"]) == ("index_entries", ["sample_label"])
+        assert db_health.check()["repair"] == "reindex"
+        db_health.forget()
+        logged.clear()
 
     state = db_health.check(full=True)
     assert state["status"] == "damaged"
