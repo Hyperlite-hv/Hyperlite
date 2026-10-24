@@ -4,6 +4,7 @@ it up in this node's libvirt itself. The routes keep who may ask, the locks, the
 and their answers; another node's VM keeps its own connection until the cluster domain."""
 
 import functools
+import threading
 from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
@@ -833,3 +834,80 @@ def lvm_snapshots(args, ctx):
 
     with libvirt_utils.local_conn() as conn:
         return {"snapshots": vm_snapshots.lvm_snapshots(conn, args.vm)}
+
+
+# --- The cluster domain, part 3: migration (app/core/vm_migrate.py) ---
+
+# The migrations running in this process, by task: what vm.migrate_cancel stops; and the source's cleanup of the ones
+# that moved, which vm.migrate_finish runs.
+_migrations = {}
+_finishing = {}
+_migrations_lock = threading.Lock()
+
+
+class MigrateArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    source_node: str | None = NODE
+    target_node: str = Field(min_length=1, max_length=63)
+    task_id: str = Field(min_length=1, max_length=64)
+
+
+@operation("vm.migrate", MigrateArgs)
+def migrate(args, ctx):
+    """The running VM moved live to another node, both nodes' libvirt opened here with the cluster's key, its progress
+    written into the task (vm_migrate.migrate). One call that waits; vm.migrate_cancel aborts it. Returns
+    {"shared", "warnings", "checkpoints_dropped"}."""
+    import libvirt
+
+    from app.core import vm_migrate
+    from app.core.error_messages import describe_exception
+
+    aborts = {"abort": None, "cancelled": threading.Event()}
+    with _migrations_lock:
+        if args.task_id in _migrations:
+            raise DaemonError("in_use", "This task already migrates a VM")
+        _migrations[args.task_id] = aborts
+    try:
+        result, finish = vm_migrate.migrate(args.task_id, args.vm, args.source_node, args.target_node, aborts)
+        # Kept here, never asked of the API: what the source keeps until the API has written where the VM is.
+        with _migrations_lock:
+            _finishing[args.task_id] = finish
+        return result
+    except vm_migrate.MigrateError as e:
+        raise DaemonError(e.kind, e.detail) from e
+    except (libvirt.libvirtError, RuntimeError) as e:
+        raise DaemonError("failed", describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)) from e
+    finally:
+        with _migrations_lock:
+            _migrations.pop(args.task_id, None)
+
+
+class MigrateCancelArgs(Args):
+    task_id: str = Field(min_length=1, max_length=64)
+
+
+@operation("vm.migrate_cancel", MigrateCancelArgs)
+def migrate_cancel(args, ctx):
+    """Abort the migration of this task, if one runs: libvirt stops copying and the VM keeps running where it was."""
+    with _migrations_lock:
+        aborts = _migrations.get(args.task_id)
+    if aborts is None:
+        return {"cancelled": False}
+    aborts["cancelled"].set()
+    if aborts["abort"] is not None:
+        aborts["abort"]()
+    return {"cancelled": True}
+
+
+@operation("vm.migrate_finish", MigrateCancelArgs)
+def migrate_finish(args, ctx):
+    """The source of a VM this daemon migrated cleaned up (its addresses, its copied disks), once the API wrote where
+    the VM runs: {"warnings"}. Nothing to do for a task it does not know."""
+    with _migrations_lock:
+        finish = _finishing.pop(args.task_id, None)
+    if finish is None:
+        return {"warnings": []}
+    try:
+        return {"warnings": finish()}
+    except DaemonError as e:  # the source node unreachable now: its leftovers are said, the migration stands
+        return {"warnings": [f"cleaning up the source node: {e.detail}"]}
