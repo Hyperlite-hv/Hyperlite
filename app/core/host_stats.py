@@ -152,9 +152,11 @@ def run_probe_script(script, node=None):
     (node.probe), on a registered remote node. The script is fixed code, never user input."""
     if node is None:
         return run_script_on(script, None)
-    from app.core import privileged
+    from app.core import node_health, privileged
     from app.daemon.registry import DaemonError
 
+    if node_health.is_down(node):
+        return None  # not even asked: the daemon would answer the same (run_script_on)
     name = next(k for k, v in _probes().items() if v == script)
     try:
         return privileged.run("node.probe", node=node["name"], probe=name)["output"]
