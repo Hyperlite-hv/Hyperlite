@@ -83,7 +83,7 @@ def _warn(vm_name, inactive_days):
 
 def _check_vm(conn, row):
     from app.core.ha import get_protected  # late import: avoids a cycle when the module loads
-    from app.routers.vms.lifecycle import _perform_vm_deletion
+    from app.routers.vms.lifecycle import _kept_sentence, _perform_vm_deletion
 
     vm_name = row["vm_name"]
     try:
@@ -127,8 +127,10 @@ def _check_vm(conn, row):
         if domain.isActive():
             return
         try:
-            _perform_vm_deletion(conn, domain, vm_name)
+            keep = _perform_vm_deletion(conn, domain, vm_name)
             msg = f"Automatic deletion: stopped for {row['inactive_days']}+ days (threshold set at creation)"
+            if keep:
+                msg += f"; {_kept_sentence(keep)}"
             log_action("system", "delete_vm", vm_name, "success", msg)
         except Exception as e:
             log_action("system", "delete_vm", vm_name, "failed", f"Automatic deletion failed: {e!r}")

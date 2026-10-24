@@ -43,6 +43,8 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"vm.set_resources", "vm.set_limits", "vm.set_cpu_pinning", "vm.set_disk_options", "vm.set_machine"} <= named
     assert {"vm.attach_disk", "vm.detach_interface", "vm.attach_hostdev", "vm.set_cdrom", "vm.eject_cdrom"} <= named
     assert {"vm.set_firewall", "vm.set_hookscript", "vm.rename", "vm.cloudinit_write"} <= named
+    assert {"vm.create", "vm.delete", "vm.clone"} <= named
+    assert {"template.make", "template.deploy", "template.rename", "template.delete"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 

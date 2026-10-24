@@ -161,7 +161,12 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   }
   async function remove() {
     if (!(await confirmAction({ title: t("vx.deleteTitle", { name: vm.name }), message: t("vx.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
-    try { await useInfraStore.getState().runVMAction(vmKey(vm), "delete"); onDeleted?.(); }
+    try {
+      const taskId = await useInfraStore.getState().runVMAction(vmKey(vm), "delete");
+      const kept = Object.entries(useInfraStore.getState().tasks.find((x) => x.id === taskId)?.keptDisks || {});
+      if (kept.length) pushToast({ kind: "info", title: t("vx.keptDisks", { count: kept.length }), message: kept.map(([path, why]) => `${path} (${why})`).join("; ") });
+      onDeleted?.();
+    }
     catch { /* the store already shows the error */ }
   }
   function snapshot() {
