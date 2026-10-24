@@ -351,7 +351,7 @@ jobs:
         with:
           packages: >-
             libvirt-dev pkg-config gcc openssl libvirt-daemon-system qemu-system-x86 qemu-utils genisoimage wget
-            dnsmasq-base cloud-image-utils libvirt-daemon-driver-lxc ovmf swtpm swtpm-tools libnbd-bin
+            dnsmasq-base cloud-image-utils libvirt-daemon-driver-lxc ovmf swtpm swtpm-tools libnbd-bin python3-libnbd
             ${{ steps.browser.outputs.deps }}
       - name: Enable KVM when the runner exposes it
         run: |
