@@ -1,6 +1,7 @@
 # Design: load balancing of a cluster (DRS)
 
-Status: **proposed, for the maintainer to accept (#334)**. No code before that.
+Status: **accepted on 2026-10-24, with the maintainer's answers of section 8** (#334). Five steps follow, one pull
+request each.
 
 ## 1. Goal
 
@@ -11,7 +12,7 @@ their cost.
 
 Out of scope: storage balancing (vSphere's Storage DRS), power management (DPM: emptying a node to switch it off),
 prediction (#347), VMs whose disks are not on a shared pool (a migration that copies the disks takes minutes to hours:
-proposed in manual mode only, never applied on its own).
+never proposed nor applied, section 8).
 
 ## 2. What exists
 
@@ -58,7 +59,7 @@ broken (3.4) is always a reason to move.
 A greedy search, as vSphere's: from the most loaded member, the move of one VM to another member that lowers the spread
 the most, then again, at most `max_moves` (default 4) per evaluation. A VM is a candidate when:
 
-- it runs, all its disks on a shared pool (shared file pool or RBD; never a disk copy in automatic mode);
+- it runs, all its disks on a shared pool (shared file pool or RBD; never a disk copy);
 - nothing else works on it (`vm_locks`), it is no HA VM being recovered, it was not moved by DRS in the last hour
   (no ping-pong), and it is not excluded (3.5);
 - the target is online, not in maintenance, can run it (`_why_not_migrable`: CPU, name), and has its memory free with a
@@ -89,9 +90,9 @@ said why. A start or a migration by an administrator that breaks a "must" rule i
 One mode for the cluster, and a per-VM exception:
 
 - **Off**: nothing evaluated.
-- **Manual** (the default): the page lists the recommended moves, each with its gain and its reason; an administrator
-  applies one, or all.
-- **Automatic**: the leader applies them, at most 2 migrations at a time in the cluster and 1 per node, and says each
+- **Manual**: the page lists the recommended moves, each with its gain and its reason; an administrator applies one,
+  or all.
+- **Automatic** (the default, as vSphere's): the leader applies them, at most 2 migrations at a time in the cluster and 1 per node, and says each
   one in the audit log, the history and a notification.
 
 A VM can be excluded, or kept in manual while the cluster is automatic (a database that must never move on its own).
@@ -100,6 +101,7 @@ A VM can be excluded, or kept in manual while the cluster is automatic (a databa
 
 The drain (maintenance) stops sending every VM to one target: each VM goes where DRS would put it, its rules kept.
 When a VM is created or started with no node named ("auto"), the same placement chooses its node (initial placement).
+In a cluster, "auto" is the default node of the creation form; a node can still be chosen.
 
 ### 3.7 Safety
 
@@ -126,7 +128,7 @@ When a VM is created or started with no node named ("auto"), the same placement 
 | Risk | Mitigation |
 |---|---|
 | Moves that never end (ping-pong) | 15 minutes of imbalance before a move, a gain threshold, one hour before a VM moves again |
-| A migration hurting a busy VM | Manual by default; at most 2 at a time; the smallest VMs first; exclusion per VM |
+| A migration hurting a busy VM | At most 2 at a time; the smallest VMs first; manual mode, or an exclusion per VM |
 | A "must" rule leaving HA nowhere to restart a VM | The VM goes to manual, said why; the page warns when a rule leaves a VM a single node |
 | Loads read from statuses 10 s old | 5-minute means and 15 minutes of imbalance: a stale status changes nothing |
 | A node of an older version in the cluster | Its status has no load: it is neither a source nor a target, said on the page |
@@ -139,7 +141,7 @@ When a VM is created or started with no node named ("auto"), the same placement 
 4. **Automatic mode** and the per-VM exceptions (3.5, 3.7). Lab: three nodes, VMs loaded on one, moved until even.
 5. **Drain and initial placement** through DRS (3.6).
 
-## 7. Questions for the maintainer
+## 7. Questions asked
 
 1. **Default mode**: manual (proposed), or automatic as vSphere's default?
 2. **Threshold**: level 3 (25 points) by default?
@@ -147,3 +149,11 @@ When a VM is created or started with no node named ("auto"), the same placement 
 4. **"Must" rules binding HA**: agreed that a VM with no node left keeping its rules is not restarted (it goes to
    manual)? vSphere does the same with "must" rules.
 5. **Initial placement**: should "auto" become the default node when a VM is created in a cluster?
+
+## 8. Decisions (maintainer, 2026-10-24)
+
+1. Default mode: **automatic**, as vSphere's; manual and off stay a setting away.
+2. Threshold: level 3 (25 points) by default, as proposed.
+3. VMs on local disks: **never** moved by DRS, neither proposed nor applied.
+4. "Must" rules bind HA: a VM with no node left that keeps its rules is not restarted; it goes to manual, said why.
+5. Initial placement: "auto" is the default node of the creation form in a cluster.
