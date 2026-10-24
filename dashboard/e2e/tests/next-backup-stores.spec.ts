@@ -144,6 +144,7 @@ test("a remote cluster: its certificate read, compared, then saved with a reader
   const fingerprint = "ab".repeat(32);
   const sent: Array<Record<string, unknown>> = [];
   await page.route(/\/backup-remotes\/probe$/, (r) => r.fulfill(json({ fingerprint })));
+  await page.route(/\/backup-remotes\/this-node$/, (r) => r.fulfill(json({ fingerprint: "cd".repeat(32) }))); // the e2e backend has no certificate
   await page.route(/\/backup-remotes$/, (r) => {
     if (r.request().method() === "POST") {
       const body = r.request().postDataJSON() as Record<string, unknown>;
