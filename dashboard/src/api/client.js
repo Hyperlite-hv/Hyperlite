@@ -859,6 +859,20 @@ export async function disableHa(name) {
 export async function recoverHa(name, targetNode) {
   return realFetch(`/ha/${encodeURIComponent(name)}/recover`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
 }
+// Automatic HA in a cluster (docs/design/ha-automatic.md): a VM's restart priority and preferred nodes, its VM
+// monitoring, the admission control policy and the HA events of the audit log.
+export async function setHaPolicy(name, priority, preferredNodes) {
+  return realFetch(`/ha/${encodeURIComponent(name)}/policy`, { method: "PUT", ...jsonBody({ priority, preferred_nodes: preferredNodes }) });
+}
+export async function setHaMonitoring(name, enabled) {
+  return realFetch(`/ha/${encodeURIComponent(name)}/monitoring`, { method: "PUT", ...jsonBody({ enabled }) });
+}
+export async function setHaAdmission(policy) {
+  return realFetch("/ha/admission", { method: "PUT", ...jsonBody({ policy }) });
+}
+export async function fetchHaHistory(limit = 50) {
+  return realList(`/ha/history?limit=${limit}`);
+}
 
 // Automatic deletion of inactive VMs (opt-in per VM, see app/core/vm_cleanup.py).
 // The counter only runs while the VM is stopped, and never if it is HA-protected.

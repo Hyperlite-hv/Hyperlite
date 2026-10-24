@@ -36,6 +36,11 @@ class EnableRequest(BaseModel):
     monitoring: bool = False
 
 
+class PolicyRequest(BaseModel):
+    priority: Literal["high", "medium", "low"] = "medium"
+    preferred_nodes: list[str] = Field(default_factory=list, max_length=16)
+
+
 class MonitoringRequest(BaseModel):
     enabled: bool
 
@@ -69,6 +74,20 @@ def disable(vm_name: str, user: dict = Depends(require_role("admin"))):
     return {"message": f"HA protection disabled for '{vm_name}'"}
 
 
+@router.put("/{vm_name}/policy")
+def set_policy(vm_name: str, payload: PolicyRequest, user: dict = Depends(require_role("admin"))):
+    """An HA VM's restart priority and preferred nodes, changed without turning its protection off (4.3)."""
+    if not ha.get_protected(vm_name):
+        raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
+    try:
+        ha.set_policy(vm_name, payload.priority, payload.preferred_nodes)
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    detail = f"priority={payload.priority} preferred={','.join(payload.preferred_nodes) or '-'}"
+    log_action(user["username"], "ha_policy", vm_name, "success", detail)
+    return _with_policy(ha.get_protected(vm_name))
+
+
 @router.put("/{vm_name}/monitoring")
 def set_monitoring(vm_name: str, payload: MonitoringRequest, user: dict = Depends(require_role("admin"))):
     """VM monitoring of an HA VM on or off (docs/design/ha-automatic.md, 4.9): it needs qemu-guest-agent in the guest;
@@ -99,7 +118,26 @@ def recover(vm_name: str, payload: RecoverRequest, user: dict = Depends(require_
 
 @router.get("/status")
 def watch_status(user: dict = Depends(get_current_user)):
-    return {**ha_watch.status(), "admission": ha_admission.check()}
+    """The HA page's state: in a cluster, automatic HA (the leader restarts the HA VMs of a lost member) with every
+    member's state; outside one, the dry run of ha_watch."""
+    from app.core import cluster_lead, ha_recovery
+
+    automatic = cluster_lead.in_cluster()
+    return {
+        **ha_watch.status(),
+        "admission": ha_admission.check(),
+        "automatic": automatic,
+        "leading": automatic and cluster_lead.is_leader(),
+        "members": ha_recovery.members_view() if automatic else [],
+    }
+
+
+@router.get("/history")
+async def history(limit: int = 50, user: dict = Depends(require_role("admin"))):
+    """The latest HA events of this node's audit log (lost, fenced, restarted, reset by monitoring...), newest first."""
+    from app.services import audit_service
+
+    return listing(await audit_service.query({"action_prefix": "ha_"}, max(1, min(limit, 200))))
 
 
 class AdmissionPolicy(BaseModel):
