@@ -47,6 +47,13 @@ def _copy(source, dest):
         raise TemplateError("failed", "Disk copy failed") from e
 
 
+def check_name(name):
+    """A template's new name, refused before libvirt is asked anything."""
+    error = validate_name(name, "template")
+    if error:
+        raise TemplateError("refused", error)
+
+
 def refuse_while_linked(conn, template, action):
     """`action`: "delete" or "rename", said in the refusal."""
     try:
@@ -70,9 +77,7 @@ def make(conn, vm, template, keep_vm, created_by, ssh_user=None, os_label=None, 
     """A template named `template` from the stopped VM `vm`; `ssh_user` and `os_label` are the VM's, which the VMs
     deployed from it take. keep_vm: the template gets a copy of the VM's disk; otherwise the VM becomes the template
     and leaves the list, its DHCP reservations released. check_only: the checks alone, None."""
-    name_error = validate_name(template, "template")
-    if name_error:
-        raise TemplateError("refused", name_error)
+    check_name(template)
     if templates_store.exists(template):
         raise TemplateError("in_use", f"A template '{template}' already exists")
     try:
@@ -242,9 +247,7 @@ def deploy(conn, template, new_name, network=None, linked=False, check_only=Fals
 
 
 def rename(conn, old, new):
-    error = validate_name(new, "template")
-    if error:
-        raise TemplateError("refused", error)
+    check_name(new)
     if new == old:
         raise TemplateError("refused", "The new name is the current one")
     if templates_store.exists(old):

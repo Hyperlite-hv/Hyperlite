@@ -668,6 +668,7 @@ def template_make(args, ctx):
     from app.core import libvirt_utils, vm_templates
 
     fields = args.model_dump(exclude={"vm", "template", "check_only"})
+    vm_templates.check_name(args.template)
     with libvirt_utils.local_conn() as conn:
         return vm_templates.make(conn, args.vm, args.template, check_only=args.check_only, **fields)
 
@@ -705,6 +706,7 @@ def template_rename(args, ctx):
     """Refused while a linked clone reads the template's disk, which the rename moves."""
     from app.core import libvirt_utils, vm_templates
 
+    vm_templates.check_name(args.new_name)
     with libvirt_utils.local_conn() as conn:
         vm_templates.rename(conn, args.template, args.new_name)
 
