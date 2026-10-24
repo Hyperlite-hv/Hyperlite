@@ -107,13 +107,13 @@ def _key_of(row):
         raise StoreError(f"The key of the backup store '{row['name']}' cannot be read on this node", 409) from None
 
 
-def open_store(name):
+def open_store(name, raw=False):
     """The store `name` as this node reaches it: a Store, with its key when it is encrypted, or StoreError (its pool
-    is not here, or the directory found is not that store)."""
+    is not here, or the directory found is not that store). raw: without its key, to copy its chunks as they are."""
     row = get(name)
     path = path_of(row)
     try:
-        store = backup_store.Store(path, _key_of(row))
+        store = backup_store.Store(path, raw=True) if raw else backup_store.Store(path, _key_of(row))
     except backup_store.StoreError as e:
         raise StoreError(f"Backup store '{name}' cannot be read on this node: {e.message}", 409) from None
     if store.id != row["store_id"]:
@@ -137,13 +137,18 @@ def open_root(root):
         raise StoreError(e.message, 409) from None
 
 
-def create(name, pool, directory=None, username="system", encrypted=False, master_public_key=None, key=None):
+def create(
+    name, pool, directory=None, username="system", encrypted=False, master_public_key=None, key=None, copy_of=None
+):
     """Make the store `name` in `directory` of `pool` (created when missing), or take over the store found there (a
     store made by another cluster, or before a reinstallation; an encrypted one with its `key`, as its code).
 
     encrypted: a new store's chunks and files are encrypted with a new key, kept in the cluster's secrets.
     master_public_key: the public half of a master recovery key (PEM): each backup then carries the store's key
-    encrypted with it. Returns (row, the key's code for a new encrypted store, to be shown once, else None)."""
+    encrypted with it. copy_of: a new store made as the copy of that store of this cluster (backup_store_sync): its
+    chunk size and its key, so chunks are copied as they are. Returns (row, the key's code for a new encrypted store,
+    to be shown once, else None)."""
+    source = get(copy_of) if copy_of else None
     if not NAME.match(name or ""):
         raise StoreError("Invalid name: letters, digits, '.', '-' and '_', 63 characters at most")
     if _repo().get_store(name):
@@ -166,6 +171,11 @@ def create(name, pool, directory=None, username="system", encrypted=False, maste
             store = backup_store.Store(path, secret)
             if any(r["store_id"] == store.id for r in _repo().list_stores()):
                 raise StoreError(f"{path} is already a store of this cluster", 409)
+        elif source is not None:
+            secret = _key_of(source)
+            store = backup_store.create(
+                path, encrypted_with=secret, chunk_size=open_store(copy_of, raw=True).chunk_size
+            )
         else:
             secret = backup_store.new_key() if encrypted else None
             store = backup_store.create(path, encrypted_with=secret)
@@ -181,6 +191,11 @@ def create(name, pool, directory=None, username="system", encrypted=False, maste
 
         _repo().save_store_key(name, secrets_crypto.encrypt(backup_store.key_code(secret)), _now())
     _repo().save_store(name, pool, directory, store.id, 1 if store.encrypted else 0, username, _now(), master)
+    if source is not None:
+        if not store.same_chunks_as(open_store(copy_of, raw=True)):
+            _repo().delete_store(name)
+            raise StoreError(f"{path} holds a store whose chunks are not named as those of '{copy_of}'")
+        _repo().set_store_copy_of(name, copy_of)
     return get(name), shown
 
 
@@ -194,21 +209,23 @@ def manifest_extra(name):
 
 
 def users_of(name):
-    """The jobs that back up into the store: a store they need is never removed under them."""
+    """What backs up into the store, or copies from or into it, in words: a store they need is never removed under
+    them."""
     repo = _repo()
-    vms = [s["vm_name"] for s in repo.list_schedules() if s.get("store") == name]
-    groups = [g["name"] for g in repo.list_group_jobs() if g.get("store") == name]
-    return vms, groups
+    users = [f"the schedule of {s['vm_name']}" for s in repo.list_schedules() if s.get("store") == name]
+    users += [f"the grouped job {g['name']}" for g in repo.list_group_jobs() if g.get("store") == name]
+    users += [f"the copy job {s['name']}" for s in repo.list_syncs() if name in (s["source"], s["target"])]
+    users += [f"the store {r['name']}, its copy" for r in repo.list_stores() if r.get("copy_of") == name]
+    return users
 
 
 def remove(name):
     """Forget the store; its directory and backups stay on the pool, to be taken over again or deleted by hand (as
     Proxmox leaves a removed storage's data)."""
     get(name)
-    vms, groups = users_of(name)
-    if vms or groups:
-        named = ", ".join([*(f"the schedule of {v}" for v in vms), *(f"the grouped job {g}" for g in groups)])
-        raise StoreError(f"Backup store '{name}' is used by {named}", 409)
+    users = users_of(name)
+    if users:
+        raise StoreError(f"Backup store '{name}' is used by {', '.join(users)}", 409)
     _repo().delete_store(name)
 
 
@@ -217,6 +234,7 @@ def describe(row):
     out = {k: row[k] for k in ("name", "pool", "directory", "store_id", "created_by", "created_at")}
     out["encrypted"] = bool(row["encrypted"])
     out["master_key"] = bool(row.get("master_public_key"))
+    out["copy_of"] = row.get("copy_of")
     try:
         store = open_store(row["name"])
     except StoreError as e:
