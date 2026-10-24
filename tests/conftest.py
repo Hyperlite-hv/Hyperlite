@@ -279,6 +279,7 @@ def daemon_libvirt(monkeypatch):
 
     def use(conn):
         monkeypatch.setattr(libvirt_utils, "local_conn", lambda: contextlib.nullcontext(conn))
+        monkeypatch.setattr(libvirt_utils, "open_local", lambda: conn)
         return conn
 
     return use
