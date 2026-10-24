@@ -18,6 +18,7 @@ import libvirt
 from app.core import vm_locks
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
+from app.daemon.registry import DaemonError
 
 
 def _store():
@@ -109,10 +110,17 @@ def run_sequence(node=None, sleep=time.sleep):
                 results.append((name, "busy"))
                 continue
             try:
-                domain.create()
-            except libvirt.libvirtError as e:
-                logger.error("Start at boot: VM %s did not start on %s: %s", name, _node_key(node), e)
-                log_action("system", "autostart_vm", name, "failed", str(e))
+                if _node_key(node) == LOCAL:
+                    # Started by hyperlite-daemon (app/daemon/ops/vm.py); another node's VM over its own libvirt.
+                    from app.core import privileged
+
+                    privileged.run("vm.power", user="system", vm=name, action="start")
+                else:
+                    domain.create()
+            except (libvirt.libvirtError, DaemonError) as e:
+                reason = e.detail if isinstance(e, DaemonError) else str(e)
+                logger.error("Start at boot: VM %s did not start on %s: %s", name, _node_key(node), reason)
+                log_action("system", "autostart_vm", name, "failed", reason)
                 results.append((name, "failed"))
                 continue
             log_action("system", "autostart_vm", name, "success", f"{_node_key(node)}: order {step['position']}")

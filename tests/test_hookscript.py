@@ -375,7 +375,7 @@ class ApiDomain(FakeDomain):
 
 
 @pytest.fixture()
-def api(monkeypatch, lib):
+def api(monkeypatch, lib, daemon_libvirt):
     from app.core import guest_agent
     from app.routers.vms import hookscript as routes
     from app.routers.vms import lifecycle
@@ -393,6 +393,7 @@ def api(monkeypatch, lib):
 
     for module in (routes, lifecycle):
         monkeypatch.setattr(module, "open_conn", lambda *a, **k: Conn())
+    daemon_libvirt(Conn())  # hyperlite-daemon runs the pre-stop and stops the VM, in this process in the tests
     monkeypatch.setattr(lifecycle, "_domain_summary", lambda d: {"name": d.name()})
     # The shutdown's watcher keeps asking the guest: here it has nothing to watch.
     monkeypatch.setattr(lifecycle, "_watch_stop", lambda *a, **k: None)
