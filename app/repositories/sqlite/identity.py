@@ -105,18 +105,16 @@ class SqliteIdentityStore:
             db.commit()
 
     def take_challenge(self, username, purpose, challenge, rp_id, origin):
-        """The challenge's expiry, consumed (single use), or None when it is unknown."""
+        """The challenge's expiry, consumed (single use), or None when it is unknown. One statement takes it: of two
+        requests presenting it at once, one only gets it (GHSA-xp4w-9555-wj48)."""
         with get_conn() as db:
             row = db.execute(
-                "SELECT id, expires_at FROM webauthn_challenges WHERE username = ? AND purpose = ? AND challenge = ? "
-                "AND rp_id = ? AND origin = ?",
+                "DELETE FROM webauthn_challenges WHERE id = (SELECT id FROM webauthn_challenges WHERE username = ? "
+                "AND purpose = ? AND challenge = ? AND rp_id = ? AND origin = ? LIMIT 1) RETURNING expires_at",
                 (username, purpose, challenge, rp_id, origin),
             ).fetchone()
-            if row is None:
-                return None
-            db.execute("DELETE FROM webauthn_challenges WHERE id = ?", (row["id"],))
             db.commit()
-        return row["expires_at"]
+        return row["expires_at"] if row else None
 
     # ---- SSO ----
 
@@ -139,16 +137,13 @@ class SqliteIdentityStore:
             db.commit()
 
     def take_sso_state(self, state):
-        """The state's row, deleted as it is read (single use), or None."""
+        """The state's row, deleted as it is read (single use, by one statement), or None."""
         with get_conn() as db:
             row = db.execute(
-                "SELECT nonce, created_at, binding FROM sso_login_state WHERE state = ?", (state,)
+                "DELETE FROM sso_login_state WHERE state = ? RETURNING nonce, created_at, binding", (state,)
             ).fetchone()
-            if not row:
-                return None
-            db.execute("DELETE FROM sso_login_state WHERE state = ?", (state,))
             db.commit()
-        return dict(row)
+        return dict(row) if row else None
 
     def put_handoff(self, code_digest, username, created_at, older_than):
         with get_conn() as db:
@@ -160,13 +155,13 @@ class SqliteIdentityStore:
             db.commit()
 
     def take_handoff(self, code_digest):
+        """The hand-off's row, deleted as it is read (single use, by one statement), or None."""
         with get_conn() as db:
-            row = db.execute("SELECT username, created_at FROM sso_handoffs WHERE code = ?", (code_digest,)).fetchone()
-            if not row:
-                return None
-            db.execute("DELETE FROM sso_handoffs WHERE code = ?", (code_digest,))
+            row = db.execute(
+                "DELETE FROM sso_handoffs WHERE code = ? RETURNING username, created_at", (code_digest,)
+            ).fetchone()
             db.commit()
-        return dict(row)
+        return dict(row) if row else None
 
     def provision_sso_user(self, username, role, subject, new_password_hash):
         """(outcome, users row). The account is found by its IdP subject first; `new_password_hash()` is only
