@@ -221,6 +221,10 @@ export const useInfraStore = create((set, get) => ({
           .filter((v) => !(action === "delete" && isThis(v))),
       }));
       get().completeTask(taskId, "succeeded");
+      // A deletion keeps the disks the VM does not own (another VM's, outside every pool): said by the caller.
+      if (action === "delete" && result.kept_disks) {
+        set((s) => ({ tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, keptDisks: result.kept_disks } : t)) }));
+      }
 
       // Clean shutdown still in progress (the VM is still running right after the
       // request): a single deferred recheck is enough to refresh the display without
