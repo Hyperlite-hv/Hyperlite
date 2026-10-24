@@ -87,3 +87,52 @@ test("an encrypted store: its keys are shown once and must be kept before the dr
     await request.delete(`/storage/${pool}?confirm=true&detach=true`, { headers: auth() }).catch(() => {});
   }
 });
+
+test("off-site copies: a copy job from a store into its copy store, run, then deleted", async ({ page, request }) => {
+  const token = await apiLogin(request);
+  const auth = () => ({ Authorization: `Bearer ${token}` });
+  const here = `${POOL}-src`;
+  const there = `${POOL}-dst`;
+  const store = `${STORE}-src`;
+  const copy = `${STORE}-copy`;
+  const job = `${PREFIX}copy-${stamp}`;
+  for (const pool of [here, there]) {
+    const made = await request.post("/storage", { headers: auth(), data: { name: pool, type: "dir" } });
+    expect(made.ok(), await made.text()).toBe(true);
+  }
+  try {
+    expect((await request.post("/backup-stores", { headers: auth(), data: { name: store, pool: here } })).ok()).toBe(true);
+    const made = await request.post("/backup-stores", { headers: auth(), data: { name: copy, pool: there, copy_of: store } });
+    expect(made.ok(), await made.text()).toBe(true);
+
+    await uiLogin(page);
+    await page.goto("/datacenter?tab=backups");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("row", { name: new RegExp(`^${copy} `) })).toContainText(`Copy of ${store}`);
+    await main.getByRole("button", { name: "Add a copy job" }).click();
+    const drawer = page.getByRole("dialog", { name: "Add a copy job" });
+    await drawer.getByLabel("Name", { exact: true }).fill(job);
+    await drawer.getByLabel("Copy store").selectOption(copy);
+    await expect(drawer.getByText(`Copies the store ${store}`)).toBeVisible();
+    await drawer.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Copy job saved")).toBeVisible();
+
+    const row = main.getByRole("row", { name: new RegExp(job) });
+    await expect(row).toContainText(`${store} → ${copy}`);
+    await row.getByRole("button", { name: `Run the copy job ${job}` }).click();
+    await expect(page.getByText("Copy started")).toBeVisible();
+    await expect.poll(async () => {
+      const jobs = (await (await request.get("/backup-store-syncs", { headers: auth() })).json()) as Array<{ name: string; last_result: string | null }>;
+      return jobs.find((j) => j.name === job)?.last_result ?? "";
+    }, { timeout: 30_000 }).toContain("0 backups copied");
+
+    await row.getByRole("button", { name: `Delete ${job}` }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+    await expect(main.getByRole("row", { name: new RegExp(job) })).toHaveCount(0);
+  } finally {
+    const jobs = (await (await request.get("/backup-store-syncs", { headers: auth() })).json().catch(() => [])) as Array<{ id: number; name: string }>;
+    for (const j of Array.isArray(jobs) ? jobs : []) if (j.name === job) await request.delete(`/backup-store-syncs/${j.id}`, { headers: auth() });
+    for (const name of [copy, store]) await request.delete(`/backup-stores/${name}`, { headers: auth() }).catch(() => {});
+    for (const pool of [here, there]) await request.delete(`/storage/${pool}?confirm=true&detach=true`, { headers: auth() }).catch(() => {});
+  }
+});

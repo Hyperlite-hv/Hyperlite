@@ -12,7 +12,7 @@ import { Card, Chip, Empty, Field, Loading, Meter, SideDrawer, TableWrap } from 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 // Pools of files: a store keeps files, which ZFS, LVM and iSCSI pools (disks) do not.
 const FILE_POOLS = new Set(["dir", "netfs", "fs"]);
-const EMPTY = { name: "", pool: "", directory: "hyperlite-store", encrypted: false, master_key: "none", master_public_key: "", key: "" };
+const EMPTY = { name: "", pool: "", directory: "hyperlite-store", encrypted: false, master_key: "none", master_public_key: "", key: "", copy_of: "" };
 
 function download(name, text, type = "text/plain") {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -53,8 +53,8 @@ export default function BackupStores({ onChange }) {
     try {
       const r = await createBackupStore({
         name: form.name, pool: form.pool, directory: form.directory, encrypted: form.encrypted,
-        master_key: form.encrypted ? form.master_key : "none", master_public_key: form.master_key === "own" ? form.master_public_key : null,
-        key: form.key.trim() || null,
+        master_key: form.encrypted && !form.copy_of ? form.master_key : "none", master_public_key: form.master_key === "own" ? form.master_public_key : null,
+        key: form.key.trim() || null, copy_of: form.copy_of || null,
       });
       pushToast({ kind: "success", title: t("bst.created"), message: form.name });
       if (r?.key_code || r?.master_private_key) { setSaved(false); setShown({ name: form.name, ...r }); }
@@ -82,7 +82,7 @@ export default function BackupStores({ onChange }) {
               <thead><tr><th scope="col">{t("bst.name")}</th><th scope="col">{t("bst.where")}</th><th scope="col">{t("bst.space")}</th><th scope="col" className="nx-num">{t("bst.backups")}</th><th scope="col">{t("bst.lastClean")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>{stores.map((s) => (
                 <tr key={s.name}>
-                  <th scope="row">{s.name}{s.encrypted && <> <Chip tone="info">{t("bst.encrypted")}</Chip></>}{!s.available && <> <Chip tone="danger">{t("bst.unreachable")}</Chip></>}</th>
+                  <th scope="row">{s.name}{s.encrypted && <> <Chip tone="info">{t("bst.encrypted")}</Chip></>}{s.copy_of && <> <Chip>{t("bst.copyChip", { name: s.copy_of })}</Chip></>}{!s.available && <> <Chip tone="danger">{t("bst.unreachable")}</Chip></>}</th>
                   <td className="nx-wrapcell"><span className="nx-mono">{s.pool}/{s.directory}</span>{!s.available && s.problem && <div className="nx-f-h is-error">{s.problem}</div>}</td>
                   <td>{s.available ? <><Meter value={((s.total_bytes - s.free_bytes) / s.total_bytes) * 100} label={`${t("bst.space")} ${s.name}`} /><div className="nx-f-h">{t("bst.free", { free: gb(s.free_bytes), total: gb(s.total_bytes) })}</div></> : "—"}</td>
                   <td className="nx-num nx-mono">{s.available ? s.backups : "—"}</td>
@@ -108,9 +108,12 @@ export default function BackupStores({ onChange }) {
             <option value="">{t("sec.choose")}</option>{pools.map((x) => <option key={x.name} value={x.name}>{x.name}{x.protocol ? ` (${x.protocol.toUpperCase()})` : ""}</option>)}
           </select>}</Field>
           <Field label={t("bst.directory")} hint={t("bst.directoryHint")} error={bad.directory ? t("bst.nameRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.directory} onChange={set("directory")} />}</Field>
-          <label className="nx-check"><input type="checkbox" checked={form.encrypted} onChange={set("encrypted")} /> {t("bst.encrypt")}</label>
-          <p className="nx-f-h" style={{ margin: 0 }}>{t("bst.encryptHelp")}</p>
-          {form.encrypted && <>
+          <Field label={t("bst.copyOf")} hint={t("bst.copyOfHint")}>{(p) => <select {...p} className="nx-inp" value={form.copy_of} onChange={set("copy_of")}>
+            <option value="">{t("bst.copyOf.none")}</option>{(stores || []).filter((s) => !s.copy_of).map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+          </select>}</Field>
+          {!form.copy_of && <label className="nx-check"><input type="checkbox" checked={form.encrypted} onChange={set("encrypted")} /> {t("bst.encrypt")}</label>}
+          {!form.copy_of && <p className="nx-f-h" style={{ margin: 0 }}>{t("bst.encryptHelp")}</p>}
+          {form.encrypted && !form.copy_of && <>
             <Field label={t("bst.master")} hint={t("bst.masterHint")}>{(p) => <select {...p} className="nx-inp" value={form.master_key} onChange={set("master_key")}>
               <option value="none">{t("bst.master.none")}</option><option value="generate">{t("bst.master.generate")}</option><option value="own">{t("bst.master.own")}</option>
             </select>}</Field>
