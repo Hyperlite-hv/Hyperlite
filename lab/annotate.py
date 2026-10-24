@@ -1,7 +1,10 @@
 """The end of each log of a failed lab run, as GitHub annotations: python3 lab/annotate.py DIR.
 
 The logs are kept as an artifact as well; an annotation is what the checks' API returns to a reader without access to
-the job's logs or its artifacts."""
+the job's logs or its artifacts.
+
+python3 lab/annotate.py --summary DIR: after a green run, which tests passed and which were skipped, and why (no nested
+virtualization on the runner skips the VMs' own tests). A green job alone does not say what ran."""
 
 import sys
 from pathlib import Path
@@ -12,6 +15,25 @@ LIMIT = 4000  # characters an annotation shows
 
 def escape(text):
     return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def summary(directory):
+    """pytest's short summary (`-rA`: one line per test, a skip with its reason) and its count, as one notice."""
+    log = Path(directory) / "pytest.log"
+    if not log.is_file():
+        print("::warning title=pytest summary::no pytest.log in the lab's directory")
+        return
+    lines = log.read_text(errors="replace").splitlines()
+    start = next((i for i, line in enumerate(lines) if "short test summary info" in line), None)
+    picked = [
+        line
+        for line in (lines[start + 1 :] if start is not None else [])
+        if line.startswith(("PASSED", "SKIPPED", "XFAIL", "XPASS", "FAILED", "ERROR"))
+    ]
+    count = next((line.strip("= ") for line in reversed(lines) if " in " in line and line.startswith("=")), None)
+    count = count or next((line for line in reversed(lines) if line.strip()), "no result line")
+    text = "\n".join([count, *picked])[:LIMIT]
+    print(f"::notice title=pytest summary::{escape(text)}")
 
 
 def main(directory):
@@ -42,4 +64,7 @@ def main(directory):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if sys.argv[1] == "--summary":
+        summary(sys.argv[2])
+    else:
+        main(sys.argv[1])
