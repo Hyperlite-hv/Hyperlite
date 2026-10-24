@@ -556,3 +556,69 @@ def check_permissions(conn, pool_name):
         return smb_storage.check(pool_path(pool))
     export = root.find("source/dir")
     return nfs_permissions.check(pool_path(pool), export=export.get("path") if export is not None else "/srv/share")
+
+
+# --- The volumes of a libvirt pool (the storage routes' disks to attach; a VM's own disks move with the VM domain) ---
+
+
+def _volume_pool(conn, pool_name):
+    from app.core.libvirt_utils import lookup_pool
+
+    try:
+        pool = lookup_pool(conn, pool_name)
+    except libvirt.libvirtError:
+        raise PoolError("not_found", f"Storage pool '{pool_name}' not found") from None
+    if pool_type(pool) == "iscsi":
+        _refuse("An iSCSI pool's LUNs are created, resized and deleted on the storage server, not here")
+    return pool
+
+
+def volume_file_name(name):
+    """The file a volume named `name` is: `<name>.qcow2`, `name` checked as every resource name is. Raises PoolError."""
+    from app.core.vm_builder import validate_name
+
+    base = name[: -len(".qcow2")] if name.endswith(".qcow2") else name
+    error = validate_name(base, "volume")
+    if error:
+        _refuse(error)
+    return f"{base}.qcow2"
+
+
+def volume_create(conn, pool_name, name, size_gb):
+    """A qcow2 volume of `size_gb` GiB in the pool, its definition written here from its checked name and size.
+    Returns {"name", "path", "capacity_gb"}."""
+    from app.core.libvirt_utils import lookup_volume
+
+    pool = _volume_pool(conn, pool_name)
+    filename = volume_file_name(name)
+    try:
+        lookup_volume(pool, filename)
+        _refuse(f"A volume '{filename}' already exists in this pool")
+    except libvirt.libvirtError:
+        pass
+    volume = ET.Element("volume")
+    ET.SubElement(volume, "name").text = filename
+    ET.SubElement(volume, "capacity", unit="bytes").text = str(size_gb * 1024**3)
+    ET.SubElement(ET.SubElement(volume, "target"), "format", type="qcow2")
+    try:
+        vol = pool.createXML(ET.tostring(volume, encoding="unicode"), 0)
+    except libvirt.libvirtError as e:
+        raise PoolError("failed", f"Volume creation error: {describe_exception(e)}") from e
+    return {"name": vol.name(), "path": vol.path(), "capacity_gb": round(vol.info()[1] / (1024**3), 3)}
+
+
+def volume_delete(conn, pool_name, volume_name):
+    """The volume deleted, never while a VM's definition uses it."""
+    from app.core.libvirt_utils import get_disk_paths_in_use, lookup_volume
+
+    pool = _volume_pool(conn, pool_name)
+    try:
+        vol = lookup_volume(pool, volume_name)
+    except libvirt.libvirtError:
+        raise PoolError("not_found", f"Volume '{volume_name}' not found") from None
+    if vol.path() in get_disk_paths_in_use(conn):
+        raise PoolError("in_use", f"Volume '{volume_name}' is used by a VM, deletion refused")
+    try:
+        vol.delete(0)
+    except libvirt.libvirtError as e:
+        raise PoolError("failed", f"Deletion error: {describe_exception(e)}") from e
