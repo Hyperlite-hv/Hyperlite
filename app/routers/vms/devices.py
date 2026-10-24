@@ -8,7 +8,17 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import bridge_vlan, checkpoints, disk_images, disk_move, disk_resize, network_edit, passthrough, vm_locks
+from app.core import (
+    bridge_vlan,
+    checkpoints,
+    disk_images,
+    disk_move,
+    disk_resize,
+    network_edit,
+    passthrough,
+    privileged,
+    vm_locks,
+)
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
@@ -18,6 +28,7 @@ from app.core.network_alloc import generate_mac
 from app.core.security import get_current_user, require_role, require_vm_privilege
 from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
 from app.core.vm_limits import validate_vm_resources
+from app.daemon.registry import DaemonError
 from app.routers.vms._shared import TARGET_DEV_RE, _get_ip, router
 
 logger = logging.getLogger(__name__)
@@ -440,7 +451,11 @@ def _set_bridge_vlans(domain, mac, mode, tag, trunks):
     elif mac.lower() in bridge_vlan.ports_of_domain_xml(ET.fromstring(domain.XMLDesc(0))):
         bridge_vlan.set_port(domain, mac, None, None)
     if mode == "bridge" and domain.isActive():
-        errors = bridge_vlan.apply_domain(ET.fromstring(domain.XMLDesc(0)))
+        # Setting the ports needs root: hyperlite-daemon reads the running VM's ports itself (app/daemon/ops/network.py).
+        try:
+            errors = privileged.run("network.vlan_apply_vm", vm=domain.name())["errors"]
+        except DaemonError as e:
+            raise bridge_vlan.VlanError(e.detail) from None
         if errors:
             raise bridge_vlan.VlanError("; ".join(errors))
 
