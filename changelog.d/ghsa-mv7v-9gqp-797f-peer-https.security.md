@@ -1,0 +1,1 @@
+- Calls between cluster members check the peer's certificate fingerprint on every connection, a connection reopened after the peer closed it included, and a closed connection is no longer kept (GHSA-mv7v-9gqp-797f).
