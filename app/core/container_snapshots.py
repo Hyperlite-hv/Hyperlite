@@ -198,9 +198,9 @@ def delete(name, snapshot):
     shutil.rmtree(path)
 
 
-def delete_all(name):
-    """With the container: its snapshots go too."""
-    shutil.rmtree(_snapshots_dir(name), ignore_errors=True)
+def delete_all(name, parent):
+    """With the container (its directory under `parent`): its snapshots go too."""
+    shutil.rmtree(safe_child(safe_child(Path(parent), SNAPSHOTS), name), ignore_errors=True)
 
 
 def rename_all(old, new, parent):

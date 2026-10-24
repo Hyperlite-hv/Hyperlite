@@ -8,14 +8,14 @@ import json
 import os
 import shutil
 import time
-import xml.etree.ElementTree as ET
 from collections import namedtuple
 from pathlib import Path
+from unittest.mock import Mock
 
 import libvirt
 import pytest
 
-from app.core import container_builder, container_snapshots
+from app.core import container_builder, container_ops, container_snapshots
 from app.routers import containers
 
 pytestmark = pytest.mark.skipif(shutil.which("rsync") is None, reason="needs rsync")
@@ -143,7 +143,7 @@ def test_snapshots_follow_the_container(place):
     os.rename(place / "web", place / "www")
     container_snapshots.rename_all("web", "www", place)
     assert [s["name"] for s in container_snapshots.list_snapshots("www")] == ["one"]
-    container_snapshots.delete_all("www")
+    container_snapshots.delete_all("www", place)
     assert not (place / ".snapshots" / "www").exists()
 
 
@@ -151,6 +151,8 @@ def test_snapshots_follow_the_container(place):
 
 
 class Domain:
+    home = None  # the containers directory its filesystem is in (the place fixture's)
+
     def __init__(self, name, active=False):
         self._name, self.active, self.started = name, active, False
 
@@ -161,7 +163,10 @@ class Domain:
         self.started = True
 
     def XMLDesc(self, flags=0):
-        return f"<domain type='lxc'><name>{self._name}</name></domain>"
+        return (
+            f"<domain type='lxc'><name>{self._name}</name><devices><filesystem type='mount'>"
+            f"<source dir='{self.home / self._name}'/><target dir='/'/></filesystem></devices></domain>"
+        )
 
     def name(self):
         return self._name
@@ -181,9 +186,13 @@ class Conn:
 
 
 @pytest.fixture()
-def api(place, monkeypatch):
+def api(place, monkeypatch, daemon_libvirt, daemon_lxc):
+    monkeypatch.setattr(Domain, "home", place)
+    monkeypatch.setattr(container_ops, "CONTAINERS_DIR", place)
     domains = {"web": Domain("web")}
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: Conn(domains))
+    daemon_lxc(Conn(domains))  # hyperlite-daemon starts, renames and deletes the containers
+    daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
     monkeypatch.setattr(containers, "_summary", lambda domain: {"name": domain.name()})
     return domains
 
@@ -270,12 +279,6 @@ def test_a_container_deleted_takes_its_snapshots(client, auth_headers, api, plac
         def undefine(self):
             pass
 
-        def XMLDesc(self, flags=0):
-            return ET.tostring(
-                ET.fromstring("<domain type='lxc'><name>web</name><devices/></domain>"), encoding="unicode"
-            )
-
     api["web"] = Doomed("web")
-    monkeypatch.setattr(containers, "delete_container_rootfs", lambda name: shutil.rmtree(place / name))
     assert client.delete("/containers/web?confirm=true", headers=auth_headers("root")).status_code == 200
     assert not (place / ".snapshots" / "web").exists() and not (place / "web").exists()

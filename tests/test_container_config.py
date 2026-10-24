@@ -1,9 +1,11 @@
 """A container's own page: its details, its resources, DNS servers and start at boot, and its task history."""
 
+from unittest.mock import Mock
+
 import libvirt
 import pytest
 
-from app.core import container_config, tasks
+from app.core import container_config, container_ops, tasks
 
 XML = """<domain type='lxc'><name>web</name><memory unit='KiB'>524288</memory>
 <currentMemory unit='KiB'>524288</currentMemory><vcpu>1</vcpu>
@@ -66,13 +68,20 @@ class _Conn:
 
 
 @pytest.fixture()
-def lxc(monkeypatch, tmp_path):
+def lxc(monkeypatch, tmp_path, daemon_libvirt, daemon_lxc):
     from app.routers import containers
 
     conn = _Conn()
     rootfs = tmp_path / "web"
     (rootfs / "etc").mkdir(parents=True)
     (rootfs / "etc" / "resolv.conf").write_text("nameserver 1.1.1.1\nnameserver 9.9.9.9\n")
+    # Its filesystem as its definition names it, in the container directory hyperlite-daemon accepts.
+    conn.xml = XML.replace(
+        "<devices>", f"<devices><filesystem type='mount'><source dir='{rootfs}'/><target dir='/'/></filesystem>"
+    )
+    monkeypatch.setattr(container_ops, "CONTAINERS_DIR", tmp_path)
+    daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
+    daemon_lxc(conn)
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: conn)
     monkeypatch.setattr(container_config, "container_rootfs_path", lambda name: tmp_path / name)
     conn.rootfs = rootfs
