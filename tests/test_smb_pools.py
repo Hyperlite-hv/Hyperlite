@@ -122,9 +122,11 @@ def hosts(database, monkeypatch, daemon_libvirt):
     return hosts
 
 
-def test_a_pool_on_this_host_writes_its_credentials_root_only(client, auth_headers, hosts):
-    r = client.post("/storage", json=SMB, headers=auth_headers("root"))
+@pytest.mark.parametrize("query", ["", "?node=local"])  # "local" names this host, never a node reached over SSH
+def test_a_pool_on_this_host_writes_its_credentials_root_only(client, auth_headers, hosts, query):
+    r = client.post(f"/storage{query}", json=SMB, headers=auth_headers("root"))
     assert r.status_code == 201, r.text
+    assert hosts["ssh"] == []
     cred = paths.PRIV / "smb" / "nas.cred"
     assert cred.read_text() == "username=vmstore\npassword=S3cr&t, p@ss!\ndomain=LAB\n"
     assert stat.S_IMODE(cred.stat().st_mode) == 0o600
