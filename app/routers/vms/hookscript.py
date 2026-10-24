@@ -8,7 +8,7 @@ import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import hookscript
+from app.core import hookscript, privileged
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_conn
@@ -64,12 +64,24 @@ def set_vm_hookscript(
     conn = open_conn(node)
     try:
         domain = _domain(conn, name)
-        try:
-            hookscript.set_script(domain, script)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "set_vm_hookscript", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"The hook script could not be set: {msg}") from e
+        if node and node != "local":
+            try:
+                hookscript.set_script(domain, script)
+            except libvirt.libvirtError as e:
+                msg = describe_exception(e)
+                log_action(user["username"], "set_vm_hookscript", name, "failed", msg)
+                raise HTTPException(status_code=500, detail=f"The hook script could not be set: {msg}") from e
+        else:
+            # Checked again and attached by hyperlite-daemon (app/daemon/ops/vm.py): a script runs as root.
+            privileged.ask(
+                "vm.set_hookscript",
+                user,
+                "set_vm_hookscript",
+                name,
+                failed="The hook script could not be set: {}",
+                vm=name,
+                script=script,
+            )
     finally:
         conn.close()
     log_action(user["username"], "set_vm_hookscript", name, "success", script or "none")

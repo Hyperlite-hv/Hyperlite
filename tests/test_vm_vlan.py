@@ -89,11 +89,12 @@ class _Conn:
 
 
 @pytest.fixture()
-def domain(monkeypatch):
+def domain(monkeypatch, daemon_libvirt):
     from app.routers.vms import devices
 
     dom = _Domain()
     monkeypatch.setattr(devices, "open_conn", lambda *a, **k: _Conn(dom))
+    daemon_libvirt(_Conn(dom))  # hyperlite-daemon changes the interface, in this process in the tests
     return dom
 
 

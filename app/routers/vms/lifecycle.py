@@ -9,7 +9,7 @@ from pathlib import Path
 import libvirt
 from fastapi import Depends, HTTPException
 
-from app.core import firmware, guest_agent, hookscript, lvm_storage, vm_locks, vm_records, zfs_storage
+from app.core import firmware, guest_agent, hookscript, lvm_storage, privileged, vm_locks, vm_records, zfs_storage
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
@@ -22,9 +22,36 @@ from app.core.vm_builder import generated_drives
 from app.core.vm_meta import (
     touch_vm_activity,
 )
+from app.daemon.registry import DaemonError
 from app.routers.vms._shared import _domain_summary, router
 
 logger = logging.getLogger(__name__)
+
+
+def _power(domain, node, action, username):
+    """A VM started, shut down, stopped, rebooted or reset: by hyperlite-daemon on this node (app/daemon/ops/vm.py),
+    over another node's own libvirt otherwise, until the cluster domain. Returns the method of a shutdown or a reboot
+    ("agent" or "acpi"). Raises libvirt.libvirtError or DaemonError, which _power_failure turns into an answer."""
+    if node and node != "local":
+        if action == "start":
+            domain.create()
+        elif action == "shutdown":
+            return guest_agent.shutdown(domain)
+        elif action == "reboot":
+            return guest_agent.reboot(domain)
+        else:
+            domain.destroy()
+            if action == "reset":
+                domain.create()
+        return None
+    return privileged.run("vm.power", user=username, vm=domain.name(), action=action)["method"]
+
+
+def _power_failure(e):
+    """(status, reason) of a failed _power: libvirt's reason, 500; the daemon's refusal or absence, its own status."""
+    if isinstance(e, DaemonError):
+        return (500 if e.kind == "failed" else privileged.http_error(e).status_code), e.detail
+    return 500, describe_exception(e)
 
 
 def _stopped_networks(conn, domain):
@@ -71,8 +98,14 @@ def _pre_stop(domain, name, node, task_id, username, action_name, force):
     """The VM's pre-stop hook script, before Hyperlite stops it (libvirt has no hook there). A failure refuses the
     shutdown or the stop; a forced one goes on, as an administrator must always be able to stop a VM."""
     try:
-        run = hookscript.pre_stop(domain, node, task_id)
-    except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError) as e:
+        if node and node != "local":
+            run = hookscript.pre_stop(domain, node, task_id)
+        else:
+            # Run as root by hyperlite-daemon (app/daemon/ops/vm.py); its output goes into the task here.
+            run = privileged.run("vm.pre_stop", user=username, vm=domain.name())
+            if run is not None:
+                hookscript.log_run(task_id, run)
+    except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError, DaemonError) as e:
         run = {"ok": False, "exit_code": None, "phase": "pre-stop", "output": str(e), "seconds": 0}
         hookscript.log_run(task_id, run)
     if run is None or run["ok"] or force:
@@ -113,18 +146,18 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
             raise HTTPException(status_code=409, detail=msg)
         hooked, since = _has_hookscript(domain), time.time()
         try:
-            domain.create()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            refused = False
+            _power(domain, node, "start", user["username"])
+        except (libvirt.libvirtError, DaemonError) as e:
+            status, msg = _power_failure(e)
             if hooked:
                 # A pre-start that refused: its own words, not libvirt's command line, and a refusal rather than an
                 # internal error.
-                refused = hookscript.start_error(msg) != msg
+                if hookscript.start_error(msg) != msg:
+                    status = 409
                 msg = hookscript.start_error(msg)
                 hookscript.log_runs_since(task_id, name, since, node)
             log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=409 if refused else 500, detail=f"Unable to start the VM: {msg}") from e
+            raise HTTPException(status_code=status, detail=f"Unable to start the VM: {msg}") from e
         if hooked:
             hookscript.log_runs_since(task_id, name, since, node)
         touch_vm_activity(name)  # resets the inactivity counter
@@ -159,8 +192,8 @@ def _watch_stop(name, node, username, force_after=None):
                 return
             if asks and time.monotonic() - start >= asks[0]:
                 asks.pop(0)
-                with contextlib.suppress(libvirt.libvirtError):
-                    guest_agent.shutdown(domain)
+                with contextlib.suppress(libvirt.libvirtError, DaemonError):
+                    _power(domain, node, "shutdown", username)
         except libvirt.libvirtError:
             return  # gone meanwhile
         finally:
@@ -171,12 +204,12 @@ def _watch_stop(name, node, username, force_after=None):
     try:
         domain = conn.lookupByName(name)
         if domain.isActive():
-            domain.destroy()
+            _power(domain, node, "stop", username)
             log_action(
                 username, "force_stop_vm", name, "success", f"still running {force_after} s after the shutdown request"
             )
-    except libvirt.libvirtError as e:
-        log_action(username, "force_stop_vm", name, "failed", describe_exception(e))
+    except (libvirt.libvirtError, DaemonError) as e:
+        log_action(username, "force_stop_vm", name, "failed", _power_failure(e)[1])
     finally:
         conn.close()
 
@@ -207,15 +240,11 @@ def stop_vm(
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already stopped")
         _pre_stop(domain, name, node, task_id, user["username"], action_name, force)
         try:
-            method = None
-            if force:
-                domain.destroy()
-            else:
-                method = guest_agent.shutdown(domain)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
+            method = _power(domain, node, "stop" if force else "shutdown", user["username"])
+        except (libvirt.libvirtError, DaemonError) as e:
+            status, msg = _power_failure(e)
             log_action(user["username"], action_name, name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Unable to stop the VM: {msg}") from e
+            raise HTTPException(status_code=status, detail=f"Unable to stop the VM: {msg}") from e
         detail = f"via {method}" if method else None
         if not force:
             if force_after:
@@ -249,14 +278,13 @@ def restart_vm(
                 if busy:  # a hot backup or a live copy holds the VM: destroying it would break that work
                     raise HTTPException(status_code=409, detail=f"VM '{name}' is busy: {busy} is in progress")
                 _pre_stop(domain, name, node, task_id, user["username"], "restart_vm", force)
-                domain.destroy()
-                domain.create()
+                _power(domain, node, "reset", user["username"])
             else:
-                method = guest_agent.reboot(domain)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
+                method = _power(domain, node, "reboot", user["username"])
+        except (libvirt.libvirtError, DaemonError) as e:
+            status, msg = _power_failure(e)
             log_action(user["username"], "restart_vm", name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Unable to restart the VM: {msg}") from e
+            raise HTTPException(status_code=status, detail=f"Unable to restart the VM: {msg}") from e
         log_action(
             user["username"], "restart_vm", name, "success", f"via {method}" if method else None, task_id=task_id
         )
