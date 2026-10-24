@@ -26,7 +26,7 @@ from app.core.libvirt_utils import get_disk_paths_in_use, lookup_pool, lookup_vo
 from app.core.listing import listing
 from app.core.network_alloc import generate_mac
 from app.core.security import get_current_user, require_role, require_vm_privilege
-from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
+from app.core.tasks import create_task, finish_task, register_cancel
 from app.core.vm_limits import validate_vm_resources
 from app.daemon.registry import DaemonError
 from app.routers.vms._shared import TARGET_DEV_RE, _get_ip, router
@@ -201,15 +201,19 @@ def _resize_disk(name, target_dev, payload, user):
                     detail=f"The storage pool of '{target_dev}' is not known: an administrator grows it",
                 )
             perm.refuse_unless(user, "storage", pool, "storage.allocate", f"storage pool '{pool}'")
+        # Grown by hyperlite-daemon (app/daemon/ops/disk.py). qemu-img and libvirt refuse to resize a disk that
+        # carries a replication bitmap: the daemon drops it once the request is accepted, so a refused one (a smaller
+        # size, a busy disk) keeps the replication chain.
         try:
-            # qemu-img and libvirt refuse to resize a disk that carries a replication bitmap: dropped once the request
-            # is accepted, so a refused one (a smaller size, a busy disk) keeps the replication chain.
-            old_bytes, new_bytes, live = disk_resize.grow(
-                conn, domain, target_dev, payload.size_gb, before_change=lambda: checkpoints.release(domain, name)
+            grown = privileged.run(
+                "disk.resize", user=user["username"], vm=name, target=target_dev, size_gb=payload.size_gb
             )
-        except disk_resize.ResizeError as e:
-            log_action(user["username"], "resize_disk", name, "failed", f"{target_dev}: {e.message}")
-            raise HTTPException(status_code=e.status, detail=e.message) from e
+        except DaemonError as e:
+            log_action(user["username"], "resize_disk", name, "failed", f"{target_dev}: {e.detail}")
+            raise privileged.http_error(e) from None
+        if grown["checkpoints_dropped"]:
+            checkpoints.forget(name, grown["checkpoints_dropped"])
+        old_bytes, new_bytes, live = grown["old_bytes"], grown["new_bytes"], grown["live"]
         old_gb, new_gb = round(old_bytes / disk_resize.GIB, 2), round(new_bytes / disk_resize.GIB, 2)
         log_action(
             user["username"],
@@ -239,20 +243,28 @@ def _run_in_background(target, *args):
     threading.Thread(target=target, args=args, daemon=True).start()
 
 
+# A disk's copy is one call to hyperlite-daemon that waits: hours for the largest, as a backup's.
+MOVE_TIMEOUT_S = 24 * 3600
+
+
 def _move_disk_job(task_id, username, name, target_dev, dest_pool, delete_source):
-    conn = open_conn()
+    """The move, by hyperlite-daemon (app/daemon/ops/disk.py), which checks it all again, drops the replication
+    checkpoints and writes the copy's progress into the task; cancelling the task stops the copy there."""
+    register_cancel(task_id, lambda: privileged.run("disk.cancel", user=username, task_id=task_id))
     try:
-        domain = conn.lookupByName(name)
-        # Checked again here: the VM may have changed (started, stopped, snapshotted) since the request.
-        how = disk_move.plan(conn, domain, target_dev, dest_pool)
-        # A moved disk leaves its replication bitmap behind: the chain restarts with a full copy.
-        checkpoints.release(domain, name)
-        stop = threading.Event()
-        register_cancel(task_id, stop.set)
-        task_log(task_id, f"Copying {target_dev} to {dest_pool} ({'live' if how['live'] else 'VM stopped'})")
-        result = disk_move.move(
-            domain, target_dev, how, delete_source, progress=lambda pct: update_task_progress(task_id, pct), stop=stop
+        result = privileged.run(
+            "disk.move",
+            user=username,
+            timeout=MOVE_TIMEOUT_S,
+            vm=name,
+            target=target_dev,
+            pool=dest_pool,
+            delete_source=delete_source,
+            task_id=task_id,
         )
+        if result["checkpoints_dropped"]:
+            # A moved disk leaves its replication bitmap behind: the chain restarts with a full copy.
+            checkpoints.forget(name, result["checkpoints_dropped"])
         finish_task(task_id, "succeeded")
         log_action(
             username,
@@ -260,17 +272,15 @@ def _move_disk_job(task_id, username, name, target_dev, dest_pool, delete_source
             name,
             "success",
             f"{target_dev}: {result['source']} -> {result['destination']} "
-            f"({'live' if how['live'] else 'stopped'}; source {'deleted' if result['source_deleted'] else 'kept'})",
+            f"({'live' if result['live'] else 'stopped'}; source {'deleted' if result['source_deleted'] else 'kept'})",
         )
-    except disk_move.MoveError as e:
-        finish_task(task_id, "failed", e.message)
-        log_action(username, "move_disk", name, "failed", f"{target_dev}: {e.message}")
+    except DaemonError as e:
+        finish_task(task_id, "failed", e.detail)
+        log_action(username, "move_disk", name, "failed", f"{target_dev}: {e.detail}")
     except Exception as e:
         logger.exception("Moving %s of %s failed", target_dev, name)
         finish_task(task_id, "failed", f"Internal error: {e}")
         log_action(username, "move_disk", name, "failed", f"{target_dev}: internal error: {e}")
-    finally:
-        conn.close()
 
 
 @router.post("/{name}/disks/{target_dev}/move", status_code=202)
