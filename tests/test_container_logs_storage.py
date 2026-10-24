@@ -56,6 +56,27 @@ def test_a_link_in_the_image_never_redirects_the_launcher_files(tmp_path, monkey
     assert (rootfs / ".hyperlite" / "hl-console").exists() and (rootfs / ".hyperlite" / "console.log").exists()
 
 
+def test_the_log_is_never_read_or_trimmed_through_a_link(tmp_path, monkeypatch):
+    # The container's root owns .hyperlite: a link there, at either level, must never reach a host file, which this
+    # process (root) would read to the user or truncate (GHSA-fvvw-286q-82jj).
+    from app.core import container_console
+
+    monkeypatch.setattr(container_console, "MAX_BYTES", 10)
+    secret = tmp_path / "host" / "console.log"
+    secret.parent.mkdir()
+    secret.write_text("a host secret\n" * 10)
+    rootfs = tmp_path / "rootfs"
+    rootfs.mkdir()
+    (rootfs / ".hyperlite").symlink_to(secret.parent)  # the directory itself a link
+    assert container_console.read_tail(rootfs) is None
+    (rootfs / ".hyperlite").unlink()
+    (rootfs / ".hyperlite").mkdir()
+    (rootfs / ".hyperlite" / "console.log").symlink_to(secret)  # the log a link
+    assert container_console.read_tail(rootfs) is None
+    container_console.trim(rootfs)
+    assert secret.read_text() == "a host secret\n" * 10
+
+
 class _Pool:
     def __init__(self, kind, path, active=True):
         self.kind, self.path, self.active = kind, path, active
