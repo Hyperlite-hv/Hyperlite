@@ -155,7 +155,9 @@ def sso_login(request: Request):
     try:
         doc = sso.discover(config["issuer"])
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"IdP unreachable: {e}") from e
+        # Asked without any session: the error's own words (an internal address, TLS details) go to the log only.
+        logger.warning("SSO discovery of %s failed: %s", config["issuer"], e)
+        raise HTTPException(status_code=502, detail="The identity provider cannot be reached") from None
     state, nonce, binding = sso.create_state()
     response = RedirectResponse(sso.build_authorize_url(config, doc, state, nonce))
     _set_cookie(response, request, BINDING_COOKIE, binding, sso.STATE_TTL_S)
