@@ -19,11 +19,13 @@ The error kinds are the daemon's own, not the codes of API v1 (registry.KINDS):
     refused            the operation turned the request down: its sentence is for the user, as the module wrote it
     not_found          what the request names does not exist
     in_use             what the request names is in use (a volume a VM uses): nothing was done
+    unreachable        a server outside this node the operation needs (an SMB server, an iSCSI target) refused it
     failed             the operation failed: its sentence names the cause, or the daemon's log has it
     unavailable        the API's side only (app/core/daemon_client.py): the daemon does not answer
 
 A route turns them into its answer through app/core/privileged.py (`ask`, `http_error`): `refused` and
-`invalid_arguments` the route's own refusal status, `not_found` 404, `in_use` 409, `unavailable` 503, the others 500.
+`invalid_arguments` the route's own refusal status, `not_found` 404, `in_use` 409, `unreachable` 502 (as the storage
+routes answered it before), `unavailable` 503, the others 500.
 """
 
 SOCKET_ENV = "HYPERLITE_DAEMON_SOCKET"

@@ -17,8 +17,9 @@ INPROCESS_ENV = "HYPERLITE_DAEMON_INPROCESS"
 
 # A route's answer to the daemon's kinds (app/daemon/__init__.py), with the statuses of docs/api.md. A refusal's status
 # is the route's own: what it answered before its domain moved. A failure of the daemon is this node's (500), never
-# 502, which says another member of the cluster failed.
-STATUS = {"not_found": 404, "in_use": 409, "unavailable": 503}
+# 502, which says another member of the cluster failed. A server outside this node refusing (an SMB server, an iSCSI
+# target) is the 502 the storage routes gave it before their domain moved.
+STATUS = {"not_found": 404, "in_use": 409, "unreachable": 502, "unavailable": 503}
 
 
 def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
@@ -38,8 +39,8 @@ def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
 
 def http_error(e, refused=422, failed="{}"):
     """The HTTPException for the DaemonError `e`: what the operation refused, or arguments it does not take, `refused`
-    with its reason; what does not exist, 404; what is in use, 409; without the daemon, 503; any other failure, 500
-    with `failed` around its reason."""
+    with its reason; what does not exist, 404; what is in use, 409; a server outside this node refusing, 502; without
+    the daemon, 503; any other failure, 500 with `failed` around its reason."""
     if e.kind in ("refused", "invalid_arguments"):
         return HTTPException(status_code=refused, detail=e.detail)
     if e.kind in STATUS:

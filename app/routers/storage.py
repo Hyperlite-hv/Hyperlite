@@ -1,12 +1,7 @@
-import contextlib
 import logging
-import re
 import shutil
-import socket
-import subprocess
 import xml.etree.ElementTree as ET
 from typing import Literal
-from xml.sax import saxutils
 
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,11 +12,11 @@ from app.core import (
     cluster_view,
     iscsi,
     lvm_storage,
-    nfs_permissions,
     privileged,
     renaming,
     shared_pools,
     smb_storage,
+    storage_pools,
     zfs_storage,
 )
 from app.core import permissions as perm
@@ -30,8 +25,9 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import ensure_default_pool, get_disk_paths_in_use, lookup_pool, lookup_volume, open_conn
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
-from app.core.vm_builder import POOL_BASE_NAME, validate_name
+from app.core.vm_builder import validate_name
 from app.core.vm_limits import validate_vm_resources
+from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
@@ -52,76 +48,35 @@ POOL_STATE_NAMES = {
     4: "inaccessible",  # VIR_STORAGE_POOL_INACCESSIBLE
 }
 
-# Host name/IP (NFS pool): letters/digits/dots/dashes. Enough for a hostname or
-# a simple IPv4/IPv6 address, and it excludes any character that could have a
-# special meaning elsewhere.
-NFS_HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.:_-]{0,253})$")
-# Absolute path (server-side NFS export, or the local directory of a "dir"
-# pool): no spaces or special XML/shell characters.
-POOL_PATH_RE = re.compile(r"^/[A-Za-z0-9/_.-]{0,255}$")
-# "lvm" pool built on a disk: a device under /dev (a whole disk or a partition), never a path with "..".
-LVM_DEVICE_RE = re.compile(r"^/dev/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9/_.:-]{0,200}$")
-# Every file in a "dir" pool's directory is listed as a volume, and a volume can be deleted from the dashboard: a
-# pool on /etc (accepted until the audit before 1.0.0) offered /etc/passwd for deletion. Refused, with everything
-# below them.
-SYSTEM_TREES = (
-    "/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32", "/proc", "/root", "/run", "/sbin", "/sys",
-    "/usr", "/var/lib/hyperlite", "/var/lib/apt", "/var/lib/dpkg", "/var/log",
-    "/tmp",  # noqa: S108 - emptied at boot (a tmpfs on many hosts): the disks would vanish
-)  # fmt: skip
-# Refused as such, a directory below them is fine (/home/vms, /srv/pool, /mnt/disk2).
-SYSTEM_DIRS = ("/", "/home", "/media", "/mnt", "/opt", "/srv", "/var", "/var/lib", "/var/lib/libvirt")
+
+def _node(node):
+    """The node a request names, None for this host: `?node=local` is this host too."""
+    return None if not node or node == "local" else node
 
 
-def _normalize(path):
-    return "/" + "/".join(p for p in path.split("/") if p)
-
-
-def _dir_pool_path_error(path):
-    """Why a "dir" pool may not use this directory, or None."""
-    parts = path.split("/")
-    if ".." in parts or "." in parts:
-        return "Invalid pool path: '.' and '..' are not allowed"
-    path = _normalize(path)
-    if path in SYSTEM_DIRS or any(path == t or path.startswith(t + "/") for t in SYSTEM_TREES):
-        return f"{path} is a system directory: its files would be listed as volumes, and could be deleted"
-    return None
-
-
-def _inside(a, b):
-    return a == b or a.startswith(b.rstrip("/") + "/")
-
-
-def _pool_on_path(node, path):
-    """The pool whose directory is this one, or contains it, or lies inside it (libvirt only catches the first)."""
+def _pool_work(node, op, user, action, target, remote, refused=422, **args):
+    """A pool's root work, with the same answers on any node: this node's by hyperlite-daemon (`op` with `args`);
+    another node's (`node`: registered over SSH only, or a shared pool's member) by `remote(conn)` over that node's
+    libvirt, until the cluster domain moves it (docs/design/privilege-separation.md, section 13). The failure is in
+    the audit log."""
+    if node is None:
+        return privileged.ask(op, user, action, target, refused=refused, **args)
     conn = open_conn(node)
     try:
-        for pool in conn.listAllStoragePools(0):
-            other = _pool_path(pool)
-            if (
-                other
-                and other.startswith("/")
-                and (_inside(path, _normalize(other)) or _inside(_normalize(other), path))
-            ):
-                return pool.name()
-        return None
+        return remote(conn)
+    except storage_pools.PoolError as e:
+        log_action(user["username"], action, target, "failed", e.message)
+        raise privileged.http_error(DaemonError(e.kind, e.message), refused=refused) from None
     finally:
         conn.close()
 
 
 def _pool_type(pool):
-    try:
-        root = ET.fromstring(pool.XMLDesc(0))
-        return root.get("type", "unknown")
-    except (libvirt.libvirtError, ET.ParseError):
-        return "unknown"
+    return storage_pools.pool_type(pool)
 
 
 def _pool_path(pool):
-    try:
-        return ET.fromstring(pool.XMLDesc(0)).findtext("target/path")
-    except (libvirt.libvirtError, ET.ParseError):
-        return None
+    return storage_pools.pool_path(pool)
 
 
 _FS_NS = "{http://libvirt.org/schemas/storagepool/fs/1.0}"
@@ -209,10 +164,29 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
     return listing(result)
 
 
+def _ensure_default(conn, node):
+    """The 'default' pool, made and started where it is missing: by hyperlite-daemon on this node, only when it is
+    missing, stopped or not started at boot, so a listing costs no call to the daemon; on another node over its
+    libvirt, as before."""
+    if _node(node) is not None:
+        ensure_default_pool(conn)
+        return
+    try:
+        pool = conn.storagePoolLookupByName("default")
+        if pool.isActive() and pool.autostart():
+            return
+    except libvirt.libvirtError:
+        pass
+    try:
+        privileged.run("storage.ensure_default_pool")
+    except DaemonError as e:
+        logger.error("The 'default' storage pool could not be made: %s", e.detail)
+
+
 def _pools(node):
     conn = open_conn(node)
     try:
-        ensure_default_pool(conn)
+        _ensure_default(conn, node)
         result = []
         for pool in conn.listAllStoragePools():
             # A pool removed while the list is built (another session deleting it) is skipped, not a failed list.
@@ -278,98 +252,6 @@ class PoolCreate(BaseModel):
     nodes: list[str] | None = Field(None, max_length=64)
 
 
-def _build_pool_xml(payload: PoolCreate, target_path: str, cred_path: str | None = None) -> str:
-    """Build the libvirt XML with ElementTree (automatic escaping) rather than by
-    string concatenation: the security audit had found an XML injection in
-    bridge-mode network creation for exactly that reason, and the mistake must
-    not be repeated here."""
-    pool_el = ET.Element("pool", type={"smb": "netfs", "lvm": "logical"}.get(payload.type, payload.type))
-    ET.SubElement(pool_el, "name").text = payload.name
-    if payload.type == "lvm":
-        source_el = ET.SubElement(pool_el, "source")
-        if payload.lvm_device:
-            ET.SubElement(source_el, "device", path=payload.lvm_device)
-        ET.SubElement(source_el, "name").text = payload.lvm_vg
-        ET.SubElement(source_el, "format", type="lvm2")
-        ET.SubElement(ET.SubElement(pool_el, "target"), "path").text = target_path
-        return ET.tostring(pool_el, encoding="unicode")
-    if payload.type == "iscsi":
-        source_el = ET.SubElement(pool_el, "source")
-        ET.SubElement(source_el, "host", name=payload.iscsi_host, port=str(payload.iscsi_port))
-        ET.SubElement(source_el, "device", path=payload.iscsi_target)
-        if payload.chap_user:
-            auth_el = ET.SubElement(source_el, "auth", type="chap", username=payload.chap_user)
-            ET.SubElement(auth_el, "secret", usage=iscsi.secret_usage(payload.name))
-        target_el = ET.SubElement(pool_el, "target")
-        ET.SubElement(target_el, "path").text = iscsi.BY_PATH
-        return ET.tostring(pool_el, encoding="unicode")
-    if payload.type == "smb":
-        source_el = ET.SubElement(pool_el, "source")
-        ET.SubElement(source_el, "host", name=payload.smb_host)
-        ET.SubElement(source_el, "dir", path=payload.smb_share)
-        ET.SubElement(source_el, "format", type="cifs")
-        # The same local-namespace form as the NFS options below (the only one libvirt honours), every value quoted.
-        mount_opts_xml = (
-            '<mount_opts xmlns="http://libvirt.org/schemas/storagepool/fs/1.0">'
-            + "".join(
-                f"<option name={saxutils.quoteattr(o)}/>"
-                for o in smb_storage.mount_options(cred_path, payload.smb_version)
-            )
-            + "</mount_opts>"
-        )
-    elif payload.type == "netfs":
-        source_el = ET.SubElement(pool_el, "source")
-        ET.SubElement(source_el, "host", name=payload.nfs_host)
-        ET.SubElement(source_el, "dir", path=payload.nfs_export_path)
-        ET.SubElement(source_el, "format", type="nfs")
-        # NFS mount options, found by testing a real NFS share between two machines:
-        #
-        # 1) On a recent Debian 13 NFS client (recent nfs-utils and kernel) the mount
-        # always fails with "NFS: mount program didn't pass remote address". A manual
-        # mount(8) WITHOUT an explicit 'addr=' option fails the same way, and it succeeds
-        # WITH it. This looks like a regression of the recent mount path (the new
-        # fsconfig kernel mount API), which no longer derives the address from the given
-        # host name. It is added systematically, harmless on an older NFS client that does
-        # not need it. 'addr' wants an IP, not a host name; gethostbyname() on a literal
-        # IP returns it unchanged (a no-op), so the case does not need to be detected
-        # beforehand.
-        #
-        # 2) Even with 'addr=' passed correctly, the mount then fails with "NFS: Version
-        # unavailable" unless the NFS version is fixed explicitly: automatic negotiation
-        # fails silently on this client. 'vers=' is therefore always given: 4.2 by default, or the version chosen
-        # at creation for a server that does not offer it (NFSv3-only appliances are common).
-        #
-        # 3) The libvirt element is 'mount_opts' (NOT 'mountopts', which libvirt ignores
-        # silently) and it lives in its OWN XML namespace (checked in
-        # /usr/share/libvirt/schemas/storagepool.rng, not in the online documentation).
-        # Built with ET.SubElement and a qualified '{namespace}mount_opts' tag,
-        # ET.tostring() declares the namespace as a PREFIX on the root
-        # (<pool xmlns:ns0="..."> then <ns0:mount_opts>). That is syntactically correct,
-        # purpose libvirt on this version still ignores it silently (the element is absent
-        # from the XML read back right after defineXML). Only the form with "xmlns=..."
-        # on the element itself (a LOCAL default namespace, not a root prefix) is honoured,
-        # and ElementTree never generates that exact form. The rest of the document is
-        # still built with ElementTree (automatic escaping, see above); only this fragment
-        # is assembled as a string, with values that are already validated (NFS_HOST_RE
-        # above) or resolved through gethostbyname, never raw user text.
-        try:
-            addr = socket.gethostbyname(payload.nfs_host)
-        except OSError:
-            addr = payload.nfs_host  # resolution failed: try anyway with the value as provided
-        mount_opts_xml = (
-            f'<mount_opts xmlns="http://libvirt.org/schemas/storagepool/fs/1.0">'
-            f'<option name="addr={saxutils.escape(addr)}"/><option name="vers={payload.nfs_version}"/></mount_opts>'
-        )
-    else:
-        mount_opts_xml = ""
-    target_el = ET.SubElement(pool_el, "target")
-    ET.SubElement(target_el, "path").text = target_path
-    pool_xml = ET.tostring(pool_el, encoding="unicode")
-    if mount_opts_xml:
-        pool_xml = pool_xml.replace("</source>", "</source>" + mount_opts_xml, 1)
-    return pool_xml
-
-
 @router.get("/support")
 def storage_support(user: dict = Depends(get_current_user)):
     """Which pool types the local host can create now, and why not: read by the pool creation form to warn
@@ -393,6 +275,7 @@ def create_pool(payload: PoolCreate, node: str | None = None, user: dict = Depen
 
 
 def _create_single(payload, node, user):
+    node = _node(node)
     name_error = validate_name(payload.name, "storage pool")
     if name_error:
         log_action(user["username"], "create_storage_pool", payload.name, "failed", name_error)
@@ -427,188 +310,30 @@ def _create_single(payload, node, user):
         log_action(user["username"], "create_storage_pool", payload.name, "success")
         return pool
 
-    if payload.type == "dir":
-        target_path = payload.path or str(nfs_permissions.POOLS_ROOT / payload.name)
-        if not POOL_PATH_RE.match(target_path):
-            raise HTTPException(
-                status_code=422,
-                detail="Invalid pool path (must be an absolute path, without spaces or special characters)",
-            )
-        path_error = _dir_pool_path_error(target_path)
-        if path_error:
-            log_action(user["username"], "create_storage_pool", payload.name, "failed", path_error)
-            raise HTTPException(status_code=422, detail=path_error)
-        target_path = _normalize(target_path)
-        other = _pool_on_path(node, target_path)
-        if other:
-            raise HTTPException(
-                status_code=409, detail=f"The pool '{other}' already uses {target_path}: choose another directory"
-            )
-    elif payload.type == "iscsi":
-        if not payload.iscsi_host or not payload.iscsi_target:
-            raise HTTPException(status_code=422, detail="iscsi_host and iscsi_target are required for an iSCSI pool")
-        if not NFS_HOST_RE.match(payload.iscsi_host):
-            raise HTTPException(status_code=422, detail="Invalid iSCSI portal address")
-        if not iscsi.IQN_RE.match(payload.iscsi_target):
-            raise HTTPException(
-                status_code=422,
-                detail="Invalid iSCSI target name (expected an IQN such as iqn.2005-10.org.freenas.ctl:vms)",
-            )
-        # CHAP is a user AND a password: a password alone was silently dropped, and the pool created without CHAP.
-        if (payload.chap_user or payload.chap_password) and (
-            not iscsi.CHAP_USER_RE.match(payload.chap_user or "") or not payload.chap_password
-        ):
-            raise HTTPException(status_code=422, detail="CHAP needs both a valid user name and a password")
-        # libvirt drives open-iscsi: without it the error ("iscsiadm: not found") hides the real cause.
-        if not node and not iscsi.initiator_available():
-            raise HTTPException(
-                status_code=422, detail="The iSCSI initiator is not installed on this host (open-iscsi package)"
-            )
-        target_path = iscsi.BY_PATH
-    elif payload.type == "lvm":
-        try:
-            lvm_storage.check_name(payload.lvm_vg or "")
-        except lvm_storage.LvmError as e:
-            raise HTTPException(status_code=422, detail=str(e)) from None
-        if payload.lvm_thin_pool is not None:
-            try:
-                lvm_storage.check_name(payload.lvm_thin_pool, "thin pool")
-            except lvm_storage.LvmError as e:
-                raise HTTPException(status_code=422, detail=str(e)) from None
-        if payload.lvm_device and not LVM_DEVICE_RE.match(payload.lvm_device):
-            raise HTTPException(status_code=422, detail="Invalid disk: a device under /dev, such as /dev/sdb")
-        if not node and shutil.which("lvm") is None:
-            raise HTTPException(status_code=422, detail="LVM is not installed on this host (lvm2 package)")
-        target_path = f"/dev/{payload.lvm_vg}"
-    elif payload.type == "smb":
-        error = smb_storage.validation_error(
-            bool(payload.smb_host and NFS_HOST_RE.match(payload.smb_host)),
-            payload.smb_share,
-            payload.smb_user,
-            payload.smb_password,
-            payload.smb_domain,
-            payload.smb_version,
-        )
-        if error:
-            raise HTTPException(status_code=422, detail=error)
-        # libvirt mounts the share with mount.cifs: without it its error hides the real cause (this host only).
-        if not node and shutil.which("mount.cifs") is None:
-            raise HTTPException(
-                status_code=422, detail="The SMB client is not installed on this host (cifs-utils package)"
-            )
-        target_path = str(nfs_permissions.POOLS_ROOT / payload.name)
-    else:
-        if not payload.nfs_host or not payload.nfs_export_path:
-            raise HTTPException(status_code=422, detail="nfs_host and nfs_export_path are required for an NFS pool")
-        if not NFS_HOST_RE.match(payload.nfs_host):
-            raise HTTPException(status_code=422, detail="Invalid NFS host")
-        if not POOL_PATH_RE.match(payload.nfs_export_path):
-            raise HTTPException(status_code=422, detail="Invalid NFS export path (must be an absolute path)")
-        # libvirt mounts the export with mount.nfs: without the NFS client its error ("mount: unknown filesystem
-        # type") hides the real cause. Checked on the local host only (a remote node reports its own error).
-        if not node and shutil.which("mount.nfs") is None:
-            raise HTTPException(
-                status_code=422, detail="The NFS client is not installed on this host (nfs-common package)"
-            )
-        # LOCAL mount point on the node (the NFS client side): distinct from the path
-        # exported on the server side, and never supplied by the caller, to avoid any
-        # collision with an existing system directory.
-        target_path = str(nfs_permissions.POOLS_ROOT / payload.name)
-
-    return _create_on(payload, node, target_path, user)
-
-
-def _create_on(payload, node, target_path, user):
-    """Define, build and start the pool on one node (None: this host). Raises HTTPException on failure."""
+    # Checked here first, so another node's pool gets the same answers; hyperlite-daemon checks it again.
+    try:
+        storage_pools.check_spec(payload, local=node is None)
+    except storage_pools.PoolError as e:
+        log_action(user["username"], "create_storage_pool", payload.name, "failed", e.message)
+        raise HTTPException(status_code=422, detail=e.message) from None
+    result = _pool_work(
+        node,
+        "storage.pool_create",
+        user,
+        "create_storage_pool",
+        payload.name,
+        lambda conn: storage_pools.create(conn, payload, node),
+        **payload.model_dump(exclude={"size_gb", "all_nodes", "nodes"}),
+    )
+    log_action(user["username"], "create_storage_pool", payload.name, "success")
     conn = open_conn(node)
     try:
-        try:
-            conn.storagePoolLookupByName(payload.name)
-            log_action(user["username"], "create_storage_pool", payload.name, "failed", "Pool already exists")
-            raise HTTPException(status_code=422, detail=f"A pool '{payload.name}' already exists")
-        except libvirt.libvirtError:
-            pass
-
-        cred_path = smb_storage.credentials_path(payload.name, node) if payload.type == "smb" else None
-        pool_xml = _build_pool_xml(payload, target_path, cred_path)
-        try:
-            if cred_path:
-                try:
-                    smb_storage.write_credentials(
-                        cred_path,
-                        smb_storage.credentials_text(payload.smb_user, payload.smb_password, payload.smb_domain),
-                        node,
-                    )
-                except (OSError, subprocess.SubprocessError) as e:
-                    log_action(user["username"], "create_storage_pool", payload.name, "failed", str(e))
-                    raise HTTPException(status_code=502, detail=f"The SMB credentials could not be written: {e}") from e
-            if payload.type == "iscsi" and payload.chap_user:
-                # The CHAP password lives in a libvirt secret (private: never read back through the API), not in
-                # the pool XML nor in Hyperlite's database.
-                secret = conn.secretDefineXML(iscsi.secret_xml(payload.name))
-                secret.setValue(payload.chap_password.encode())
-            pool = conn.storagePoolDefineXML(pool_xml)
-            # build() creates the local directory ("dir") or the mount point ("netfs"),
-            # needed before create() on a brand new pool. flags=0: no destructive reformatting
-            # of an existing medium. An iSCSI pool has nothing to build (the LUNs exist on the
-            # storage side), nor an LVM pool on an existing volume group; on a disk, build() makes the group.
-            if payload.type != "iscsi" and not (payload.type == "lvm" and not payload.lvm_device):
-                pool.build(0)
-            pool.create(0)
-            pool.setAutostart(True)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "create_storage_pool", payload.name, "failed", msg)
-            # Best-effort cleanup if the definition succeeded purpose the start did not (e.g. an
-            # unreachable NFS export): avoids a "ghost" pool that is defined purpose never usable
-            # and would block a new attempt with the same name.
-            with contextlib.suppress(libvirt.libvirtError):
-                conn.storagePoolLookupByName(payload.name).undefine()
-            if cred_path:
-                smb_storage.remove_credentials(cred_path, node)
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Could not mount the SMB share: check the server address, the share name, the user and "
-                        f"password, and the SMB version. Detail: {msg}"
-                    ),
-                ) from e
-            if payload.type == "iscsi":
-                _delete_chap_secret(conn, payload.name)
-                # libvirt only relays iscsiadm's command line: say what to check first.
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Could not log in to the iSCSI target: check the portal address and port, the target name, "
-                        "that this host's initiator name is allowed on the storage side, and the CHAP credentials. "
-                        f"Detail: {msg}"
-                    ),
-                ) from e
-            raise HTTPException(status_code=500, detail=f"Pool creation error: {msg}") from e
-
-        if payload.type == "lvm" and payload.lvm_thin_pool:
-            try:
-                lvm_storage.ensure_thin_pool(payload.lvm_vg, payload.lvm_thin_pool, node)
-            except lvm_storage.LvmError as e:
-                # The pool is not left half made: its group stays as it is (a group built on a disk included).
-                with contextlib.suppress(libvirt.libvirtError):
-                    pool.destroy()
-                with contextlib.suppress(libvirt.libvirtError):
-                    pool.undefine()
-                log_action(user["username"], "create_storage_pool", payload.name, "failed", str(e))
-                raise HTTPException(status_code=422, detail=f"Thin pool: {e}") from e
-
-        log_action(user["username"], "create_storage_pool", payload.name, "success")
-        summary = _pool_summary(pool, node)
-        if payload.type == "netfs" and not node:
-            # Mounted fine is not enough: QEMU must be able to own its disk files there (root_squash).
-            perm = nfs_permissions.check(target_path, export=payload.nfs_export_path)
-            summary["warning"] = perm["message"]
-        elif payload.type == "smb" and not node:
-            summary["warning"] = smb_storage.check(target_path)["message"]
-        return summary
+        summary = _pool_summary(conn.storagePoolLookupByName(payload.name), node)
     finally:
         conn.close()
+    if node is None and payload.type in ("netfs", "smb"):
+        summary["warning"] = result["warning"]
+    return summary
 
 
 def _shared_targets(payload):
@@ -700,80 +425,18 @@ def list_shared_pools(user: dict = Depends(get_current_user)):
     return listing([{k: v for k, v in e.items() if k != "definition"} for e in shared_pools.list_all()])
 
 
-def _chap_usage(pool_root):
-    """The usage id of the CHAP secret a pool's definition refers to: a renamed pool keeps its secret's."""
-    secret = pool_root.find("source/auth/secret")
-    return secret.get("usage") if secret is not None else None
-
-
-def _delete_chap_secret(conn, pool_name, usage=None):
-    with contextlib.suppress(libvirt.libvirtError):
-        conn.secretLookupByUsage(libvirt.VIR_SECRET_USAGE_TYPE_ISCSI, usage or iscsi.secret_usage(pool_name)).undefine()
-
-
-def _vms_using_paths(conn, paths):
-    """Names of the VMs that have one of these exact device paths as a disk (the LUNs of an iSCSI pool)."""
-    names = []
-    for dom in conn.listAllDomains():
-        try:
-            xml = ET.fromstring(dom.XMLDesc(0))
-        except libvirt.libvirtError:
-            continue
-        if any((src.get("dev") or src.get("file")) in paths for src in xml.findall("devices/disk/source")):
-            names.append(dom.name())
-    return names
-
-
-def _vms_using_path(conn, target):
-    """Names of the VMs that have a disk or CD-ROM under `target`."""
-    if not target:
-        return []
-    prefix = target.rstrip("/") + "/"
-    names = []
-    for dom in conn.listAllDomains():
-        try:
-            xml = ET.fromstring(dom.XMLDesc(0))
-        except libvirt.libvirtError:
-            continue
-        for src in xml.findall("devices/disk/source"):
-            path = src.get("file") or src.get("dev") or ""
-            if path.startswith(prefix):
-                names.append(dom.name())
-                break
-    return names
-
-
 @router.post("/{pool_name}/check-permissions")
 def check_pool_permissions(pool_name: str, user: dict = Depends(require_role("admin"))):
     """For an NFS pool of this host: can QEMU own its disk files there (see app/core/nfs_permissions.py)?"""
-    conn = open_conn()
-    try:
-        try:
-            pool = conn.storagePoolLookupByName(pool_name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
-        if _pool_type(pool) != "netfs":
-            raise HTTPException(status_code=422, detail="Only NFS and SMB pools need this check")
-        if not pool.isActive():
-            raise HTTPException(status_code=409, detail="Start the pool first: the share must be mounted")
-        root = ET.fromstring(pool.XMLDesc(0))
-        if smb_storage.is_smb(root):
-            result = smb_storage.check(_pool_path(pool))
-        else:
-            export = root.find("source/dir")
-            result = nfs_permissions.check(
-                _pool_path(pool), export=export.get("path") if export is not None else "/srv/share"
-            )
-        log_action(
-            user["username"],
-            "check_pool_permissions",
-            pool_name,
-            "success" if result["ok"] else "failed",
-            result["message"],
-        )
-        return {"name": pool_name, "ok": result["ok"], "message": result["message"]}
-    finally:
-        conn.close()
+    result = privileged.ask("storage.pool_check", user, "check_pool_permissions", pool_name, pool=pool_name)
+    log_action(
+        user["username"],
+        "check_pool_permissions",
+        pool_name,
+        "success" if result["ok"] else "failed",
+        result["message"],
+    )
+    return {"name": pool_name, "ok": result["ok"], "message": result["message"]}
 
 
 class PoolRename(BaseModel):
@@ -782,83 +445,26 @@ class PoolRename(BaseModel):
     everywhere: bool = False
 
 
-def _running_users(conn, pool):
-    """Running VMs with a disk in this pool: its files (directory, NFS) or its LUNs (iSCSI)."""
-    root = ET.fromstring(pool.XMLDesc(0))
-    if root.get("type") == "iscsi":
-        with contextlib.suppress(libvirt.libvirtError):
-            pool.refresh(0)
-        paths = {v.path() for v in pool.listAllVolumes()}
-        match = lambda p: p in paths  # noqa: E731
-    else:
-        target = (root.findtext("target/path") or "").rstrip("/")
-        if not target:
-            return []
-        match = lambda p: p.startswith(target + "/")  # noqa: E731
-    names = []
-    for dom in conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE):
-        try:
-            xml = ET.fromstring(dom.XMLDesc(0))
-        except (libvirt.libvirtError, ET.ParseError):
-            continue
-        if any(match(src.get("dev") or src.get("file") or "") for src in xml.findall("devices/disk/source")):
-            names.append(dom.name())
-    return names
-
-
 def _rename_on(pool_name, new, node, user):
-    """libvirt cannot rename a pool: it is stopped, redefined under the new name with the same source and target,
-    and started again. Its files and LUNs do not move, so the VMs' disk paths stay valid; an iSCSI pool keeps its
-    CHAP secret. Refused while a running VM uses it (stopping the pool would pull its disks away)."""
+    """The pool renamed on one node (storage_pools.rename: stopped, redefined, started again; refused while a running
+    VM uses it), then Hyperlite's records of it."""
+    node = _node(node)
+    _pool_work(
+        node,
+        "storage.pool_rename",
+        user,
+        "rename_storage_pool",
+        pool_name,
+        lambda conn: storage_pools.rename(conn, pool_name, new),
+        refused=409,
+        pool=pool_name,
+        new_name=new,
+    )
+    renaming.storage_pool_records(pool_name, new, node or "local")
+    log_action(user["username"], "rename_storage_pool", pool_name, "success", f"-> {new} on {node or 'local'}")
     conn = open_conn(node)
     try:
-        try:
-            pool = conn.storagePoolLookupByName(pool_name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
-        try:
-            conn.storagePoolLookupByName(new)
-            raise HTTPException(status_code=409, detail=f"A pool named '{new}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("No pool named %s yet", new)
-        in_use = _running_users(conn, pool)
-        if in_use:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Running VMs use this pool ({', '.join(in_use)}): stop them first, the pool is stopped "
-                "for a moment while it is renamed",
-            )
-        old_xml = pool.XMLDesc(libvirt.VIR_STORAGE_XML_INACTIVE)
-        was_active, autostart = bool(pool.isActive()), bool(pool.autostart())
-        root = ET.fromstring(old_xml)
-        root.find("name").text = new
-        uuid = root.find("uuid")
-        if uuid is not None:
-            root.remove(uuid)  # a new definition: libvirt gives it its own
-        try:
-            if was_active:
-                pool.destroy()
-            pool.undefine()
-            try:
-                renamed = conn.storagePoolDefineXML(ET.tostring(root, encoding="unicode"))
-                if was_active:
-                    renamed.create(0)
-                renamed.setAutostart(autostart)
-            except libvirt.libvirtError:
-                with contextlib.suppress(libvirt.libvirtError):
-                    conn.storagePoolLookupByName(new).undefine()
-                restored = conn.storagePoolDefineXML(old_xml)
-                if was_active:
-                    restored.create(0)
-                restored.setAutostart(autostart)
-                raise
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "rename_storage_pool", pool_name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
-        renaming.storage_pool_records(pool_name, new, node or "local")
-        log_action(user["username"], "rename_storage_pool", pool_name, "success", f"-> {new} on {node or 'local'}")
-        return _pool_summary(renamed, node)
+        return _pool_summary(conn.storagePoolLookupByName(new), node)
     finally:
         conn.close()
 
@@ -945,103 +551,29 @@ def _delete_everywhere(pool_name, detach, user):
 
 
 def _delete_single(pool_name, node, detach, user):
+    node = _node(node)
 
     # A ZFS pool is NOT a libvirt pool (see zfs_storage.py): it is routed separately
     # before any lookup on the libvirt side, which would simply fail with "not found"
     # for a name that only exists on the ZFS side.
-    if (not node or node == "local") and zfs_storage.pool_exists(pool_name):
+    if node is None and zfs_storage.pool_exists(pool_name):
         privileged.ask("storage.zfs_pool_delete", user, "delete_storage_pool", pool_name, refused=409, name=pool_name)
         log_action(user["username"], "delete_storage_pool", pool_name, "success")
         return {"message": f"ZFS pool '{pool_name}' deleted"}
 
-    conn = open_conn(node)
-    try:
-        try:
-            pool = conn.storagePoolLookupByName(pool_name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Storage pool '{pool_name}' not found") from None
-
-        pool.refresh(0)
-        volumes = pool.listAllVolumes()
-        pool_root = ET.fromstring(pool.XMLDesc(0))
-        if pool_root.get("type") == "logical":
-            # libvirt does not see thin volumes nor thin pools: it would call a group holding only those empty and
-            # stop the pool under them. LVM itself is asked; libvirt's pool deletion (the whole group) is never used.
-            try:
-                lvm_storage.refuse_removal_if_not_empty(pool_root.findtext("source/name"), node)
-            except lvm_storage.LvmError as e:
-                log_action(user["username"], "delete_storage_pool", pool_name, "failed", str(e))
-                raise HTTPException(status_code=409, detail=str(e)) from e
-        # The base image Hyperlite copied into the pool for the VMs built on it (vm_builder.ensure_pool_base_image)
-        # is its own copy, not a file of the user's: it does not keep the pool from being removed. A pool where it
-        # is the last file therefore said "still contains 1 file" for a pool the user had emptied.
-        base_images = [v for v in volumes if v.name() == POOL_BASE_NAME]
-        volumes = [v for v in volumes if v.name() != POOL_BASE_NAME]
-        if pool_root.get("type") == "iscsi":
-            # Removing an iSCSI pool only logs out of the target: the LUNs and their data stay on the storage
-            # side. Refused while a VM still uses one of them.
-            in_use = _vms_using_paths(conn, {v.path() for v in volumes})
-            if in_use:
-                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "LUNs used by VMs")
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"VMs use LUNs of this pool ({', '.join(in_use)}): delete them first",
-                )
-            volumes = []
-        if volumes:
-            # `detach` only removes the libvirt pool DEFINITION (destroy + undefine), NEVER
-            # the files: for a dir/netfs pool that is not destructive. A real case: a dir pool
-            # created automatically by virt-install on /root sees all of /root as "volumes"
-            # and could therefore never be deleted.
-            root = ET.fromstring(pool.XMLDesc(0))
-            if not detach or root.get("type") not in ("dir", "netfs"):
-                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool not empty")
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Pool '{pool_name}' still contains {len(volumes)} file(s)/volume(s). To remove the pool WITHOUT deleting these files, use the \"remove without deleting the files\" option (detach=true, dir/NFS pools only)"
-                    ),
-                )
-            in_use = _vms_using_path(conn, root.findtext("target/path"))
-            if in_use:
-                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool used by VMs")
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
-                )
-
-        # Removed with a pool of this node; kept on a shared one (NFS, SMB), where the VMs of the other nodes using
-        # the same share may still be built on it.
-        if pool_root.get("type") == "dir" and not detach:
-            in_use = _vms_using_path(conn, pool_root.findtext("target/path")) if base_images else []
-            if in_use:
-                log_action(user["username"], "delete_storage_pool", pool_name, "failed", "Pool used by VMs")
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"VMs use files of this pool ({', '.join(in_use)}): remove them or move their disks first",
-                )
-            for volume in base_images:
-                volume.delete(0)
-        try:
-            if pool.isActive():
-                # netfs: unmounts the export. dir: does not touch the content of the directory
-                # (already checked empty above). iscsi: logs out of the target.
-                pool.destroy()
-            pool.undefine()
-            if pool_root.get("type") == "iscsi":
-                _delete_chap_secret(conn, pool_name, _chap_usage(pool_root))
-            cred_path = smb_storage.credentials_of(pool_root) if smb_storage.is_smb(pool_root) else None
-            if cred_path:
-                smb_storage.remove_credentials(cred_path, None if not node or node == "local" else node)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "delete_storage_pool", pool_name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Pool deletion error: {msg}") from e
-
-        log_action(user["username"], "delete_storage_pool", pool_name, "success")
-        return {"message": f"Pool '{pool_name}' deleted"}
-    finally:
-        conn.close()
+    _pool_work(
+        node,
+        "storage.pool_delete",
+        user,
+        "delete_storage_pool",
+        pool_name,
+        lambda conn: storage_pools.delete(conn, pool_name, detach, node),
+        refused=409,
+        pool=pool_name,
+        detach=detach,
+    )
+    log_action(user["username"], "delete_storage_pool", pool_name, "success")
+    return {"message": f"Pool '{pool_name}' deleted"}
 
 
 @router.get("/{pool_name}/volumes")

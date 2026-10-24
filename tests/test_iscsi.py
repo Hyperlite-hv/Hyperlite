@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 import pytest
 from fastapi import HTTPException
 
-from app.core import iscsi
+from app.core import iscsi, storage_pools
 from app.routers import storage
 from app.routers.vms import create
 
@@ -34,7 +34,7 @@ def test_malformed_target_names_are_refused(name):
 
 def test_pool_xml_without_and_with_chap():
     plain = storage.PoolCreate(name="nas", type="iscsi", iscsi_host="192.168.1.20", iscsi_target=TARGET)
-    root = ET.fromstring(storage._build_pool_xml(plain, iscsi.BY_PATH))
+    root = ET.fromstring(storage_pools.pool_xml(plain, iscsi.BY_PATH))
     assert root.get("type") == "iscsi"
     assert root.find("source/host").attrib == {"name": "192.168.1.20", "port": "3260"}
     assert root.find("source/device").get("path") == TARGET
@@ -44,7 +44,7 @@ def test_pool_xml_without_and_with_chap():
     chap = storage.PoolCreate(
         name="nas", type="iscsi", iscsi_host="nas.home", iscsi_target=TARGET, chap_user="hyper", chap_password="s3cret"
     )
-    xml = storage._build_pool_xml(chap, iscsi.BY_PATH)
+    xml = storage_pools.pool_xml(chap, iscsi.BY_PATH)
     auth = ET.fromstring(xml).find("source/auth")
     assert auth.attrib == {"type": "chap", "username": "hyper"}
     assert auth.find("secret").get("usage") == "hyperlite-iscsi-nas"

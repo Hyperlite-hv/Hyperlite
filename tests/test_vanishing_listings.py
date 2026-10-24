@@ -89,7 +89,7 @@ def test_a_vanished_pool_does_not_break_the_list(database, client, auth_headers,
     from app.routers import storage
 
     monkeypatch.setattr(storage, "open_conn", lambda node=None: _Conn())
-    monkeypatch.setattr(storage, "ensure_default_pool", lambda conn: None)
+    monkeypatch.setattr(storage, "_ensure_default", lambda conn, node: None)
     monkeypatch.setattr(storage.zfs_storage, "list_pools", lambda: [])
     r = client.get("/storage", headers=auth_headers("admin"))
     assert r.status_code == 200, r.text
