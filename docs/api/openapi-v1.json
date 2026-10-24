@@ -13407,6 +13407,7 @@
     ]
    },
    "post": {
+    "deprecated": true,
     "operationId": "add_node_api_v1_nodes_post",
     "requestBody": {
      "content": {
@@ -13451,6 +13452,7 @@
   },
   "/api/v1/nodes/cluster-pubkey": {
    "get": {
+    "deprecated": true,
     "description": "Public key to install in ~/.ssh/authorized_keys of the remote node before\nregistering it, displayed in the UI so it can be copied and pasted.",
     "operationId": "get_cluster_key_api_v1_nodes_cluster_pubkey_get",
     "responses": {
@@ -13476,6 +13478,7 @@
   },
   "/api/v1/nodes/config-copy": {
    "get": {
+    "deprecated": true,
     "description": "When the configuration was last copied to each node (see app/core/config_copy.py).",
     "operationId": "config_copy_status_api_v1_nodes_config_copy_get",
     "responses": {
@@ -13499,6 +13502,7 @@
     ]
    },
    "post": {
+    "deprecated": true,
     "description": "Copy the configuration to every online node now, whatever changed.",
     "operationId": "config_copy_now_api_v1_nodes_config_copy_post",
     "responses": {
@@ -13548,6 +13552,7 @@
   },
   "/api/v1/nodes/test": {
    "post": {
+    "deprecated": true,
     "description": "Check that a machine can be registered (SSH trust plus a QEMU/KVM libvirt) without\nregistering it, so the add-node form can say what is wrong before submitting.",
     "operationId": "test_node_api_v1_nodes_test_post",
     "requestBody": {
