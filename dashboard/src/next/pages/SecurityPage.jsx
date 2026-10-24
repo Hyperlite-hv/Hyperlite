@@ -5,7 +5,7 @@ import {
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, createAcl, deleteAcl,
   fetchPrivileges, fetchCustomRoles, createCustomRole, deleteCustomRole, fetchContainers,
-  fetchStoragePools, fetchNetworks,
+  fetchStoragePools, fetchNetworks, fetchBackupStores,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -40,11 +40,11 @@ export default function SecurityPage({ initialTab = "users" }) {
 
   const reload = useCallback(async () => {
     try {
-      const [users, groups, pools, roles, privileges, customRoles, acl, containers, storages, networks] = await Promise.all([
+      const [users, groups, pools, roles, privileges, customRoles, acl, containers, storages, networks, backupStores] = await Promise.all([
         fetchUsers(), fetchGroups(), fetchPools(), fetchAclRoles(), fetchPrivileges(), fetchCustomRoles(), fetchAcl(), fetchContainers().catch(() => []),
-        fetchStoragePools().catch(() => []), fetchNetworks().catch(() => []),
+        fetchStoragePools().catch(() => []), fetchNetworks().catch(() => []), fetchBackupStores().catch(() => []),
       ]);
-      setData({ users, groups, pools, roles, privileges, customRoles, acl, containers, storages, networks });
+      setData({ users, groups, pools, roles, privileges, customRoles, acl, containers, storages, networks, backupStores });
       setError(null);
     } catch (e) { setError(errorMessage(e)); }
   }, []);
@@ -340,6 +340,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
     : f.resourceType === "pool" ? data.pools.map((p) => [String(p.id), p.name])
     : f.resourceType === "storage" ? names(data.storages)
     : f.resourceType === "network" ? names(data.networks)
+    : f.resourceType === "backup_store" ? names(data.backupStores || [])
     : data.containers.map((c) => [c.name, c.name]);
   async function create() {
     if (await run(() => createAcl({ subject_type: f.subjectType, subject_id: f.subjectId, role, resource_type: f.resourceType, resource_id: f.resourceId }), { ok: { title: t("sec.assigned") }, fail: t("sec.assignFailed") })) { setF((x) => ({ ...x, subjectId: "", resourceId: "" })); closeDrawer(); }
@@ -347,7 +348,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
   async function remove(a) {
     if (await confirmAction({ title: t("sec.aclDeleteTitle"), message: t("sec.aclDeleteMsg"), confirmLabel: t("sec.remove"), danger: true })) run(() => deleteAcl(a.id), { fail: t("sec.removeFailed") });
   }
-  const kindLabel = { pool: "sec.pool", container: "sec.container", storage: "sec.storage", network: "sec.network" };
+  const kindLabel = { pool: "sec.pool", container: "sec.container", storage: "sec.storage", network: "sec.network", backup_store: "sec.backupStore" };
   const resLabel = (a) => (kindLabel[a.resource_type] ? `${t(kindLabel[a.resource_type])} ${a.resource_label}` : a.resource_label);
   return (
     <>
@@ -380,7 +381,7 @@ function AclTab({ t, run, data, vms, allRoles, drawer, closeDrawer }) {
         </div>
         <Field label={t("sec.role")} hint={allRoles[role]?.description}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.role")} value={role} onChange={set("role")}>{Object.entries(allRoles).map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}</select>}</Field>
         <div className="nx-fg">
-          <Field label={t("sec.on")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.on")} value={f.resourceType} onChange={set("resourceType")}><option value="vm">{t("sec.aVm")}</option><option value="pool">{t("sec.aPool")}</option><option value="container">{t("sec.aContainer")}</option><option value="storage">{t("sec.aStorage")}</option><option value="network">{t("sec.aNetwork")}</option></select>}</Field>
+          <Field label={t("sec.on")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.on")} value={f.resourceType} onChange={set("resourceType")}><option value="vm">{t("sec.aVm")}</option><option value="pool">{t("sec.aPool")}</option><option value="container">{t("sec.aContainer")}</option><option value="storage">{t("sec.aStorage")}</option><option value="network">{t("sec.aNetwork")}</option><option value="backup_store">{t("sec.aBackupStore")}</option></select>}</Field>
           <Field label={t("sec.resource")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.resource")} value={f.resourceId} onChange={set("resourceId")}><option value="">{t("sec.choose")}</option>{resources.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>}</Field>
         </div>
       </SideDrawer>
