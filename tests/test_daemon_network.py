@@ -335,3 +335,32 @@ def test_listing_the_networks_asks_the_daemon_only_for_a_missing_isolated_networ
     assert asked == []
     network._ensure_isolated(Lib(), {"username": "ana"})
     assert asked == ["network.ensure_isolated"]
+
+
+class ReservedNet(LibNet):
+    def __init__(self, lib, xml):
+        super().__init__(lib, xml)
+        self.updates = []
+
+    def update(self, command, section, index, xml, flags):
+        self.updates.append((command, xml))
+
+
+def test_a_reservation_is_checked_again_by_the_daemon(lib):
+    xml = (
+        "<network><name>lab</name><forward mode='nat'/><bridge name='virbr9'/><ip address='10.77.0.1' "
+        "netmask='255.255.255.0'><dhcp><range start='10.77.0.10' end='10.77.0.50'/></dhcp></ip></network>"
+    )
+    net = lib.nets["lab"] = ReservedNet(lib, xml)
+    for fields in (
+        {"mac": "not-a-mac", "ip": "10.77.0.20"},
+        {"mac": "52:54:00:00:00:09", "ip": "10.99.0.20"},  # outside the network
+        {"mac": "52:54:00:00:00:09", "ip": "10.77.0.1"},  # its gateway
+        {"mac": "52:54:00:00:00:09", "ip": "10.77.0.20", "name": "a name'/>"},
+    ):
+        with pytest.raises(DaemonError) as e:
+            privileged.run("network.reservation_add", network="lab", **fields)
+        assert e.value.kind == "refused", fields
+    assert net.updates == []
+    privileged.run("network.reservation_add", network="lab", mac="52:54:00:00:00:09", ip="10.77.0.20", name="web")
+    assert len(net.updates) == 1 and "10.77.0.20" in net.updates[0][1]
