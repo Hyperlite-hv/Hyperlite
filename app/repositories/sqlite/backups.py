@@ -115,9 +115,12 @@ class SqliteBackupStore:
         _write("DELETE FROM backups WHERE id = ?", (backup_id,))
 
     def finished_of(self, vm_name):
-        """(id, path, created_at, verification) of the VM's finished backups, for the retention policy."""
+        """(id, path, created_at, verification) of the VM's finished backups, for the retention policy: the ones this
+        installation made. A backup imported from another site's storage (site recovery) is never counted nor deleted
+        by it: it may be the only copy left of that site's data."""
         return _all(
-            "SELECT id, path, created_at, verification FROM backups WHERE vm_name = ? AND status = 'succeeded'",
+            "SELECT id, path, created_at, verification FROM backups WHERE vm_name = ? AND status = 'succeeded' "
+            "AND imported_from IS NULL",
             (vm_name,),
         )
 
