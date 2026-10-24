@@ -18,6 +18,7 @@ from app.core import (
     iscsi,
     lvm_storage,
     nfs_permissions,
+    privileged,
     renaming,
     shared_pools,
     smb_storage,
@@ -31,11 +32,32 @@ from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
 from app.core.vm_builder import POOL_BASE_NAME, validate_name
 from app.core.vm_limits import validate_vm_resources
+from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
 # ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
 router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[Depends(cluster_view.on_node)])
+
+
+def _daemon(op, user, action, target, refused=409, failed="{}", **args):
+    """hyperlite-daemon's answer to `op` (app/daemon/ops/storage.py), with the answers these routes gave when they ran
+    zpool and zfs themselves: what it refuses, `refused` with its reason; what does not exist, 404; a failure, 500 with
+    `failed` around the reason; without the daemon, 503. The failure is in the audit log."""
+    try:
+        return privileged.run(op, user=user["username"], **args)
+    except DaemonError as e:
+        log_action(user["username"], action, target, "failed", e.detail)
+        if e.kind in ("refused", "invalid_arguments"):
+            raise HTTPException(status_code=refused, detail=e.detail) from None
+        if e.kind == "not_found":
+            raise HTTPException(status_code=404, detail=e.detail) from None
+        if e.kind == "in_use":
+            raise HTTPException(status_code=409, detail=e.detail) from None
+        if e.kind == "unavailable":
+            raise HTTPException(status_code=503, detail=e.detail) from None
+        raise HTTPException(status_code=500, detail=failed.format(e.detail)) from None
+
 
 # This table did not match libvirt's real enumeration (virStoragePoolState,
 # checked through libvirt.VIR_STORAGE_POOL_*: only 5 values, 0-4, not 6). Every
@@ -407,15 +429,21 @@ def _create_single(payload, node, user):
         size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
         if size_errors:
             raise HTTPException(status_code=422, detail=size_errors)
-        if not zfs_storage.load_module():
+        if not _daemon("storage.zfs_load_module", user, "create_storage_pool", payload.name)["loaded"]:
             reason = zfs_storage.STATUS_MESSAGES[zfs_storage.status()]
             log_action(user["username"], "create_storage_pool", payload.name, "failed", reason)
             raise HTTPException(status_code=422, detail=reason)
-        try:
-            pool = zfs_storage.create_pool(payload.name, payload.size_gb)
-        except zfs_storage.ZfsError as e:
-            log_action(user["username"], "create_storage_pool", payload.name, "failed", e.message)
-            raise HTTPException(status_code=500, detail=f"ZFS pool creation error: {e.message}") from e
+        # A refusal (a name taken, a backing file left behind, zpool's own error) answered 500 as before.
+        pool = _daemon(
+            "storage.zfs_pool_create",
+            user,
+            "create_storage_pool",
+            payload.name,
+            refused=500,
+            failed="ZFS pool creation error: {}",
+            name=payload.name,
+            size_gb=payload.size_gb,
+        )
         log_action(user["username"], "create_storage_pool", payload.name, "success")
         return pool
 
@@ -942,11 +970,7 @@ def _delete_single(pool_name, node, detach, user):
     # before any lookup on the libvirt side, which would simply fail with "not found"
     # for a name that only exists on the ZFS side.
     if (not node or node == "local") and zfs_storage.pool_exists(pool_name):
-        try:
-            zfs_storage.delete_pool(pool_name)
-        except zfs_storage.ZfsError as e:
-            log_action(user["username"], "delete_storage_pool", pool_name, "failed", e.message)
-            raise HTTPException(status_code=409, detail=e.message) from e
+        _daemon("storage.zfs_pool_delete", user, "delete_storage_pool", pool_name, name=pool_name)
         log_action(user["username"], "delete_storage_pool", pool_name, "success")
         return {"message": f"ZFS pool '{pool_name}' deleted"}
 
@@ -1118,11 +1142,17 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(ge
         if name_error:
             log_action(user["username"], "create_volume", payload.name, "failed", name_error)
             raise HTTPException(status_code=422, detail=name_error)
-        try:
-            path = zfs_storage.create_zvol(pool_name, payload.name, payload.size_gb)
-        except zfs_storage.ZfsError as e:
-            log_action(user["username"], "create_volume", payload.name, "failed", e.message)
-            raise HTTPException(status_code=500, detail=f"zvol creation error: {e.message}") from e
+        path = _daemon(
+            "storage.zfs_volume_create",
+            user,
+            "create_volume",
+            payload.name,
+            refused=500,
+            failed="zvol creation error: {}",
+            pool=pool_name,
+            name=payload.name,
+            size_gb=payload.size_gb,
+        )["path"]
         log_action(user["username"], "create_volume", payload.name, "success")
         return {"name": payload.name, "path": path, "capacity_gb": float(payload.size_gb)}
 
@@ -1191,17 +1221,20 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
             log_action(user["username"], "delete_volume", volume_name, "failed", "Volume used by a VM")
             raise HTTPException(status_code=409, detail=f"Volume '{volume_name}' is used by a VM, deletion refused")
         if not confirm:
-            log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation manquante")
+            log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation missing")
             raise HTTPException(
                 status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
             )
-        try:
-            zfs_storage.delete_zvol(pool_name, volume_name)
-        except zfs_storage.ZfsError as e:
-            log_action(user["username"], "delete_volume", volume_name, "failed", e.message)
-            raise HTTPException(
-                status_code=404 if isinstance(e, zfs_storage.ZfsNotFoundError) else 500, detail=e.message
-            ) from e
+        # In use: 409; zfs failing: 500, as before.
+        _daemon(
+            "storage.zfs_volume_delete",
+            user,
+            "delete_volume",
+            volume_name,
+            refused=500,
+            pool=pool_name,
+            name=volume_name,
+        )
         log_action(user["username"], "delete_volume", volume_name, "success")
         return {"message": f"Volume '{volume_name}' deleted"}
 
@@ -1227,7 +1260,7 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
             raise HTTPException(status_code=409, detail=f"Volume '{volume_name}' is used by a VM, deletion refused")
 
         if not confirm:
-            log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation manquante")
+            log_action(user["username"], "delete_volume", volume_name, "failed", "Confirmation missing")
             raise HTTPException(
                 status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
             )
