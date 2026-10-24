@@ -12,16 +12,17 @@ import { formatDateTime } from "./lib/format";
 import NextLogin from "./NextLogin";
 import { Loading } from "./components/ui";
 
-// /cli-login?code=XXXX-XXXX: approval of a `hyperlite login` from this web session, so the sign-in of the
-// workstation goes through the usual screen (password and 2FA, or SSO). The code shown here must match the one
-// printed in the terminal: that comparison is what protects against a link sent by someone else.
+// /cli-login: approval of a `hyperlite login` from this web session, so the sign-in of the workstation goes through
+// the usual screen (password and 2FA, or SSO). The code printed in the terminal is typed here, never taken from the
+// link (?code=): with it prefilled, one click on a link someone else sent approved their workstation
+// (GHSA-fvhx-jrg7-hgxm).
 export default function NextCliLogin() {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const initTheme = useThemeStore((s) => s.init);
   const status = useAuthStore((s) => s.status);
   const restoreSession = useAuthStore((s) => s.restoreSession);
-  const [code, setCode] = useState(() => new URLSearchParams(window.location.search).get("code") || "");
+  const [code, setCode] = useState("");
   const [typed, setTyped] = useState("");
   const [req, setReq] = useState(null);
   const [error, setError] = useState(null);

@@ -1,0 +1,1 @@
+- Approving a `hyperlite login` takes typing the code printed in the terminal: the approval page no longer takes it from its link, where one click on a link someone else sent approved their workstation (GHSA-fvhx-jrg7-hgxm).

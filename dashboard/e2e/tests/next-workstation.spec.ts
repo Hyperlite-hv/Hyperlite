@@ -12,6 +12,12 @@ async function signIn(page: Page, path: string) {
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
+// The code printed in the terminal is typed on the page: the link's own ?code= is never taken (GHSA-fvhx-jrg7-hgxm).
+async function typeCode(page: Page, code: string) {
+  await page.getByRole("textbox", { name: "Code" }).fill(code);
+  await page.getByRole("button", { name: "Continue" }).click();
+}
+
 test("a workstation code is approved after signing in, then hands out an expiring token once", async ({ page, request }) => {
   const start = await (await request.post("/auth/cli/start", { data: { hostname: "E2E-WORKSTATION", client_version: "e2e" } })).json();
   const poll = () => request.post("/auth/cli/token", { data: { device_code: start.device_code } });
@@ -19,6 +25,8 @@ test("a workstation code is approved after signing in, then hands out an expirin
 
   // the sign-in screen comes first, then the approval page of the same link
   await signIn(page, `/cli-login?code=${start.user_code}`);
+  await expect(page.getByRole("textbox", { name: "Code" })).toHaveValue("", { timeout: 30_000 }); // not prefilled
+  await typeCode(page, start.user_code);
   await expect(page.getByRole("heading", { name: "Sign in a workstation" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(start.user_code)).toBeVisible();
   await expect(page.getByText("E2E-WORKSTATION")).toBeVisible();
@@ -37,11 +45,13 @@ test("a workstation code is approved after signing in, then hands out an expirin
 test("a refused or unknown code signs nothing in", async ({ page, request }) => {
   const start = await (await request.post("/auth/cli/start", { data: { hostname: "E2E-DENIED" } })).json();
   await signIn(page, `/cli-login?code=${start.user_code}`);
+  await typeCode(page, start.user_code);
   await page.getByRole("button", { name: "Deny" }).click();
   await expect(page.getByRole("heading", { name: "Sign-in refused" })).toBeVisible({ timeout: 30_000 });
   expect((await (await request.post("/auth/cli/token", { data: { device_code: start.device_code } })).json()).error).toBe("access_denied");
 
-  await page.goto("/cli-login?code=BBBB-CCCC");
+  await page.goto("/cli-login");
+  await typeCode(page, "BBBB-CCCC");
   await expect(page.getByRole("alert")).toContainText("Unknown or expired code");
   // without a code, the page asks for it
   await page.goto("/cli-login");
