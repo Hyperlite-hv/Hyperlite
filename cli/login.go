@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -124,8 +125,15 @@ func cmdLogin(rawURL string, yes bool) error {
 		return err
 	}
 
-	fmt.Printf("To sign in, approve this workstation in Hyperlite:\n\n    %s\n\nand check that it shows the code  %s\n\n", start.VerificationURIComplete, start.UserCode)
-	if err := openBrowser(start.VerificationURIComplete); err != nil {
+	link, err := approvalLink(u, start.VerificationURIComplete)
+	if err != nil {
+		return err
+	}
+	if !userCodeRe.MatchString(start.UserCode) {
+		return errors.New("the server answered an invalid sign-in code")
+	}
+	fmt.Printf("To sign in, open this page in Hyperlite:\n\n    %s\n\nand type the code  %s\n\n", link, start.UserCode)
+	if err := openBrowser(link); err != nil {
 		fmt.Println("(Open the link above in your browser.)")
 	}
 	fmt.Println("Waiting for the approval...")
@@ -274,4 +282,22 @@ func deref(p *string) string {
 		return "-"
 	}
 	return *p
+}
+
+var userCodeRe = regexp.MustCompile(`^[A-Z]{4}-[A-Z]{4}$`)
+
+// approvalLink is the page the server says approves this sign-in, opened or printed only once it is an address of
+// that very server: the system's opener would run whatever a hostile server sent (a file, another scheme), and the
+// terminal would print its escape sequences.
+func approvalLink(server, raw string) (string, error) {
+	base, err := url.Parse(server)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != base.Scheme || !strings.EqualFold(u.Host, base.Host) || u.User != nil ||
+		strings.ContainsAny(raw, "\x00\x1b\r\n\t ") {
+		return "", fmt.Errorf("the server answered a sign-in page that is not its own: %q", raw)
+	}
+	return u.String(), nil
 }
