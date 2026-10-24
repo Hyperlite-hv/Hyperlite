@@ -91,12 +91,13 @@ class SqliteBackupStore:
     def known_paths(self):
         return {r["path"] for r in _all("SELECT path FROM backups")}
 
-    def register_imported(self, vm_name, path, mode, created_at, size, checksum, source):
-        """A complete backup found on a storage this node can read, made by another installation."""
+    def register_imported(self, vm_name, path, mode, created_at, size, checksum, source, store=None):
+        """A complete backup found on a storage this node can read, made by another installation. `store`: the
+        backup store of this cluster that holds it, for a backup in a store."""
         return _write(
-            "INSERT INTO backups (vm_name, path, mode, created_at, status, size_bytes, checksum_sha256, imported_from) "
-            "VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?)",
-            (vm_name, path, mode, created_at, size, checksum, source),
+            "INSERT INTO backups (vm_name, path, mode, created_at, status, size_bytes, checksum_sha256, imported_from, "
+            "store) VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?)",
+            (vm_name, path, mode, created_at, size, checksum, source, store),
         ).lastrowid
 
     def mark_done(self, backup_id, size, checksum):
@@ -192,6 +193,63 @@ class SqliteBackupStore:
             db.execute("DELETE FROM backup_store_keys WHERE name = ?", (name,))
             db.execute("DELETE FROM backup_stores WHERE name = ?", (name,))
             db.commit()
+
+    def set_store_copy_of(self, name, source):
+        _write("UPDATE backup_stores SET copy_of = ? WHERE name = ?", (source, name))
+
+    # ---- Copies of a store (app/core/backup_store_sync.py) ----
+
+    SYNC_COLUMNS = (
+        "name",
+        "source",
+        "target",
+        "frequency",
+        "time",
+        "retention_count",
+        "keep_days",
+        "keep_weeks",
+        "keep_months",
+        "active",
+    )
+
+    def list_syncs(self):
+        return _all("SELECT * FROM backup_store_syncs ORDER BY name")
+
+    def get_sync(self, job_id):
+        return _one("SELECT * FROM backup_store_syncs WHERE id = ?", (job_id,))
+
+    def sync_name_taken(self, name, job_id=None):
+        return _one("SELECT id FROM backup_store_syncs WHERE name = ? AND id IS NOT ?", (name, job_id)) is not None
+
+    def save_sync(self, values, next_run, job_id=None):
+        """values: SYNC_COLUMNS in order. Returns the id."""
+        cols = self.SYNC_COLUMNS
+        with get_conn() as db:
+            if job_id is None:
+                cur = db.execute(
+                    f"INSERT INTO backup_store_syncs ({', '.join(cols)}, next_run) VALUES ({', '.join('?' * (len(cols) + 1))})",  # noqa: S608 - fixed columns
+                    [*values, next_run],
+                )
+                job_id = cur.lastrowid
+            else:
+                db.execute(
+                    f"UPDATE backup_store_syncs SET {', '.join(f'{c} = ?' for c in cols)}, next_run = ? WHERE id = ?",  # noqa: S608 - fixed columns
+                    [*values, next_run, job_id],
+                )
+            db.commit()
+        return job_id
+
+    def delete_sync(self, job_id):
+        return _write("DELETE FROM backup_store_syncs WHERE id = ?", (job_id,)).rowcount > 0
+
+    def due_syncs(self, now):
+        return _all("SELECT * FROM backup_store_syncs WHERE active = 1 AND next_run <= ?", (now,))
+
+    def record_sync_run(self, job_id, last, next_run, result):
+        _write(
+            "UPDATE backup_store_syncs SET last_run = ?, next_run = ?, last_result = ? WHERE id = ?",
+            (last, next_run, result, job_id),
+        )
 
     def save_store_key(self, name, key_encrypted, created_at):
         _write(

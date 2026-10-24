@@ -156,7 +156,14 @@ Each one ships with its tests (unit, the e2e suite, the package lab) and keeps t
    from the last one; a whole read at least every 7 days (`full_at` in the manifest) catches what wrote a disk
    outside QEMU; what Hyperlite does to a disk offline (a snapshot, a move, a restore) drops the checkpoints first.
 3. **Encryption** and the master recovery key; the store becomes the default for new jobs.
-4. **Off-site copy** to another store or another cluster; **import** of today's backups.
+4. **Off-site copy** to another store or another cluster; **import** of today's backups. Decided (Antho, 2026-10-24):
+   the copy's side **pulls** (the source holds nothing to reach the copy, as PBS's sync jobs), the copy keeps **its
+   own retention** (a deletion at the source never reaches it), first into another store of this cluster, then from
+   another cluster over its API. **Done, part 1**: copy jobs between two stores of the cluster
+   (`app/core/backup_store_sync.py`): a copy store is made from its source (its chunk size and key), backups are
+   copied as they are, only the chunks the copy lacks, each checked against its CRC; the policy is applied to both
+   stores' backups at once, so a backup the copy would delete is never copied; the copy's side checks its chunks
+   without the key (CRCs); a lost site's VMs are recovered from a store (site recovery).
 5. **File restore** from a store, and the export for **live restore** (with #513).
 
 ## 10. Tests

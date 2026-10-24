@@ -241,8 +241,30 @@ def init_db():
                 created_at TEXT
             )
         """)
+        # Copies of a store into another (app/core/backup_store_sync.py): pulled by the copy's side on its own
+        # schedule, with a retention of its own (a deletion at the source never reaches the copy).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_store_syncs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                frequency TEXT NOT NULL CHECK(frequency IN ('daily', 'weekly', 'monthly')),
+                time TEXT NOT NULL,
+                retention_count INTEGER NOT NULL DEFAULT 7,
+                keep_days INTEGER,
+                keep_weeks INTEGER,
+                keep_months INTEGER,
+                active INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                last_result TEXT,
+                next_run TEXT NOT NULL
+            )
+        """)
         # A backup or a job into a store: its name; NULL for a backup directory (the format of every backup before).
         for ddl in (
+            # A store made as the copy of another (same chunk size and key): the source's name.
+            "ALTER TABLE backup_stores ADD COLUMN copy_of TEXT",
             # The public half of a store's master recovery key (PEM), NULL without one.
             "ALTER TABLE backup_stores ADD COLUMN master_public_key TEXT",
             "ALTER TABLE backups ADD COLUMN store TEXT",
