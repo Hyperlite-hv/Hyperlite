@@ -12,7 +12,7 @@ from app.core.tasks import finish_task
 
 # Design note: log_action() is called by almost every endpoint, even plain
 # read-only GETs, so nearly every HTTP request also performs a SQLite write.
-# WAL mode resolves reader-versus-writer contention purpose not writer-versus-writer
+# WAL mode resolves reader-versus-writer contention but not writer-versus-writer
 # contention (only one writer at a time, even in WAL), so "database is locked"
 # can resurface under concurrent requests despite the 30 s timeout.
 #

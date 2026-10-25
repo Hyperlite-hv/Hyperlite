@@ -326,7 +326,7 @@ def _delete_vm(name, confirm, node, user):
             log_action(user["username"], "delete_vm", name, "failed", "VM running, it must be stopped", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is running. Stop it before deleting it")
         if not confirm:
-            log_action(user["username"], "delete_vm", name, "failed", "Confirmation manquante", task_id=task_id)
+            log_action(user["username"], "delete_vm", name, "failed", "missing confirmation", task_id=task_id)
             raise HTTPException(
                 status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
             )

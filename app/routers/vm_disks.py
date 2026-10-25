@@ -1,5 +1,5 @@
 """Upload and management of disk files intended for VM import. The
-counterpart of the ISO endpoints (isos.py) purpose for an already installed disk
+counterpart of the ISO endpoints (isos.py) but for an already installed disk
 (qcow2/raw/vmdk/vdi/vhd/...) rather than an installation medium. It uses the
 same simple upload mechanism (a single request streamed straight to disk via
 shutil.copyfileobj, no chunking or resume): the same known limit as the ISO

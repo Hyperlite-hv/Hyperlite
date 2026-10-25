@@ -280,7 +280,7 @@ def ensure_reverse_trust(node):
     address: a key stolen from one node can only be reused from that same
     node's address, not from anywhere.
 
-    Fully best-effort: called automatically when a node is registered, purpose a
+    Fully best-effort: called automatically when a node is registered, but a
     failure here must NEVER make the registration itself fail (the local host ->
     node direction, by far the most used, keeps working independently)."""
     REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)

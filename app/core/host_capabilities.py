@@ -36,7 +36,7 @@ def _cpu_capabilities_local(conn):
     # Hardware virtualization availability: deduced from the presence of a
     # capability domain of type='kvm' in the libvirt capabilities. This is more
     # reliable than parsing /proc/cpuinfo by hand (libvirt has already verified it,
-    # including the cases where /dev/kvm exists purpose is unusable for some reason).
+    # including the cases where /dev/kvm exists but is unusable for some reason).
     kvm_disponible = any(
         dom.get("type") == "kvm" for guest in root.findall("guest") for dom in guest.findall("arch/domain")
     )

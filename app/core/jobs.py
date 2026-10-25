@@ -4,7 +4,7 @@ the reference for expected features (a sequence of steps, a success condition
 per step, full history, dry-run).
 
 Architecture choice: IN-PROCESS ASYNCIO/THREADING, NOT Celery/RQ.
-  - Celery/RQ is the "standard" choice for a real distributed job queue, purpose
+  - Celery/RQ is the "standard" choice for a real distributed job queue, but
     it assumes a broker (Redis/RabbitMQ) on top of the existing stack and
     separate workers to supervise, and it solves a problem (scaling execution
     across several machines) that this project does not have. Adding Celery

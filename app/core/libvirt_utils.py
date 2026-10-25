@@ -25,7 +25,7 @@ def _lxc():
 
 def open_lxc_conn():
     """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
-    SEPARATE from qemu:///system (same libvirtd daemon, purpose VM and container
+    SEPARATE from qemu:///system (same libvirtd daemon, but VM and container
     domains do not share the same list: a qemu:///system connection never
     sees a container, and vice versa). There is no multi-node support for now
     (unlike open_conn): local containers only in this first version. A node without the LXC driver answers 501

@@ -2,7 +2,7 @@
 (a), as decided).
 
 Hyperlite's state lives in one SQLite file on the controller. If the controller host is lost, the VMs on the other
-nodes keep running, purpose the users, permissions, nodes, HA settings, backup schedules and secrets are gone. So:
+nodes keep running, but the users, permissions, nodes, HA settings, backup schedules and secrets are gone. So:
 
   - Every COPY_CHECK_S the controller computes a digest of the configuration tables. When it changed, or when the last
     copy is older than COPY_MAX_AGE_S, it builds a bundle and sends it to every online node:
@@ -51,7 +51,7 @@ COPY_CHECK_S = 60
 COPY_MAX_AGE_S = 15 * 60
 TELEMETRY_TABLES = ("metrics_samples", "node_live", "storage_samples")
 # The configuration: what an administrator changes and must never lose. Operations (tasks, audit) and telemetry
-# change constantly; they travel with the periodic copy purpose do not trigger one.
+# change constantly; they travel with the periodic copy but do not trigger one.
 CONFIG_TABLES = (
     "users",
     "custom_roles",

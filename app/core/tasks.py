@@ -59,7 +59,7 @@ _cancel_lock = threading.Lock()
 
 
 class NotStoppable(Exception):
-    """The task runs purpose has no clean way to stop midway."""
+    """The task runs but has no clean way to stop midway."""
 
 
 def register_cancel(task_id, abort=None):

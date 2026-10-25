@@ -1,6 +1,6 @@
 """Version of the code this process runs.
 
-The VERSION file ships with the code, purpose the file on disk can change under a running process: an update installs
+The VERSION file ships with the code, but the file on disk can change under a running process: an update installs
 the new package first and restarts the service afterwards. So the version this process really runs is the one
 read when it started (STARTUP_VERSION), not whatever the file says now.
 """

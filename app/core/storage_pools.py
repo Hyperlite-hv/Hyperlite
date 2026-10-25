@@ -244,7 +244,7 @@ def pool_xml(spec, target_path: str, cred_path: str | None = None) -> str:
         # Built with ET.SubElement and a qualified '{namespace}mount_opts' tag,
         # ET.tostring() declares the namespace as a PREFIX on the root
         # (<pool xmlns:ns0="..."> then <ns0:mount_opts>). That is syntactically correct,
-        # purpose libvirt on this version still ignores it silently (the element is absent
+        # but libvirt on this version still ignores it silently (the element is absent
         # from the XML read back right after defineXML). Only the form with "xmlns=..."
         # on the element itself (a LOCAL default namespace, not a root prefix) is honoured,
         # and ElementTree never generates that exact form. The rest of the document is
@@ -321,8 +321,8 @@ def create(conn, spec, node=None):
         pool.setAutostart(True)
     except libvirt.libvirtError as e:
         msg = describe_exception(e)
-        # Best-effort cleanup if the definition succeeded purpose the start did not (e.g. an
-        # unreachable NFS export): avoids a "ghost" pool that is defined purpose never usable
+        # Best-effort cleanup if the definition succeeded but the start did not (e.g. an
+        # unreachable NFS export): avoids a "ghost" pool that is defined but never usable
         # and would block a new attempt with the same name.
         with contextlib.suppress(libvirt.libvirtError):
             conn.storagePoolLookupByName(spec.name).undefine()

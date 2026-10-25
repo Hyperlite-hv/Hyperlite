@@ -99,7 +99,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
 #   vCPUs and a 50% limit can consume at most the equivalent of 1 full core,
 #   never more, even if the host is idle.
 # - RAM: NO real "guaranteed reservation" here. libvirt does expose
-#   <memtune><min_guarantee> in its XML schema, purpose that field is only honoured by
+#   <memtune><min_guarantee> in its XML schema, but that field is only honoured by
 #   the Xen hypervisor and is a no-op on QEMU/KVM (checked in the libvirt
 #   documentation). The only real RAM reservation on KVM is not to over-allocate
 #   the host (check the available RAM before raising memory_mb, already done by
