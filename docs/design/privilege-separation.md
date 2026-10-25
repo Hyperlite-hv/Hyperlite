@@ -218,6 +218,8 @@ These move with the domains of step 3 (authentication first); step 1 only moves 
 6. **The API runs as `www-data`**, as `pveproxy` does.
 7. **The cluster configuration as files in `/etc/hyperlite`**, as pmxcfs mounts `/etc/pve`: hyperlite-cfs gets a FUSE
    mount, after the split (#525).
+8. **The daemon checks who asks** (2026-10-25): the caller's proof and permissions on every operation, as pvedaemon
+   and vSphere do; it replaces decision 3's "decided in the proxy" (section 14).
 
 ## 12. Step 3, first domain: authentication (2026-10-21)
 
@@ -611,3 +613,51 @@ scale lab). `tests/test_privileged.py` checks that every operation a route names
 When the last domain has moved, step 4 runs the API as `www-data`. Measured on 2026-10-22: about 325 privileged calls in
 82 files remain, mostly libvirt, `qemu-img` and SSH to the other nodes.
 
+
+## 14. Step 4: the daemon checks who asks (Antho, 2026-10-25)
+
+**Decision**: "the most secure, and what Proxmox VE and vSphere do". hyperlite-daemon no longer takes the API's word
+for who asks: **it checks the caller's own proof and permissions on every operation**, as pvedaemon checks the ticket
+of each call pveproxy hands it, and as vCenter's and ESXi's services check the session of each call against their own
+permissions. A flaw in the API then gives what its current caller may do, not root. Section 8's decision 3 (the API
+decides who may open the host shell) is replaced by this one.
+
+**Where it starts.** Every request already names a user (`ctx.user`), for the log only. Sessions are tokens only the
+daemon's keys sign (section 12); API tokens are hashes in the database; accounts, roles, ACLs, resource pools and
+privileges are tables of the database, which the API writes. The schedulers (backups, replication, the inactive VMs'
+cleanup, the start at boot, the store copies and garbage collections, the update check) and HA's watch run in the API
+and call the daemon as `system` or `scheduler`.
+
+**Target**:
+
+- **A proof with every call.** The API passes the caller's own credential with each request: the session token it was
+  given, or the API token. The daemon verifies it itself: a session's signature, expiry and revocation with its own
+  keys, an API token against its hash. `ctx.user` becomes the proven user; a request without a valid proof is
+  `forbidden`. A WebSocket's ticket (the consoles) carries the proof of the request that made the ticket.
+- **Permissions the API cannot write.** The accounts, the API tokens' hashes, the roles, the ACLs, the resource pools
+  and the second factors move to a store only the daemon writes (`/etc/hyperlite/priv`, as Proxmox VE keeps
+  `user.cfg`, `token.cfg` and `priv/` in pmxcfs, written by pvedaemon): their routes become daemon operations
+  (`auth.user_*`, `auth.token_*`, `auth.acl_*`). The API reads them to answer, never to decide.
+- **Each operation declares what it needs.** `@operation(name, Args, needs=...)`: a privilege on the object it names
+  (`vm.power` on that VM, `container.console` on that container, `storage.allocate` on that pool) or the
+  administrator's role (the host shell, the automation jobs, the hook scripts, a host disk or device given to a VM).
+  The registry checks it against the proven user before the operation runs (`app/core/permissions.py`, evaluated by
+  the daemon on its own store). The routes keep their checks for their answers; the daemon's is the one that holds.
+- **The schedulers leave the API.** What runs without a person behind it runs as root in a process of its own,
+  `hyperlite-scheduler`, as Proxmox VE's pvescheduler and vSphere's vpxd run the scheduled tasks: the backups, the
+  replication, the cleanup, the start at boot, the stores' jobs, the update check. HA's watch and recovery move with
+  HA's owner (#333). The API keeps no `system` identity: the daemon refuses `system` from the API's socket.
+- **Calls between members** carry the member's own signature (section 12.1, PR C), checked by the receiving daemon.
+- **Then the API runs as `www-data`** (section 11, decision 6): its unit with `User=www-data`, the socket's group, the
+  files it reads (the TLS key, the public keys, the database it still writes: tasks, audit, records of its own), the
+  read-only libvirt and LXC sockets, and the lab run on that unit.
+
+**In this order**, each a pull request with its tests and a lab run:
+
+| PR | Content |
+|---|---|
+| 4a | The proof travels: `privileged.run` passes the caller's credential, the daemon verifies it and logs the proven user; calls without one are logged, not yet refused |
+| 4b | The permissions' store owned by the daemon: accounts, tokens, roles, ACLs, pools, second factors; their routes as daemon operations; the API reads |
+| 4c | `hyperlite-scheduler`: the schedulers out of the API, with their own identity on the daemon's socket |
+| 4d | Each operation's `needs`, checked by the daemon; a call without a valid proof refused |
+| 4e | The API as `www-data`: unit, groups, file modes, read-only libvirt and LXC; the lab on it |
