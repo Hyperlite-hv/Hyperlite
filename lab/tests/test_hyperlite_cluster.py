@@ -309,10 +309,16 @@ def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
 
 
 def console(n, path):
-    """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api())."""
+    """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api()). A
+    handshake that does not come is reported with the node's own account of that moment: the API's and the daemon's
+    journals (the lab's logs are not always at hand)."""
     from websockets.sync.client import connect
 
-    return connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=30, max_size=None)
+    try:
+        return connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=30, max_size=None)
+    except TimeoutError:
+        journal = on(n, "sh", "-c", "journalctl -u hyperlite -u hyperlite-daemon -n 80 --no-pager -o short-precise")
+        raise AssertionError(f"no WebSocket handshake from node {n} in 30 s; its journal:\n{journal}") from None
 
 
 def read_until(ws, text, timeout=30):
