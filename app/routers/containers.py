@@ -4,8 +4,7 @@ is still no per-container firewall. Restricted to administrators like the other
 resource creation endpoints (isos.py, templates.py), with the same granular
 ACLs as VMs (app/core/permissions.py)."""
 
-import asyncio
-import json
+import contextlib
 import logging
 import secrets
 import subprocess
@@ -15,7 +14,6 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
 
-import asyncssh
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -60,7 +58,6 @@ from app.core.network_alloc import generate_mac, release_static_ip
 from app.core.security import get_current_user, require_container_privilege, require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import (
-    get_automation_private_key_path,
     validate_name,
 )
 from app.daemon.registry import DaemonError
@@ -710,6 +707,8 @@ def container_logs(name: str, lines: int = 300, user: dict = Depends(require_con
 
 TERMINAL_TICKETS = {}
 TERMINAL_TICKET_TTL = 30
+# ssh's own exit status when it could not connect or sign in: said in the terminal, after ssh's own words.
+SSH_FAILED = 255
 
 
 # Restricted to the admin role, as the VM one (app/routers/vms/console.py): the automation key signs in as the
@@ -742,12 +741,12 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin")
             raise HTTPException(status_code=409, detail=f"No known SSH user for '{name}'")
 
         now = time.time()
-        for old_ticket, (_old_ct, _old_ip, _old_user, old_expiry) in list(TERMINAL_TICKETS.items()):
-            if old_expiry < now:
+        for old_ticket, entry in list(TERMINAL_TICKETS.items()):
+            if entry[3] < now:
                 TERMINAL_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL)
+        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, user["username"])
         log_action(user["username"], "create_container_terminal_ticket", name, "success")
         return {"ticket": ticket, "user": ssh_user, "expires_in_s": TERMINAL_TICKET_TTL}
     finally:
@@ -762,81 +761,24 @@ async def container_terminal(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    ct_name, ip, ssh_user, expiry = entry
+    ct_name, _ip, _ssh_user, expiry, username = entry
     if ct_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
-
-    private_key = get_automation_private_key_path()
     try:
-        ssh_conn = await asyncssh.connect(
-            ip,
-            username=ssh_user,
-            client_keys=[str(private_key)],
-            known_hosts=None,
-            connect_timeout=10,
-        )
-    except (asyncssh.Error, OSError) as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] SSH connection to {ip} failed: {e}\x1b[0m\r\n")
-        await websocket.close(code=1011)
+        # hyperlite-daemon runs ssh with the automation key, which only root reads, to the address it reads itself.
+        session = await pty_session.open_session("console.container_terminal", username, container=name)
+    except DaemonError as e:
+        await pty_session.say(websocket, e.detail)
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011)
         return
-
-    try:
-        process = await ssh_conn.create_process(term_type="xterm-256color", term_size=(80, 24))
-    except asyncssh.Error as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Failed to open the shell: {e}\x1b[0m\r\n")
-        ssh_conn.close()
-        await websocket.close(code=1011)
-        return
-
-    async def ws_to_ssh():
-        try:
-            while True:
-                msg = await websocket.receive_text()
-                if msg.startswith("\x00"):
-                    try:
-                        dims = json.loads(msg[1:])
-                        process.change_terminal_size(int(dims["cols"]), int(dims["rows"]))
-                    except (ValueError, KeyError, TypeError):
-                        logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-                else:
-                    process.stdin.write(msg)
-        except (WebSocketDisconnect, RuntimeError):
-            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-        except Exception:
-            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-        finally:
-            try:
-                process.stdin.write_eof()
-            except Exception:
-                logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-
-    async def ssh_to_ws():
-        try:
-            while True:
-                data = await process.stdout.read(65536)
-                if not data:
-                    break
-                await websocket.send_text(data)
-        except Exception:
-            logger.debug("Ignored exception in ssh_to_ws()", exc_info=True)
-
-    task1 = asyncio.ensure_future(ws_to_ssh())
-    task2 = asyncio.ensure_future(ssh_to_ws())
-    _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
-    for t in pending:
-        t.cancel()
-    try:
-        process.close()
-    except Exception:
-        logger.debug("Ignored exception in container_terminal()", exc_info=True)
-    ssh_conn.close()
-    try:
+    if await session.serve(websocket) == SSH_FAILED:
+        await pty_session.say(websocket, f"SSH connection to {session.result['address']} failed")
+    with contextlib.suppress(RuntimeError, WebSocketDisconnect):
         await websocket.close()
-    except (RuntimeError, WebSocketDisconnect):
-        logger.debug("Ignored exception in container_terminal()", exc_info=True)
 
 
 # ---- Root shell inside the container (app/core/container_shell.py), administrators only ----
@@ -875,24 +817,16 @@ async def container_shell_session(websocket: WebSocket, name: str):
         return
     username = entry[1]
     await websocket.accept()
-    conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-            pid = container_shell.init_pid(domain.ID()) if domain.isActive() else None
-        except libvirt.libvirtError:
-            pid = None
-    finally:
-        conn.close()
-    if pid is None:
-        await websocket.send_text("\r\n\x1b[31m[hyperlite] The container is not running.\x1b[0m\r\n")
-        await websocket.close(code=1011)
+        # hyperlite-daemon finds the container's PID 1 itself and enters its namespaces (console.container_shell).
+        session = await pty_session.open_session("console.container_shell", username, container=name)
+    except DaemonError as e:
+        await pty_session.say(websocket, e.detail)
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011)
         return
-    app = get_container_app(name)
     log_action(username, "container_shell_open", name, "success")
-    await pty_session.run(
-        websocket, container_shell.command(pid), container_shell.environment(app["spec"] if app else None)
-    )
+    await session.serve(websocket)
     log_action(username, "container_shell_close", name, "success")
     try:
         await websocket.close()

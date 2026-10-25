@@ -35,8 +35,22 @@ def peer_credentials(sock):
 
 
 def _answer(handler, payload):
-    handler.wfile.write(json.dumps(payload, separators=(",", ":")).encode() + b"\n")
-    handler.wfile.flush()
+    fds = payload.pop("fds", None)
+    line = json.dumps(payload, separators=(",", ":")).encode() + b"\n"
+    if not fds:
+        handler.wfile.write(line)
+        handler.wfile.flush()
+        return
+    # The descriptors travel with the answer's first bytes, and leave the daemon: its copies are closed once sent
+    # (a pseudo-terminal then hangs up when the API closes its own).
+    try:
+        handler.wfile.flush()
+        sent = socket.send_fds(handler.request, [line], fds)
+        handler.request.sendall(line[sent:])
+    finally:
+        for fd in fds:
+            with contextlib.suppress(OSError):
+                os.close(fd)
 
 
 class Handler(socketserver.StreamRequestHandler):

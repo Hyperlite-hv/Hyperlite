@@ -14,18 +14,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _named_operations():
-    """Every operation name the API asks for: privileged.run("op", ...), the routes' privileged.ask("op", ...), the
-    helpers named _daemon("op", ...) or _daemon_task("op", ...) (network_firewall, the templates and snapshot routes)
-    and the storage routes' _pool_work(node, "op", ...)."""
+    """Every operation name the API asks for: privileged.run("op", ...) and run_fds, the routes' privileged.ask("op",
+    ...), the consoles' open_session("op", ...), the helpers named _daemon("op", ...) or _daemon_task("op", ...)
+    (network_firewall, the templates and snapshot routes) and the storage routes' _pool_work(node, "op", ...)."""
     names = set()
     for path in (ROOT / "app").rglob("*.py"):
         if "daemon" in path.parts:
             continue
         text = path.read_text()
-        names |= set(re.findall(r'privileged\.(?:run|ask)\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
+        names |= set(re.findall(r'privileged\.(?:run|run_fds|ask)\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
+        # The consoles' sessions (app/core/pty_session.py): open_session("op", ...).
+        names |= set(re.findall(r'open_session\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         names |= set(re.findall(r'_daemon\w*\(\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         names |= set(re.findall(r'_pool_work\(\s*\w+,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
-        names |= set(re.findall(r'run_in_threadpool\(\s*privileged\.run,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
+        names |= set(re.findall(r'run_in_threadpool\(\s*privileged\.run(?:_fds)?,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
         # The hardware routes' _apply(user, name, action, detail, "op", ...) (app/routers/vms/hardware_opts.py).
         names |= set(re.findall(r'_apply\(\s*\w+,\s*\w+,\s*"[a-z_]+",\s*[^,]+,\s*"([a-z_]+\.[a-z0-9_]+)"', text))
     return names
@@ -64,6 +66,9 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
         "node.peer_call",
     } <= named
     assert "node.probe" in named
+    assert {"console.host_shell", "console.container_shell", "console.container_terminal"} <= named
+    assert {"console.terminal", "console.serial", "console.display", "console.close", "console.spice_tls"} <= named
+    assert {"vm.add_console", "vm.spice_password"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 

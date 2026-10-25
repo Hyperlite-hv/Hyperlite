@@ -45,6 +45,16 @@ class DaemonError(Exception):
 
 
 @dataclass(frozen=True)
+class Handover:
+    """An operation's result with open file descriptors for the API (a pseudo-terminal, a connected socket): the
+    socket passes them with the answer (SCM_RIGHTS) and closes the daemon's copies; in process, they are the caller's
+    to close."""
+
+    result: object
+    fds: list
+
+
+@dataclass(frozen=True)
 class Context:
     """Who asked: the user the API names (for the log and the audit) and the process at the other end of the socket."""
 
@@ -92,6 +102,8 @@ def dispatch(request, ctx):
         logger.exception("%s by %s failed", op, ctx.user or "?")
         return _error("failed", f"{op} failed (details in the daemon's log)")
     logger.info("%s by %s (pid %d)", op, ctx.user or "?", ctx.peer_pid)
+    if isinstance(result, Handover):
+        return {"ok": True, "result": result.result, "fds": list(result.fds)}
     return {"ok": True, "result": result}
 
 

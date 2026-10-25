@@ -1,39 +1,34 @@
+"""A VM's consoles: the graphical one (noVNC), the SSH terminal, the serial console and the SPICE display. The routes
+issue the single-use tickets after their permission checks, read the VM through a read-only connection and bridge
+the session to the browser; hyperlite-daemon opens each session (app/daemon/ops/console.py), with the cluster's key
+for a VM of another node, and changes a VM's definition when a console must be added."""
+
 import asyncio
-import json
+import contextlib
 import logging
-import os
 import secrets
+import socket
 import time
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
-import asyncssh
 import libvirt
 from fastapi import Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
-from app.core import cluster_view, pty_session, spice, spice_proxy
+from app.core import cluster_view, privileged, pty_session, spice, spice_proxy
 from app.core.audit import log_action
-from app.core.cluster import get_cluster_private_key_path, get_node, libvirt_uri_from_here
-from app.core.libvirt_utils import (
-    LIBVIRT_URI,
-    ensure_vnc_graphics,
-    open_conn,
-)
+from app.core.libvirt_utils import has_serial, open_conn
 from app.core.security import require_role, require_vm_privilege
-from app.core.vm_builder import (
-    get_automation_private_key_path,
-)
 from app.core.vm_meta import (
     get_vm_ssh_user,
 )
+from app.daemon.registry import DaemonError
 from app.routers.vms._shared import _get_ip, router
 from app.routers.vms.runtime import CONSOLE_TICKET_TTL, CONSOLE_TICKETS
 
 logger = logging.getLogger(__name__)
-
-# The trust store the cluster's ssh connections already use (see cluster.node_ssh_options): a node's host key is
-# verified here too, never accepted blindly.
-KNOWN_HOSTS = Path.home() / ".ssh" / "known_hosts"
+# ssh's own exit status when it could not connect or sign in: said in the terminal, after ssh's own words.
+SSH_FAILED = 255
 
 
 def _remote(node):
@@ -41,20 +36,23 @@ def _remote(node):
     return None if not node or node == "local" else node
 
 
-async def _connect_to_node(node_name):
-    """SSH connection to a registered node with the cluster key. A VM of a remote node has its VNC server on THAT
-    node's loopback, and its IP address on THAT node's networks: both are reached through this connection."""
-    node = get_node(node_name)
-    if node is None:
-        raise OSError(f"Node '{node_name}' not found")
-    return await asyncssh.connect(
-        node["hostname"],
-        port=int(node["ssh_port"]),
-        username=node["ssh_user"],
-        client_keys=[str(get_cluster_private_key_path())],
-        known_hosts=str(KNOWN_HOSTS),
-        connect_timeout=10,
+async def open_display(vm, node, protocol, username=None):
+    """A VM's VNC or SPICE display, connected by hyperlite-daemon on its node: (reader, writer, session). Raises
+    DaemonError."""
+    result, fds = await run_in_threadpool(
+        privileged.run_fds, "console.display", user=username, vm=vm, node=node, protocol=protocol
     )
+    if not fds:
+        await pty_session.end(result.get("session"), username)
+        raise DaemonError("failed", "The VM's display could not be reached")
+    sock = socket.socket(fileno=fds[0])
+    try:
+        reader, writer = await asyncio.open_connection(sock=sock)
+    except OSError:
+        sock.close()
+        await pty_session.end(result.get("session"), username)
+        raise
+    return reader, writer, result.get("session")
 
 
 @router.post("/{name}/console-ticket")
@@ -63,7 +61,7 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
     """node: the registered node the VM runs on (the local host by default). Without it, a VM of a remote node was
     looked up on the local host: a 404, or the console of a local VM that happens to have the same name."""
     node = _remote(node)
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -82,7 +80,9 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
                     status_code=409,
                     detail="This VM was created before the console was added. Stop it, then start it once again to enable the console.",
                 )
-            ensure_vnc_graphics(conn, domain)
+            privileged.ask(
+                "vm.add_console", user, "create_console_ticket", name, refused=409, vm=name, node=node, kind="vnc"
+            )
             log_action(user["username"], "create_console_ticket", name, "failed", "VNC added, VM stopped")
             raise HTTPException(status_code=409, detail="Console enabled on this VM: start it, then try again.")
 
@@ -101,7 +101,7 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
                 CONSOLE_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL, node)
+        CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL, node, user["username"])
         log_action(user["username"], "create_console_ticket", name, "success")
         return {"ticket": ticket, "expires_in_s": CONSOLE_TICKET_TTL}
     finally:
@@ -116,26 +116,17 @@ async def vm_console(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    vm_name, port, expiry, node = entry
+    vm_name, _port, expiry, node, username = entry
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
 
-    node_ssh = None
     try:
-        if node:
-            node_ssh = await _connect_to_node(node)
-            reader, writer = await node_ssh.open_connection("127.0.0.1", port)
-        else:
-            reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    except (asyncssh.Error, OSError):
-        logger.warning(
-            "Console of %s: cannot reach its VNC server%s", name, f" on {node}" if node else "", exc_info=True
-        )
-        if node_ssh is not None:
-            node_ssh.close()
+        reader, writer, session = await open_display(name, node, "vnc", username)
+    except (DaemonError, OSError) as e:
+        logger.warning("Console of %s: cannot reach its VNC server%s: %s", name, f" on {node}" if node else "", e)
         await websocket.close(code=1011)
         return
 
@@ -167,10 +158,11 @@ async def vm_console(websocket: WebSocket, name: str):
     _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
     for t in pending:
         t.cancel()
-    if node_ssh is not None:
-        node_ssh.close()
+    writer.close()
+    # ssh's own failure (an unknown host key, a node that does not answer): an error for noVNC, as before.
+    failed = await pty_session.end(session, username) == SSH_FAILED
     try:
-        await websocket.close()
+        await websocket.close(code=1011 if failed else 1000)
     except (RuntimeError, WebSocketDisconnect):
         # The browser may have closed the console first: there is nothing left to close.
         logger.debug("Ignored exception in vm_console()", exc_info=True)
@@ -191,7 +183,7 @@ def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depe
     """node: as for the console ticket. A VM of a remote node is reached through that node (its address is on the
     node's networks, not necessarily routable from here)."""
     node = _remote(node)
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -205,7 +197,7 @@ def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depe
 
         ip = _get_ip(domain)
         if not ip:
-            log_action(user["username"], "create_terminal_ticket", name, "failed", "IP inconnue")
+            log_action(user["username"], "create_terminal_ticket", name, "failed", "unknown IP address")
             raise HTTPException(status_code=409, detail="VM IP address not known yet (no DHCP lease yet?)")
 
         ssh_user = get_vm_ssh_user(name)
@@ -225,7 +217,7 @@ def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depe
                 TERMINAL_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, node)
+        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, node, user["username"])
         log_action(user["username"], "create_terminal_ticket", name, "success")
         return {"ticket": ticket, "user": ssh_user, "expires_in_s": TERMINAL_TICKET_TTL}
     finally:
@@ -240,86 +232,23 @@ async def vm_terminal(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    vm_name, ip, ssh_user, expiry, node = entry
+    vm_name, _ip, _ssh_user, expiry, node, username = entry
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
-
-    private_key = get_automation_private_key_path()
-    node_ssh = None
+    via = f" through node {node}" if node else ""
     try:
-        if node:
-            node_ssh = await _connect_to_node(node)
-        ssh_conn = await asyncssh.connect(
-            ip,
-            username=ssh_user,
-            client_keys=[str(private_key)],
-            known_hosts=None,
-            connect_timeout=10,
-            tunnel=node_ssh,
-        )
-    except (asyncssh.Error, OSError) as e:
-        if node_ssh is not None:
-            node_ssh.close()
-        via = f" through node {node}" if node else ""
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] SSH connection to {ip}{via} failed: {e}\x1b[0m\r\n")
-        await websocket.close(code=1011)
+        # hyperlite-daemon runs ssh with the automation key, which only root reads, to the address it reads itself.
+        session = await pty_session.open_session("console.terminal", username, vm=name, node=node)
+    except DaemonError as e:
+        await pty_session.say(websocket, f"SSH connection{via} failed: {e.detail}")
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011)
         return
-
-    try:
-        process = await ssh_conn.create_process(term_type="xterm-256color", term_size=(80, 24))
-    except asyncssh.Error as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Failed to open the shell: {e}\x1b[0m\r\n")
-        ssh_conn.close()
-        await websocket.close(code=1011)
-        return
-
-    async def ws_to_ssh():
-        try:
-            while True:
-                msg = await websocket.receive_text()
-                if msg.startswith("\x00"):
-                    try:
-                        dims = json.loads(msg[1:])
-                        process.change_terminal_size(int(dims["cols"]), int(dims["rows"]))
-                    except (ValueError, KeyError, TypeError):
-                        logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-                else:
-                    process.stdin.write(msg)
-        except (WebSocketDisconnect, RuntimeError):
-            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-        except Exception:
-            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-        finally:
-            try:
-                process.stdin.write_eof()
-            except Exception:
-                logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-
-    async def ssh_to_ws():
-        try:
-            while True:
-                data = await process.stdout.read(65536)
-                if not data:
-                    break
-                await websocket.send_text(data)
-        except Exception:
-            logger.debug("Ignored exception in ssh_to_ws()", exc_info=True)
-
-    task1 = asyncio.ensure_future(ws_to_ssh())
-    task2 = asyncio.ensure_future(ssh_to_ws())
-    _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
-    for t in pending:
-        t.cancel()
-    try:
-        process.close()
-    except Exception:
-        logger.debug("Ignored exception in vm_terminal()", exc_info=True)
-    ssh_conn.close()
-    if node_ssh is not None:
-        node_ssh.close()
+    if await session.serve(websocket) == SSH_FAILED:
+        await pty_session.say(websocket, f"SSH connection to {session.result['address']}{via} failed")
     try:
         await websocket.close()
     except (RuntimeError, WebSocketDisconnect):
@@ -335,29 +264,12 @@ SERIAL_TICKETS = {}
 SERIAL_TICKET_TTL = 30
 
 
-def _has_serial(xml):
-    devices_el = ET.fromstring(xml).find("devices")
-    return devices_el is not None and (devices_el.find("serial") is not None or devices_el.find("console") is not None)
-
-
-def add_serial_port(conn, domain):
-    """Give a VM without a serial port one, in its configuration: a serial port cannot be plugged into a running
-    VM, so a running one gets it at its next start."""
-    root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
-    devices_el = root.find("devices")
-    serial = ET.SubElement(devices_el, "serial", type="pty")
-    ET.SubElement(serial, "target", port="0")
-    console = ET.SubElement(devices_el, "console", type="pty")
-    ET.SubElement(console, "target", type="serial", port="0")
-    conn.defineXML(ET.tostring(root, encoding="unicode"))
-
-
 @router.post("/{name}/serial-ticket")
 @cluster_view.stays_here
 def create_serial_ticket(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.console"))):
     """node: as for the console ticket. A VM with no serial port gets one, effective at its next start."""
     node = _remote(node)
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -365,11 +277,13 @@ def create_serial_ticket(name: str, node: str | None = None, user: dict = Depend
             log_action(user["username"], "create_serial_ticket", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        if not _has_serial(domain.XMLDesc(0)):
-            if _has_serial(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)):
+        if not has_serial(domain.XMLDesc(0)):
+            added = privileged.ask(
+                "vm.add_console", user, "create_serial_ticket", name, refused=409, vm=name, node=node, kind="serial"
+            )["added"]
+            if not added:
                 detail = "The serial port added to this VM takes effect at its next start: shut it down, then start it."
             else:
-                add_serial_port(conn, domain)
                 detail = (
                     "This VM had no serial port: one is added, effective at its next start. Shut it down, then start it."
                     if domain.isActive()
@@ -388,18 +302,11 @@ def create_serial_ticket(name: str, node: str | None = None, user: dict = Depend
                 SERIAL_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        # The VM by the UUID libvirt gave it: the command line never carries what the request named.
-        SERIAL_TICKETS[ticket] = (name, now + SERIAL_TICKET_TTL, node, domain.UUIDString())
+        SERIAL_TICKETS[ticket] = (name, now + SERIAL_TICKET_TTL, node, user["username"])
         log_action(user["username"], "create_serial_ticket", name, "success")
         return {"ticket": ticket, "expires_in_s": SERIAL_TICKET_TTL}
     finally:
         conn.close()
-
-
-def serial_command(uuid, node):
-    """`virsh console` on the VM's node: through the same libvirt address as every call to that node."""
-    uri = libvirt_uri_from_here(get_node(node)) if node else LIBVIRT_URI
-    return ["virsh", "--quiet", "--connect", uri, "console", "--domain", uuid]
 
 
 @router.websocket("/{name}/serial")
@@ -410,16 +317,21 @@ async def vm_serial(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    vm_name, expiry, node, uuid = entry
+    vm_name, expiry, node, username = entry
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
-    # virsh prints its own messages in the user's language: C.UTF-8 keeps them English and the guest's UTF-8 intact.
-    await pty_session.run(
-        websocket, serial_command(uuid, node), {**os.environ, "TERM": "xterm-256color", "LC_ALL": "C.UTF-8"}
-    )
+    try:
+        # `virsh console` by hyperlite-daemon, on the VM's node (console.serial).
+        session = await pty_session.open_session("console.serial", username, vm=name, node=node)
+    except DaemonError as e:
+        await pty_session.say(websocket, e.detail)
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011)
+        return
+    await session.serve(websocket)
     try:
         await websocket.close()
     except (RuntimeError, WebSocketDisconnect):
@@ -435,7 +347,7 @@ def add_spice_display(name: str, node: str | None = None, user: dict = Depends(r
     """Give the VM a SPICE display next to its VNC one, effective at its next start. Refused on a node not set up for
     SPICE in TLS: the VM would no longer start there."""
     node = _remote(node)
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -445,14 +357,8 @@ def add_spice_display(name: str, node: str | None = None, user: dict = Depends(r
         if spice.spice_graphics(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)) is not None:
             log_action(user["username"], "add_spice_display", name, "failed", "already has one")
             raise HTTPException(status_code=409, detail="This VM already has a SPICE display")
-        try:
-            spice.node_tls(node)
-        except spice.SpiceUnavailable as e:
-            log_action(user["username"], "add_spice_display", name, "failed", str(e))
-            raise HTTPException(
-                status_code=409, detail=f"{e}: the package sets it up (scripts/ensure-spice-tls.sh)"
-            ) from None
-        spice.add_display(conn, domain)
+        # Refused on a node not set up for SPICE in TLS, with the reason and how the package sets it up.
+        privileged.ask("vm.add_console", user, "add_spice_display", name, refused=409, vm=name, node=node, kind="spice")
         running = domain.isActive()
         log_action(user["username"], "add_spice_display", name, "success")
         return {"spice": True, "effective": "next_start" if running else "now"}
@@ -471,7 +377,7 @@ def create_spice_ticket(
     proxy = spice.proxy_host(request.headers.get("host"))
     if proxy is None:
         raise HTTPException(status_code=400, detail="The address this request was sent to is not a host name or an IP")
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -491,12 +397,11 @@ def create_spice_ticket(
                 if stored
                 else "This VM has no SPICE display: add one (it takes effect at the VM's next start).",
             )
-        try:
-            ca_pem, subject = spice.node_tls(node)
-        except spice.SpiceUnavailable as e:
-            log_action(user["username"], "create_spice_ticket", name, "failed", str(e))
-            raise HTTPException(status_code=409, detail=str(e)) from None
-        password = spice.set_ticket_password(domain)
+        tls = privileged.ask("console.spice_tls", user, "create_spice_ticket", name, refused=409, node=node)
+        password = privileged.ask(
+            "vm.spice_password", user, "create_spice_ticket", name, refused=409, vm=name, node=node
+        )["password"]
+        ca_pem, subject = tls["ca"], tls["subject"]
         ticket = spice_proxy.issue(name, node, port)
         log_action(user["username"], "create_spice_ticket", name, "success")
         body = spice.vv_file(
