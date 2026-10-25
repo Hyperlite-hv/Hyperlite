@@ -94,9 +94,7 @@ def set_config(**fields):
     unknown = set(fields) - CONFIG_COLUMNS
     if unknown:
         raise ValueError(f"Unknown SSO configuration field(s): {', '.join(sorted(unknown))}")
-    if fields.get("client_secret"):
-        fields["client_secret"] = secrets_crypto.encrypt(fields["client_secret"])
-    _store().save_sso_config(fields)
+    _store().save_sso_config(fields)  # hyperlite-daemon seals the client secret (step 4b)
 
 
 def _http_get_json(url):
