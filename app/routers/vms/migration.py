@@ -159,6 +159,19 @@ def migrate_vm(
     return start(name, node, payload.target_node, user["username"], skip_checks=payload.skip_checks)
 
 
+def _keep_drs_rules(name, target):
+    """A migration that would break a "must" rule of load balancing is refused, DRS's own moves included
+    (docs/design/drs.md, 3.4); a "should" one is said in the log."""
+    from app.core import drs_rules, self_node
+
+    where = self_node.name() if _norm_node(target) is None else target
+    try:
+        for rule, why in drs_rules.refuse_if_broken(name, where):
+            logger.warning("Migrating %s to %s: rule '%s' (should): %s", name, where, rule, why)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+
+
 def start(name, source, target, username, skip_checks=False):
     """A live migration of the VM `name` from `source` (None: this node) to `target`, as POST /vms/{name}/migrate
     starts it: its checks (an HTTPException with the route's status when one refuses), the VM's lock, the task, then
@@ -168,6 +181,7 @@ def start(name, source, target, username, skip_checks=False):
     if _norm_node(target) == _norm_node(node):
         raise HTTPException(status_code=422, detail="The destination node must be different from the source node")
     maintenance.refuse_if_in_maintenance(target, "Migration")
+    _keep_drs_rules(name, target)
     # Migration from a remote node to the local host was long blocked here, because
     # peer-to-peer migration is initiated by the SOURCE libvirtd, which needs to be
     # able to connect ITSELF to the local host. It is now possible through a dedicated

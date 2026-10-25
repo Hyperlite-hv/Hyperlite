@@ -40,6 +40,8 @@ TABLES = {
     "drs_settings": {},
     "drs_rules": {},
     "drs_vms": {},
+    # Its moves: written by the leader, carried out and answered by the member the VM runs on.
+    "drs_requests": {},
     # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode, this node's own
     # name, its pending join, the ticket of its join information, the one-time rewrite of its tasks (they are its own
     # history) and its own step of a rolling update stay per node.
