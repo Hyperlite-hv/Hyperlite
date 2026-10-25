@@ -132,7 +132,7 @@ def test_an_older_database_takes_storage_and_network_assignments(database):
     with database.get_conn() as db:
         db.execute("DROP TABLE acl")
         db.execute(
-            "CREATE TABLE acl (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_type TEXT NOT NULL CHECK(subject_type IN "
+            f"CREATE TABLE {database.ACCESS}.acl (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_type TEXT NOT NULL CHECK(subject_type IN "
             "('user','group')), subject_id TEXT NOT NULL, role TEXT NOT NULL, resource_type TEXT NOT NULL CHECK("
             "resource_type IN ('vm','pool','container')), resource_id TEXT NOT NULL)"
         )
