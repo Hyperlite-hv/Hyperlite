@@ -167,7 +167,7 @@ def rename_iso(filename: str, payload: IsoRename, user: dict = Depends(require_r
         raise HTTPException(status_code=404, detail=f"ISO '{old}' not found")
     if target.exists():
         raise HTTPException(status_code=409, detail=f"An ISO named '{new}' already exists")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         if _iso_in_use(conn, str(source)):
             raise HTTPException(

@@ -29,6 +29,7 @@ os.environ.update(
     HYPERLITE_DB_PATH=f"{WORK}/hyperlite.db",
     HYPERLITE_VAR_DIR=f"{WORK}/var",
     HYPERLITE_ETC_DIR=f"{WORK}/etc",
+    HYPERLITE_LOCK_DIR=f"{WORK}/lock",
     HYPERLITE_AUTH_SIGNING="local",
     HYPERLITE_DAEMON_INPROCESS="1",
     HYPERLITE_NODE_NAME="node000",

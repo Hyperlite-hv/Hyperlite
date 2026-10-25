@@ -661,3 +661,17 @@ and call the daemon as `system` or `scheduler`.
 | 4c | `hyperlite-scheduler`: the schedulers out of the API, with their own identity on the daemon's socket |
 | 4d | Each operation's `needs`, checked by the daemon; a call without a valid proof refused |
 | 4e | The API as `www-data`: unit, groups, file modes, read-only libvirt and LXC; the lab on it |
+
+**What 4c needs first: what the API kept in its memory.** Two things worked only because every operation ran in one
+process:
+
+- **The claims on a guest** (`app/core/vm_locks.py`, `container_snapshots.claim`): one operation at a time on a VM or a
+  container. They become files of `/run/lock/hyperlite`, each locked with `flock(2)` by the process that works on the
+  guest and naming what holds it (`app/core/shared_claims.py`), as Proxmox VE's services lock a guest with
+  `/run/lock/qemu-server/lock-<vmid>.conf`. The kernel lets go of a lock when its process stops, even killed. Not
+  under `/run/hyperlite`, which is hyperlite-daemon's and removed when it stops. The directory must be root's or the
+  service's and written by nobody else, since `/run/lock` is writable by every account; with 4e it becomes root's
+  and the API's group's (`tmpfiles.d`).
+- **A task's cancellation** (`tasks.register_cancel`): the API cancels a copy its own thread runs. A task the
+  scheduler runs is cancelled through the daemon instead, which forwards the request to the scheduler's own socket,
+  as Proxmox VE stops a task by its UPID wherever it runs.

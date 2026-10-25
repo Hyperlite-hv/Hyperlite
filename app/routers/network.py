@@ -137,7 +137,7 @@ def _ensure_isolated(conn, user):
 
 @router.get("")
 def list_networks(user: dict = Depends(get_current_user)):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         _ensure_isolated(conn, user)
         result = []
@@ -165,7 +165,7 @@ def host_interfaces(user: dict = Depends(require_role("admin"))):
 
 @router.get("/{name}")
 def get_network(name: str, user: dict = Depends(get_current_user)):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             net = conn.networkLookupByName(name)
@@ -209,7 +209,7 @@ def get_network(name: str, user: dict = Depends(get_current_user)):
 
 @router.get("/{name}/firewall")
 def get_network_firewall_route(name: str, user: dict = Depends(get_current_user)):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.networkLookupByName(name)
@@ -232,7 +232,7 @@ def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depend
         ):
             raise HTTPException(status_code=422, detail=f"Invalid rule: {rule}")
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.networkLookupByName(name)
@@ -292,7 +292,7 @@ def _lookup(conn, name):
 
 @router.post("/{name}/start")
 def start_network(name: str, user: dict = Depends(require_role("admin"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         net = _lookup(conn, name)
         if not net.isActive():
@@ -313,7 +313,7 @@ class VlanAwareConfirm(BaseModel):
 def make_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
     """Make the network's Linux bridge VLAN-aware, as a trial: undone after `expires_in` seconds unless
     POST .../vlan-aware/confirm brings the token back, from a new request that shows the host is still reachable."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
     finally:
@@ -331,7 +331,7 @@ def make_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
 
 @router.post("/{name}/vlan-aware/confirm")
 def confirm_vlan_aware(name: str, payload: VlanAwareConfirm, user: dict = Depends(require_role("admin"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         _lookup(conn, name)
     finally:
@@ -347,7 +347,7 @@ def confirm_vlan_aware(name: str, payload: VlanAwareConfirm, user: dict = Depend
 def undo_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
     """Stop filtering VLANs on a bridge Hyperlite made VLAN-aware. Refused while a VM keeps VLANs on it: they would
     become every frame of the bridge, whatever its tag."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         root = ET.fromstring(_lookup(conn, name).XMLDesc(0))
         bridge = bridge_vlan.linux_bridge_of_network(root)
@@ -387,7 +387,7 @@ def undo_vlan_aware(name: str, user: dict = Depends(require_role("admin"))):
 @router.post("/{name}/stop")
 def stop_network(name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     """Stopping a network disconnects the running VMs plugged into it: they are named, and a confirmation is required."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         net = _lookup(conn, name)
         if not net.isActive():
@@ -414,7 +414,7 @@ class AutostartSetting(BaseModel):
 @router.put("/{name}/autostart")
 def set_network_autostart(name: str, payload: AutostartSetting, user: dict = Depends(require_role("admin"))):
     """Whether libvirt starts the network when the host boots."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         net = _lookup(conn, name)
         privileged.ask("network.autostart", user, "network_autostart", name, network=name, autostart=payload.autostart)
@@ -440,7 +440,7 @@ class NetworkEdit(BaseModel):
 def edit_network(name: str, payload: NetworkEdit, user: dict = Depends(require_role("admin"))):
     """Subnet, DHCP range and NAT/isolated mode of a network Hyperlite routes itself (not a bridge onto the LAN).
     On a running network only a DHCP range change is live; the rest waits for its restart (`needs_restart`)."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         _lookup(conn, name)
         restart = privileged.ask(
@@ -473,7 +473,7 @@ class Reservation(BaseModel):
 @router.post("/{name}/reservations", status_code=201)
 def add_reservation(name: str, payload: Reservation, user: dict = Depends(require_role("admin"))):
     """A fixed address for one MAC on the network's DHCP server, live and in its definition."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         _lookup(conn, name)
         privileged.ask(
@@ -495,7 +495,7 @@ def add_reservation(name: str, payload: Reservation, user: dict = Depends(requir
 
 @router.delete("/{name}/reservations/{mac}")
 def delete_reservation(name: str, mac: str, user: dict = Depends(require_role("admin"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         _lookup(conn, name)
         found = privileged.ask(
@@ -545,7 +545,7 @@ def create_network(payload: NetworkCreate, user: dict = Depends(require_role("ad
     if payload.mode not in ("nat", "isolated", "bridge"):
         raise HTTPException(status_code=422, detail="mode must be 'nat', 'isolated' or 'bridge'")
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.networkLookupByName(payload.name)
@@ -619,7 +619,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
         )
     if new == name:
         raise HTTPException(status_code=422, detail="The new name is the current one")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     lxc = open_lxc_conn_if_any()
     try:
         _lookup(conn, name)
@@ -662,7 +662,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
         except (ValueError, RuntimeError) as e:
             log_action(user["username"], "rename_network", new, "failed", f"firewall not reapplied: {e}")
     log_action(user["username"], "rename_network", name, "success", f"-> {new} ({len(moved)} guest(s) moved over)")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return {**_network_summary(conn.networkLookupByName(new)), "guests_updated": moved}
     finally:
@@ -674,7 +674,7 @@ def delete_network(name: str, confirm: bool = False, user: dict = Depends(requir
     if name in ("default", "hyperlite-isolated"):
         raise HTTPException(status_code=403, detail=f"Network '{name}' is a system network and cannot be deleted")
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.networkLookupByName(name)

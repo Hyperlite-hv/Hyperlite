@@ -284,7 +284,7 @@ async def get_backup_schedule(
 
 
 def _vm_exists(name):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         conn.lookupByName(name)
         return True
