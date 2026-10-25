@@ -72,6 +72,11 @@ def test_update_backups_are_readable_by_root_only(tmp_path, monkeypatch):
     (backups / "hyperlite-backup-20260101T000000Z.tar.gz").chmod(0o644)
     monkeypatch.setattr(update, "BACKUP_DIR", backups)
     monkeypatch.setattr(update, "DB_PATH", db)
+    access = tmp_path / "etc/hyperlite/access.db"
+    with sqlite3.connect(access) as conn:
+        conn.execute("CREATE TABLE users (username)")
+        conn.execute("INSERT INTO users VALUES ('ana')")
+    monkeypatch.setattr(update, "access_path", lambda: access)
 
     tarball = update._backup("t")
 
@@ -81,5 +86,9 @@ def test_update_backups_are_readable_by_root_only(tmp_path, monkeypatch):
     copy = tarball.with_name(tarball.name.replace(".tar.gz", ".db"))
     with sqlite3.connect(copy) as conn:
         assert conn.execute("SELECT x FROM t").fetchone()[0] == 42
+    with sqlite3.connect(
+        backups / tarball.name.replace("hyperlite-backup-", "hyperlite-access-backup-").replace(".tar.gz", ".db")
+    ) as conn:
+        assert conn.execute("SELECT username FROM users").fetchone()[0] == "ana"
     listing = subprocess.run(["tar", "-tzf", str(tarball)], capture_output=True, text=True, check=True).stdout
-    assert "etc/hyperlite/priv/env" in listing and "hyperlite.db" not in listing
+    assert "etc/hyperlite/priv/env" in listing and "hyperlite.db" not in listing and "access.db" not in listing

@@ -37,7 +37,7 @@ from pydantic import BaseModel
 
 from app.core import host_system, offline_update, paths, version
 from app.core.audit import log_action
-from app.core.database import DB_PATH
+from app.core.database import DB_PATH, access_path
 from app.core.http_safety import require_http_url
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, task_log, update_task_progress
@@ -125,6 +125,9 @@ _BACKUP_EXCLUDES = [
     "--exclude=dashboard/node_modules",
     "--exclude=dashboard/dist",
     "--exclude=.git",
+    # The permission tables' file is copied on its own, consistently, as the database is; a rollback that extracts the
+    # archive never puts an older one back over it.
+    "--exclude=access.db*",
 ]
 
 
@@ -138,7 +141,7 @@ UPDATE_BACKUPS_KEPT = 3
 def _prune_old_backups(directory, keep=UPDATE_BACKUPS_KEPT):
     """Keep only the newest `keep` update backups (archive and database copy); other files in the directory are
     never touched."""
-    for pattern in ("hyperlite-backup-*.tar.gz", "hyperlite-backup-*.db"):
+    for pattern in ("hyperlite-backup-*.tar.gz", "hyperlite-backup-*.db", "hyperlite-access-backup-*.db"):
         backups = sorted(Path(directory).glob(pattern), key=lambda p: p.name, reverse=True)
         for old in backups[keep:]:
             with contextlib.suppress(OSError):
@@ -164,10 +167,10 @@ def _private_file(path):
     os.chmod(path, 0o600)
 
 
-def _backup_database(dest):
+def _backup_database(dest, source=None):
     """A consistent copy of the live database (SQLite online backup: includes what is still in the WAL)."""
     _private_file(dest)
-    src = sqlite3.connect(str(DB_PATH), timeout=30)
+    src = sqlite3.connect(str(source or DB_PATH), timeout=30)
     try:
         out = sqlite3.connect(str(dest))
         try:
@@ -578,6 +581,8 @@ def _backup(task_id):
     tarball = BACKUP_DIR / f"hyperlite-backup-{stamp}.tar.gz"
     if DB_PATH.exists():
         _backup_database(BACKUP_DIR / f"hyperlite-backup-{stamp}.db")
+    if access_path().exists():  # the permission tables' own file (app/core/database.py, ACCESS)
+        _backup_database(BACKUP_DIR / f"hyperlite-access-backup-{stamp}.db", access_path())
     _private_file(tarball)  # tar keeps the mode of an existing file: never world-readable, even for a moment
     cmd = ["tar", "czf", str(tarball), *_BACKUP_EXCLUDES, "-C", str(ARCHIVE_ROOT), *_backup_members()]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
