@@ -163,6 +163,23 @@ def _close(fd):
         os.close(fd)
 
 
+# The node's heartbeat older than this stops the feeding: the leader declares a member lost LOST_S after its last
+# summary and waits for its reset before restarting its VMs elsewhere, so a node that cannot send it (libvirt hung,
+# the heartbeat's thread stuck) must reset itself first, as Proxmox's LRM feeds its watchdog in the loop that writes
+# its status.
+HEARTBEAT_STALE_S = 40
+
+
+def _heartbeat_goes_out():
+    from app.core import statd
+
+    age = statd.heartbeat_age()
+    if age < HEARTBEAT_STALE_S:
+        return True
+    logger.warning("This node's heartbeat has not gone out for %.0f s: the watchdog is not fed", age)
+    return False
+
+
 def tick():
     """One round: feed while the quorum holds, then arm or disarm as this node's HA VMs need."""
     if not enabled():
@@ -170,6 +187,9 @@ def tick():
     writable = cluster_lead.read_only_reason() is None
     with state.lock:
         armed = state.fd is not None
+    if armed and writable and not _heartbeat_goes_out():
+        writable = False  # as without the quorum: not fed, and nothing armed or disarmed below
+    with state.lock:
         if armed and writable:
             _feed(state.fd)  # first: nothing below (libvirt, the tree) may keep a node with the quorum from feeding it
         if state.starving and writable:
@@ -179,7 +199,7 @@ def tick():
         # Cut off from the majority: not fed, the node resets TIMEOUT_S after its last feed. Never disarmed here: this
         # node cannot tell the cluster, and the leader counts on it.
         logger.warning(
-            "No quorum: the watchdog is not fed, this node resets within %s s unless it comes back",
+            "No quorum (or no heartbeat): the watchdog is not fed, this node resets within %s s unless it comes back",
             reset_within(state.timeout) or "an unknown time",
         )
         return

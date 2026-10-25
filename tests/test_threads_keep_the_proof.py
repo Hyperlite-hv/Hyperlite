@@ -196,7 +196,10 @@ ALLOWED = {
     "app/core/cluster_v1.py": {"start": "rewrites the replicated configuration once"},
     "app/core/config_copy.py": {"start_config_copy": "4e: to the scheduler"},
     "app/core/db_health.py": {"start": "SQLite's own check"},
-    "app/core/drs.py": {"start": "HA's services (hyperlite-ha-crm, hyperlite-ha-lrm)"},
+    "app/core/drs.py": {
+        "start_carry_out": "hyperlite-ha-lrm",
+        "start_evaluate": "hyperlite-ha-crm",
+    },
     "app/core/ha_monitor.py": {"start": "HA's services"},
     "app/core/ha_recovery.py": {"start": "HA's services"},
     "app/core/ha_selffence.py": {"start_selffence": "HA's services"},
