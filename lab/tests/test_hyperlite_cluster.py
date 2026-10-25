@@ -771,7 +771,7 @@ def test_a_container_lives_and_goes_on_a_member(cluster):
 def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
     """#334 step 4 (docs/design/drs.md): two VMs that spin their vCPU on node 1 push it above 90 % of its CPU; load
     balancing, automatic, live-migrates one of them to another member, and each still runs once."""
-    t, names = cluster["tokens"], cluster["names"]
+    t = cluster["tokens"]
     if not nested(1):
         pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
     if not any(p["name"] == "hapool" for p in ok(api(1, "GET", "/storage", token=t[1]))["items"]):
@@ -854,11 +854,8 @@ def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
     print(f"[lab] load balancing moved {places} {time.monotonic() - began:.0f} s after the VMs began to spin")
     assert all(len(nodes) == 1 for nodes in places.values()), places  # each runs once
     ok(api(1, "PUT", "/drs/settings", {"mode": "manual", "threshold": 3}, t[1]))
-    for vm, nodes in places.items():
-        node = names[nodes[0]]
-        ok(api(1, "POST", f"/vms/{vm}/stop?node={node}&force=true", token=t[1]))
-        wait(
-            f"{vm} stopped",
-            lambda vm=vm, node=node: ok(api(1, "GET", f"/vms/{vm}?node={node}", token=t[1]))["state"] == "stopped",
-        )
-        ok(api(1, "DELETE", f"/vms/{vm}?node={node}&confirm=true", token=t[1]))
+    for vm, nodes in places.items():  # each through the member it runs on, which names itself no "?node="
+        n = nodes[0]
+        ok(api(n, "POST", f"/vms/{vm}/stop?force=true", token=t[n]))
+        wait(f"{vm} stopped", lambda vm=vm, n=n: ok(api(n, "GET", f"/vms/{vm}", token=t[n]))["state"] == "stopped")
+        ok(api(n, "DELETE", f"/vms/{vm}?confirm=true", token=t[n]))
