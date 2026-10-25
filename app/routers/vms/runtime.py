@@ -30,7 +30,7 @@ class CdromRequest(BaseModel):
 
 @router.put("/{name}/cdrom")
 def set_vm_cdrom(name: str, payload: CdromRequest, user: dict = Depends(require_vm_privilege("vm.hardware"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -59,7 +59,7 @@ def eject_vm_cdrom(
     target_dev: Literal["hda", "hdb", "hdc", "hdd"] | None = None,
     user: dict = Depends(require_vm_privilege("vm.hardware")),
 ):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -94,7 +94,7 @@ def _is_active(domain):
 
 @router.get("/{name}/metrics")
 def get_vm_metrics(name: str, user: dict = Depends(get_current_user)):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)

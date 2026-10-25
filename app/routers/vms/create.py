@@ -179,7 +179,7 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
     if payload.resource_pool is not None:
         perm.add_pool_member(payload.resource_pool, payload.name)
     log_action(user["username"], "create_vm", payload.name, "success", task_id=task_id)
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return _domain_summary(conn.lookupByName(payload.name))
     finally:

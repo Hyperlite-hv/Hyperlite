@@ -25,7 +25,7 @@ class AutoCleanupConfig(BaseModel):
 
 @router.get("/{name}/auto-cleanup")
 def get_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -43,7 +43,7 @@ def get_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privile
 def set_vm_auto_cleanup_route(
     name: str, payload: AutoCleanupConfig, user: dict = Depends(require_vm_privilege("vm.hardware"))
 ):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)

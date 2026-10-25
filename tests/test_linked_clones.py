@@ -160,7 +160,7 @@ def test_without_libvirt_the_list_still_answers_and_nothing_is_removed(
 ):
     lab["template"]("base")
 
-    def down(*a):
+    def down(*a, **_k):
         raise libvirt.libvirtError("Failed to connect socket")
 
     class Down:

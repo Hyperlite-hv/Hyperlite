@@ -44,7 +44,7 @@ def host_vm_limits(user: dict = Depends(get_current_user)):
 def host_firmware(user: dict = Depends(get_current_user)):
     """Which VM firmwares this host can build: {"uefi", "uefi_secure", "reason"} (see app/core/firmware.py). BIOS
     is always possible. The creation form disables what is missing and shows the reason."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return firmware.host_support(conn)
     finally:
@@ -55,7 +55,7 @@ def host_firmware(user: dict = Depends(get_current_user)):
 def host_devices(user: dict = Depends(require_role("admin"))):
     """PCI and USB devices of this host that could be given to a VM, with the IOMMU state, which VM has each one,
     and why the host needs the ones it cannot give (see app/core/passthrough.py)."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return passthrough.list_devices(conn)
     finally:

@@ -34,7 +34,7 @@ class FirewallConfig(BaseModel):
 
 @router.get("/{name}/firewall")
 def get_vm_firewall(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -64,7 +64,7 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
         ):
             raise HTTPException(status_code=422, detail=f"Invalid rule: {rule}")
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)

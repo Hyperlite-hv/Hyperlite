@@ -34,7 +34,7 @@ def list_templates(user: dict = Depends(get_current_user)):
     linked clone needs as its backing file."""
     templates = templates_store.list_templates()
     try:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             disks = linked_disks.domain_disks(conn)
         finally:

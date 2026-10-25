@@ -42,7 +42,7 @@ def attach_disk(name: str, payload: DiskAttach, user: dict = Depends(require_vm_
     if not TARGET_DEV_RE.match(payload.target_dev):
         log_action(user["username"], "attach_disk", name, "failed", "Invalid target_dev")
         raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -71,7 +71,7 @@ def detach_disk(name: str, target_dev: str, user: dict = Depends(require_vm_priv
     if not TARGET_DEV_RE.match(target_dev):
         log_action(user["username"], "detach_disk", name, "failed", "Invalid target_dev")
         raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -106,7 +106,7 @@ def resize_disk(
 
 
 def _resize_disk(name, target_dev, payload, user):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -210,7 +210,7 @@ def move_disk(name: str, target_dev: str, payload: DiskMove, user: dict = Depend
     a migration: it changes where the cluster's data lives."""
     if not TARGET_DEV_RE.match(target_dev):
         raise HTTPException(status_code=422, detail="Invalid target_dev (expected e.g. vda, vdb, sdb)")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -371,7 +371,7 @@ def set_vm_network(
     """mac: the interface to move, by its MAC address; absent, the first one. Moving it in place keeps its MAC address
     (what a DHCP reservation and the guest's own configuration know it by), where removing and adding it would not."""
     perm.refuse_unless(user, "network", payload.network, "network.assign", f"network '{payload.network}'")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -408,7 +408,7 @@ class InterfaceAttach(BaseModel):
 @router.post("/{name}/interfaces", status_code=201)
 def attach_interface(name: str, payload: InterfaceAttach, user: dict = Depends(require_vm_privilege("vm.hardware"))):
     perm.refuse_unless(user, "network", payload.network, "network.assign", f"network '{payload.network}'")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -436,7 +436,7 @@ def detach_interface(name: str, mac: str, user: dict = Depends(require_vm_privil
     if not MAC_RE.match(mac):
         log_action(user["username"], "detach_interface", name, "failed", "Invalid MAC")
         raise HTTPException(status_code=422, detail="Invalid MAC address")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -474,7 +474,7 @@ def _hostdev_listing(conn, domain):
 
 @router.get("/{name}/hostdevs")
 def get_vm_hostdevs(name: str, user: dict = Depends(require_role("admin"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -487,7 +487,7 @@ def get_vm_hostdevs(name: str, user: dict = Depends(require_role("admin"))):
 
 @router.post("/{name}/hostdevs", status_code=201)
 def attach_vm_hostdev(name: str, payload: HostDeviceAttach, user: dict = Depends(require_role("admin"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -508,7 +508,7 @@ def attach_vm_hostdev(name: str, payload: HostDeviceAttach, user: dict = Depends
 def detach_vm_hostdev(name: str, device_id: str, user: dict = Depends(require_role("admin"))):
     if not passthrough.DEVICE_ID_RE.match(device_id):
         raise HTTPException(status_code=422, detail="Invalid device identifier")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)

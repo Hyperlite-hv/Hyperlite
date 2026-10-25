@@ -148,7 +148,7 @@ def test_the_api_applies_under_the_vm_lock_with_the_right_privileges(client, aut
 
     conn = Conn()
 
-    def open_conn(node=None):
+    def open_conn(node=None, **_k):
         conn.lookupByName = lambda name: (
             conn.domain if name == "web" else (_ for _ in ()).throw(libvirt.libvirtError("no"))
         )
