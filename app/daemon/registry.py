@@ -142,6 +142,9 @@ def proven(proof):
         return None
     from app.core import peer_auth
 
+    # Checking an API token records its last use, a write of the permissions (app/repositories/daemon_write.py): done
+    # here, as the daemon's own, never asked of the daemon again, which would check this proof again, without end.
+    running = _running.set("proof")
     try:
         claims = peer_auth.verify(proof)
         if claims is not None:
@@ -152,6 +155,8 @@ def proven(proof):
     except Exception:
         logger.warning("A credential could not be checked", exc_info=True)
         return None
+    finally:
+        _running.reset(running)
 
 
 def _proven_note(ctx):
