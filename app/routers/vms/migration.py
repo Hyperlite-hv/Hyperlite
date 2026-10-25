@@ -156,9 +156,18 @@ def migrate_vm(
     Restricted to admins (not a per-VM ACL privilege like vm.clone): moving a VM
     changes the resource allocation of a node OF THE WHOLE CLUSTER, a scope beyond
     what an ACL scoped to one VM is meant to cover."""
-    if _norm_node(payload.target_node) == _norm_node(node):
+    return start(name, node, payload.target_node, user["username"], skip_checks=payload.skip_checks)
+
+
+def start(name, source, target, username, skip_checks=False):
+    """A live migration of the VM `name` from `source` (None: this node) to `target`, as POST /vms/{name}/migrate
+    starts it: its checks (an HTTPException with the route's status when one refuses), the VM's lock, the task, then
+    vm.migrate through hyperlite-daemon and the records that follow the VM, in a thread. {"task_id", "status"}. The
+    route's caller is an administrator; another caller (DRS on the leader) names who it acts for in `username`."""
+    node = source
+    if _norm_node(target) == _norm_node(node):
         raise HTTPException(status_code=422, detail="The destination node must be different from the source node")
-    maintenance.refuse_if_in_maintenance(payload.target_node, "Migration")
+    maintenance.refuse_if_in_maintenance(target, "Migration")
     # Migration from a remote node to the local host was long blocked here, because
     # peer-to-peer migration is initiated by the SOURCE libvirtd, which needs to be
     # able to connect ITSELF to the local host. It is now possible through a dedicated
@@ -187,10 +196,10 @@ def migrate_vm(
         # user. "local" is the frontend convention for the local
         # host, never a row of the `nodes` table (see _migrate_vm_job for the same
         # treatment).
-        dest_conn = open_conn(_norm_node(payload.target_node), readonly=True)
+        dest_conn = open_conn(_norm_node(target), readonly=True)
         try:
             compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dest_conn, domain))
-            if compat["summary"]["blocking"] and not payload.skip_checks:
+            if compat["summary"]["blocking"] and not skip_checks:
                 blocages = [c["message"] for c in compat["checks"] if c["status"] == "blocking"]
                 raise HTTPException(
                     status_code=409, detail="Migration refused by the compatibility diagnostic: " + " ; ".join(blocages)
@@ -206,10 +215,10 @@ def migrate_vm(
         source_node = node or "local"
         claim = vm_locks.claim_or_409(name, "a migration", node=source_node)
         try:
-            task_id = create_task("migrate_vm", name, node=source_node, username=user["username"])
+            task_id = create_task("migrate_vm", name, node=source_node, username=username)
             threading.Thread(
                 target=vm_locks.released_after(claim, _migrate_vm_job),
-                args=(task_id, user["username"], node, payload.target_node, name),
+                args=(task_id, username, node, target, name),
                 daemon=True,
             ).start()
         except BaseException:
