@@ -78,11 +78,19 @@ def test_the_return_reinstalls_it_through_the_watchdog_with_the_service_stopped(
 
 def test_the_database_schema_only_grows():
     """The previous version runs on the newer schema: no column or table it reads is ever dropped or renamed. The
-    one table rebuilt (acl, to widen a CHECK) keeps its name and columns, through a temporary *_pre_* table."""
+    one table rebuilt (acl, to widen a CHECK) keeps its name and columns, through a temporary *_pre_* table. The
+    permission tables leave the main file for their own (database.ACCESS) and come back to it on a return to an older
+    version (installer/deb/prerm, test_a_return_to_an_older_version_finds_the_permission_tables_in_the_database)."""
     source = (ROOT / "app" / "core" / "database.py").read_text()
     assert not re.search(r"DROP\s+COLUMN|RENAME\s+COLUMN", source, re.I)
-    for m in re.finditer(r"(?:DROP\s+TABLE|RENAME\s+TO)\s+(\w+)", source, re.I):
-        assert "_pre_" in m.group(1), m.group(0)
+    moves = {
+        "DROP TABLE legacy.",  # moved into the access file (_move_to_access)
+        "DROP TABLE IF EXISTS legacy.",  # an older table set aside there
+        "DROP TABLE IF EXISTS main.",  # replaced by its copy (copy_tables, replace)
+    }
+    for m in re.finditer(r"(?:DROP\s+TABLE(?:\s+IF\s+EXISTS)?|RENAME\s+TO)\s+(\w+\.?)", source, re.I):
+        assert "_pre_" in m.group(1) or m.group(0) in moves, m.group(0)
+    assert "move-back" in (ROOT / "installer" / "deb" / "prerm").read_text()
 
 
 def test_a_version_that_cannot_be_kept_leaves_no_older_one_offered(node, monkeypatch):
