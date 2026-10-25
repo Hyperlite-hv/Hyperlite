@@ -334,6 +334,15 @@ def evaluate():
 
 
 def state():
+    """Load balancing's state: this process's, or, in the API beside hyperlite-ha-crm, what it last published."""
+    from app import ha_services
+
+    if not ha_services.here(ha_services.CRM):
+        from app.core import service_state
+
+        published, _at = service_state.read(PUBLISHED)
+        if published is not None:
+            return published
     with _lock:
         return {**_state, "moves": list(_state["moves"]), "running": list(_running.values())}
 
@@ -359,6 +368,7 @@ def apply(move, username):
 
     with _lock:
         _moved[move["vm"]] = time.monotonic()  # tried once: not again for COOLDOWN_S, whatever comes of it
+    _cool_down_elsewhere(move["vm"])
     if self_node.is_self(move["source"]):
         result = migration.start(move["vm"], None, move["target"], username)
     else:
@@ -379,6 +389,19 @@ def apply(move, username):
             raise HTTPException(status_code=status, detail=body.get("detail") if isinstance(body, dict) else body)
     log_action(username, "drs_move", move["vm"], "success", f"{move['source']} -> {move['target']}: {move['reason']}")
     return result
+
+
+def _cool_down_elsewhere(vm):
+    """A manual move's cool-down, for hyperlite-ha-crm, which evaluates (its next round)."""
+    from app import ha_services
+    from app.core import service_state
+
+    if ha_services.here(ha_services.CRM):
+        return
+    applied, _at = service_state.read(APPLIED)
+    now = time.time()
+    recent = {v: t for v, t in (applied or {}).items() if now - t < COOLDOWN_S}
+    service_state.publish(APPLIED, {**recent, vm: now})
 
 
 def _request(move):
@@ -492,7 +515,15 @@ def _carry_out():
 
 
 def resume():
-    """An administrator saved the settings: automatic mode resumes after a pause."""
+    """An administrator saved the settings: automatic mode resumes after a pause. In the API beside hyperlite-ha-crm,
+    asked of it (its next round)."""
+    from app import ha_services
+
+    if not ha_services.here(ha_services.CRM):
+        from app.core import service_state
+
+        service_state.publish(RESUME, {})
+        return
     with _lock:
         _state["paused"] = None
         _failures[0] = 0
@@ -504,24 +535,84 @@ def _forget_finished():
     drs_rules._store().delete_requests_before((datetime.now(UTC) - timedelta(seconds=KEEP_FINISHED_S)).isoformat())
 
 
-def _loop():
+# ---- Across services (app/ha_services): the moves carried out in hyperlite-ha-lrm, evaluated in hyperlite-ha-crm ----
+
+PUBLISHED = "drs"  # state(), as the CRM last published it (app/core/service_state.py)
+RESUME = "drs.resume"  # the API's resume() for the CRM
+APPLIED = "drs.applied"  # the API's manual moves, {vm: epoch}, for the CRM's cool-down
+_UNSEEN = object()  # no request read yet by this process
+
+
+def _carry_out_loop():
     from app.core import cluster_lead
 
-    last = 0.0
     while True:
         try:
             if cluster_lead.in_cluster() and not cluster_lead.read_only_reason():
                 _carry_out()
-                if cluster_lead.is_leader():
-                    observe()
-                    if time.monotonic() - last >= EVALUATE_S:
-                        evaluate()
-                        _forget_finished()
-                        last = time.monotonic()
+        except Exception:  # the thread must survive anything
+            logger.exception("Load balancing: carrying out the moves failed")
+        time.sleep(OBSERVE_S)
+
+
+def _evaluate_loop():
+    from app.core import cluster_lead
+
+    last, resumed = 0.0, _UNSEEN
+    while True:
+        try:
+            resumed = _take_requests(resumed)
+            if cluster_lead.in_cluster() and not cluster_lead.read_only_reason() and cluster_lead.is_leader():
+                observe()
+                if time.monotonic() - last >= EVALUATE_S:
+                    evaluate()
+                    _forget_finished()
+                    last = time.monotonic()
+            _publish()
         except Exception:  # the thread must survive anything
             logger.exception("Load balancing round failed")
         time.sleep(OBSERVE_S)
 
 
+def _publish():
+    from app import ha_services
+    from app.core import service_state
+
+    if ha_services.separate():
+        service_state.publish(PUBLISHED, state())
+
+
+def _take_requests(resumed):
+    """What the API asked since the last round: a resume (the time of the last one seen, returned to compare at the
+    next round; _UNSEEN at the first), the manual moves' cool-down."""
+    from app import ha_services
+    from app.core import service_state
+
+    if not ha_services.separate():
+        return resumed
+    _data, at = service_state.read(RESUME)
+    if at != resumed:
+        if resumed is not _UNSEEN:  # one already there when this process started is old: only a new one resumes
+            resume()
+        resumed = at
+    applied, _at = service_state.read(APPLIED)
+    now_wall, now = time.time(), time.monotonic()
+    with _lock:
+        for vm, epoch in (applied or {}).items():
+            _moved[vm] = max(_moved.get(vm, 0.0), now - (now_wall - epoch))
+    return resumed
+
+
+def start_carry_out():
+    """Every node: the moves the leader asked of it (hyperlite-ha-lrm)."""
+    threading.Thread(target=_carry_out_loop, daemon=True, name="drs-carry-out").start()
+
+
+def start_evaluate():
+    """Every node, acting on the leader: the cluster's load observed, the moves decided (hyperlite-ha-crm)."""
+    threading.Thread(target=_evaluate_loop, daemon=True, name="drs").start()
+
+
 def start():
-    threading.Thread(target=_loop, daemon=True, name="drs").start()
+    start_carry_out()
+    start_evaluate()
