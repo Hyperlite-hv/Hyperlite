@@ -489,6 +489,22 @@ export async function createSite(payload) {
 export async function fetchSiteRemotes() {
   return realList("/sites/remotes");
 }
+export async function fetchSiteList(remote, what) {
+  return realList(`/sites/${encodeURIComponent(remote)}/${what}`);
+}
+export async function setSiteToken(name, use, token) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}/tokens/${use}`, { method: "PUT", ...jsonBody({ token }) });
+}
+export async function deleteSiteToken(name, use) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}/tokens/${use}`, { method: "DELETE" });
+}
+// A VM of another cluster, with its manage token: start, shutdown, stop, reboot, reset; or moved to another of its nodes.
+export async function siteVmAction(remote, vm, action, on) {
+  return realFetch(`/sites/${encodeURIComponent(remote)}/vms/${encodeURIComponent(vm)}/${action}`, { method: "POST", ...jsonBody({ on }) });
+}
+export async function siteVmMigrate(remote, vm, on, targetNode) {
+  return realFetch(`/sites/${encodeURIComponent(remote)}/vms/${encodeURIComponent(vm)}/migrate`, { method: "POST", ...jsonBody({ on, target_node: targetNode }) });
+}
 export async function deleteSite(name) {
   return realFetch(`/sites/remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
