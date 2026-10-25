@@ -134,3 +134,51 @@ def decode(chunks, size, write, zero):
             _account(digest, DATA, offset, data)
             write(offset, data)
         position = offset + length
+
+
+# ---- The frames of the daemon's helper (site_transfer_nbd.py), on the pipes it hands over ----
+
+_PIPE = struct.Struct(">BQQ")
+_PIPE_DATA, _PIPE_ZERO, _PIPE_END = 1, 3, 0
+
+
+def _read_exact(f, n):
+    data = bytearray()
+    while len(data) < n:
+        chunk = f.read(n - len(data))
+        if not chunk:
+            raise StreamError("The disk's export ended before its end")
+        data += chunk
+    return bytes(data)
+
+
+def pieces_from_export(f):
+    """encode()'s pieces from the source's pipe (a binary file): until its end frame."""
+    while True:
+        kind, offset, length = _PIPE.unpack(_read_exact(f, _PIPE.size))
+        if kind == _PIPE_END:
+            return
+        if kind == _PIPE_ZERO:
+            yield offset, length
+        elif kind == _PIPE_DATA and length <= FRAME:
+            yield offset, _read_exact(f, length)
+        else:
+            raise StreamError(f"Unknown frame {kind} from the disk's export")
+
+
+class ImportSink:
+    """decode()'s write and zero into the target's pipe (a binary file), and its end."""
+
+    def __init__(self, f):
+        self.f = f
+
+    def write(self, offset, data):
+        self.f.write(_PIPE.pack(_PIPE_DATA, offset, len(data)))
+        self.f.write(data)
+
+    def zero(self, offset, length):
+        self.f.write(_PIPE.pack(_PIPE_ZERO, offset, length))
+
+    def end(self):
+        self.f.write(_PIPE.pack(_PIPE_END, 0, 0))
+        self.f.flush()
