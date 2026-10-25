@@ -135,7 +135,7 @@ def set_config(fields):
     password = clean.pop("bind_password", None)
     clean = {k: (1 if v else 0) if k in ("enabled", "starttls", "verify_tls") else (v or "") for k, v in clean.items()}
     if password:
-        clean["bind_password"] = secrets_crypto.encrypt(password)
+        clean["bind_password"] = password  # sealed by hyperlite-daemon, which writes it (step 4b)
     cols = [c for c in CONFIG_COLUMNS if c in clean]
     _store().save_ldap_config({c: clean[c] for c in cols})
     return public_config()
