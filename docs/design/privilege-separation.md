@@ -744,6 +744,29 @@ into SQLite (`app/repositories/cfs/inbound.py`), done by root. The volatile colu
 `used_at`, `sign_count`, `totp_last_step`) go through the daemon from 4b like the rest, so the file needs no
 exception.
 
+### 14.2 4d in detail: each operation's needs, checked by the daemon (2026-10-25)
+
+`@operation(name, Args, needs=...)` (`app/daemon/needs.py`), checked by the registry before the operation runs, against
+the account the caller's proof proves (a users row, or root of a node through hyperlite-admin, an administrator without
+one, as root@pam):
+
+- **an administrator**, the default: every operation that says nothing;
+- **a privilege on the object it names**, as the route checks it: `on_vm("vm.power")` on the VM of `vm`, and so for a
+  container, a storage pool, a network, a backup store (`backup_store.read`, for another cluster's reader);
+- **the account itself** (`own()`): its second factor, its keys, its tokens, its own password;
+- **a rule** (`by_rule`) where the route has one: a VM's creation (vm.allocate on its pool, storage.allocate,
+  network.assign), a VM put in a pool by its creator, an API token renamed by its owner;
+- **any account** for what a listing does for anyone (the default pool and network made, read-only reads of the
+  members) and **no proof** for the sign-in itself.
+
+A call **without a proof** comes from a service of this node: allowed from root and in process (the scheduler, HA's
+services, the daemon's own code; the API too until 4e), refused from anyone else. A proof that proves nothing is
+refused. The daemon's refusal is the routes' 403. Checking a proof is the daemon's own work: an API token's last use is
+written in place, never asked of the daemon again.
+
+What 4d holds before 4e: a route's mistake (a check forgotten) is caught by the daemon for every request that carries
+its caller's proof. What it does not hold yet: the API, still root, may call without a proof; 4e takes that away.
+
 ### 14.3 4e, first part: the permission tables in a file of their own (2026-10-25)
 
 From 4e the API runs as `www-data`, and it writes the main database (tasks, audit, metrics). Had the permission tables
@@ -776,26 +799,3 @@ sessions, groups, roles, resource pools, ACLs and the SSO and LDAP settings.
 The file is root's only (0600) for now. When the API's unit changes user, it gets `www-data`'s group read (0640), as
 `/etc/pve` is readable by `www-data` on Proxmox VE: the API checks a password or a token itself, so the hashes stay
 readable to it, as before.
-
-### 14.2 4d in detail: each operation's needs, checked by the daemon (2026-10-25)
-
-`@operation(name, Args, needs=...)` (`app/daemon/needs.py`), checked by the registry before the operation runs, against
-the account the caller's proof proves (a users row, or root of a node through hyperlite-admin, an administrator without
-one, as root@pam):
-
-- **an administrator**, the default: every operation that says nothing;
-- **a privilege on the object it names**, as the route checks it: `on_vm("vm.power")` on the VM of `vm`, and so for a
-  container, a storage pool, a network, a backup store (`backup_store.read`, for another cluster's reader);
-- **the account itself** (`own()`): its second factor, its keys, its tokens, its own password;
-- **a rule** (`by_rule`) where the route has one: a VM's creation (vm.allocate on its pool, storage.allocate,
-  network.assign), a VM put in a pool by its creator, an API token renamed by its owner;
-- **any account** for what a listing does for anyone (the default pool and network made, read-only reads of the
-  members) and **no proof** for the sign-in itself.
-
-A call **without a proof** comes from a service of this node: allowed from root and in process (the scheduler, HA's
-services, the daemon's own code; the API too until 4e), refused from anyone else. A proof that proves nothing is
-refused. The daemon's refusal is the routes' 403. Checking a proof is the daemon's own work: an API token's last use is
-written in place, never asked of the daemon again.
-
-What 4d holds before 4e: a route's mistake (a check forgotten) is caught by the daemon for every request that carries
-its caller's proof. What it does not hold yet: the API, still root, may call without a proof; 4e takes that away.
