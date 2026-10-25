@@ -132,7 +132,7 @@ def refuse_vm_with_block_disks(name, action):
     """block_disk_error by VM name, as a 422 answered at once (the backup or export itself runs in the background)."""
     from fastapi import HTTPException
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -415,7 +415,7 @@ def check_space_for(vm_name, target_dir=None):
     """Before a manual backup starts: refused at once (RuntimeError) when it would not fit, rather than reported as
     started and failing in its task. A check only: when the VM cannot be read, the backup's task reports why."""
     try:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
     except libvirt.libvirtError:
         return
     try:
@@ -430,9 +430,87 @@ def check_space_for(vm_name, target_dir=None):
         conn.close()
 
 
+# A directory backup's own files: what the daemon deletes in it (backup_files_only), nothing else.
+BACKUP_FILES = {backup_integrity.MANIFEST, backup_integrity.NVRAM_FILE, backup_integrity.TPM_FILE, "vm-config.json"}
+BACKUP_IMAGE_SUFFIXES = (".qcow2",)
+
+
+def backup_target(target_dir):
+    """The directory a backup is written under, as hyperlite-daemon accepts it (backup_groups.validate_target): the
+    default directory, or an administrator's absolute directory outside the system's own. ValueError otherwise."""
+    from app.core.backup_groups import GroupError, validate_target
+
+    try:
+        target = validate_target(str(target_dir)) if target_dir else None
+    except GroupError as e:
+        raise ValueError(str(e)) from None
+    return Path(target) if target else DEFAULT_BACKUP_DIR
+
+
+def backup_dir(path):
+    """A directory backup's own directory, `<target>/<vm>/<time>` under a target backup_target accepts: what the
+    daemon reads, verifies, restores from or deletes, whatever the records say (the API writes them). ValueError
+    otherwise."""
+    p = Path(str(path or ""))
+    if not p.is_absolute() or ".." in p.parts or len(p.parts) < 4 or "\x00" in str(path):
+        raise ValueError(f"Not a backup directory: {path}")
+    backup_target(p.parent.parent)
+    return p
+
+
+def copy_vm(vm_name, target_root, task_id):
+    """hyperlite-daemon's part of a directory backup (backup.run): the VM's disks copied cold or live into
+    `<target_root>/<vm>/<time>`, its settings, its NVRAM and TPM state and the manifest beside them. Returns {"path",
+    "mode", "size", "checksum"}; the partial directory is removed on any failure."""
+    with libvirt_utils_local() as conn:
+        try:
+            domain = conn.lookupByName(vm_name)
+        except libvirt.libvirtError:
+            raise RuntimeError(f"VM '{vm_name}' not found") from None
+        error = block_disk_error(domain, "A backup")
+        if error:
+            raise RuntimeError(error)
+        mode = "live" if domain.isActive() else "cold"
+        stamp = _now().strftime("%Y%m%dT%H%M%SZ")
+        dest_dir = safe_child(safe_child(target_root, vm_name), stamp)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            _write_vm_config(domain, dest_dir)
+            backup_integrity.save_firmware_state(domain, dest_dir)
+            firmware_kind = firmware.of_domain(ET.fromstring(domain.XMLDesc(0)))
+            # A backup refused for want of space leaves nothing in its folder.
+            check_free_space(target_root, [src for _dev, src in domain_disk_paths(domain)])
+            if mode == "cold":
+                dest_paths = backup_cold(domain, vm_name, dest_dir, task_id)
+            else:
+                dest_paths = backup_hot(conn, domain, vm_name, dest_dir, task_id)
+            update_task_progress(task_id, 95)
+            devs = [dev for dev, _source in domain_disk_paths(domain)]
+            manifest = backup_integrity.write_manifest(
+                dest_dir, vm_name, mode, firmware_kind, list(zip(devs, dest_paths, strict=False))
+            )
+        except BaseException:
+            shutil.rmtree(dest_dir, ignore_errors=True)
+            raise
+    total_size = sum(f["size"] for f in manifest["files"])
+    disk_sums = [f["sha256"] for f in manifest["files"] if f["role"] == "disk"]
+    # Kept for the backups listed before manifests existed and for the API's single-disk field.
+    checksum = disk_sums[0] if len(disk_sums) == 1 else None
+    return {"path": str(dest_dir), "mode": mode, "size": total_size, "checksum": checksum}
+
+
+def libvirt_utils_local():
+    from app.core import libvirt_utils
+
+    return libvirt_utils.local_conn()
+
+
 def _run_backup_locked(vm_name, target_dir, job_id, username):
-    target_root = Path(paths.current(target_dir)) if target_dir else DEFAULT_BACKUP_DIR
-    conn = open_conn()
+    """The API's part: the task and the record, hyperlite-daemon's copy (backup.run), the result recorded."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(vm_name)
@@ -441,53 +519,50 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         error = block_disk_error(domain, "A backup")
         if error:
             raise RuntimeError(error)
-
         mode = "live" if domain.isActive() else "cold"
-        stamp = _now().strftime("%Y%m%dT%H%M%SZ")
-        dest_dir = target_root / vm_name / stamp
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        _write_vm_config(domain, dest_dir)
-        backup_integrity.save_firmware_state(domain, dest_dir)
-        firmware_kind = firmware.of_domain(ET.fromstring(domain.XMLDesc(0)))
-
-        task_id = create_task("backup_vm", vm_name, node=None, username=username)
-        backup_id = _store().create(vm_name, job_id, str(dest_dir), mode, _now().isoformat(), task_id)
-
-        try:
-            # In the task: a backup refused for want of space is a failed task, audited and notified (a scheduled one
-            # has nobody watching), and nothing is left in its folder.
-            check_free_space(target_root, [src for _dev, src in domain_disk_paths(domain)])
-            if mode == "cold":
-                dest_paths = backup_cold(domain, vm_name, dest_dir, task_id)
-            else:
-                dest_paths = backup_hot(conn, domain, vm_name, dest_dir, task_id)
-
-            update_task_progress(task_id, 95)
-            devs = [dev for dev, _source in domain_disk_paths(domain)]
-            manifest = backup_integrity.write_manifest(
-                dest_dir, vm_name, mode, firmware_kind, list(zip(devs, dest_paths, strict=False))
-            )
-            total_size = sum(f["size"] for f in manifest["files"])
-            disk_sums = [f["sha256"] for f in manifest["files"] if f["role"] == "disk"]
-            # Kept for the backups listed before manifests existed and for the API's single-disk field.
-            checksum = disk_sums[0] if len(disk_sums) == 1 else None
-            _store().mark_done(backup_id, total_size, checksum)
-            finish_task(task_id, "succeeded")
-            kind = "live" if mode == "live" else "offline"
-            log_action(
-                username, "backup_vm", vm_name, "success", f"{kind}, {total_size / 1024**3:.1f} GiB in {dest_dir}"
-            )
-        except Exception as e:
-            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            _store().mark_failed(backup_id, msg)
-            finish_task(task_id, "failed", msg)
-            log_action(username, "backup_vm", vm_name, "failed", msg)
-            shutil.rmtree(dest_dir, ignore_errors=True)
-            raise
-        _retention_after(vm_name, username)
-        return backup_id
     finally:
         conn.close()
+    task_id = create_task("backup_vm", vm_name, node=None, username=username)
+    backup_id = _store().create(vm_name, job_id, "", mode, _now().isoformat(), task_id)
+    register_cancel(task_id, lambda: _cancel_in_daemon(task_id, username))
+    try:
+        try:
+            done = privileged.run(
+                "backup.run", user=username, timeout=JOB_TIMEOUT_S, vm=vm_name, target=target_dir, task_id=task_id
+            )
+        except DaemonError as e:
+            raise RuntimeError(e.detail) from None
+        _store().set_path(backup_id, done["path"])
+        _store().mark_done(backup_id, done["size"], done["checksum"])
+        finish_task(task_id, "succeeded")
+        kind = "live" if done["mode"] == "live" else "offline"
+        log_action(
+            username, "backup_vm", vm_name, "success", f"{kind}, {done['size'] / 1024**3:.1f} GiB in {done['path']}"
+        )
+    except Exception as e:
+        msg = str(e)
+        _store().mark_failed(backup_id, msg)
+        finish_task(task_id, "failed", msg)
+        log_action(username, "backup_vm", vm_name, "failed", msg)
+        raise
+    _retention_after(vm_name, username)
+    return backup_id
+
+
+# What the API waits for a job hyperlite-daemon runs whole (a backup, a restore, a verification): a large disk copies
+# for hours.
+JOB_TIMEOUT_S = 24 * 3600
+
+
+def _cancel_in_daemon(task_id, username):
+    """Cancelling a backup's task stops its copy in the daemon (backup.cancel)."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        privileged.run("backup.cancel", user=username, task_id=task_id)
+    except DaemonError as e:
+        logger.warning("The copy of %s was not stopped: %s", task_id, e.detail)
 
 
 def _retention_after(vm_name, username):
@@ -560,21 +635,54 @@ def _run_store_backup(vm_name, store_name, job_id, username):
 
 
 def remove_backup_files(path):
-    """Delete a backup's files: its own directory (and its VM's, once empty), or its index and manifest in a store,
-    whose chunks go at the store's next garbage collection."""
-    from app.core import backup_store_vm
+    """Delete a backup's files through hyperlite-daemon (backup.delete): its own directory (and its VM's, once empty),
+    or its index and manifest in a store, whose chunks go at the store's next garbage collection. RuntimeError when
+    the daemon refused (a directory that is not a backup's, or that holds other files)."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
 
     if not path:
         return
-    found = backup_store_vm.store_backup_of(path)
-    if found:
+    try:
+        privileged.run("backup.delete", path=str(path))
+    except DaemonError as e:
+        raise RuntimeError(e.detail) from None
+
+
+def checked_backup(path):
+    """The backup at `path` as hyperlite-daemon reads it: (store, vm uuid, time) for a backup in a store, else the
+    directory backup_dir accepts. ValueError otherwise."""
+    from app.core import backup_store_vm
+
+    found = backup_store_vm.store_backup_of(path) if path else None
+    return found or backup_dir(path)
+
+
+def _own_file(entry):
+    return (
+        entry.is_file()
+        and not entry.is_symlink()
+        and (entry.name in BACKUP_FILES or entry.name.endswith(BACKUP_IMAGE_SUFFIXES))
+    )
+
+
+def delete_backup_files(path):
+    """hyperlite-daemon's part of remove_backup_files (backup.delete): a directory is deleted only when it is a
+    backup's and holds nothing but a backup's files; anything else there is kept, and the deletion refused."""
+    found = checked_backup(path)
+    if not isinstance(found, Path):
         store, vm_uuid, stamp = found
         with contextlib.suppress(FileNotFoundError):
             store.delete_backup(vm_uuid, stamp)
         return
-    shutil.rmtree(path, ignore_errors=True)
+    if not found.is_dir() or found.is_symlink():
+        return
+    strange = sorted(e.name for e in found.iterdir() if not _own_file(e))
+    if strange:
+        raise ValueError(f"{found} holds files a backup does not ({', '.join(strange[:5])}): nothing was deleted there")
+    shutil.rmtree(found)
     with contextlib.suppress(OSError):  # <target>/<vm>/<time>: the VM's directory goes with its last backup
-        Path(path).parent.rmdir()
+        found.parent.rmdir()
 
 
 def _backup_images(src_dir):
@@ -642,9 +750,7 @@ def _store():
 def _check_before_restore(row, task_id, username):
     """Verify the backup NOW, whatever an earlier verification said: a restore replaces good data, so it must not
     start from a backup whose files changed or are damaged. The result is recorded like a manual verification."""
-    status, problems, _count = backup_integrity.verify(
-        row["path"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, int(pct * 0.2))
-    )
+    status, problems = _verify_in_daemon(row, task_id, username, span=20)
     _store().set_verification(row["id"], status, _now().isoformat(), "; ".join(problems) or None)
     if status != backup_integrity.VERIFIED:
         raise RuntimeError("The backup failed its integrity check, nothing was restored: " + "; ".join(problems[:5]))
@@ -699,12 +805,12 @@ def _restore_overwrite(conn, domain, images, task_id):
     # The restored disks replace the ones the replication bitmap described. Dropped only now: a restore refused or
     # stopped before this point leaves the VM's replication as it was (it used to restart from a full copy).
     try:
-        checkpoints.release(domain)
+        dropped = checkpoints.drop(domain)
     except BaseException:
         for _dest, temp in staged:
             temp.unlink(missing_ok=True)
         raise
-    return _swap_staged(staged, task_id)
+    return _swap_staged(staged, task_id), dropped
 
 
 def _swap_staged(staged, task_id):
@@ -769,7 +875,7 @@ def _restore_overwrite_from_store(domain, found, devs, task_id):
             _copy_owner_and_mode(dest, temp)
             with open(temp, "rb") as f:
                 os.fsync(f.fileno())
-        checkpoints.release(domain)  # the disks no longer hold what the replication bitmap described
+        dropped = checkpoints.drop(domain)  # the disks no longer hold what the replication bitmap described
         for i, disk in enumerate(blocks):
             backup_store_vm.restore_disk(store, vm_uuid, stamp, disk.dev, disk.source)
             update_task_progress(task_id, int(20 + (len(files) + i + 1) * span))
@@ -777,7 +883,7 @@ def _restore_overwrite_from_store(domain, found, devs, task_id):
         for _dest, temp in staged:
             temp.unlink(missing_ok=True)
         raise
-    return [*_swap_staged(staged, task_id), *(d.source for d in blocks)]
+    return [*_swap_staged(staged, task_id), *(d.source for d in blocks)], dropped
 
 
 def restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None):
@@ -805,18 +911,93 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
         claim = vm_locks.claim(target_name or "", "a backup restore")
 
     with claim:
-        src_dir = Path(row["path"])
-        conn = open_conn()
         task_id = create_task("restore_backup", target_name, node=None, username=username)
-        new_disk_paths = []
-        stack = contextlib.ExitStack()
         try:
-            from app.core import backup_store_vm
+            ask = {
+                "path": row["path"] or "",
+                "store": bool(row.get("store")),
+                "source_vm": row["vm_name"],
+                "mode": mode,
+                "vm": target_name or "",
+                "network": network,
+                "task_id": task_id,
+            }
+            _restore_in_daemon(username, check_only=True, **ask)  # the VM, the name, the network: before reading
+            _check_before_restore(row, task_id, username)
+            done = _restore_in_daemon(username, **ask)
+            if done.get("checkpoints_dropped"):
+                # The restored disks no longer hold what the replication bitmap described: its chain starts again.
+                checkpoints.forget(target_name, done["checkpoints_dropped"])
+            if mode == "new":
+                # Older backups did not record them: taken from the original VM when it still has them.
+                os_label = done.get("os_label") or get_vm_os_label(row["vm_name"])
+                ssh_user = done.get("ssh_user") or get_vm_ssh_user(row["vm_name"])
+                if os_label:
+                    set_vm_os_label(new_name, os_label)
+                if ssh_user:
+                    set_vm_ssh_user(new_name, ssh_user)
+            finish_task(task_id, "succeeded")
+            restored = done.get("restored") or []
+            what = "overwrite" if mode == "overwrite" else "new VM"
+            detail = f"{what} from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
+            log_action(username, "restore_backup", target_name, "success", detail)
+            return {"vm": target_name, "mode": mode}
+        except Exception as e:
+            msg = str(e)
+            finish_task(task_id, "failed", msg)
+            log_action(username, "restore_backup", target_name or row["vm_name"], "failed", msg)
+            raise
+
+
+def _restore_in_daemon(username, **ask):
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        return privileged.run("backup.restore", user=username, timeout=JOB_TIMEOUT_S, **ask)
+    except DaemonError as e:
+        raise RuntimeError(e.detail) from None
+
+
+def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only=False):
+    """hyperlite-daemon's part of a restore (backup.restore), on a backup checked_backup accepts: over the stopped VM
+    `vm`, into the disks its own definition names, or as the new VM `vm` in the images directory, its definition
+    built from checked fields. With `check_only`, only what is refused before the backup is read: the VM missing or
+    running, the new name taken or invalid, the network missing. Returns {"restored", "os_label", "ssh_user"}."""
+    from app.core import backup_store_vm, libvirt_utils
+    from app.core.vm_builder import IMAGES_DIR as _IMAGES_DIR
+    from app.core.vm_builder import build_domain_xml, validate_name
+
+    found = checked_backup(path)
+    found = None if isinstance(found, Path) else found
+    if store and not found:
+        raise RuntimeError("This backup's store cannot be read")
+    src_dir = Path(path)
+    new_disk_paths = []
+    with libvirt_utils.local_conn() as conn, contextlib.ExitStack() as stack:
+        try:
+            if mode == "overwrite":
+                try:
+                    domain = conn.lookupByName(vm)
+                except libvirt.libvirtError:
+                    raise RuntimeError(f"Original VM '{vm}' not found: use the restore to a new location") from None
+                if domain.isActive():
+                    raise RuntimeError("Stop the VM before restoring over it")
+                if check_only:
+                    return {}
+            else:
+                err = validate_name(vm) if vm else "new_name is required for a restore to a new location"
+                if err:
+                    raise RuntimeError(err)
+                try:
+                    conn.lookupByName(vm)
+                    raise RuntimeError(f"A VM '{vm}' already exists")
+                except libvirt.libvirtError:
+                    pass
 
             # A backup in a store (docs/design/backup-store.md): its disks are indexes of chunks, written by
             # backup_store_vm.restore_disk; its vm-config.json, NVRAM and TPM state are files of its directory,
             # decrypted into a temporary one when the store is encrypted (files_dir).
-            found = backup_store_vm.store_backup_of(src_dir) if row.get("store") else None
             files_dir = src_dir
             if found:
                 manifest = json.loads((src_dir / "manifest.json").read_text())
@@ -826,42 +1007,18 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 images = _backup_images(src_dir)
             if not images:
                 raise RuntimeError("No disk file found in this backup")
+
             if mode == "overwrite":
-                try:
-                    domain = conn.lookupByName(target_name)
-                except libvirt.libvirtError:
-                    raise RuntimeError(
-                        f"Original VM '{target_name}' not found: use the restore to a new location"
-                    ) from None
-                if domain.isActive():
-                    raise RuntimeError("Stop the VM before restoring over it")
-                _check_before_restore(row, task_id, username)
                 if found:
-                    written = _restore_overwrite_from_store(domain, found, [dev for dev, _ in images], task_id)
+                    written, dropped = _restore_overwrite_from_store(domain, found, [dev for dev, _ in images], task_id)
                 else:
-                    written = _restore_overwrite(conn, domain, images, task_id)
+                    written, dropped = _restore_overwrite(conn, domain, images, task_id)
                 refresh_pools_for_paths(conn, written)
-                restored = backup_integrity.restore_firmware_state(files_dir, domain)
-                finish_task(task_id, "succeeded")
-                detail = f"overwrite from backup #{backup_id}" + (
-                    f", with {' and '.join(restored)}" if restored else ""
-                )
-                log_action(username, "restore_backup", target_name, "success", detail)
-                return {"vm": target_name, "mode": "overwrite"}
+                return {
+                    "restored": backup_integrity.restore_firmware_state(files_dir, domain),
+                    "checkpoints_dropped": dropped,
+                }
 
-            from app.core.vm_builder import IMAGES_DIR as _IMAGES_DIR
-            from app.core.vm_builder import build_domain_xml, validate_name
-
-            if not new_name:
-                raise RuntimeError("new_name is required for a restore to a new location")
-            err = validate_name(new_name)
-            if err:
-                raise RuntimeError(err)
-            try:
-                conn.lookupByName(new_name)
-                raise RuntimeError(f"A VM '{new_name}' already exists")
-            except libvirt.libvirtError:
-                pass
             # Checked before any copy: a missing network would only fail at the first start.
             config = _read_vm_config(files_dir)
             if network:
@@ -873,10 +1030,11 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                     f"The network '{config['network']}' recorded in the backup does not exist on this node: "
                     "choose another network"
                 ) from None
-            _check_before_restore(row, task_id, username)
+            if check_only:
+                return {}
             if found:
-                store, vm_uuid, stamp = found
-                needed = sum(store.index_of(vm_uuid, stamp, dev).size for dev, _ in images)
+                store_, vm_uuid, stamp = found
+                needed = sum(store_.index_of(vm_uuid, stamp, dev).size for dev, _ in images)
             else:
                 needed = sum(_allocated_bytes(src) for _dev, src in images)
             disk_space.ensure_room(_IMAGES_DIR, needed, "this restore")
@@ -884,23 +1042,23 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
             span = 60 / len(images)
             for i, (_dev, src) in enumerate(images):
                 suffix = "" if i == 0 else f"-{i + 1}"
-                dest = safe_child(_IMAGES_DIR, f"{new_name}{suffix}.qcow2")
+                dest = safe_child(_IMAGES_DIR, f"{vm}{suffix}.qcow2")
                 if dest.exists():
                     raise RuntimeError(f"A disk file '{dest.name}' already exists")
                 new_disk_paths.append(dest)
                 if found:
-                    backup_store_vm.restore_disk(store, vm_uuid, stamp, _dev, dest, "qcow2")
+                    backup_store_vm.restore_disk(store_, vm_uuid, stamp, _dev, dest, "qcow2")
                     update_task_progress(task_id, int(20 + (i + 1) * span))
                 else:
                     _convert(src, dest, "qcow2", task_id, 20 + i * span, span)
 
-            seed = _reseed_iso(config, row["vm_name"], new_name)
+            seed = _reseed_iso(config, source_vm, vm)
             if seed:
                 new_disk_paths.append(seed)
             xml = build_domain_xml(
-                new_name,
-                config["vcpu"],
-                config["memory_mb"],
+                vm,
+                int(config["vcpu"]),
+                int(config["memory_mb"]),
                 new_disk_paths[: len(images)],
                 seed,
                 config["network"],
@@ -908,30 +1066,19 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
             )
             new_domain = conn.defineXML(xml)
             refresh_pools_for_paths(conn, new_disk_paths)
-            restored = backup_integrity.restore_firmware_state(files_dir, new_domain)
-            # Older backups did not record them: taken from the original VM when it still has them.
-            os_label = config.get("os_label") or get_vm_os_label(row["vm_name"])
-            ssh_user = config.get("ssh_user") or get_vm_ssh_user(row["vm_name"])
-            if os_label:
-                set_vm_os_label(new_name, os_label)
-            if ssh_user:
-                set_vm_ssh_user(new_name, ssh_user)
-            finish_task(task_id, "succeeded")
-            detail = f"new VM from backup #{backup_id}" + (f", with {' and '.join(restored)}" if restored else "")
-            log_action(username, "restore_backup", new_name, "success", detail)
-            return {"vm": new_name, "mode": "new"}
+            return {
+                "restored": backup_integrity.restore_firmware_state(files_dir, new_domain),
+                "os_label": config.get("os_label"),
+                "ssh_user": config.get("ssh_user"),
+            }
         except Exception as e:
-            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            if mode == "new":
+            if mode == "new" and not check_only:
                 # Only the files this restore created: the name check above refused existing ones.
-                for path in new_disk_paths:
-                    Path(path).unlink(missing_ok=True)
-            finish_task(task_id, "failed", msg)
-            log_action(username, "restore_backup", target_name or row["vm_name"], "failed", msg)
+                for created in new_disk_paths:
+                    Path(created).unlink(missing_ok=True)
+            if isinstance(e, libvirt.libvirtError):
+                raise RuntimeError(describe_exception(e)) from e
             raise
-        finally:
-            stack.close()
-            conn.close()
 
 
 def verify_backup(backup_id, username="system", task_id=None):
@@ -942,7 +1089,8 @@ def verify_backup(backup_id, username="system", task_id=None):
 
 def _verify_backup(backup_id, username="system", task_id=None):
     """Check one backup (checksums of every file, qemu-img check of the images) and record the result. Returns
-    {"verification", "problems"}. A corrupted backup is audited and notified."""
+    {"verification", "problems"}. A corrupted backup is audited and notified. hyperlite-daemon reads the backup
+    (backup.verify)."""
     row = _store().get(backup_id)
     if not row:
         raise RuntimeError("Backup not found")
@@ -952,9 +1100,7 @@ def _verify_backup(backup_id, username="system", task_id=None):
     if own_task:
         task_id = create_task("verify_backup", row["vm_name"], username=username)
     try:
-        status, problems, _count = backup_integrity.verify(
-            row["path"], row["checksum_sha256"], progress=lambda pct: update_task_progress(task_id, pct)
-        )
+        status, problems = _verify_in_daemon(row, task_id, username)
     except Exception as e:
         if own_task:
             finish_task(task_id, "failed", str(e))
@@ -971,6 +1117,37 @@ def _verify_backup(backup_id, username="system", task_id=None):
     else:
         log_action(username, "verify_backup", row["vm_name"], "success", f"backup #{backup_id}")
     return {"verification": status, "problems": problems}
+
+
+def _verify_in_daemon(row, task_id, username, span=100):
+    """(status, problems) of backup_integrity.verify, run by hyperlite-daemon (backup.verify), its progress into the
+    task up to `span` percent."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        found = privileged.run(
+            "backup.verify",
+            user=username,
+            timeout=JOB_TIMEOUT_S,
+            path=row["path"] or "",
+            checksum=row["checksum_sha256"],
+            task_id=task_id,
+            span=span,
+        )
+    except DaemonError as e:
+        raise RuntimeError(e.detail) from None
+    return found["status"], found["problems"]
+
+
+def verify_files(path, checksum, task_id, base=0, span=100):
+    """hyperlite-daemon's part of a verification (backup.verify): backup_integrity.verify on a backup checked_backup
+    accepts. {"status", "problems"}."""
+    checked_backup(path)
+    status, problems, _count = backup_integrity.verify(
+        path, checksum, progress=lambda pct: update_task_progress(task_id, int(base + pct * span / 100))
+    )
+    return {"status": status, "problems": problems}
 
 
 def _verify_due_backup():
@@ -1009,7 +1186,13 @@ def _apply_retention(vm_name, policy):
         if row["id"] not in keep:
             if backup_use.holder(row["id"]):
                 continue  # being restored or read: the next run of the schedule removes it
-            remove_backup_files(row["path"])
+            try:
+                remove_backup_files(row["path"])
+            except RuntimeError as e:
+                # Its files are not only a backup's: kept with its record, the others still go.
+                logger.warning("Retention kept backup #%s of %s: %s", row["id"], vm_name, e)
+                log_action("system", "backup_retention", vm_name, "failed", str(e)[:300])
+                continue
             _store().delete(row["id"])
 
 
