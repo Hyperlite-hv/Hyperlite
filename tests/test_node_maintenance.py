@@ -212,3 +212,30 @@ def test_a_second_drain_of_the_same_node_is_refused_and_a_finished_one_frees_it(
         nodes._draining.discard("local")
     assert c.post("/nodes/local/maintenance", json={"target_node": "n2"}, headers=h).status_code == 202
     assert "local" not in nodes._draining
+
+
+def test_a_spread_drain_sends_each_vm_where_load_balancing_places_it(cluster, monkeypatch):
+    from app.core import drs
+
+    _add_node(cluster["db"], "n3")
+    cluster_conns = {None: source_conn(), "n2": FakeConn(), "n3": FakeConn()}
+    monkeypatch.setattr(nodes, "open_conn", lambda key=None, **_k: cluster_conns[key])
+    asked = []
+
+    def spread(source, names):
+        asked.append(sorted(names))
+        return {"web": "n2", "db": "n3", "twin": None}
+
+    monkeypatch.setattr(drs, "spread", spread)
+    c, h = cluster["client"], cluster["headers"]
+    plan = c.get("/nodes/local/drain-plan", params={"spread": True}, headers=h).json()
+    assert plan["migratable"] == ["db", "web"] and plan["targets"] == {"db": "n3", "web": "n2"}
+    reasons = {b["name"]: b["reason"] for b in plan["not_migratable"]}
+    assert "keeping its rules" in reasons["twin"] and reasons["stopped"].startswith("Stopped")
+    r = c.post("/nodes/local/maintenance", json={"spread": True}, headers=h)
+    assert r.status_code == 202, r.text
+    assert cluster["migrated"] == [(None, "n3", "db"), (None, "n2", "web")]
+    drain = _tasks(cluster["db"], "drain_node")[0]
+    assert drain["status"] == "succeeded"
+    r = c.post("/nodes/n2/maintenance", json={"spread": True, "target_node": "n3"}, headers=h)
+    assert r.status_code == 422 and maintenance.get("n2") is None

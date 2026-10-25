@@ -102,14 +102,40 @@ def plan(src_conn, dst_conn, target_node):
     return {"migratable": migratable, "not_migratable": blocked}
 
 
-def _why_not_migrable(src_conn, domain, dst_conn, target_node):
+def spread_plan(src_conn, targets, conns):
+    """plan() when each VM has a target of its own, chosen by load balancing (docs/design/drs.md, 3.6): `targets`
+    {vm: label, or None when no member can take it}, `conns` {label: connection, or None when unreachable}. Adds
+    "targets": {vm: label} of the migratable VMs."""
+    migratable, blocked, chosen = [], [], {}
+    for domain in sorted(src_conn.listAllDomains(0), key=lambda d: d.name()):
+        name = domain.name()
+        target = targets.get(name)
+        if target is not None and conns.get(target) is None:
+            reason = f"Node '{target}' unreachable: it stays on this node"
+        else:
+            reason = _why_not_migrable(
+                src_conn,
+                domain,
+                conns.get(target),
+                target,
+                nowhere="No member has its memory free while keeping its rules: it stays on this node",
+            )
+        if reason:
+            blocked.append({"name": name, "reason": reason})
+        else:
+            migratable.append(name)
+            chosen[name] = target
+    return {"migratable": migratable, "not_migratable": blocked, "targets": chosen}
+
+
+def _why_not_migrable(src_conn, domain, dst_conn, target_node, nowhere="No target node chosen: it stays on this node"):
     try:
         if not domain.isActive():
             return "Stopped: only running VMs are live-migrated, it stays on this node"
         if iscsi.iscsi_disks_of_domain(domain):
             return "Its disks are iSCSI LUNs, which live migration does not handle yet"
         if dst_conn is None:
-            return "No target node chosen: it stays on this node"
+            return nowhere
         try:
             dst_conn.lookupByName(domain.name())
             return f"A VM with the same name already exists on '{target_node}'"
