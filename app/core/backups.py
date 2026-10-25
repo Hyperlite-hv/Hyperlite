@@ -1239,7 +1239,7 @@ def _next_run(frequency, time, from_time=None):
 
 
 def _hosted_vms():
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return {d.name() for d in conn.listAllDomains()}
     finally:

@@ -16,34 +16,35 @@ LXC_URI = "lxc:///system"
 NO_LXC = "This node has no LXC driver (libvirt-daemon-driver-lxc), so it runs no containers"
 
 
-def _lxc():
-    conn = libvirt.open(LXC_URI)
+def _lxc(readonly=False):
+    conn = libvirt.openReadOnly(LXC_URI) if readonly else libvirt.open(LXC_URI)
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt (LXC) connection")
     return conn
 
 
-def open_lxc_conn():
+def open_lxc_conn(readonly=False):
     """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
     SEPARATE from qemu:///system (same libvirtd daemon, but VM and container
     domains do not share the same list: a qemu:///system connection never
     sees a container, and vice versa). There is no multi-node support for now
     (unlike open_conn): local containers only in this first version. A node without the LXC driver answers 501
-    for a container named by the user, not a 500 with libvirt's error."""
+    for a container named by the user, not a 500 with libvirt's error. `readonly`: libvirt's read-only socket, all the API
+    needs to read (what changes a container goes through hyperlite-daemon's operations)."""
     try:
-        return _lxc()
+        return _lxc(readonly)
     except libvirt.libvirtError as e:
         logger.info("No LXC connection on this node: %s", e)
         raise HTTPException(status_code=501, detail=NO_LXC) from None
 
 
-def open_lxc_conn_if_any():
+def open_lxc_conn_if_any(readonly=False):
     """The LXC connection, or None when this node has no LXC driver (libvirt installed without it, as on a VM-only
     host or a CI runner): it then simply has no containers. What looks for every guest of the node (a network's, a
     shutdown's, the list of containers) goes through this; what acts on a container named by the user uses
     open_lxc_conn."""
     try:
-        return _lxc()
+        return _lxc(readonly)
     except libvirt.libvirtError as e:
         logger.info("No LXC connection on this node, so no containers: %s", e)
         return None
@@ -56,10 +57,11 @@ def open_conn(node_name=None, readonly=False):
     (see app/core/cluster.py) to a registered cluster node. A node the cluster
     sees down is refused at once (node_health.NodeDown, 503), never waited for.
 
-    readonly: another node's connection through hyperlite-daemon's tunnel to its read-only libvirt
-    (app/core/node_tunnel.py), which needs no key here; what changes that node goes through the daemon's operations
-    (`node`). The connection opened with the cluster's key stays for HA and migration until they move
-    (docs/design/privilege-separation.md, section 13, the cluster domain)."""
+    readonly: libvirt's read-only socket on this node, and on another node hyperlite-daemon's tunnel to its read-only
+    libvirt (app/core/node_tunnel.py), which needs no key here. All the API needs to read: what changes a guest goes
+    through the daemon's operations, and once the API runs as www-data (docs/design/privilege-separation.md, 4e),
+    polkit refuses it libvirt's read-write socket. The connection opened with the cluster's key stays for HA and
+    migration until they move (section 13, the cluster domain)."""
     if node_name and node_name != "local":
         from app.core import node_health
         from app.core.cluster import get_node, libvirt_uri_from_here
@@ -74,7 +76,7 @@ def open_conn(node_name=None, readonly=False):
     else:
         uri = LIBVIRT_URI
     try:
-        conn = libvirt.open(uri)
+        conn = libvirt.openReadOnly(uri) if readonly and uri == LIBVIRT_URI else libvirt.open(uri)
     except libvirt.libvirtError as e:
         if uri == LIBVIRT_URI:
             raise
