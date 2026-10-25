@@ -339,8 +339,9 @@ def _check_nic(nic, i):
 
 
 def to_domain(spec, volumes, networks):
-    """The domain XML of a checked specification, written here: `volumes` [(path, "file" or "block")] for its disks
-    in order (the target's new volumes), `networks` [name of a network of this host] for its cards in order."""
+    """The domain XML of a checked specification, written here: `volumes` [(path, "file" or "block", format)] for its
+    disks in order (the target's new volumes, in the format they were made in, whatever the source's was: a raw disk
+    arrives as a qcow2 file in a file pool), `networks` [name of a network of this host] for its cards in order."""
     if len(volumes) != len(spec["disks"]) or len(networks) != len(spec["nics"]):
         raise SpecError("A volume for every disk and a network for every card")
     root = ET.Element("domain", type="kvm")
@@ -362,9 +363,9 @@ def to_domain(spec, volumes, networks):
     devices = ET.SubElement(root, "devices")
     if any(d["bus"] == "scsi" for d in spec["disks"]) or any(c["bus"] == "scsi" for c in spec["cdroms"]):
         ET.SubElement(devices, "controller", type="scsi", index="0", model="virtio-scsi")
-    for disk, (path, kind) in zip(spec["disks"], volumes, strict=True):
+    for disk, (path, kind, fmt) in zip(spec["disks"], volumes, strict=True):
         element = ET.SubElement(devices, "disk", type=kind, device="disk")
-        driver = ET.SubElement(element, "driver", name="qemu", type="raw" if kind == "block" else disk["format"])
+        driver = ET.SubElement(element, "driver", name="qemu", type="raw" if kind == "block" else fmt)
         for attr in ("cache", "discard"):
             if disk[attr]:
                 driver.set(attr, disk[attr])

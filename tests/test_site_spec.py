@@ -10,7 +10,7 @@ import pytest
 from app.core import firmware as fw
 from app.core import site_spec, vm_builder
 
-VOLUMES = [("/var/lib/libvirt/images/web-0.qcow2", "file"), ("/dev/zvol/tank/web-1", "block")]
+VOLUMES = [("/var/lib/libvirt/images/web-0.qcow2", "file", "qcow2"), ("/dev/zvol/tank/web-1", "block", "raw")]
 
 
 def _domain(firmware=fw.BIOS):
@@ -50,7 +50,9 @@ def test_a_vm_goes_and_names_only_the_targets_volumes():
     xml = site_spec.to_domain(checked, VOLUMES, ["prod"])
     assert "/srv/" not in xml and "cputune" not in xml
     out = ET.fromstring(xml)
-    assert [s.get("file") or s.get("dev") for s in out.findall("devices/disk/source")] == [p for p, _ in VOLUMES]
+    assert [s.get("file") or s.get("dev") for s in out.findall("devices/disk/source")] == [p for p, _, _ in VOLUMES]
+    # Each disk as its new volume was made, not as the source's was.
+    assert [d.get("type") for d in out.findall("devices/disk[@device='disk']/driver")] == ["qcow2", "raw"]
     assert out.find("devices/interface/source").get("network") == "prod"
     assert (
         out.findtext("uuid") == spec["uuid"]
