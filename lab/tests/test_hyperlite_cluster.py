@@ -297,6 +297,15 @@ def test_the_scheduler_runs_beside_the_api(cluster):
     assert on(1, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active"
 
 
+def test_the_daemon_makes_the_admin_account_at_its_start(cluster):
+    """docs/design/privilege-separation.md, 4e: hyperlite-daemon made the admin account at its first start, with the
+    password postinst wrote (the cluster fixture signed in with it), and the API made none."""
+    for n in NODES:
+        daemon = on(n, "journalctl", "-u", "hyperlite-daemon", "--no-pager", "-o", "cat")
+        assert "Admin account created: the initial password is in" in daemon, n
+        assert "Admin account created" not in on(n, "journalctl", "-u", "hyperlite", "--no-pager", "-o", "cat"), n
+
+
 def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
     status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])
