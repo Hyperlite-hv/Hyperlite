@@ -234,6 +234,15 @@ def _fresh_inventory():
 
 
 @pytest.fixture(autouse=True)
+def _no_libvirt_error_left():
+    """libvirtError(msg) takes the thread's last libvirt error over `msg`: a real one left by an earlier test of the
+    same worker replaced a fake error's message, and a test reading it failed on and off (found by multi-cluster)."""
+    import libvirt
+
+    libvirt.virResetLastError()
+
+
+@pytest.fixture(autouse=True)
 def _no_vm_claim_left():
     """The claims on VMs and containers (app/core/shared_claims.py) never carry over from one test: a test that replaced
     the thread which releases one (a snapshot's, a backup's) left the VM busy for every later test of its worker, which
