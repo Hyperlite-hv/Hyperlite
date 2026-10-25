@@ -473,6 +473,25 @@ export async function deleteBackupRemote(name) {
 export async function fetchRemoteStores(name) {
   return realList(`/backup-remotes/${encodeURIComponent(name)}/stores`);
 }
+// Other Hyperlite clusters seen from this one (app/core/sites.py): each with its summary, or why it is missing.
+export async function fetchSites() {
+  return realList("/sites");
+}
+export async function searchSites(q) {
+  return realFetch(`/sites/search?q=${encodeURIComponent(q)}`);
+}
+export async function probeSite(address, port) {
+  return realFetch("/sites/probe", { method: "POST", ...jsonBody({ address, port }) });
+}
+export async function createSite(payload) {
+  return realFetch("/sites/remotes", { method: "POST", ...jsonBody(payload) });
+}
+export async function fetchSiteRemotes() {
+  return realList("/sites/remotes");
+}
+export async function deleteSite(name) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
 export async function fetchThisNodeFingerprint() {
   return realFetch("/backup-remotes/this-node");
 }
