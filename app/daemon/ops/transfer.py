@@ -49,14 +49,18 @@ class ExportArgs(VmArgs):
     dev: str = DEV
 
 
-@operation("transfer.describe", VmArgs)
+class DescribeArgs(VmArgs):
+    live: bool = False
+
+
+@operation("transfer.describe", DescribeArgs)
 @_transfer
 def describe(args, conn):
-    """The stopped VM as it would go: {"spec", "left", "allocated"}; refused when it runs, has a snapshot or a device of
-    this host."""
+    """The VM as it would go: {"spec", "left", "allocated", "cpu"}; refused when it has a snapshot or a device of this
+    host, or runs (stopped, for `live`)."""
     from app.core import site_transfer
 
-    return site_transfer.describe(conn, args.vm)
+    return site_transfer.describe(conn, args.vm, args.live)
 
 
 @operation("transfer.export", ExportArgs)

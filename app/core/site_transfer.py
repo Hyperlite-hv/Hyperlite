@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import threading
 import time
@@ -65,12 +66,15 @@ def _disks(root):
     return out
 
 
-def describe(conn, vm):
-    """What the source sends the target first: {"spec", "left", "allocated": {dev: bytes}}, for a stopped VM that has
-    no snapshot and no device of this host."""
+def describe(conn, vm, live=False):
+    """What the source sends the target first: {"spec", "left", "allocated": {dev: bytes}, "cpu"}, for a VM that has
+    no snapshot and no device of this host, stopped (a cold move) or running (`live`: its <cpu>, for the target's
+    check)."""
     domain = _domain(conn, vm)
-    if domain.isActive():
-        raise TransferError("refused", f"{vm} is running: shut it down first")
+    if domain.isActive() and not live:
+        raise TransferError("refused", f"{vm} is running: shut it down first, or move it live")
+    if live and not domain.isActive():
+        raise TransferError("refused", f"{vm} is not running: move it offline")
     if domain.snapshotNum(0):
         raise TransferError("refused", f"{vm} has {domain.snapshotNum(0)} snapshot(s): delete them first")
     xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
@@ -84,7 +88,11 @@ def describe(conn, vm):
         sizes[dev] = (info["virtual-size"], fmt)
         allocated[dev] = int(info.get("actual-size") or info["virtual-size"])
     spec, left = site_spec.from_domain(xml, sizes)
-    return {"spec": spec, "left": left, "allocated": allocated}
+    cpu = root.find("cpu")
+    if live:  # a running VM's TPM state goes in QEMU's migration stream; its NVRAM file is still a fresh one there
+        left = [x for x in left if "fresh TPM" not in x]
+    return {"spec": spec, "left": left, "allocated": allocated,
+            "cpu": ET.tostring(cpu, encoding="unicode") if cpu is not None else None}  # fmt: skip
 
 
 def _image_info(path):
@@ -376,8 +384,9 @@ def define(conn, incoming, networks, start=False, wait_s=120):
 
 
 def abort(conn, incoming):
-    """The incoming VM cancelled: its exports stopped and its volumes removed."""
+    """The incoming VM cancelled: its exports stopped, its volumes removed, a live migration's sockets with them."""
     state = _load(incoming)
+    shutil.rmtree(RUN / incoming, ignore_errors=True)
     with _lock:
         keys = [k for k in _jobs if k[0] == incoming]
     for key in keys:
