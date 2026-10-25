@@ -6,7 +6,6 @@ import os
 import signal
 import subprocess
 import sys
-import threading
 from pathlib import Path
 
 from app import scheduler
@@ -42,6 +41,12 @@ def test_the_api_starts_them_only_without_the_service(monkeypatch):
     assert scheduler.separate()
 
 
+def _stopped_at_once(signum, handler):
+    """signal.signal for a service's main(): its SIGTERM handler is run as soon as it is set."""
+    if signum == signal.SIGTERM:
+        handler(signum, None)
+
+
 def test_the_service_runs_until_systemd_stops_it(monkeypatch):
     from app.scheduler import __main__ as entry
 
@@ -54,15 +59,10 @@ def test_the_service_runs_until_systemd_stops_it(monkeypatch):
     )
     monkeypatch.setattr(scheduler, "start", lambda: ran.append("schedulers"))
     monkeypatch.delenv("HYPERLITE_SERVICE", raising=False)
-    previous = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)
-    timer = threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGTERM))
-    timer.start()
-    try:
-        entry.main()  # returns once SIGTERM came
-    finally:
-        timer.cancel()
-        signal.signal(signal.SIGTERM, previous[0])
-        signal.signal(signal.SIGINT, previous[1])
+    # systemd's stop, once the service has said how it handles it: no real signal, and no timer that a slow start
+    # (a CI runner importing the modules for the first time) outruns, killing the test's own process.
+    monkeypatch.setattr(signal, "signal", _stopped_at_once)
+    entry.main()
     assert ran == ["schema", "tasks", ("lead", False), "schedulers"]
     assert os.environ["HYPERLITE_SERVICE"] == "scheduler"  # its tasks' runner
     monkeypatch.delenv("HYPERLITE_SERVICE")
