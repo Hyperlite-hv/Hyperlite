@@ -383,7 +383,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Consoles: the host shell, a container's shell and terminal, a VM's serial console, terminal, VNC and SPICE displays, opened by the daemon and handed to the API as a file descriptor (`console.*`, `vm.add_console`, `vm.spice_password`) | done |
 | The automation jobs' steps (`app/core/jobs.py`): a command as root on the host, or over SSH with the automation key on a VM whose address and account the daemon reads (`job.step`, `job.cancel`) | done |
 | Backups, part 1a: the directory backups and the exports (`backup.run`, `backup.restore`, `backup.verify`, `backup.delete`, `vm.export`) | next |
-| Backups, part 1b: the replication's points and the site recovery; part 2: the backup stores; part 3: the file restore; part 4: the containers' archives | then |
+| Backups, part 1b: the replication's points (`replication.point`); the site recovery reads through a read-only connection and restores with `backup.restore` | next |
+| Backups, part 2: the backup stores; part 3: the file restore; part 4: the containers' archives | then |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -573,7 +574,7 @@ sizes, the checksums) and the API records it.
 | Part | What moves | Operations |
 |---|---|---|
 | 1a | The directory backups (`app/core/backups.py`: cold copy, live copy through an external snapshot or libvirt's backup API for a replicated VM, the firmware state, the manifest; restore over the VM or as a new VM; verification; deletion) and the exports (`app/core/vm_export.py`) | `backup.run`, `backup.restore`, `backup.verify`, `backup.delete`, `vm.export` |
-| 1b | The replication's points and the site recovery (`app/core/replication.py`, `site_recovery.py`) | `replication.point`, `site.recover` |
+| 1b | The replication's points (`app/core/replication.py`); the site recovery (`site_recovery.py`) reads the other site's directories and restores with part 1a's operation | `replication.point` |
 | 2 | The backup stores (`backup_store_vm`, `backup_stores`, `backup_store_sync`, the keys and the remotes' tokens under `/etc/hyperlite/priv`) | `store.backup`, `store.restore`, `store.gc`, `store.sync`, `store.create`, `store.unlock` |
 | 3 | The file restore (`file_restore.py`): a backup's disk mounted by the daemon, a file handed to the API as a descriptor | `restore.open`, `restore.list`, `restore.export`, `restore.close` |
 | 4 | The containers' archives (`container_builder`'s tar archives) | `container.archive`, `container.restore` |
