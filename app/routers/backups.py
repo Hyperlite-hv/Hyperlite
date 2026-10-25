@@ -644,7 +644,10 @@ def this_node_certificate(user: dict = Depends(require_role("admin"))):
     """What another cluster pins to copy this one's stores: this node's HTTPS certificate fingerprint."""
     from app.core import peer_https
 
-    return {"fingerprint": peer_https.own_fingerprint()}
+    try:
+        return {"fingerprint": peer_https.own_fingerprint()}
+    except (OSError, ValueError):  # no certificate of its own (a node served over plain HTTP behind a proxy)
+        return {"fingerprint": None}
 
 
 @router.post("/backup-remotes/probe")
@@ -714,3 +717,34 @@ def unlock_store(name: str, payload: StoreUnlock, user: dict = Depends(require_r
         raise _store_error(e) from None
     log_action(user["username"], "unlock_backup_store", name, "success")
     return backup_stores.describe(row)
+
+
+class StoreImport(BaseModel):
+    store: str = Field(description="The backup store to copy the backup into")
+
+
+@router.post("/backups/{backup_id}/import", status_code=202)
+def import_backup_into_store(
+    backup_id: int, payload: StoreImport, user: dict = Depends(require_role("admin")), _: None = Depends(_on_holder)
+):
+    """Copy a backup of today's format into a backup store, in the background (a task); the backup stays as it is."""
+    from app.core.backups import import_into_store
+
+    _store_for(payload.store, None)
+    row = backup_service.find(backup_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    if row.get("store"):
+        raise HTTPException(status_code=409, detail="This backup is already in a backup store")
+    task_id = create_task("import_backup_store", row["vm_name"], node=None, username=user["username"])
+
+    def job():
+        try:
+            import_into_store(backup_id, payload.store, user["username"], task_id)
+        except Exception as e:
+            finish_task(task_id, "failed", getattr(e, "message", None) or str(e))
+            return
+        finish_task(task_id, "succeeded")
+
+    threading.Thread(target=job, daemon=True).start()
+    return {"task_id": task_id}

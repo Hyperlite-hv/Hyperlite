@@ -10,7 +10,7 @@ Two modes:
     VM, the frozen file is copied, then blockCommit + pivot merge the overlay
     back into the current disk and remove the snapshot. Snapshots themselves
     avoid this mechanism because of libvirt/QEMU's restore limitation on
-    external snapshots, purpose that limit does not apply here: the overlay is never
+    external snapshots, but that limit does not apply here: the overlay is never
     restored directly, it is only used as a transient consistency point before
     being merged back.
 
@@ -233,7 +233,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
 
     overlay_paths = {}
     disk_xml_parts = []
-    # A disk that BELONGS to the VM purpose is absent from `disks` (a partial export, see
+    # A disk that BELONGS to the VM but is absent from `disks` (a partial export, see
     # app/core/vm_export.py) must remain explicitly excluded (snapshot='no'):
     # otherwise libvirt still applies its default (internal) snapshot behaviour to
     # it, which would never be cleaned up since the merge loop below only walks
@@ -274,7 +274,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
         failures = _merge_overlays_back(domain, vm_name, disks, overlay_paths, snap)
         if failures and not copy_failed:
             raise RuntimeError(
-                "The backup copy succeeded purpose merging the temporary overlay back failed ("
+                "The backup copy succeeded but merging the temporary overlay back failed ("
                 + "; ".join(failures)
                 + "): the VM still runs on it, and it was kept. Check the VM's disk chain before stopping it."
             )
@@ -1088,3 +1088,61 @@ def start_backup_scheduler():
     thread = threading.Thread(target=_scheduler_loop, daemon=True)
     thread.start()
     return thread
+
+
+def import_into_store(backup_id, store_name, username="system", task_id=None):
+    """Copy a backup of today's format into a backup store (docs/design/backup-store.md, step 4): a new entry of the
+    catalogue, the backup itself left as it is (removing it stays a choice of its own). Returns the new entry's id."""
+    from app.core import backup_store_vm, backup_stores
+
+    row = _store().get(backup_id)
+    if not row:
+        raise RuntimeError("Backup not found")
+    if row.get("store"):
+        raise RuntimeError("This backup is already in a backup store")
+    if row["status"] != "succeeded":
+        raise RuntimeError("Only a finished backup can be imported")
+    own_task = task_id is None
+    if own_task:
+        task_id = create_task("import_backup_store", row["vm_name"], node=None, username=username)
+    with backup_use.reading(backup_id, "an import into a backup store"):
+        try:
+            store = backup_stores.open_store(store_name)
+            vm_uuid = _vm_uuid(row["vm_name"])
+            directory = backup_store_vm.import_directory_backup(
+                row["path"], row["created_at"], row["vm_name"], store, vm_uuid,
+                progress=lambda pct: update_task_progress(task_id, pct),
+            )  # fmt: skip
+            manifest = json.loads((directory / "manifest.json").read_text())
+            size = sum(d["size"] for d in manifest["disks"].values())
+            existing = _store().find_by_path(str(directory))
+            new_id = existing["id"] if existing else _store().create(
+                row["vm_name"], row["job_id"], str(directory), row["mode"], row["created_at"], task_id, store=store_name
+            )  # fmt: skip
+            if not existing:
+                _store().mark_done(new_id, size, None)
+        except Exception as e:
+            msg = getattr(e, "message", None) or str(e)
+            if own_task:
+                finish_task(task_id, "failed", msg)
+            log_action(username, "import_backup_store", row["vm_name"], "failed", f"#{backup_id}: {msg}"[:300])
+            raise
+    if own_task:
+        finish_task(task_id, "succeeded")
+    log_action(
+        username, "import_backup_store", row["vm_name"], "success", f"#{backup_id} into {store_name} as #{new_id}"
+    )
+    return new_id
+
+
+def _vm_uuid(vm_name):
+    """The VM's UUID when it is defined here, else one derived from its name: a store keeps a VM's backups together
+    by its UUID."""
+    try:
+        conn = open_conn()
+        try:
+            return conn.lookupByName(vm_name).UUIDString()
+        finally:
+            conn.close()
+    except libvirt.libvirtError:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"hyperlite-vm:{vm_name}"))

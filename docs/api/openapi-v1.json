@@ -3433,6 +3433,20 @@
     "title": "StoreCreate",
     "type": "object"
    },
+   "StoreImport": {
+    "properties": {
+     "store": {
+      "description": "The backup store to copy the backup into",
+      "title": "Store",
+      "type": "string"
+     }
+    },
+    "required": [
+     "store"
+    ],
+    "title": "StoreImport",
+    "type": "object"
+   },
    "StoreSync": {
     "properties": {
      "active": {
@@ -8393,6 +8407,80 @@
     ]
    }
   },
+  "/api/v1/backups/{backup_id}/import": {
+   "post": {
+    "description": "Copy a backup of today's format into a backup store, in the background (a task); the backup stays as it is.",
+    "operationId": "import_backup_into_store_api_v1_backups__backup_id__import_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "backup_id",
+      "required": true,
+      "schema": {
+       "title": "Backup Id",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "on",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "On"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StoreImport"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Import Backup Into Store",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
   "/api/v1/backups/{backup_id}/restore": {
    "post": {
     "operationId": "restore_backup_endpoint_api_v1_backups__backup_id__restore_post",
@@ -12621,7 +12709,7 @@
   },
   "/api/v1/jobs/runs/{run_id}": {
    "get": {
-    "description": "What a run printed is for administrators: the commands run as root on the host or in VMs, and their output\nmay carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,\nas the notification channels show them their name purpose not their configuration.",
+    "description": "What a run printed is for administrators: the commands run as root on the host or in VMs, and their output\nmay carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,\nas the notification channels show them their name but not their configuration.",
     "operationId": "get_job_run_api_v1_jobs_runs__run_id__get",
     "parameters": [
      {
@@ -16268,7 +16356,7 @@
   },
   "/api/v1/storage": {
    "get": {
-    "description": "node: the same convention as GET /vms: list the pools of a registered remote\nnode instead of the local host.\n\nZFS pools are merged into the same list (type='zfs') for a unified display\nin the UI, purpose only when `node` designates the LOCAL host: unlike libvirt\npools (dir/netfs), ZFS management is still single-node (direct `zpool`/`zfs`\ncalls on THIS server, no remote management over SSH; see\napp/core/zfs_storage.py). A ZFS pool of a registered remote node is\ntherefore not visible here for now.",
+    "description": "node: the same convention as GET /vms: list the pools of a registered remote\nnode instead of the local host.\n\nZFS pools are merged into the same list (type='zfs') for a unified display\nin the UI, but only when `node` designates the LOCAL host: unlike libvirt\npools (dir/netfs), ZFS management is still single-node (direct `zpool`/`zfs`\ncalls on THIS server, no remote management over SSH; see\napp/core/zfs_storage.py). A ZFS pool of a registered remote node is\ntherefore not visible here for now.",
     "operationId": "list_pools_api_v1_storage_get",
     "parameters": [
      {
@@ -23583,7 +23671,7 @@
   },
   "/health": {
    "get": {
-    "description": "Answers everyone (the sign-in page reads the environment label before any\nsign-in), purpose host name and software versions only go to a signed-in caller: to\nanyone else they are a precise fingerprint of the host. The update watchdog\n(scripts/update_watchdog.sh) polls from the host itself without a session and\nneeds the running version, so a loopback caller gets that one field.",
+    "description": "Answers everyone (the sign-in page reads the environment label before any\nsign-in), but host name and software versions only go to a signed-in caller: to\nanyone else they are a precise fingerprint of the host. The update watchdog\n(scripts/update_watchdog.sh) polls from the host itself without a session and\nneeds the running version, so a loopback caller gets that one field.",
     "operationId": "health_health_get",
     "responses": {
      "200": {

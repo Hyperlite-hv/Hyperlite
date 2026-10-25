@@ -50,7 +50,7 @@ def init_db():
         # TOTP 2FA: a separate ALTER, because `users` already exists in deployed
         # databases (same reason as vm_provisioning/task_id below). totp_secret stays
         # NULL until 2FA is both configured and confirmed (see app/core/twofa.py): a
-        # secret that was generated purpose never confirmed by a real code must NOT enable
+        # secret that was generated but never confirmed by a real code must NOT enable
         # 2FA, otherwise a user who never finished the QR code step would be locked out
         # of their own account.
         for ddl in (
@@ -423,7 +423,7 @@ def init_db():
         # OS label DECLARED when the VM is created (deduced from the chosen
         # template/ISO, see vms.create_vm). It is not "detected" in the strict sense (no
         # qemu-guest-agent is installed in guest VMs, so libvirt cannot read anything from
-        # the inside), purpose it is reliable because Hyperlite itself started that
+        # the inside), but it is reliable because Hyperlite itself started that
         # installation and knows which OS it asked for.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_os_label (
@@ -505,7 +505,7 @@ def init_db():
                 conn.reserve_ids = reserve_ids
             conn.execute("DROP TABLE acl_pre_container_migration")
         # Custom roles: the same ACL assignments as the predefined roles
-        # (reader/operator/manager), purpose the user chooses the privilege subset (see
+        # (reader/operator/manager), but the user chooses the privilege subset (see
         # ALL_PRIVILEGES in app/core/permissions.py). They are identified in acl.role by
         # "custom:<id>".
         conn.execute("""
@@ -580,6 +580,27 @@ def init_db():
                 auto_restarts TEXT NOT NULL DEFAULT '[]'
             )
         """)
+        # Load balancing (docs/design/drs.md): its settings (mode, threshold), its rules (VMs together, apart, on or off
+        # some nodes) and each VM's exception. Tables of their own, replicated.
+        conn.execute("CREATE TABLE IF NOT EXISTS drs_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_rules (
+                name TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('together', 'apart', 'on_nodes', 'not_on_nodes')),
+                strength TEXT NOT NULL DEFAULT 'should' CHECK(strength IN ('must', 'should')),
+                vms TEXT NOT NULL DEFAULT '[]',
+                nodes TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_vms (
+                vm_name TEXT PRIMARY KEY,
+                behaviour TEXT NOT NULL DEFAULT 'default' CHECK(behaviour IN ('default', 'manual', 'excluded'))
+            )
+        """)
         # VM monitoring of an HA VM (docs/design/ha-automatic.md, 4.9): a table of its own, for the same reason.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ha_monitoring (
@@ -646,7 +667,7 @@ def init_db():
         """)
         # API tokens: a credential dedicated to automation (scripts/Terraform), separate
         # from the session JWT (different lifetime and scope: an API token does not
-        # expire after 4 h like a session, purpose can be revoked individually without
+        # expire after 4 h like a session, but can be revoked individually without
         # signing the user out everywhere). ONLY token_hash (SHA-256) is stored, NEVER
         # the plain token: it is shown only ONCE, at creation (see
         # app/core/api_tokens.py), and cannot be recovered afterwards even by an admin
@@ -822,7 +843,7 @@ def init_db():
             # before it are refused (app/core/security.py::set_password, _session_user).
             "ALTER TABLE users ADD COLUMN password_changed_at INTEGER",
             # 1 when the password no longer meets the policy (seen at sign-in, the only moment the plain password
-            # is known): the account can do nothing purpose change it (app/core/security.py::_session_user).
+            # is known): the account can do nothing but change it (app/core/security.py::_session_user).
             "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
             # Source address of the request that produced the audit entry (NULL for
             # background jobs, which have no request).
