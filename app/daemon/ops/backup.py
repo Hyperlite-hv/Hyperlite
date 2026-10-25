@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.daemon.needs import ANYONE, on_vm
+from app.daemon.needs import ANYONE, on_backup_store, on_vm
 from app.daemon.registry import Args, DaemonError, Handover, operation
 
 VM_NAME = 64
@@ -234,7 +234,7 @@ def store_check(args, ctx):
     _store_job(backup_stores.open_store, args.name)
 
 
-@operation("store.describe", StoreArgs)
+@operation("store.describe", StoreArgs, needs=on_backup_store("backup_store.read"))
 def store_describe(args, ctx):
     """What this node sees of a store: reachable, space, backups, its last garbage collection."""
     from app.core import backup_stores

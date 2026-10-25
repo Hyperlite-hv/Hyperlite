@@ -140,19 +140,34 @@ def proven(proof):
     required)."""
     if not proof:
         return None
-    from app.core import peer_auth
 
     # Checking an API token records its last use, a write of the permissions (app/repositories/daemon_write.py): done
     # here, as the daemon's own, never asked of the daemon again, which would check this proof again, without end.
+    account = proven_account(proof)
+    return account["username"] if account else None
+
+
+def proven_account(proof):
+    """The account a caller's credential proves, as the API resolves it (a users row, or root of a node through
+    hyperlite-admin, which has none, as root@pam on Proxmox VE), or None."""
+    if not proof:
+        return None
+    from app.core import peer_auth, security
+    from app.repositories import registry
+
     running = _running.set("proof")
     try:
         claims = peer_auth.verify(proof)
-        if claims is not None:
-            return claims["sub"]
-        return peer_auth._account(proof)["username"]
+        if claims is None:
+            return peer_auth._account(proof)
+        if claims.get(security.LOCAL_ROOT_CLAIM):
+            return security._local_root(claims)
+        return registry.accounts().sync.get(claims["sub"])
     except (PermissionError, KeyError, TypeError, ValueError):
         return None
-    except Exception:
+    except Exception as e:
+        if getattr(e, "status_code", None) in (401, 403):  # the API's own refusal of a credential
+            return None
         logger.warning("A credential could not be checked", exc_info=True)
         return None
     finally:
