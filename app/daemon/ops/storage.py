@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.core import iscsi, zfs_storage
+from app.daemon.needs import ANYONE, on_storage
 from app.daemon.registry import Args, DaemonError, NoArgs, operation
 
 NAME = 63  # zfs_storage.NAME_RE's own limit
@@ -76,7 +77,7 @@ class VolumeCreateArgs(VolumeArgs):
     size_gb: int = Field(ge=1, le=MAX_GB)
 
 
-@operation("storage.zfs_volume_create", VolumeCreateArgs)
+@operation("storage.zfs_volume_create", VolumeCreateArgs, needs=on_storage("storage.allocate"))
 @_zfs
 def zfs_volume_create(args, ctx):
     _name(args.pool)
@@ -234,7 +235,7 @@ class NodeOnlyArgs(Args):
     node: str | None = Field(None, min_length=1, max_length=63)
 
 
-@operation("storage.ensure_default_pool", NodeOnlyArgs)
+@operation("storage.ensure_default_pool", NodeOnlyArgs, needs=ANYONE)
 @_pools
 def ensure_default_pool(args, ctx):
     """The 'default' pool Hyperlite relies on (libvirt_utils.ensure_default_pool), defined, started and autostarted,
@@ -256,7 +257,7 @@ class LibvirtVolumeCreateArgs(LibvirtVolumeArgs):
     size_gb: int = Field(ge=1, le=MAX_GB)
 
 
-@operation("storage.volume_create", LibvirtVolumeCreateArgs)
+@operation("storage.volume_create", LibvirtVolumeCreateArgs, needs=on_storage("storage.allocate"))
 @_pools
 def volume_create(args, ctx):
     """A qcow2 volume, its definition written here from its checked name and size (storage_pools.volume_create)."""
@@ -279,7 +280,7 @@ def volume_delete(args, ctx):
 # --- Part 2c: what the storage routes read that needs root or a connection that may write ---
 
 
-@operation("storage.pool_refresh", LibvirtPoolArgs)
+@operation("storage.pool_refresh", LibvirtPoolArgs, needs=ANYONE)
 @_pools
 def pool_refresh(args, ctx):
     """libvirt's list of the pool's volumes read again (files written outside libvirt, LUNs that came or went): a
@@ -295,7 +296,7 @@ class VolumeGroupArgs(Args):
     node: str | None = Field(None, min_length=1, max_length=63)  # read there over SSH with the cluster's key
 
 
-@operation("storage.lvm_volumes", VolumeGroupArgs)
+@operation("storage.lvm_volumes", VolumeGroupArgs, needs=ANYONE)
 def lvm_volumes(args, ctx):
     """Every volume of the group, thin ones and thin pools included (lvm_storage.logical_volumes): LVM reads the
     disks, which only root may."""
