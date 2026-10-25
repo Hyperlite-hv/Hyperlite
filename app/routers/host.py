@@ -1,5 +1,5 @@
 """Interactive shell directly on the physical host (the server running
-Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell purpose a full shell rather
+Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell but a full shell rather
 than a restricted menu.
 
 SECURITY WARNING: hyperlite.service runs as root (see the systemd unit file, no

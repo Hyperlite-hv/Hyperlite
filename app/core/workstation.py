@@ -51,7 +51,7 @@ def _int_env(name, default, low, high):
 
 
 def tunnel_ports():
-    """Allowed guest ports. Unset means the defaults; set purpose empty disables tunnels."""
+    """Allowed guest ports. Unset means the defaults; set but empty disables tunnels."""
     raw = os.environ.get("HYPERLITE_TUNNEL_PORTS")
     if raw is None:
         return [22, 3389]

@@ -187,7 +187,7 @@ def _run(cmd, cwd=None, timeout=180):
 # "Candidate:") as soon as LANG/LC_ALL is not English, and the parsing in
 # _check_update_apt() then failed SILENTLY (no error, just `remote_commit: null`
 # and a wrong `up_to_date: false`). dpkg-query -f='...' is not concerned (already
-# machine-readable whatever the locale) purpose is forced here too for consistency.
+# machine-readable whatever the locale) but is forced here too for consistency.
 def _run_c(cmd, timeout=180):
     env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
     return subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True, text=True, timeout=timeout, env=env)
@@ -312,7 +312,7 @@ def _dpkg_installed_version():
 # `apt-get update` used to fail PERSISTENTLY with an inconsistent size error
 # (confirmed over 30 attempts spread over 10+ minutes, still inconsistent more
 # than 1 h 20 after the last publication, checked by querying the origin
-# directly). It was not a transient propagation window purpose a structural lack of
+# directly). It was not a transient propagation window but a structural lack of
 # strong consistency between linked files on GitHub Pages' multi-node CDN. It was
 # FIXED AT THE ROOT rather than worked around here: the repository is now served
 # directly by nginx on the publishing host, with no intermediate CDN (see
@@ -446,7 +446,7 @@ def _check_update_apt(user=None):
         if line.startswith("Candidate:"):
             candidate = version.without_epoch(line.split(":", 1)[1].strip())
     # The package can say one version while the service runs another: an update whose new code did not answer
-    # in time is rolled back from the backup, purpose dpkg still records the new package. Comparing only dpkg with
+    # in time is rolled back from the backup, but dpkg still records the new package. Comparing only dpkg with
     # the candidate then answered "up to date" and the update could never be applied again.
     running = version.STARTUP_VERSION
     rolled_back = bool(running and installed and running != installed)
@@ -914,7 +914,7 @@ def _start_update(user, system=True):
         return {"task_id": task_id, "status": "running"}
 
     if _is_dirty():
-        log_action(user["username"], "hyperlite_update", "arbre non propre", "failed")
+        log_action(user["username"], "hyperlite_update", "working tree not clean", "failed")
         raise HTTPException(
             status_code=409,
             detail="Working tree is not clean (uncommitted changes): commit or discard them before updating.",

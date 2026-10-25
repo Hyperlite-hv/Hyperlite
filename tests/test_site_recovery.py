@@ -116,7 +116,7 @@ def test_only_storage_this_node_knows_can_be_scanned(tmp_path, database, monkeyp
     pool = tmp_path / "pool"
     pool.mkdir()
     (tmp_path / "elsewhere").mkdir()
-    (tmp_path / "pool-sibling").mkdir()  # starts with the pool's path, purpose is not under it
+    (tmp_path / "pool-sibling").mkdir()  # starts with the pool's path, but is not under it
 
     class Pool:
         def XMLDesc(self, flags):

@@ -172,7 +172,7 @@ def list_pools(node: str | None = None, user: dict = Depends(get_current_user)):
     node instead of the local host.
 
     ZFS pools are merged into the same list (type='zfs') for a unified display
-    in the UI, purpose only when `node` designates the LOCAL host: unlike libvirt
+    in the UI, but only when `node` designates the LOCAL host: unlike libvirt
     pools (dir/netfs), ZFS management is still single-node (direct `zpool`/`zfs`
     calls on THIS server, no remote management over SSH; see
     app/core/zfs_storage.py). A ZFS pool of a registered remote node is
