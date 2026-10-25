@@ -1,7 +1,7 @@
 # Several clusters and sites from one view (#656)
 
 Status: **accepted (maintainer, 2026-10-25).** Section 2 holds the maintainer's choices.
-Steps 1 (PR #717) and 2 merged.
+Steps 1 (PR #717), 2 (#719), 4 (#728, #731, #732, #734) and 5 (#743 and its follow-up) merged; step 3 waits for #511.
 
 ## 1. Why
 
@@ -141,10 +141,61 @@ delete it there: it is never started by Hyperlite.
 
 ### 9.2 Live (step 5)
 
-The same incoming and the same stream for the disks, while the VM runs: a first copy of every disk, then of the
-blocks written since (a dirty bitmap per disk, as the incremental backups), until what is left is small; then libvirt
-moves the memory and the device state through the same pinned connection (Proxmox's tunnel), the disks' last blocks
-included, and the VM continues on the target. Its own section is written when step 4 is merged.
+Status: **accepted (maintainer, 2026-10-25)**, with **A, the filtering relay** ("as vSphere or Proxmox, choose well":
+Proxmox's tunnel carries a small command set of its own, never a whole access to the target; A is that, in front of
+libvirt). The maintainer's choices of the same day: **as Proxmox VE** (`qm remote-migrate
+--online`: the disks mirrored while the VM runs, then its memory, a pause of about a second at the switch), and a VM
+whose CPU the target cannot run is **refused before anything goes, with the offline move offered** (as vSphere's EVC).
+
+**What the lab showed** (two nested Debian 13 hosts, libvirt 11.3, QEMU 10.0; a running VM with a qcow2 disk):
+
+- libvirt's single-channel mode (`--p2p --tunnelled`) refuses non-shared disks with this QEMU: *"migration of non-shared
+  storage is not supported with tunnelled migration"*.
+- The mode that works is Proxmox's own shape, three Unix sockets carried between the hosts: the target's libvirt
+  (`--p2p` to `qemu+unix:///system?socket=...`), QEMU's migration stream (`--migrateuri unix://...`) and its NBD
+  server for the disks (`--disks-uri unix://...`, `--copy-storage-all`). With them forwarded, the VM moved in 1.2 s,
+  running on the target on the volume given in the destination XML, its disk's content checked there.
+- QEMU binds and opens those sockets itself: they live in `/run/hyperlite/migration/<id>/`, owned by QEMU's user, with
+  one AppArmor line beside the backups' (`scripts/ensure-backup-apparmor.sh` gains `/run/hyperlite/migration/**.sock rw,`).
+
+**The flow**, the cold move's (9.1) where it can be:
+
+1. **Checks** at the source: the VM runs, has no snapshot and no device of its host; the target answers whether its
+   CPU can run the VM's (`POST /sites/incoming/cpu-check`: libvirt's `compareHypervisorCPU` on the target with the
+   VM's CPU definition). Incompatible: refused with why, and the dialog offers the offline move.
+2. **The target prepares** as for a cold move (the specification checked, the volumes made, an incoming id), and
+   keeps the destination XML it will accept (point 4).
+3. **The tunnel**: one pinned HTTPS connection from the source's node to the target's node (`GET
+   /sites/incoming/{id}/tunnel`, upgraded to a WebSocket, as Proxmox's `mtunnel`), with the manage token. It carries
+   three channels, each accepted on a socket of the source's daemon and handed to the target's: `libvirt`, `memory`,
+   `disks`. hyperlite-daemon opens the sockets at both ends (`transfer.tunnel_open`, `transfer.tunnel_close`); the API
+   only carries the bytes, as it carries the disks' streams of a cold move.
+4. **libvirt's migration** at the source (`transfer.live`: `migrateToURI3` with `VIR_MIGRATE_LIVE | PEER2PEER |
+   NON_SHARED_DISK | PERSIST_DEST | UNDEFINE_SOURCE`, the three URIs, the destination XML, the bandwidth limit), its
+   progress in the task, a cancellation that aborts libvirt's job (the VM keeps running at the source).
+5. **After**: the source's records of the VM removed (HA, backup schedule, replication: listed before, as for a cold
+   move), both journals written.
+
+**The one hard point: the target's libvirt.** libvirt's live migration needs the source's libvirt to talk to the
+target's (`p2p`): a raw channel to the target's libvirt socket would give the source cluster root over the target's
+whole libvirt for as long as it is open. Two ways out:
+
+| | What the target's end of the `libvirt` channel does | For | Against |
+|---|---|---|---|
+| **A. A filtering relay (recommended)** | Reads libvirt's RPC framing (a 28-byte header: program, procedure, serial) and lets through only the procedures a migration's destination answers (open, capabilities, `MIGRATE_PREPARE3_PARAMS`, `FINISH3_PARAMS`, close); the destination XML inside `PREPARE` is checked against the incoming (name, UUID, every disk on a volume prepared for it, every card on a network chosen, no device of the host, no `qemu:commandline`), as the cold move checks its specification | libvirt does what it does best, unchanged; the source can do nothing else than this one migration | A parser of libvirt's wire format to keep right across libvirt versions (the procedures are numbered and stable, but it is code of ours on a security boundary) |
+| B. libvirt's own access control | libvirtd's polkit access driver for a dedicated account, allowed only to migrate into this domain | libvirt's own checks | Turning `access_drivers` on changes the whole host's libvirt, and every other client's rules with it; a host setting the package would manage |
+
+Proxmox VE does not meet this question: it drives QEMU itself, its tunnel carries its own small command set. vSphere's
+hosts trust each other through vCenter. **A** keeps Hyperlite's rule that a remote is checked, never trusted.
+
+**Its risks**
+
+| Risk | Mitigation |
+|---|---|
+| The source acts on the target's libvirt beyond the migration | The relay of A: an allowlist of procedures, the destination XML checked against the incoming, the channel closed with the incoming |
+| A link cut during the switch | libvirt's own protocol: until the target confirms, the VM runs at the source; after, at the target. The source's copy is undefined by libvirt only once the target confirmed |
+| A VM that writes faster than the link | QEMU's auto-converge throttles the guest's CPU, as Proxmox; past a time limit the migration is cancelled and the VM keeps running at the source |
+| A guest that loses its address | The cards keep their MAC addresses; a network chosen at the target with another subnet is said in the dialog, as for a cold move |
 
 ### 9.3 hyperlite-daemon
 
