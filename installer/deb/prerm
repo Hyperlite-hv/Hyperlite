@@ -11,5 +11,21 @@ case "$1" in
         # The bridges stay as they are: the unit only sets them again at boot.
         systemctl disable hyperlite-vlan-bridges.service >/dev/null 2>&1 || true
         ;;
+    upgrade)
+        # A return to an older version (the update watchdog, or apt-get install hyperlite=<older>): the permission
+        # tables, in a file of their own since this version (app/core/database.py, ACCESS), go back into the main
+        # database, where a version from before reads them; the next start of a version that has the file moves them
+        # again. Their writers stop first; the update watchdog, or the older package, starts the services again.
+        current="$(dpkg-query -W -f='${Version}' hyperlite 2>/dev/null || true)"
+        if [ -n "${2:-}" ] && [ -n "$current" ] && dpkg --compare-versions "$2" lt "$current" \
+            && [ -x /usr/lib/hyperlite/venv/bin/python3 ]; then
+            systemctl stop hyperlite.service hyperlite-scheduler.service hyperlite-daemon.service >/dev/null 2>&1 || true
+            if ! (cd /usr/lib/hyperlite && venv/bin/python3 -m app.core.database move-back "before-$2"); then
+                # dpkg would go on anyway (the older package's prerm answers failed-upgrade): said loudly instead.
+                echo "hyperlite: WARNING: the permission tables could not be moved back into the database;" >&2
+                echo "hyperlite: version $2 will not find its accounts. They are in /etc/hyperlite/access.db." >&2
+            fi
+        fi
+        ;;
 esac
 exit 0
