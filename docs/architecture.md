@@ -29,7 +29,8 @@ VE's pvescheduler: the scheduled backups (and the backup groups, the stores' cop
 replication, the inactive VMs' automatic deletion, the update check and the start at boot. It is started and restarted
 with the API (`PartOf=`), so both run the same version, and keeps running if the API crashes. Its tasks record it as
 their runner, and the claims on VMs are shared files, so the dashboard lists and cancels its tasks as the API's own.
-A checkout and the test suite run these schedulers in the API (`HYPERLITE_SCHEDULER_SERVICE` unset).
+A checkout and the test suite run these schedulers in the API (`HYPERLITE_SCHEDULER_SERVICE` unset). Its writes to the replicated configuration
+go out through the API's copy loop (`app/repositories/cfs/shadow.py`): while the API is down, they wait in the outbox.
 
 ISO images are per node: a VM boots only from an image in its own host's library (`/var/lib/hyperlite/template/iso`, at the same path on every node). The Library lists every node's images and shares one by copying it through the local host with the cluster SSH key (`app/core/iso_share.py`); a copy lands under a hidden temporary name and is renamed once complete.
 
