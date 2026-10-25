@@ -7,8 +7,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORK="${E2E_WORKDIR:-$(mktemp -d /tmp/hyperlite-e2e.XXXXXX)}"
 export HYPERLITE_DB_PATH="$WORK/hyperlite.db"
 # Its data and keys apart from the machine's own /var/lib/hyperlite and /etc/hyperlite (app/core/paths.py).
-export HYPERLITE_VAR_DIR="${E2E_VAR_DIR:-$WORK/var}" HYPERLITE_ETC_DIR="$WORK/etc"
-mkdir -p "$HYPERLITE_VAR_DIR" "$HYPERLITE_ETC_DIR"
+export HYPERLITE_VAR_DIR="${E2E_VAR_DIR:-$WORK/var}" HYPERLITE_ETC_DIR="$WORK/etc" HYPERLITE_LOCK_DIR="$WORK/lock"
+mkdir -p "$HYPERLITE_VAR_DIR" "$HYPERLITE_ETC_DIR" "$HYPERLITE_LOCK_DIR"
 # No hyperlite-daemon: sessions are signed by the backend itself (app/core/tickets.py).
 export HYPERLITE_AUTH_SIGNING=local
 # Nor the root operations: run by the backend itself, through the daemon's registry (app/core/privileged.py).
