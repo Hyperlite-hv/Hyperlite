@@ -388,7 +388,7 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Backups, part 1b: the replication's points (`replication.point`); the site recovery reads through a read-only connection and restores with `backup.restore` | next |
 | Backups, part 2: the backup stores (`store.check`, `store.describe`, `store.gc`, `store.make`, `store.unlock`, `store.backup`, `store.import`, `store.sync`) and the remotes (`remote.add`, `remote.stores`): only the daemon opens a store's key or a remote's token, the token sealed with the address and certificate it may be sent to | next |
 | Backups, part 3: the file restore (`restore.open`, `restore.ls`, `restore.export`, `restore.close`, `restore.busy`): the daemon holds the libguestfs sessions on a backup's images and hands an exported file to the API as an open, already unlinked descriptor | next |
-| Backups, part 4: the containers' archives | then |
+| Backups, part 4: the containers' archives (`container.archive`, `container.archive_delete`, `container.archive_restore`): the filesystem the definition names archived, an archive of the containers' backup directory only deleted or unpacked | next |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -581,7 +581,7 @@ sizes, the checksums) and the API records it.
 | 1b | The replication's points (`app/core/replication.py`); the site recovery (`site_recovery.py`) reads the other site's directories and restores with part 1a's operation | `replication.point` |
 | 2 | The backup stores (`backup_store_vm`, `backup_stores`, `backup_store_sync`, `backup_remotes`: the stores' keys and the remotes' tokens, sealed with the cluster's secrets). A remote's token is sealed with the address and the certificate it was given with: the records being the API's, an address changed there never receives it. A store's raw reads for another cluster (its export) stay in the API | `store.check`, `store.describe`, `store.gc`, `store.make`, `store.unlock`, `store.backup`, `store.import`, `store.sync`, `remote.add`, `remote.stores` (the restore from a store is part 1a's `backup.restore`) |
 | 3 | The file restore (`file_restore.py`): the libguestfs sessions held by the daemon on a backup's images, a file handed to the API as a descriptor | `restore.open`, `restore.ls`, `restore.export`, `restore.close`, `restore.busy` |
-| 4 | The containers' archives (`container_builder`'s tar archives) | `container.archive`, `container.restore` |
+| 4 | The containers' archives (`container_builder`'s tar archives): the filesystem the definition names, an archive of the containers' backup directory only | `container.archive`, `container.archive_delete`, `container.archive_restore` |
 
 backups-store builds its step 5 (the file restore from a store, the read-only export of a backup for #513's live
 restore) on these operations: the export is a Unix socket under `/run/hyperlite/backup/` that QEMU's AppArmor

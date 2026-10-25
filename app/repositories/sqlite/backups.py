@@ -354,6 +354,9 @@ class SqliteBackupStore:
             (container_name, path, created_at, task_id),
         ).lastrowid
 
+    def set_container_backup_path(self, backup_id, path):
+        _write("UPDATE container_backups SET path = ? WHERE id = ?", (path, backup_id))
+
     def container_backup_done(self, backup_id, size):
         _write("UPDATE container_backups SET status = 'succeeded', size_bytes = ? WHERE id = ?", (size, backup_id))
 
