@@ -39,7 +39,9 @@ def run_fds(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
     import app.daemon.ops  # noqa: F401  (registers the operations)
     from app.daemon.registry import Context, dispatch
 
-    answer = dispatch({"op": op, "args": args}, Context(user, None, os.getpid(), os.getuid()))
+    answer = dispatch(
+        {"op": op, "args": args}, Context(user, None, os.getpid(), os.getuid(), proof=daemon_client._proof())
+    )
     if not answer.get("ok"):
         raise DaemonError(answer.get("error") or "failed", answer.get("detail") or f"{op} failed")
     return answer.get("result"), answer.get("fds") or []
