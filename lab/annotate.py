@@ -17,6 +17,21 @@ def escape(text):
     return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
+FAILURES = 6  # GitHub keeps ten error annotations per step: the rest for the tracebacks and the nodes' tails
+
+
+def _failures(lines):
+    """[(test, its "E" lines)] from pytest's failure sections (`____ test_name ____`), in order."""
+    found, current = [], None
+    for line in lines:
+        if line.startswith("_____") and line.rstrip("_ ").strip("_ "):
+            current = (line.strip("_ "), [])
+            found.append(current)
+        elif current is not None and line.startswith("E "):
+            current[1].append(line)
+    return [(test, why) for test, why in found if why]
+
+
 def summary(directory):
     """pytest's short summary (`-rA`: one line per test, a skip with its reason) and its count, as one notice."""
     log = Path(directory) / "pytest.log"
@@ -47,10 +62,10 @@ def main(directory):
         lines = log.read_text(errors="replace").splitlines()
         title = escape(str(log.relative_to(root))).replace(",", "%2C").replace(":", "%3A")
         if log.name == "pytest.log":
-            # Which tests failed and why, whatever the length of their tracebacks.
-            why = [line for line in lines if line.startswith(("E ", "FAILED", "ERROR", "_____"))][:80]
-            if why:
-                print(f"::error title=pytest failures::{escape(chr(10).join(why)[:LIMIT])}")
+            # Which tests failed and why, whatever the length of their tracebacks: each failed test its own
+            # annotation, so a long one (a Terraform plan) never hides the next one's reason.
+            for test, why in _failures(lines)[:FAILURES]:
+                print(f"::error title=pytest failure {escape(test)}::{escape(chr(10).join(why)[:LIMIT])}")
         # A traceback earlier in the log: its start says where, the tail only what followed.
         first = next((i for i, line in enumerate(lines) if "Traceback" in line), None)
         if first is not None and first < len(lines) - LINES:
