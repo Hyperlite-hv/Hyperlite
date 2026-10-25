@@ -220,3 +220,45 @@ def log(args, ctx):
 
     with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
         return container_ops.log(qemu, conn, args.container, args.lines)
+
+
+# --- The containers' archives (the backups domain, part 4) ---
+
+
+@operation("container.archive", ContainerArgs)
+@_container
+def archive(args, ctx):
+    """A stopped container's filesystem archived into the containers' backup directory: {"path", "size"}."""
+    from app.core import container_ops, libvirt_utils
+
+    with libvirt_utils.local_conn() as qemu, libvirt_utils.local_lxc_conn() as conn:
+        return container_ops.archive(qemu, conn, args.container)
+
+
+class ArchiveArgs(Args):
+    path: str = Field(min_length=1, max_length=4096)
+
+
+@operation("container.archive_delete", ArchiveArgs)
+@_container
+def archive_delete(args, ctx):
+    """An archive of the containers' backup directory removed: {"deleted"}."""
+    from app.core import container_ops
+
+    return {"deleted": container_ops.archive_delete(args.path)}
+
+
+class ArchiveRestoreArgs(ArchiveArgs):
+    container: str = Field(min_length=1, max_length=NAME)
+    original: str = Field(min_length=1, max_length=NAME)
+
+
+@operation("container.archive_restore", ArchiveRestoreArgs)
+@_container
+def archive_restore(args, ctx):
+    """An archive unpacked and defined as the container `container`: {"mac", "ip", "network"}."""
+    from app.core import container_ops, libvirt_utils
+
+    container_ops.archive_path(args.path)  # before anything is opened
+    with libvirt_utils.local_lxc_conn() as conn:
+        return container_ops.archive_restore(conn, args.path, args.container, args.original)

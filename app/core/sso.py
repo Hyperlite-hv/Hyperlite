@@ -35,7 +35,6 @@ import jwt
 
 from app.core import secrets_crypto
 from app.core.http_safety import require_http_url
-from app.core.security import hash_password
 
 STATE_TTL_S = 600  # 10 min: enough time to authenticate at the IdP, no more
 HANDOFF_TTL_S = 60  # from the callback to the dashboard asking for its session: a redirect, a page load
@@ -272,7 +271,7 @@ def provision_user(username, role, subject=None):
     before this was recorded are bound to the first subject that signs in to them."""
     from app.repositories.sqlite import identity
 
-    outcome, row = _store().provision_sso_user(username, role, subject, lambda: hash_password(secrets.token_hex(32)))
+    outcome, row = _store().provision_sso_user(username, role, subject)
     if outcome == identity.LOCAL_ACCOUNT:
         raise LocalAccountConflict(row["username"])
     if outcome == identity.OTHER_SUBJECT:

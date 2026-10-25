@@ -1,7 +1,8 @@
 [Unit]
 Description=Hyperlite API (FastAPI + libvirt)
-After=network-online.target libvirtd.service
-Wants=network-online.target
+# hyperlite-daemon first, as pveproxy comes after pvedaemon: the API writes the accounts through it (step 4b).
+After=network-online.target libvirtd.service hyperlite-daemon.service
+Wants=network-online.target hyperlite-daemon.service
 Requires=libvirtd.service
 
 [Service]

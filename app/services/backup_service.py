@@ -1,8 +1,6 @@
 """Backups as the API manages them: the catalogue of VM backups, their schedules, deletion, and container backups.
 Running, verifying and restoring backups stays in app/core/backups.py (long operations in threads)."""
 
-from pathlib import Path
-
 from app.core import backup_use
 from app.repositories import registry
 
@@ -93,9 +91,13 @@ def get_container_backup(backup_id):
 
 def delete_container_backup(backup_id):
     """Remove the archive and its catalogue entry; returns the entry, None when unknown."""
+    from app.core import privileged
+
     store = registry.backups().sync
     row = store.get_container_backup(backup_id)
     if row:
-        Path(row["path"]).unlink(missing_ok=True)
+        if row["path"]:
+            # hyperlite-daemon removes it, an archive of the containers' backup directory only.
+            privileged.run("container.archive_delete", path=row["path"])
         store.delete_container_backup(backup_id)
     return row

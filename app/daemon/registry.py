@@ -1,5 +1,6 @@
 """The fixed list of operations hyperlite-daemon runs, and how one request is checked and dispatched."""
 
+import contextvars
 import logging
 from dataclasses import dataclass
 
@@ -68,6 +69,14 @@ class Context:
 
 OPERATIONS = {}
 
+# Set while an operation runs: the code it calls is the daemon's, here or in process (app/repositories/daemon_write.py).
+_running = contextvars.ContextVar("hyperlite_daemon_operation", default=None)
+
+
+def running_here():
+    """Whether this code runs inside one of the daemon's operations."""
+    return _running.get() is not None
+
 
 def operation(name, args=NoArgs):
     """Register a function as the operation `name`, its arguments checked against `args` before it runs."""
@@ -95,6 +104,7 @@ def dispatch(request, ctx):
     except ValidationError as e:
         fields = ", ".join(".".join(str(p) for p in err["loc"]) or "?" for err in e.errors())
         return _error("invalid_arguments", f"Invalid arguments for {op}: {fields}")
+    running = _running.set(op)
     try:
         result = fn(args, ctx)
     except DaemonError as e:
@@ -103,6 +113,8 @@ def dispatch(request, ctx):
     except Exception:
         logger.exception("%s by %s failed", op, ctx.user or "?")
         return _error("failed", f"{op} failed (details in the daemon's log)")
+    finally:
+        _running.reset(running)
     logger.info("%s by %s (pid %d)%s", op, ctx.user or "?", ctx.peer_pid, _proven_note(ctx))
     if isinstance(result, Handover):
         return {"ok": True, "result": result.result, "fds": list(result.fds)}
