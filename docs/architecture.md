@@ -32,6 +32,13 @@ their runner, and the claims on VMs are shared files, so the dashboard lists and
 A checkout and the test suite run these schedulers in the API (`HYPERLITE_SCHEDULER_SERVICE` unset). Its writes to the replicated configuration
 go out through the API's copy loop (`app/repositories/cfs/shadow.py`): while the API is down, they wait in the outbox.
 
+**hyperlite-ha-lrm** and **hyperlite-ha-crm** (`app/ha_services/`) run HA as Proxmox VE's pve-ha-lrm and pve-ha-crm.
+The LRM, on every node, feeds the watchdog, watches its own HA VMs, sends the node's heartbeat and carries out the
+load-balancing moves asked of it; the CRM, active on the leader, recovers a lost member's HA VMs and evaluates load
+balancing, and publishes what the API's pages show (`app/core/service_state.py`). A hang of the CRM never stops the
+watchdog's feeding; a dead LRM stops both its feeding and the heartbeat, so the node resets before its VMs restart
+elsewhere.
+
 ISO images are per node: a VM boots only from an image in its own host's library (`/var/lib/hyperlite/template/iso`, at the same path on every node). The Library lists every node's images and shares one by copying it through the local host with the cluster SSH key (`app/core/iso_share.py`); a copy lands under a hidden temporary name and is renamed once complete.
 
 ## Backend (`app/`)

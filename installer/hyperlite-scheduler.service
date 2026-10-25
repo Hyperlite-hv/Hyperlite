@@ -20,6 +20,7 @@ Environment=TMPDIR=/var/lib/hyperlite/tmp
 # Its tasks' runner (app/core/tasks.py); the schedulers run here, not in the API.
 Environment=HYPERLITE_SERVICE=scheduler
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
+Environment=HYPERLITE_HA_SERVICE=1
 ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
 ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.scheduler
 TimeoutStopSec=20
