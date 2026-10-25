@@ -139,9 +139,10 @@ def test_without_the_daemon_the_firewall_route_says_so(client, auth_headers, mon
         pass
 
     monkeypatch.setattr(network, "open_conn", lambda *a, **k: ApiConn())
+    headers = auth_headers("ana", "admin")  # signed in first: the sign-in is the daemon's too
     monkeypatch.delenv(privileged.INPROCESS_ENV)
     monkeypatch.setenv("HYPERLITE_DAEMON_SOCKET", str(tmp_path / "none.sock"))
-    r = client.put("/networks/lan/firewall", json=RULES, headers=auth_headers("ana", "admin"))
+    r = client.put("/networks/lan/firewall", json=RULES, headers=headers)
     assert r.status_code == 503 and "not running" in r.json()["detail"]
     assert network_firewall.get_network_firewall("lan")["rules"] == []
 

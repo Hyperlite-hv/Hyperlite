@@ -675,3 +675,37 @@ process:
 - **A task's cancellation** (`tasks.register_cancel`): the API cancels a copy its own thread runs. A task the
   scheduler runs is cancelled through the daemon instead, which forwards the request to the scheduler's own socket,
   as Proxmox VE stops a task by its UPID wherever it runs.
+
+### 14.1 4b in detail: the permissions written by the daemon only (2026-10-25)
+
+Agreed with cfs-files on #298: the store stays in hyperlite-cfs, our pmxcfs. `users`, `api_tokens` and
+`webauthn_credentials` (under `priv/`) are Proxmox VE's `priv/shadow.cfg` and `token.cfg`; `groups`, `group_members`,
+`custom_roles`, `acl`, `pools`, `pool_members` and `revoked_sessions` are its `user.cfg`. #525 only adds a read-only
+file view of the same tree, so nothing 4b writes moves when it lands.
+
+**Measured on test**: every write to these tables is in three repositories (`app/repositories/sqlite/accounts.py`,
+`identity.py`, `access.py`), 39 methods, called from the account service, `permissions.py`, the API tokens, the
+security keys, the second factor, the sign-out, LDAP and SSO. Sign-in already runs in the daemon (section 12).
+
+**The seam is the repository**, as pvedaemon is the only writer of `user.cfg` whatever the API path:
+
+- Each writing method of those repositories is marked `@daemon_write("access.<method>")`. In the API, it becomes a
+  call to hyperlite-daemon with the method's arguments; in the daemon (or in an operation run in process: the test
+  suite, the e2e backend), it runs its SQL. No caller changes, and a new writing method without the mark is caught
+  by a test that scans the repositories' SQL.
+- Each operation has its own argument model in `app/daemon/ops/access.py`: names, ids and roles with their limits,
+  never SQL or a path. 4d adds each one's `needs` (`User.Modify`, `Permissions.Modify` on the ACL's path, as Proxmox
+  VE's `/access` methods).
+- **What needs a secret moves to the daemon itself**, since the API loses the node's keys in 4e:
+  - a second factor's secret is made, sealed and stored by the daemon (`access.totp_start`, which answers the secret
+    once for the QR code), and enabled by the daemon only after it checks a code (`access.totp_enable`);
+  - an account provisioned at an LDAP or SSO sign-in gets its random password hash from the daemon
+    (`access.provision_ldap`, `access.provision_sso`), as the repository took a function to call.
+- What stays in the API: the sign-in's own state (challenges, SSO states and hand-offs, failure counters), which are
+  not configuration and not replicated, and the reads.
+
+**Left to 4e**, which makes this hold against a compromised API rather than only in the code: these tables in a
+database file the API opens read-only (`ATTACH ... mode=ro`), written by root, and the copy of another member's rows
+into SQLite (`app/repositories/cfs/inbound.py`), done by root. The volatile columns (`last_used_at`, `last_login_at`,
+`used_at`, `sign_count`, `totp_last_step`) go through the daemon from 4b like the rest, so the file needs no
+exception.
