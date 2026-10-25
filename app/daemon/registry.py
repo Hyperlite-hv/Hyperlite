@@ -78,13 +78,19 @@ def running_here():
     return _running.get() is not None
 
 
-def operation(name, args=NoArgs):
-    """Register a function as the operation `name`, its arguments checked against `args` before it runs."""
+NEEDS = {}  # operation -> what it needs of the person who asks (app/daemon/needs.py); an administrator by default
+
+
+def operation(name, args=NoArgs, needs=None):
+    """Register a function as the operation `name`, its arguments checked against `args` before it runs, and its
+    caller against `needs` (app/daemon/needs.py: an administrator unless it says otherwise)."""
 
     def register(fn):
         if name in OPERATIONS:
             raise ValueError(f"operation {name} registered twice")
         OPERATIONS[name] = (args, fn)
+        if needs is not None:
+            NEEDS[name] = needs
         return fn
 
     return register
@@ -104,6 +110,13 @@ def dispatch(request, ctx):
     except ValidationError as e:
         fields = ", ".join(".".join(str(p) for p in err["loc"]) or "?" for err in e.errors())
         return _error("invalid_arguments", f"Invalid arguments for {op}: {fields}")
+    from app.daemon import needs
+
+    try:
+        needs.check(op, NEEDS.get(op, needs.ADMIN), ctx, args)
+    except DaemonError as e:
+        logger.warning("%s by %s refused: %s", op, ctx.user or "?", e.detail)
+        return _error(e.kind, e.detail)
     running = _running.set(op)
     try:
         result = fn(args, ctx)
