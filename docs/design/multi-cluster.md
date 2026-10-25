@@ -1,6 +1,6 @@
 # Several clusters and sites from one view (#656)
 
-Status: **proposal** (2026-10-25). Section 2 holds the maintainer's choices; no code before the design is accepted.
+Status: **accepted (maintainer, 2026-10-25).** Section 2 holds the maintainer's choices.
 
 ## 1. Why
 
