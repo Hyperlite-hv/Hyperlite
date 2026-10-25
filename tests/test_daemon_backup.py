@@ -109,3 +109,20 @@ def test_a_backup_whose_directory_holds_other_files_keeps_its_record(client, aut
     answer = client.delete(f"/backups/{backup_id}?confirm=true", headers=auth_headers("root"))
     assert answer.status_code == 409 and "notes.txt" in answer.json()["detail"]
     assert store.get(backup_id) is not None and (d / "notes.txt").exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("previous", "../../etc"), ("chain", "x/y"), ("checkpoint", "hl-../x"), ("checkpoint", "anything")],
+)
+def test_a_replication_point_takes_the_chains_names_never_a_path(target, field, value):
+    """The chain's state is the API's record: a point and a checkpoint are names of make_point's own form."""
+    with pytest.raises(DaemonError) as e:
+        privileged.run("replication.point", vm="web", target=str(target), **{field: value})
+    assert e.value.kind == "refused"
+
+
+def test_a_replication_point_is_never_written_under_a_system_directory():
+    with pytest.raises(DaemonError) as e:
+        privileged.run("replication.point", vm="web", target="/etc/hyperlite")
+    assert e.value.kind == "failed" and "cannot be written" in e.value.detail
