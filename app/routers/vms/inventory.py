@@ -121,7 +121,15 @@ def get_vm(name: str, node: str | None = None, user: dict = Depends(get_current_
         log_action(user["username"], "get_vm", name, "failed", "VM not found")
         conn.close()
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-    result = _domain_summary(domain)
-    conn.close()
+    try:
+        result = _domain_summary(domain)
+    except libvirt.libvirtError as e:
+        # Gone between the lookup and the read: a live migration's end undefines it on the member it leaves.
+        if e.get_error_code() != libvirt.VIR_ERR_NO_DOMAIN:
+            raise
+        log_action(user["username"], "get_vm", name, "failed", "VM not found")
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+    finally:
+        conn.close()
     log_action(user["username"], "get_vm", name, "success")
     return result
