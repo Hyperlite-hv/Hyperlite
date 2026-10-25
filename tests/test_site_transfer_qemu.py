@@ -89,7 +89,8 @@ def test_a_stopped_vm_arrives_identical(conn):
     prepared = _incoming(connection)
     for disk in prepared["disks"]:
         out_fd, size = site_transfer.export(connection, VM, disk["dev"])
-        in_fd = site_transfer.import_disk(prepared["incoming"], disk["dev"])
+        in_fd, in_size = site_transfer.import_disk(prepared["incoming"], disk["dev"])
+        assert in_size == size
         with os.fdopen(out_fd, "rb") as source, os.fdopen(in_fd, "wb") as target:
             sink = site_stream.ImportSink(target)
             chunks = site_stream.encode(site_stream.pieces_from_export(source))

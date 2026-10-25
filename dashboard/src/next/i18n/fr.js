@@ -595,6 +595,7 @@ export default {
   "nav.kubernetes": "Kubernetes",
   "tab.kubernetes": "Kubernetes",
   "task.type.create_k8s_cluster": "Créer un cluster Kubernetes",
+  "task.type.site_move": "Déplacement vers un autre cluster",
   "task.type.delete_k8s_cluster": "Supprimer un cluster Kubernetes",
   "k8s.desc": "Clusters k3s sur des VM Hyperlite : un serveur et des workers, prêts pour kubectl et Helm.",
   "k8s.create": "Créer un cluster",

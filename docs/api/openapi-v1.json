@@ -1804,6 +1804,60 @@
     "title": "HostnameSettings",
     "type": "object"
    },
+   "Incoming": {
+    "properties": {
+     "allocated": {
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Allocated",
+      "type": "array"
+     },
+     "pools": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Pools",
+      "type": "array"
+     },
+     "spec": {
+      "additionalProperties": true,
+      "description": "The VM in Hyperlite's terms (app/core/site_spec.py), checked as a new VM",
+      "title": "Spec",
+      "type": "object"
+     }
+    },
+    "required": [
+     "spec",
+     "pools",
+     "allocated"
+    ],
+    "title": "Incoming",
+    "type": "object"
+   },
+   "IncomingFinish": {
+    "properties": {
+     "networks": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Networks",
+      "type": "array"
+     },
+     "start": {
+      "default": false,
+      "title": "Start",
+      "type": "boolean"
+     }
+    },
+    "title": "IncomingFinish",
+    "type": "object"
+   },
    "InterfaceAttach": {
     "properties": {
      "network": {
@@ -3382,6 +3436,81 @@
      "target_node"
     ],
     "title": "SiteMigrate",
+    "type": "object"
+   },
+   "SiteMove": {
+    "properties": {
+     "limit_mib": {
+      "anyOf": [
+       {
+        "maximum": 100000.0,
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Bandwidth limit, MiB/s",
+      "title": "Limit Mib"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "maxLength": 63,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Its name there; the same by default",
+      "title": "Name"
+     },
+     "networks": {
+      "description": "A network of that node per card",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Networks",
+      "type": "array"
+     },
+     "node": {
+      "description": "The remote node the VM goes to",
+      "maxLength": 63,
+      "minLength": 1,
+      "title": "Node",
+      "type": "string"
+     },
+     "pools": {
+      "description": "A storage pool of that node for each disk",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Pools",
+      "type": "array"
+     },
+     "remote": {
+      "maxLength": 63,
+      "minLength": 1,
+      "title": "Remote",
+      "type": "string"
+     },
+     "start": {
+      "default": false,
+      "title": "Start",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "remote",
+     "node",
+     "pools"
+    ],
+    "title": "SiteMove",
     "type": "object"
    },
    "SiteProbe": {
@@ -16531,6 +16660,290 @@
     "summary": "Site Fingerprints"
    }
   },
+  "/api/v1/sites/incoming": {
+   "post": {
+    "description": "Prepare a VM another cluster sends: its specification checked, a new volume for each disk. {\"incoming\", \"disks\"}.",
+    "operationId": "site_incoming_api_v1_sites_incoming_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Incoming"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Incoming"
+   }
+  },
+  "/api/v1/sites/incoming/{incoming}": {
+   "delete": {
+    "description": "The incoming VM cancelled by the cluster that sent it: its volumes removed.",
+    "operationId": "site_incoming_cancel_api_v1_sites_incoming__incoming__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incoming",
+      "required": true,
+      "schema": {
+       "title": "Incoming",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Incoming Cancel"
+   }
+  },
+  "/api/v1/sites/incoming/{incoming}/disks/{dev}": {
+   "put": {
+    "description": "One disk of an incoming VM, as the stream of app/core/site_stream.py: every frame checked before it is\nwritten; refused whole (422) on the first one that breaks a rule. {\"digest\"}.",
+    "operationId": "site_incoming_disk_api_v1_sites_incoming__incoming__disks__dev__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incoming",
+      "required": true,
+      "schema": {
+       "title": "Incoming",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "dev",
+      "required": true,
+      "schema": {
+       "title": "Dev",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Incoming Disk"
+   }
+  },
+  "/api/v1/sites/incoming/{incoming}/finish": {
+   "post": {
+    "description": "Define the incoming VM once its disks were written, with the networks chosen for its cards.",
+    "operationId": "site_incoming_finish_api_v1_sites_incoming__incoming__finish_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incoming",
+      "required": true,
+      "schema": {
+       "title": "Incoming",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IncomingFinish"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Incoming Finish"
+   }
+  },
+  "/api/v1/sites/outgoing/{vm}": {
+   "get": {
+    "description": "What the move dialog shows: the stopped VM's disks and cards, and what stays behind; a VM that cannot go (it\nruns, has a snapshot or a device of this host) is refused with why.",
+    "operationId": "site_outgoing_api_v1_sites_outgoing__vm__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "vm",
+      "required": true,
+      "schema": {
+       "title": "Vm",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Outgoing"
+   },
+   "post": {
+    "description": "Move the stopped VM to a node of another cluster, as `qm remote-migrate --delete`: a task (202), at the end of\nwhich the VM is defined there and deleted here. Needs the remote's manage token.",
+    "operationId": "site_move_vm_api_v1_sites_outgoing__vm__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "vm",
+      "required": true,
+      "schema": {
+       "title": "Vm",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SiteMove"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Move Vm"
+   }
+  },
   "/api/v1/sites/probe": {
    "post": {
     "description": "The certificate fingerprint an address presents, to be compared with the one its dashboard shows.",
@@ -16987,7 +17400,7 @@
   },
   "/api/v1/sites/{remote}/{what}": {
    "get": {
-    "description": "One remote's VMs, nodes or storage pools, as its own API answers them.",
+    "description": "One remote's VMs, nodes, storage pools or networks (`node`: those of that node), as its own API answers them.",
     "operationId": "site_list_api_v1_sites__remote___what__get",
     "parameters": [
      {
@@ -17006,6 +17419,22 @@
       "schema": {
        "title": "What",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
       }
      }
     ],

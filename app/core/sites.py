@@ -165,7 +165,9 @@ class _Client:
     def __init__(self, endpoint, token):
         self.endpoint, self.token, self._conn = endpoint, token, None
 
-    def json(self, path, method="GET", body=None):
+    def json(self, path, method="GET", body=None, timeout=TIMEOUT_S, stream=None):
+        """The JSON answer of <method> <API>path: `body` sent as JSON, or `stream` (an iterable of bytes) sent
+        chunked, as a disk goes to another cluster; `timeout` for each read and write."""
         import http.client
         import json
 
@@ -184,12 +186,14 @@ class _Client:
             self.close()
             raise SiteError(f"{where} does not answer: {e}", 502) from None
         headers = {"Authorization": f"Bearer {self.token}"}
-        payload = None
+        payload, chunked = None, False
         if body is not None:
             payload, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
+        elif stream is not None:
+            payload, chunked, headers["Content-Type"] = stream, True, "application/octet-stream"
         try:
-            self._conn.sock.settimeout(TIMEOUT_S)
-            self._conn.request(method, API + path, body=payload, headers=headers)
+            self._conn.sock.settimeout(timeout)
+            self._conn.request(method, API + path, body=payload, headers=headers, encode_chunked=chunked)
             response = self._conn.getresponse()
             status, raw = response.status, response.read()
         except (OSError, http.client.HTTPException) as e:
@@ -437,15 +441,18 @@ def overview():
     return [{"name": own["cluster"] or own["node"], "self": True, "reachable": True, "summary": own}, *remotes]
 
 
-LISTS = {"vms": "/vms?cluster=true", "nodes": "/nodes", "storage": "/storage"}  # what a viewer may read
+# What a viewer may read; the storage pools and networks are a node's (?node=, the target of a move).
+LISTS = {"vms": "/vms?cluster=true", "nodes": "/nodes", "storage": "/storage", "networks": "/networks"}
 
 
-def remote_list(remote, what):
-    """One remote's VMs, nodes or storage pools, as its own API answers them."""
+def remote_list(remote, what, node=None):
+    """One remote's VMs, nodes, storage pools or networks (those of its node `node`), as its own API answers them."""
     if what not in LISTS:
         raise SiteError(f"Unknown list: {what}", 404)
     if not _repo().get_remote(remote):
         raise SiteError(f"No remote '{remote}'", 404)
+    if node:
+        return call(remote, LISTS[what], on=node)
     return _cached(remote, LISTS[what])
 
 
