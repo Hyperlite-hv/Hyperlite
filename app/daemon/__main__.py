@@ -34,4 +34,10 @@ if __name__ == "__main__":
 
     _accounts_at_start()
     peer_auth.start_publishing()  # this node's public keys, for the other members (app/core/peer_auth.py)
+    # The copy between SQLite and hyperlite-cfs, both ways: root's, as the permissions' file and the cluster's tree are
+    # (app/daemon/ops/cfs.py).
+    from app.repositories.cfs import inbound, shadow
+
+    shadow.start_shadow_copy()
+    inbound.start_apply_loop()
     serve()
