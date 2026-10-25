@@ -2810,6 +2810,63 @@
     "title": "RecoveryRequest",
     "type": "object"
    },
+   "RemoteCreate": {
+    "properties": {
+     "address": {
+      "title": "Address",
+      "type": "string"
+     },
+     "fingerprint": {
+      "description": "SHA-256 of the remote's HTTPS certificate, as its own dashboard shows it",
+      "title": "Fingerprint",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "port": {
+      "default": 8000,
+      "maximum": 65535.0,
+      "minimum": 1.0,
+      "title": "Port",
+      "type": "integer"
+     },
+     "token": {
+      "description": "An API token of the remote's dedicated account (backup_store.read on its stores)",
+      "title": "Token",
+      "type": "string"
+     }
+    },
+    "required": [
+     "address",
+     "name",
+     "fingerprint",
+     "token"
+    ],
+    "title": "RemoteCreate",
+    "type": "object"
+   },
+   "RemoteProbe": {
+    "properties": {
+     "address": {
+      "title": "Address",
+      "type": "string"
+     },
+     "port": {
+      "default": 8000,
+      "maximum": 65535.0,
+      "minimum": 1.0,
+      "title": "Port",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "address"
+    ],
+    "title": "RemoteProbe",
+    "type": "object"
+   },
    "RemoveRequest": {
     "properties": {
      "confirmation": {
@@ -3376,6 +3433,20 @@
     "title": "StoreCreate",
     "type": "object"
    },
+   "StoreImport": {
+    "properties": {
+     "store": {
+      "description": "The backup store to copy the backup into",
+      "title": "Store",
+      "type": "string"
+     }
+    },
+    "required": [
+     "store"
+    ],
+    "title": "StoreImport",
+    "type": "object"
+   },
    "StoreSync": {
     "properties": {
      "active": {
@@ -3454,6 +3525,20 @@
      "time"
     ],
     "title": "StoreSync",
+    "type": "object"
+   },
+   "StoreUnlock": {
+    "properties": {
+     "key": {
+      "description": "The store key's code, as the source showed it once",
+      "title": "Key",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key"
+    ],
+    "title": "StoreUnlock",
     "type": "object"
    },
    "SyslogSettings": {
@@ -7108,6 +7193,234 @@
     ]
    }
   },
+  "/api/v1/backup-remotes": {
+   "get": {
+    "operationId": "list_remotes_api_v1_backup_remotes_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Remotes",
+    "tags": [
+     "backups"
+    ]
+   },
+   "post": {
+    "description": "Record another cluster once its certificate matches the fingerprint and its token is accepted.",
+    "operationId": "create_remote_api_v1_backup_remotes_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RemoteCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Remote",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-remotes/probe": {
+   "post": {
+    "description": "The certificate fingerprint an address presents, to be compared with the one its dashboard shows.",
+    "operationId": "probe_remote_api_v1_backup_remotes_probe_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RemoteProbe"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Probe Remote",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-remotes/this-node": {
+   "get": {
+    "description": "What another cluster pins to copy this one's stores: this node's HTTPS certificate fingerprint.",
+    "operationId": "this_node_certificate_api_v1_backup_remotes_this_node_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "This Node Certificate",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-remotes/{name}": {
+   "delete": {
+    "operationId": "delete_remote_api_v1_backup_remotes__name__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Remote",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-remotes/{name}/stores": {
+   "get": {
+    "description": "The remote's backup stores, to make a copy of one here.",
+    "operationId": "remote_stores_api_v1_backup_remotes__name__stores_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Remote Stores",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
   "/api/v1/backup-schedules": {
    "get": {
     "description": "Every scheduled backup, so a list page can tell which VMs have none.",
@@ -7545,6 +7858,180 @@
     ]
    }
   },
+  "/api/v1/backup-stores/{name}/export": {
+   "get": {
+    "description": "The store's configuration (its chunks' size and seal, never its key) and its backups' manifests.",
+    "operationId": "export_store_api_v1_backup_stores__name__export_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Export Store",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-stores/{name}/export/backups/{vm_uuid}/{stamp}/{file}": {
+   "get": {
+    "description": "One file of a backup as it is on disk: its manifest, an index, a sealed file.",
+    "operationId": "export_backup_file_api_v1_backup_stores__name__export_backups__vm_uuid___stamp___file__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "vm_uuid",
+      "required": true,
+      "schema": {
+       "title": "Vm Uuid",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "stamp",
+      "required": true,
+      "schema": {
+       "title": "Stamp",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "file",
+      "required": true,
+      "schema": {
+       "title": "File",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Export Backup File",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-stores/{name}/export/chunks/{digest}": {
+   "get": {
+    "description": "One chunk as it is on disk, sealed when the store is encrypted.",
+    "operationId": "export_chunk_api_v1_backup_stores__name__export_chunks__digest__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "digest",
+      "required": true,
+      "schema": {
+       "title": "Digest",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Export Chunk",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
   "/api/v1/backup-stores/{name}/gc": {
    "post": {
     "description": "Free the chunks no backup uses any more, in the background (a large store takes a while).",
@@ -7586,6 +8073,62 @@
      }
     ],
     "summary": "Collect Store Garbage",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backup-stores/{name}/unlock": {
+   "post": {
+    "description": "Give an encrypted copy its key, the day its backups are restored here (it kept none until then).",
+    "operationId": "unlock_store_api_v1_backup_stores__name__unlock_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StoreUnlock"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Unlock Store",
     "tags": [
      "backups"
     ]
@@ -7859,6 +8402,80 @@
      }
     ],
     "summary": "Open Backup Files",
+    "tags": [
+     "backups"
+    ]
+   }
+  },
+  "/api/v1/backups/{backup_id}/import": {
+   "post": {
+    "description": "Copy a backup of today's format into a backup store, in the background (a task); the backup stays as it is.",
+    "operationId": "import_backup_into_store_api_v1_backups__backup_id__import_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "backup_id",
+      "required": true,
+      "schema": {
+       "title": "Backup Id",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "on",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "On"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StoreImport"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Import Backup Into Store",
     "tags": [
      "backups"
     ]

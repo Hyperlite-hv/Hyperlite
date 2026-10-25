@@ -4,6 +4,7 @@ it up in this node's libvirt itself. The routes keep who may ask, the locks, the
 and their answers; another node's VM keeps its own connection until the cluster domain."""
 
 import functools
+import threading
 from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
@@ -13,6 +14,9 @@ from app.daemon.ops.network import FirewallConfig
 from app.daemon.registry import Args, DaemonError, operation
 
 VM_NAME = 64
+# A node registered over SSH only, whose libvirt the daemon opens with the cluster's key (libvirt_utils.node_conn);
+# absent: this node (docs/design/privilege-separation.md, section 13, the cluster domain, part 2).
+NODE = Field(default=None, min_length=1, max_length=63)
 TASK_ID = 64
 
 
@@ -45,6 +49,7 @@ def _domain(conn, vm):
 class PowerArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     action: Literal["start", "shutdown", "stop", "reboot", "reset"]
+    node: str | None = NODE
 
 
 @operation("vm.power", PowerArgs)
@@ -54,7 +59,7 @@ def power(args, ctx):
     plug; reset stops and starts again. Returns {"method"}: "agent" or "acpi" for a shutdown or a reboot."""
     from app.core import guest_agent, libvirt_utils
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         domain = _domain(conn, args.vm)
         running = bool(domain.isActive())
         if args.action == "start":
@@ -77,6 +82,7 @@ def power(args, ctx):
 class AutostartArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     autostart: bool
+    node: str | None = NODE
 
 
 @operation("vm.autostart", AutostartArgs)
@@ -85,12 +91,13 @@ def autostart(args, ctx):
     """libvirt's own autostart flag; Hyperlite's start at boot turns it off for the VMs it starts (app/core/vm_boot.py)."""
     from app.core import libvirt_utils
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         _domain(conn, args.vm).setAutostart(1 if args.autostart else 0)
 
 
 class PreStopArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
 
 
 @operation("vm.pre_stop", PreStopArgs)
@@ -104,8 +111,14 @@ def pre_stop(args, ctx):
 
     from app.core import hookscript, libvirt_utils
 
-    with libvirt_utils.local_conn() as conn:
-        xml = _domain(conn, args.vm).XMLDesc(0)
+    with libvirt_utils.node_conn(args.node) as conn:
+        domain = _domain(conn, args.vm)
+        if args.node:  # run there, from that node's own library, over SSH with the cluster's key
+            try:
+                return hookscript.pre_stop(domain, args.node)
+            except (hookscript.HookError, OSError, ValueError, subprocess.SubprocessError) as e:
+                return {"ok": False, "exit_code": None, "phase": "pre-stop", "output": str(e), "seconds": 0}
+        xml = domain.XMLDesc(0)
     script = hookscript.script_of_domain_xml(ET.fromstring(xml))
     if not script:
         return None
@@ -135,6 +148,7 @@ def _agent_domains(names):
 class AgentArgs(Args):
     vms: list[str] = Field(max_length=4096)
     wait_s: float = Field(0.5, ge=0, le=5)
+    node: str | None = NODE
 
 
 @operation("vm.agent_ipv4", AgentArgs)
@@ -142,10 +156,23 @@ class AgentArgs(Args):
 def agent_ipv4(args, ctx):
     """{uuid: address or None} of the running VMs named, from their guest agents, waiting at most `wait_s` for them
     all: asking an agent needs a connection that may write, which the API will not keep."""
+    import libvirt
+
     from app.core import guest_agent
 
     if any(len(name) > VM_NAME for name in args.vms):
         raise DaemonError("invalid_arguments", "A VM's name is too long")
+    if args.node:  # another node's agents, over its libvirt: the questions end with the call
+        from app.core import libvirt_utils
+
+        with libvirt_utils.node_conn(args.node) as conn:
+            domains = []
+            for name in args.vms:
+                try:
+                    domains.append(conn.lookupByName(name))
+                except libvirt.libvirtError:
+                    continue
+            return guest_agent.ipv4_many(domains, wait=args.wait_s)
     return guest_agent.ipv4_many(_agent_domains(args.vms), wait=args.wait_s)
 
 
@@ -164,7 +191,7 @@ def _definition(fn):
         from app.core import cpu_pinning, libvirt_utils, vm_devices
         from app.core import vm_hardware_opts as opts
 
-        with libvirt_utils.local_conn() as conn:
+        with libvirt_utils.node_conn(getattr(args, "node", None)) as conn:
             domain = _domain(conn, args.vm)
             try:
                 return fn(args, conn, domain)
@@ -478,6 +505,7 @@ def set_firewall(args, conn, domain):
 class HookScriptArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     script: str | None = Field(None, max_length=100)
+    node: str | None = NODE
 
 
 @operation("vm.set_hookscript", HookScriptArgs)
@@ -489,7 +517,7 @@ def set_hookscript(args, conn, domain):
 
     try:
         if args.script:
-            hookscript.check(args.script)
+            hookscript.check_on(args.node, args.script)  # another node's library, checked there
         hookscript.set_script(domain, args.script)
     except hookscript.HookError as e:
         raise DaemonError("refused", str(e)) from e
@@ -498,6 +526,7 @@ def set_hookscript(args, conn, domain):
 class RenameArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
     new_name: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
 
 
 @operation("vm.rename", RenameArgs)
@@ -512,7 +541,7 @@ def rename(args, conn, domain):
     if error:
         raise DaemonError("refused", error)
     try:
-        return {"dropped": vm_rename.rename(conn, domain, args.vm, args.new_name)}
+        return {"dropped": vm_rename.rename(conn, domain, args.vm, args.new_name, args.node)}
     except vm_rename.RenameError as e:
         raise DaemonError(e.kind, e.message) from e
 
@@ -595,6 +624,7 @@ def create(args, ctx):
 
 class DeleteArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
 
 
 @operation("vm.delete", DeleteArgs)
@@ -604,9 +634,9 @@ def delete(args, ctx):
     Hyperlite generated for it and its DHCP reservations (vm_delete.delete). {"kept": {path: reason}}."""
     from app.core import libvirt_utils, vm_delete
 
-    with libvirt_utils.local_conn() as conn:
+    with libvirt_utils.node_conn(args.node) as conn:
         try:
-            return {"kept": vm_delete.delete(conn, args.vm)}
+            return {"kept": vm_delete.delete(conn, args.vm, args.node)}
         except vm_delete.DeleteError as e:
             raise DaemonError(e.kind, e.detail) from e
 
@@ -804,3 +834,81 @@ def lvm_snapshots(args, ctx):
 
     with libvirt_utils.local_conn() as conn:
         return {"snapshots": vm_snapshots.lvm_snapshots(conn, args.vm)}
+
+
+# --- The cluster domain, part 3: migration (app/core/vm_migrate.py) ---
+
+# The migrations running in this process, by task: what vm.migrate_cancel stops; and the source's cleanup of the ones
+# that moved, which vm.migrate_finish runs.
+_migrations = {}
+_finishing = {}
+_migrations_lock = threading.Lock()
+
+
+class MigrateArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    source_node: str | None = NODE
+    # A registered node's name or "local", never a URI: the daemon builds the destination's own.
+    target_node: str = Field(min_length=1, max_length=63, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}$")
+    task_id: str = Field(min_length=1, max_length=64)
+
+
+@operation("vm.migrate", MigrateArgs)
+def migrate(args, ctx):
+    """The running VM moved live to another node, both nodes' libvirt opened here with the cluster's key, its progress
+    written into the task (vm_migrate.migrate). One call that waits; vm.migrate_cancel aborts it. Returns
+    {"shared", "warnings", "checkpoints_dropped"}."""
+    import libvirt
+
+    from app.core import vm_migrate
+    from app.core.error_messages import describe_exception
+
+    aborts = {"abort": None, "cancelled": threading.Event()}
+    with _migrations_lock:
+        if args.task_id in _migrations:
+            raise DaemonError("in_use", "This task already migrates a VM")
+        _migrations[args.task_id] = aborts
+    try:
+        result, finish = vm_migrate.migrate(args.task_id, args.vm, args.source_node, args.target_node, aborts)
+        # Kept here, never asked of the API: what the source keeps until the API has written where the VM is.
+        with _migrations_lock:
+            _finishing[args.task_id] = finish
+        return result
+    except vm_migrate.MigrateError as e:
+        raise DaemonError(e.kind, e.detail) from e
+    except (libvirt.libvirtError, RuntimeError) as e:
+        raise DaemonError("failed", describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)) from e
+    finally:
+        with _migrations_lock:
+            _migrations.pop(args.task_id, None)
+
+
+class MigrateCancelArgs(Args):
+    task_id: str = Field(min_length=1, max_length=64)
+
+
+@operation("vm.migrate_cancel", MigrateCancelArgs)
+def migrate_cancel(args, ctx):
+    """Abort the migration of this task, if one runs: libvirt stops copying and the VM keeps running where it was."""
+    with _migrations_lock:
+        aborts = _migrations.get(args.task_id)
+    if aborts is None:
+        return {"cancelled": False}
+    aborts["cancelled"].set()
+    if aborts["abort"] is not None:
+        aborts["abort"]()
+    return {"cancelled": True}
+
+
+@operation("vm.migrate_finish", MigrateCancelArgs)
+def migrate_finish(args, ctx):
+    """The source of a VM this daemon migrated cleaned up (its addresses, its copied disks), once the API wrote where
+    the VM runs: {"warnings"}. Nothing to do for a task it does not know."""
+    with _migrations_lock:
+        finish = _finishing.pop(args.task_id, None)
+    if finish is None:
+        return {"warnings": []}
+    try:
+        return {"warnings": finish()}
+    except DaemonError as e:  # the source node unreachable now: its leftovers are said, the migration stands
+        return {"warnings": [f"cleaning up the source node: {e.detail}"]}

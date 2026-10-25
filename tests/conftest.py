@@ -277,9 +277,16 @@ def daemon_libvirt(monkeypatch):
     with the fake connection they get. The API's own connection (open_conn) is faked apart."""
     from app.core import libvirt_utils
 
-    def use(conn):
+    def use(conn, nodes=None):
+        """`nodes`: {name: fake} of the nodes registered over SSH only, as the daemon opens them with the cluster's
+        key (libvirt_utils.node_conn); any other node gets `conn` too."""
         monkeypatch.setattr(libvirt_utils, "local_conn", lambda: contextlib.nullcontext(conn))
         monkeypatch.setattr(libvirt_utils, "open_local", lambda: conn)
+        monkeypatch.setattr(
+            libvirt_utils,
+            "node_conn",
+            lambda node=None: contextlib.nullcontext((nodes or {}).get(node, conn) if node else conn),
+        )
         return conn
 
     return use

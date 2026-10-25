@@ -104,7 +104,7 @@ def api(database, sysnet, monkeypatch, daemon_libvirt):
     conn = _Conn()
     monkeypatch.setattr(host_interfaces, "SYS_NET", sysnet)
     monkeypatch.setattr(host_interfaces, "_addresses", lambda: {})
-    monkeypatch.setattr(network, "open_conn", lambda node=None: conn)
+    monkeypatch.setattr(network, "open_conn", lambda node=None, **_k: conn)
     daemon_libvirt(conn)  # hyperlite-daemon's own connection, in this process
     return conn
 

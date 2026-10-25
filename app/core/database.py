@@ -261,6 +261,19 @@ def init_db():
                 next_run TEXT NOT NULL
             )
         """)
+        # Other Hyperlite clusters whose stores are copied here (app/core/backup_remotes.py): an address, its pinned
+        # certificate, a reader's API token encrypted at rest; replicated under /priv.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_remotes (
+                name TEXT PRIMARY KEY,
+                address TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                token_encrypted TEXT NOT NULL,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         # A backup or a job into a store: its name; NULL for a backup directory (the format of every backup before).
         for ddl in (
             # A store made as the copy of another (same chunk size and key): the source's name.
@@ -457,17 +470,16 @@ def init_db():
                 subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                 subject_id TEXT NOT NULL,
                 role TEXT NOT NULL,
-                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store')),
                 resource_id TEXT NOT NULL
             )
         """)
-        # Migration: existing databases were created with an older CHECK
-        # (resource_type IN ('vm','pool'), then ('vm','pool','container')). CREATE TABLE IF NOT EXISTS above is a no-op on
-        # a table that already exists, and SQLite cannot modify an existing CHECK through
-        # ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
+        # Migration: existing databases were created with an older CHECK (resource_type IN ('vm','pool'), then
+        # ('vm','pool','container'), then without 'backup_store'). CREATE TABLE IF NOT EXISTS above is a no-op on a
+        # table that already exists, and SQLite cannot modify an existing CHECK through ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
         # migrated).
         existing_acl_sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'").fetchone()
-        if existing_acl_sql and "'network'" not in existing_acl_sql["sql"]:
+        if existing_acl_sql and "'backup_store'" not in existing_acl_sql["sql"]:
             conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
             conn.execute("""
                 CREATE TABLE acl (
@@ -475,7 +487,7 @@ def init_db():
                     subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                     subject_id TEXT NOT NULL,
                     role TEXT NOT NULL,
-                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
+                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store')),
                     resource_id TEXT NOT NULL
                 )
             """)
@@ -566,6 +578,27 @@ def init_db():
                 priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('high', 'medium', 'low')),
                 preferred_nodes TEXT NOT NULL DEFAULT '[]',
                 auto_restarts TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
+        # Load balancing (docs/design/drs.md): its settings (mode, threshold), its rules (VMs together, apart, on or off
+        # some nodes) and each VM's exception. Tables of their own, replicated.
+        conn.execute("CREATE TABLE IF NOT EXISTS drs_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_rules (
+                name TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('together', 'apart', 'on_nodes', 'not_on_nodes')),
+                strength TEXT NOT NULL DEFAULT 'should' CHECK(strength IN ('must', 'should')),
+                vms TEXT NOT NULL DEFAULT '[]',
+                nodes TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_vms (
+                vm_name TEXT PRIMARY KEY,
+                behaviour TEXT NOT NULL DEFAULT 'default' CHECK(behaviour IN ('default', 'manual', 'excluded'))
             )
         """)
         # VM monitoring of an HA VM (docs/design/ha-automatic.md, 4.9): a table of its own, for the same reason.

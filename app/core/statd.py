@@ -61,8 +61,16 @@ def summary():
         "api": cluster_v1.API_VERSION,
         "features": list(FEATURES),
         "mem_free_mb": _mem_free_mb(),
+        # The node's and its VMs' load, for load balancing (docs/design/drs.md, 3.1): None until the collector ran.
+        "load": _load(),
         "vms": vms,
     }
+
+
+def _load():
+    from app.core import metrics
+
+    return metrics.latest_load()
 
 
 def _mem_free_mb():
@@ -128,6 +136,7 @@ def table():
             "api": data.get("api", 0),
             "features": data.get("features", []),
             "mem_free_mb": data.get("mem_free_mb"),
+            "load": data.get("load"),  # None from a node before this version, or whose collector has not run yet
         }
     return out
 
@@ -159,9 +168,9 @@ def ages():
     return {name: age for name, (age, _) in latest().items()}
 
 
-# What this node's database accepts that a version of 1.0 did not: an assignment on a storage pool or a network
-# (app/core/permissions.py, RESOURCE_TYPES).
-FEATURES = ("acl_storage_network",)
+# What this node's database accepts that an older version did not: an assignment on a storage pool or a network, then
+# on a backup store (app/core/permissions.py, RESOURCE_TYPES).
+FEATURES = ("acl_storage_network", "acl_backup_store")
 
 
 def members_without(feature):

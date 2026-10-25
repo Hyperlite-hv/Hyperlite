@@ -323,18 +323,18 @@ def test_sso_test_reads_the_saved_issuer_discovery_document(client, make_user, m
 
 
 def test_node_connection_test_returns_a_fixed_reason(client, make_user, monkeypatch):
-    from app.routers import nodes
+    from app.core import cluster  # hyperlite-daemon runs its test_node_connection, in this process in the tests
 
     make_user("alice")
     headers = {"Authorization": f"Bearer {_login(client, 'alice')['access_token']}"}
     monkeypatch.setattr(
-        nodes, "test_node_connection", lambda h, u, p: (False, "Cannot recv data: Permission denied (publickey).")
+        cluster, "test_node_connection", lambda h, u, p: (False, "Cannot recv data: Permission denied (publickey).")
     )
     ko = client.post(
         "/nodes/test", json={"hostname": "10.0.0.9", "ssh_user": "root", "ssh_port": 22}, headers=headers
     ).json()
     assert ko == {"ok": False, "detail": "SSH authentication refused: authorize the cluster key for this user."}
-    monkeypatch.setattr(nodes, "test_node_connection", lambda h, u, p: (True, "peer.example"))
+    monkeypatch.setattr(cluster, "test_node_connection", lambda h, u, p: (True, "peer.example"))
     ok = client.post(
         "/nodes/test", json={"hostname": "10.0.0.9", "ssh_user": "root", "ssh_port": 22}, headers=headers
     ).json()

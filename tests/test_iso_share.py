@@ -167,7 +167,7 @@ def test_an_image_can_be_deleted_on_a_remote_node(cluster, client, auth_headers,
     lib = cluster["add_node"]("antho", "10.0.0.2")
     (lib / "ubuntu.iso").write_bytes(b"u")
     opened = []
-    monkeypatch.setattr(isos, "open_conn", lambda node=None: opened.append(node) or _NoVmConn())
+    monkeypatch.setattr(isos, "open_conn", lambda node=None, **_k: opened.append(node) or _NoVmConn())
     headers = auth_headers("admin")
 
     assert client.delete("/isos/ubuntu.iso?node=antho", headers=headers).status_code == 400

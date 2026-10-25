@@ -152,6 +152,7 @@ def _sample_vm(domain, name, now):
 
         return {
             "cpu_pct": cpu_pct,
+            "vcpus": nvcpu,
             "mem_used_mb": mem_used_mb,
             "mem_total_mb": mem_total_mb,
             "disk_read_bps": round(read_bps, 1),
@@ -279,7 +280,7 @@ def _sample_remote_node(node, ts, now):
         )
     conn = None
     try:
-        conn = open_conn(name)
+        conn = open_conn(name, readonly=True)
         for domain in conn.listAllDomains():
             target = f"{name}:{domain.name()}"
             s = _sample_vm(domain, target, now)
@@ -295,6 +296,56 @@ def _sample_remote_node(node, ts, now):
         if conn is not None:
             conn.close()
     return rows, pools, live
+
+
+# The last tick's load of this node and of its running VMs, read by its status (app/core/statd.py) for load
+# balancing (docs/design/drs.md, 3.1): measured once here, as a second reading of the counters would skew both.
+_latest = {"at": 0.0, "load": None}
+_latest_lock = threading.Lock()
+LOAD_FRESH_S = 4 * COLLECT_INTERVAL_S
+
+
+def latest_load():
+    """{"host": {"cpu_pct", "cpus", "mem_used_mb", "mem_total_mb"}, "vms": {name: {"cpu_pct", "vcpus", "mem_used_mb",
+    "mem_total_mb"}}} of the last tick, or None when it is older than LOAD_FRESH_S (or there was none)."""
+    with _latest_lock:
+        if time.time() - _latest["at"] > LOAD_FRESH_S:
+            return None
+        return _latest["load"]
+
+
+# VM uuid -> (monotonic time, all its disks on a shared pool): asked every SHARED_EVERY_S at most (pool lookups).
+_shared = {}
+SHARED_EVERY_S = 300
+
+
+def _on_shared_storage(conn, domain):
+    """Whether every disk of the VM is on a shared pool, so that load balancing may move it without copying its disks
+    (docs/design/drs.md, 3.3 and 8): the check HA makes, cached a few minutes."""
+    from app.core.libvirt_utils import uses_shared_storage
+
+    uuid, now = domain.UUIDString(), time.monotonic()
+    known = _shared.get(uuid)
+    if known is None or now - known[0] > SHARED_EVERY_S:
+        try:
+            known = (now, bool(uses_shared_storage(conn, conn, domain)))
+        except libvirt.libvirtError:
+            known = (now, False)
+        _shared[uuid] = known
+    return known[1]
+
+
+def _record_load(now, load, vms):
+    import os
+
+    host = {
+        "cpu_pct": load.get("cpu_pct"),
+        "cpus": os.cpu_count(),
+        "mem_used_mb": load.get("mem_used_mb"),
+        "mem_total_mb": load.get("mem_total_mb"),
+    }
+    with _latest_lock:
+        _latest.update(at=now, load={"host": host, "vms": vms})
 
 
 def _collect_tick():
@@ -331,6 +382,7 @@ def _collect_tick():
         )
 
     conn = open_conn()
+    vm_loads = {}
     try:
         for domain in conn.listAllDomains():
             name = domain.name()
@@ -339,6 +391,14 @@ def _collect_tick():
                 continue
             rows.append(_vm_row(name, s))
             _check_vm_alerts(name, s)
+            vm_loads[name] = {
+                "cpu_pct": s["cpu_pct"],
+                "vcpus": s.get("vcpus"),
+                "mem_used_mb": s["mem_used_mb"],
+                "mem_total_mb": s["mem_total_mb"],
+                "shared": _on_shared_storage(conn, domain),
+            }
+        _record_load(now, load, vm_loads)
         pool_rows += _pool_rows("local", conn)
         live_rows.append(_node_live_row("local", ts, raw, load, conn))
     finally:

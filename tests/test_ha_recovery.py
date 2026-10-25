@@ -243,7 +243,7 @@ def test_the_node_that_comes_back_undefines_the_vms_that_moved(database, monkeyp
         def close(self):
             pass
 
-    monkeypatch.setattr(ha, "open_conn", lambda key=None: Conn())
+    monkeypatch.setattr(ha, "open_conn", lambda key=None, **_k: Conn())
     assert ha.forget_moved() == ["moved"] and undefined == ["moved"]
     assert ha.moved_away("moved") and not ha.moved_away("mine")
 
@@ -317,7 +317,7 @@ def test_the_recovered_vm_gets_its_networks_started_and_its_settings_moved(datab
         def close(self):
             pass
 
-    monkeypatch.setattr(ha, "open_conn", lambda key=None: Conn())
+    monkeypatch.setattr(ha, "open_conn", lambda key=None, **_k: Conn())
     monkeypatch.setattr(object_meta, "follow_migration", lambda vm, src, dst: moved.append(("meta", src, dst)))
     monkeypatch.setattr(vm_boot, "follow_migration", lambda vm, src, dst: moved.append(("boot", src, dst)))
     ha.start_on(row, "n3", reuse_stopped=True)
