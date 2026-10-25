@@ -29,7 +29,8 @@ VE's pvescheduler: the scheduled backups (and the backup groups, the stores' cop
 replication, the inactive VMs' automatic deletion, the update check and the start at boot. It is started and restarted
 with the API (`PartOf=`), so both run the same version, and keeps running if the API crashes. Its tasks record it as
 their runner, and the claims on VMs are shared files, so the dashboard lists and cancels its tasks as the API's own.
-A checkout and the test suite run these schedulers in the API (`HYPERLITE_SCHEDULER_SERVICE` unset).
+A checkout and the test suite run these schedulers in the API (`HYPERLITE_SCHEDULER_SERVICE` unset). Its writes to the replicated configuration
+go out through the API's copy loop (`app/repositories/cfs/shadow.py`): while the API is down, they wait in the outbox.
 
 **hyperlite-ha-lrm** and **hyperlite-ha-crm** (`app/ha_services/`) run HA as Proxmox VE's pve-ha-lrm and pve-ha-crm.
 The LRM, on every node, feeds the watchdog, watches its own HA VMs, sends the node's heartbeat and carries out the

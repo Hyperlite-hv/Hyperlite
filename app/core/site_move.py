@@ -5,6 +5,7 @@ node asked over pinned HTTPS with the remote's manage token to prepare it (POST 
 VM here deleted. Anything that fails before the target defined it cancels the incoming there, and the VM here is left
 as it was."""
 
+import contextlib
 import logging
 import os
 import time
@@ -12,6 +13,7 @@ import urllib.parse
 
 from app.core import privileged, site_stream, sites
 from app.core.tasks import task_log, update_task_progress
+from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +25,9 @@ class MoveError(Exception):
     pass
 
 
-def describe(vm, username):
+def describe(vm, username, live=False):
     """What the dialog shows before a move: the VM's specification, what stays behind, its disks' allocated sizes."""
-    return privileged.run("transfer.describe", user=username, vm=vm)
+    return privileged.run("transfer.describe", user=username, vm=vm, live=live)
 
 
 def _endpoint(remote, node):
@@ -148,3 +150,88 @@ def _cancel(client, incoming, task_id):
         task_log(task_id, "The target removed what it had received")
     except sites.SiteError as e:
         task_log(task_id, f"The target could not remove what it received ({e.message}): it does after an hour")
+
+
+# ---- A running VM moved live (docs/design/multi-cluster.md, section 9.2), as `qm remote-migrate --online` ----
+
+LIVE_TIMEOUT_S = 24 * 3600  # libvirt's job: the task says how far it got; a cancellation stops it
+
+
+def move_live(task_id, username, vm, remote, node, pools, networks, limit_mib=None):
+    """The running VM moved to the remote's node, in the task `task_id`: the target's CPU checked, the VM prepared
+    there, then libvirt's live migration through the pinned tunnel, and the VM defined there from what it runs.
+    {"name", "remote", "node", "started": True}. Raises MoveError or SiteError; the VM keeps running here."""
+    described = privileged.run("transfer.describe", user=username, vm=vm, live=True)
+    spec = described["spec"]
+    devs = [d["dev"] for d in spec["disks"]]
+    if len(pools) != len(devs):
+        raise MoveError(f"Choose a storage pool for each of the {len(devs)} disk(s)")
+    if len(networks) != len(spec["nics"]):
+        raise MoveError(f"Choose a network for each of the {len(spec['nics'])} card(s)")
+    for line in described["left"]:
+        task_log(task_id, f"Not carried: {line}")
+    endpoint, token = _endpoint(remote, node), sites._token(remote, "manage")
+    client = sites._client(endpoint, token)
+    tunnel, migrated = None, False
+    try:
+        if described.get("cpu"):
+            cpu = client.json("/sites/incoming/cpu-check", "POST", {"cpu_xml": described["cpu"]}, timeout=60)
+            if not cpu.get("compatible"):
+                raise MoveError(
+                    f"{remote}/{node} cannot run this VM's CPU ({cpu.get('detail')}): shut it down and move it offline"
+                )
+        prepared = client.json(
+            "/sites/incoming", "POST",
+            {"spec": spec, "pools": pools, "allocated": [described["allocated"][d] for d in devs]}, timeout=120,
+        )  # fmt: skip
+        incoming = prepared["incoming"]
+        try:
+            ready = client.json(f"/sites/incoming/{incoming}/live", "POST", {"networks": networks}, timeout=60)
+            task_log(task_id, f"{remote}/{node} is ready to receive it running ({incoming[:8]})")
+            _, fds = privileged.run_fds("transfer.live_listen", user=username, incoming=incoming)
+            tunnel = _open_tunnel(endpoint, token, incoming, fds)
+            privileged.run(
+                "transfer.live_run", user=username, timeout=LIVE_TIMEOUT_S, incoming=incoming, vm=vm,
+                volumes=ready["volumes"], networks=networks, limit_mib=limit_mib, task_id=task_id,
+            )  # fmt: skip
+            migrated = True  # the VM runs there now: whatever fails below never removes what it runs on
+            tunnel.stop()
+            moved = client.json(f"/sites/incoming/{incoming}/live/define", "POST", {}, timeout=120)
+        except BaseException as e:
+            if migrated:
+                from app.core import vm_records
+
+                vm_records.forget(vm, None)  # libvirt undefined it here once the target confirmed
+                detail = getattr(e, "message", None) or getattr(e, "detail", None) or str(e)
+                raise MoveError(
+                    f"{vm} runs on {remote}/{node} now, but it could not be defined there ({detail}): it keeps "
+                    "running; define it there before it is stopped"
+                ) from None
+            if tunnel is not None:
+                tunnel.stop()
+                if tunnel.error:
+                    task_log(task_id, f"The tunnel stopped: {tunnel.error}")
+            with contextlib.suppress(Exception):
+                privileged.run("transfer.live_close", user=username, incoming=incoming)
+            _cancel(client, incoming, task_id)
+            if isinstance(e, DaemonError):
+                raise MoveError(f"{e.detail}") from None
+            raise
+    finally:
+        client.close()
+    # libvirt undefined it here once the target confirmed (UNDEFINE_SOURCE): its records go too.
+    from app.core import vm_records
+
+    vm_records.forget(vm, None)
+    task_log(task_id, f"Runs on {remote}/{node} as {moved['name']}, defined there; gone from here")
+    return {"name": moved["name"], "remote": remote, "node": node, "started": True, "kept": {}}
+
+
+def _open_tunnel(endpoint, token, incoming, fds):
+    """The pinned WebSocket to the target node, carrying the three listening sockets' connections."""
+    from app.core import peer_https, site_tunnel
+
+    conn = peer_https._connect(endpoint["address"], endpoint["port"], endpoint["fingerprint"], 30)
+    sock, conn.sock = conn.sock, None  # the connection's pinned TLS socket, for the WebSocket
+    path = f"{sites.API}/sites/incoming/{incoming}/tunnel"
+    return site_tunnel.SourceTunnel(sock, endpoint["address"], endpoint["port"], path, token, fds).start()
