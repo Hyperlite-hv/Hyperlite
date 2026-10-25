@@ -3,6 +3,7 @@ it has the quorum, starved without it (the node resets), disarmed cleanly otherw
 host's own watchdog is never touched (tests/conftest.py points HYPERLITE_WATCHDOG_DEVICE elsewhere)."""
 
 import json
+import time
 
 import pytest
 
@@ -208,7 +209,8 @@ def test_the_heartbeat_records_when_it_went_out(monkeypatch):
 
     monkeypatch.setattr(statd, "summary", lambda: {"node": "n1"})
     monkeypatch.setattr("app.repositories.cfs.shadow._get_client", lambda: Client())
-    monkeypatch.setattr(statd, "_sent", [0.0])
+    # An hour ago on the monotonic clock, which starts near 0 on a machine just booted (a CI runner).
+    monkeypatch.setattr(statd, "_sent", [time.monotonic() - 3600])
     assert statd.heartbeat_age() > 1000
     statd.publish()
     assert statd.heartbeat_age() < 5
