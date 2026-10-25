@@ -44,6 +44,14 @@ pytestmark = pytest.mark.skipif(
 _insecure = ssl.create_default_context()
 _insecure.check_hostname = False
 _insecure.verify_mode = ssl.CERT_NONE
+# The consoles' WebSockets: websockets' sync client reads its socket in a thread while the test's thread writes to it.
+# In TLS 1.3 the server's session tickets arrive after the handshake, and one OpenSSL connection read and written by
+# two threads at once stalled the client before its HTTP request (the node's socket: handshake done, nothing more
+# received) or failed with "[SSL] internal error". TLS 1.2 sends nothing after the handshake.
+_insecure_ws = ssl.create_default_context()
+_insecure_ws.check_hostname = False
+_insecure_ws.verify_mode = ssl.CERT_NONE
+_insecure_ws.maximum_version = ssl.TLSVersion.TLSv1_2
 
 
 def ip(n):
@@ -406,7 +414,7 @@ def console(n, path):
     began = time.monotonic()
     timer.start()
     try:
-        ws = connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=HANDSHAKE_S, max_size=None)
+        ws = connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure_ws, open_timeout=HANDSHAKE_S, max_size=None)
     except TimeoutError:
         journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 400 --no-pager -o cat")
         sockets = on(n, "sh", "-c", "journalctl -t lab-sockets -n 60 --no-pager -o cat")
@@ -897,7 +905,14 @@ def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
             n,
             "sh",
             "-c",
-            f"mkdir -p /etc/systemd/system/hyperlite.service.d && printf '{conf}' > /etc/systemd/system/hyperlite.service.d/lab-drs.conf && systemctl daemon-reload",
+            # Load balancing runs in HA's services (app/ha_services), restarted with the API (PartOf=): each gets the
+            # drop-in, the API too for a checkout's way of running everything in it.
+            " && ".join(
+                f"mkdir -p /etc/systemd/system/{unit}.service.d && printf '{conf}' > "
+                f"/etc/systemd/system/{unit}.service.d/lab-drs.conf"
+                for unit in ("hyperlite", "hyperlite-ha-lrm", "hyperlite-ha-crm")
+            )
+            + " && systemctl daemon-reload",
         )
     for n in NODES:
         before = main_pid(n)
