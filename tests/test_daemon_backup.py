@@ -186,3 +186,20 @@ def test_a_copy_job_is_read_from_the_records_by_its_id(database):
     with pytest.raises(DaemonError) as e:
         privileged.run("store.sync", job_id=1, source="/etc", target="main")
     assert e.value.kind == "invalid_arguments"
+
+
+# --- Part 3: the file restore ---
+
+
+@pytest.mark.parametrize("bad", ["/etc/ssh/x/y", "/a/../etc/b/c", "relative/a/b/c"])
+def test_a_browsing_session_opens_only_a_backups_images(bad):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("restore.open", backup_id=1, path=bad, username="alice")
+    assert e.value.kind == "refused"
+
+
+def test_a_session_is_its_owners_only():
+    with pytest.raises(DaemonError) as e:
+        privileged.run("restore.ls", session="nope", username="bob", device="/dev/sda1", path="/")
+    assert e.value.kind == "refused"
+    assert privileged.run("restore.busy", backup_id=1) == {"open": False}

@@ -74,6 +74,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"vm.export", "vm.export_delete", "replication.point"} <= named
     assert {"store.check", "store.describe", "store.gc", "store.make", "store.unlock", "store.backup"} <= named
     assert {"store.import", "store.sync", "remote.add", "remote.stores"} <= named
+    assert {"restore.open", "restore.ls", "restore.export", "restore.close", "restore.busy"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
