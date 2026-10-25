@@ -12,7 +12,6 @@ authenticated call, is encoded in the URL itself."""
 
 import logging
 import secrets
-import threading
 import time
 from pathlib import Path
 
@@ -25,6 +24,7 @@ from app.core.backups import refuse_vm_with_block_disks
 from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import require_role, require_vm_privilege
+from app.core.tasks import start_thread
 from app.core.vm_export import EXPORTS_DIR, list_exports, run_export
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
                 "Ignored exception in job()", exc_info=True
             )  # already logged and tracked in run_export (task + audit_log)
 
-    threading.Thread(target=vm_locks.released_after(claim, job), daemon=True).start()
+    start_thread(vm_locks.released_after(claim, job))  # its task is made by run_export, on the thread
     log_action(user["username"], "export_vm_requested", name, "success")
     return {"message": f"Export of '{name}' started in the background"}
 

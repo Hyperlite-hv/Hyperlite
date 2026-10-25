@@ -2,7 +2,6 @@
 route answers every refusal at once (the daemon's checks, with check_only), then the work runs as a task."""
 
 import logging
-import threading
 import xml.etree.ElementTree as ET
 
 import libvirt
@@ -17,7 +16,7 @@ from app.core.libvirt_utils import (
 )
 from app.core.listing import listing
 from app.core.security import get_current_user, require_vm_privilege
-from app.core.tasks import create_task, finish_task, task_log
+from app.core.tasks import create_task, finish_task, start_thread, task_log
 from app.daemon.registry import DaemonError
 from app.routers.vms._shared import router
 
@@ -139,7 +138,7 @@ def _daemon_task(op, vm, user, action, snapshot_name, **args):
     try:
         task_id = create_task(action, vm, node=None, username=user["username"])
         task_log(task_id, f"Snapshot '{snapshot_name}'")
-        threading.Thread(target=vm_locks.released_after(claim, work), args=(task_id,), daemon=True).start()
+        start_thread(vm_locks.released_after(claim, work), task_id, task_id=task_id)
     except BaseException:
         claim.release()
         raise
