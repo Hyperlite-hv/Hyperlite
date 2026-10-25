@@ -270,6 +270,25 @@ def test_the_permissions_are_written_by_the_daemon(cluster):
     ok(api(1, "DELETE", f"/groups/{group}", token=t))
 
 
+def test_the_scheduler_runs_beside_the_api(cluster):
+    """hyperlite-scheduler (app/scheduler) on every member: running, started by the package with the API, and the API
+    told to start no scheduler of its own (docs/design/privilege-separation.md, section 14, 4c)."""
+    for n in NODES:
+        assert on(n, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active", n
+        assert "hyperlite-scheduler started" in on(
+            n, "journalctl", "-u", "hyperlite-scheduler", "--no-pager", "-o", "cat"
+        )
+        env = on(n, "systemctl", "show", "hyperlite", "--property=Environment", "--value")
+        assert "HYPERLITE_SCHEDULER_SERVICE=1" in env, n
+    # A restart of the API restarts the scheduler with it (PartOf=): both always run the same version.
+    before = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
+    on(1, "systemctl", "restart", "hyperlite")
+    wait("node 1's API back", lambda: signed_in(1, PASSWORD), timeout=120)
+    after = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
+    assert after not in ("", "0", before)
+    assert on(1, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active"
+
+
 def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
     status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])

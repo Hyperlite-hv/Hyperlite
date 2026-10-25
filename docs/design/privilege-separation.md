@@ -679,6 +679,14 @@ process:
   thread reads its own tasks' every 2 s and calls their cancellers. Local tables, whatever each service's user is (4e),
   and no new socket.
 
+**4c, the scheduler** (`app/scheduler`, `installer/hyperlite-scheduler.service`): a root service of its own runs the
+scheduled backups, the replication, the automatic deletion, the update check and the start at boot. It starts with the
+API (`Wants=`) and after it, and follows its restarts and stops (`PartOf=`): a package update, whose restart of the API
+may be deferred, never leaves the two on different versions. Both units set `HYPERLITE_SCHEDULER_SERVICE=1`, so the
+API starts none of these schedulers. The schema is made by one service at a time (a lock in `/run/lock/hyperlite`),
+and the scheduler renews the node's lead under the node's name, so the stores' copies run on the leading node as
+before. HA's watch and recovery become `hyperlite-ha-crm` and `hyperlite-ha-lrm` next (drs' split, #298).
+
 ### 14.1 4b in detail: the permissions written by the daemon only (2026-10-25)
 
 Agreed with cfs-files on #298: the store stays in hyperlite-cfs, our pmxcfs. `users`, `api_tokens` and
