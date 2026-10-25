@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.core import disk_library
+from app.daemon.needs import on_vm
 from app.daemon.registry import Args, DaemonError, operation
 
 logger = logging.getLogger(__name__)
@@ -158,7 +159,7 @@ class ResizeArgs(Args):
     size_gb: int = Field(ge=1, le=MAX_GB)
 
 
-@operation("disk.resize", ResizeArgs)
+@operation("disk.resize", ResizeArgs, needs=on_vm("vm.resize"))
 def resize(args, ctx):
     """The disk grown (disk_resize.grow: only growing, never an iSCSI LUN, not under a block job), its replication
     checkpoints dropped once every check passed. The API forgets the replication chain when `checkpoints_dropped`."""

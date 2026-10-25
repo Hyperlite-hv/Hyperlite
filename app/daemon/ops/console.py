@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.daemon.needs import ANYONE, on_vm
 from app.daemon.registry import Args, DaemonError, Handover, operation
 
 VM_NAME = 64
@@ -163,7 +164,7 @@ def terminal(args, ctx):
     return Handover({"session": sid, "address": address, "user": user}, [fd])
 
 
-@operation("console.serial", VmArgs)
+@operation("console.serial", VmArgs, needs=on_vm("vm.console"))
 def serial(args, ctx):
     """`virsh console` on a running VM's first serial port, the VM named by the UUID libvirt gave it (no name can pass
     for an option of virsh), on its node."""
@@ -201,7 +202,7 @@ def display_port(xml, protocol):
     return int(port) if port and port.isdigit() and int(port) > 0 else None
 
 
-@operation("console.display", DisplayArgs)
+@operation("console.display", DisplayArgs, needs=on_vm("vm.console"))
 def display(args, ctx):
     """A socket connected to a running VM's VNC or SPICE display on 127.0.0.1 of its node: a connection on this node,
     `ssh -W` with the cluster's key to another. {"session"} (None on this node) and the socket."""
@@ -225,7 +226,7 @@ class CloseArgs(Args):
     session: str = Field(pattern=r"^[0-9a-f]{32}$")
 
 
-@operation("console.close", CloseArgs)
+@operation("console.close", CloseArgs, needs=ANYONE)
 def close(args, ctx):
     """End a session: its program's whole process group. {"exit"}: its exit status, None for a session this daemon
     does not hold."""
@@ -238,7 +239,7 @@ class NodeArgs(Args):
     node: str | None = NODE
 
 
-@operation("console.spice_tls", NodeArgs)
+@operation("console.spice_tls", NodeArgs, needs=ANYONE)
 def spice_tls(args, ctx):
     """The CA certificate and the server's subject of a node's SPICE in TLS, which the .vv carries (spice.node_tls:
     qemu.conf is root's only, another node is read with the cluster's key). {"ca", "subject"}."""
@@ -262,7 +263,7 @@ class AddConsoleArgs(Args):
     kind: Literal["vnc", "serial", "spice"]
 
 
-@operation("vm.add_console", AddConsoleArgs)
+@operation("vm.add_console", AddConsoleArgs, needs=on_vm("vm.console"))
 def add_console(args, ctx):
     """A console the VM lacks, added to its definition: VNC to a stopped VM (a running one cannot take it), a serial
     port or a SPICE display (effective at its next start; SPICE only on a node set up for it in TLS, or the VM would no
@@ -303,7 +304,7 @@ class SpicePasswordArgs(Args):
     node: str | None = NODE
 
 
-@operation("vm.spice_password", SpicePasswordArgs)
+@operation("vm.spice_password", SpicePasswordArgs, needs=on_vm("vm.console"))
 def spice_password(args, ctx):
     """A new SPICE password on the running VM, valid a few seconds (spice.set_ticket_password: the secure definition
     and a live change, neither on a read-only connection). {"password"}."""
