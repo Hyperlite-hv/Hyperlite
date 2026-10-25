@@ -1,0 +1,1 @@
+- Load balancing applies its moves (#334, step 4): automatic by default, two live migrations at a time in the cluster and one per member, paused after two failures in a row until the settings are saved again; manual mode, per-VM exceptions (manual, excluded), its API (/drs), and an administrator's start or migration refused when it breaks a "must" rule.

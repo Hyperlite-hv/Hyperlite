@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core import (
     cluster_view,
+    drs,
     error_codes,
     ha_monitor,
     ha_recovery,
@@ -70,6 +71,7 @@ from app.routers.cluster_setup import router as cluster_setup_router
 from app.routers.cluster_update import router as cluster_update_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.drs import router as drs_router
 from app.routers.file_restore import router as file_restore_router
 from app.routers.groups import router as groups_router
 from app.routers.ha import router as ha_router
@@ -197,6 +199,7 @@ _API_ROUTERS = (
     vm_disks_router,
     vm_export_router,
     ha_router,
+    drs_router,
     notifications_router,
     workstation_router,
     kubernetes_router,
@@ -543,6 +546,7 @@ def on_startup():
     ha_selffence.start_selffence()
     ha_recovery.start()  # acts on the leader only, with the quorum
     ha_monitor.start()  # each node, its own HA VMs whose monitoring is on
+    drs.start()  # load balancing: acts on the leader only, with the quorum (docs/design/drs.md)
     start_vm_crash_watch()
     start_replication_scheduler()
     start_auto_cleanup_scheduler()
