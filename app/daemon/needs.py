@@ -76,6 +76,22 @@ def by_rule(rule):
     return Need("rule", rule=rule)
 
 
+def own_task(arg="task_id"):
+    """The task named in `arg` is the caller's own: the account that started it stops it, and the work a route runs for
+    it (a VM's creation copying its image) goes on in that account's name. An administrator always may."""
+
+    def rule(user, args):
+        from app.core import tasks
+
+        task_id = getattr(args, arg, None)
+        row = tasks._store().get(task_id) if task_id else None
+        if row is not None and row.get("username") == user["username"]:
+            return None
+        return "Only the account that started this task, or an administrator, may do this"
+
+    return by_rule(rule)
+
+
 def on_vm(privilege, arg="vm"):
     return Need("vm", privilege, arg)
 

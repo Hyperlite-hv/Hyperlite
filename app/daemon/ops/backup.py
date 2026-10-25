@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.daemon.needs import ANYONE, on_backup_store, on_vm
+from app.daemon.needs import ANYONE, by_rule, on_backup_store, on_vm, own_task
 from app.daemon.registry import Args, DaemonError, Handover, operation
 
 VM_NAME = 64
@@ -122,7 +122,19 @@ class DeleteArgs(Args):
     path: str = Field(min_length=1, max_length=PATH)
 
 
-@operation("backup.delete", DeleteArgs)
+def _backup_of_a_vm_backed_up(user, args):
+    """A backup deleted by its VM's retention after a backup that account ran (vm.snapshot on that VM): the
+    routes that delete a backup by hand are an administrator's."""
+    from app.core import permissions
+    from app.repositories import registry
+
+    row = registry.backups().sync.find_by_path(args.path)
+    if row is not None and permissions.has_privilege(user, row["vm_name"], "vm.snapshot"):
+        return None
+    return "Insufficient rights on this backup's VM (required privilege: vm.snapshot)"
+
+
+@operation("backup.delete", DeleteArgs, needs=by_rule(_backup_of_a_vm_backed_up))
 def delete(args, ctx):
     """A backup's files: its directory when it holds a backup's files only (backups.delete_backup_files), or its
     index in a store."""
@@ -135,7 +147,7 @@ class CancelArgs(Args):
     task_id: str = Field(min_length=1, max_length=TASK_ID)
 
 
-@operation("backup.cancel", CancelArgs)
+@operation("backup.cancel", CancelArgs, needs=own_task())
 def cancel(args, ctx):
     """Stop the copy a backup's, an export's or a restore's task is running here: {"cancelled"}."""
     from app.core import tasks
@@ -226,7 +238,8 @@ class StoreArgs(Args):
     name: str = Field(min_length=1, max_length=STORE_NAME)
 
 
-@operation("store.check", StoreArgs)
+# Whether a store exists and answers: what a backup's route asks before naming it (vm.snapshot on the VM).
+@operation("store.check", StoreArgs, needs=ANYONE)
 def store_check(args, ctx):
     """The store exists and this node reaches it, with its key when it is encrypted."""
     from app.core import backup_stores
@@ -297,7 +310,7 @@ class StoreBackupArgs(Args):
 
 
 # One call that waits: a first backup into a store reads every disk.
-@operation("store.backup", StoreBackupArgs)
+@operation("store.backup", StoreBackupArgs, needs=on_vm("vm.snapshot"))
 def store_backup(args, ctx):
     """A VM of this node backed up into a store, only the chunks it lacks written: {"path", "size", "mode"}."""
     from app.core import backups
