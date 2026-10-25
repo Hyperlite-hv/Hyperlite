@@ -203,3 +203,30 @@ def test_a_session_is_its_owners_only():
         privileged.run("restore.ls", session="nope", username="bob", device="/dev/sda1", path="/")
     assert e.value.kind == "refused"
     assert privileged.run("restore.busy", backup_id=1) == {"open": False}
+
+
+# --- Part 4: the containers' archives ---
+
+
+@pytest.mark.parametrize(
+    "bad", ["/etc/shadow", "/var/lib/hyperlite/dump/container/../../x.tar.gz", "/srv/web-20261025T080000Z.tar.gz"]
+)
+def test_a_container_archive_is_one_of_its_directory_only(bad):
+    for op, args in (
+        ("container.archive_delete", {"path": bad}),
+        ("container.archive_restore", {"path": bad, "container": "ct2", "original": "ct"}),
+    ):
+        with pytest.raises(DaemonError) as e:
+            privileged.run(op, **args)
+        assert e.value.kind == "refused", op
+
+
+def test_only_an_archive_is_deleted(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "CONTAINER_BACKUPS", tmp_path)
+    archive = tmp_path / "ct-20261025T080000Z.tar.gz"
+    archive.write_text("x")
+    (tmp_path / "keep.txt").write_text("x")
+    with pytest.raises(DaemonError):
+        privileged.run("container.archive_delete", path=str(tmp_path / "keep.txt"))
+    assert privileged.run("container.archive_delete", path=str(archive)) == {"deleted": True}
+    assert not archive.exists() and (tmp_path / "keep.txt").exists()
