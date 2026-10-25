@@ -328,6 +328,12 @@ def _busy_threads(dump):
     return "\n".join("\n".join(b) for b in blocks if not any(i in "".join(b[1:3]) for i in idle))
 
 
+def _loop_tasks(journal):
+    """The last list of the event loop's tasks app/main.py logged (SIGUSR2)."""
+    at = journal.rfind("event loop: ")
+    return journal[at:] if at >= 0 else "(not logged)"
+
+
 def console(n, path):
     """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api()). A
     slow handshake is measured, and the API's threads are dumped while it waits; one that does not come fails with
@@ -336,7 +342,12 @@ def console(n, path):
 
     from websockets.sync.client import connect
 
-    dump = "kill -USR1 $(systemctl show --property=MainPID --value hyperlite)"
+    # The threads (SIGUSR1), the event loop's tasks (SIGUSR2), and the port's sockets: a connection waiting in the
+    # listening socket's queue was never accepted; one established with unread bytes was never read.
+    dump = (
+        "pid=$(systemctl show --property=MainPID --value hyperlite); kill -USR1 $pid; kill -USR2 $pid; "
+        "ss -tnoi state all '( sport = :8000 )' | logger -t lab-sockets"
+    )
     timer = threading.Timer(HANDSHAKE_DUMP_S, lambda: on(n, "sh", "-c", dump))
     began = time.monotonic()
     timer.start()
@@ -344,9 +355,11 @@ def console(n, path):
         ws = connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=HANDSHAKE_S, max_size=None)
     except TimeoutError:
         journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 400 --no-pager -o cat")
+        sockets = on(n, "sh", "-c", "journalctl -t lab-sockets -n 60 --no-pager -o cat")
         raise AssertionError(
-            f"no WebSocket handshake from node {n} in {HANDSHAKE_S} s; its API's busy threads at "
-            f"{HANDSHAKE_DUMP_S} s:\n{_busy_threads(journal)[-3500:]}"
+            f"no WebSocket handshake from node {n} in {HANDSHAKE_S} s; its sockets at {HANDSHAKE_DUMP_S} s:\n"
+            f"{sockets[-1500:]}\nits event loop's tasks:\n{_loop_tasks(journal)[-3000:]}\nits busy threads:\n"
+            f"{_busy_threads(journal)[-2000:]}"
         ) from None
     finally:
         timer.cancel()
