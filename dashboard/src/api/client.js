@@ -1027,6 +1027,25 @@ export async function createVM(payload, node = null) {
   const qs = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms${qs}`, { method: "POST", ...jsonBody(payload) });
 }
+// Load balancing (docs/design/drs.md, #334): { settings, state, rules, behaviours }, and what an administrator changes.
+export async function fetchDrs() {
+  return realFetch("/drs");
+}
+export async function saveDrsSettings(mode, threshold) {
+  return realFetch("/drs/settings", { method: "PUT", ...jsonBody({ mode, threshold }) });
+}
+export async function saveDrsRule(rule) {
+  return realFetch(`/drs/rules/${encodeURIComponent(rule.name)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function deleteDrsRule(name) {
+  return realFetch(`/drs/rules/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function setDrsBehaviour(vm, behaviour) {
+  return realFetch(`/drs/vms/${encodeURIComponent(vm)}`, { method: "PUT", ...jsonBody({ behaviour }) });
+}
+export async function applyDrsMove({ vm, source, target, reason }) {
+  return realFetch("/drs/apply", { method: "POST", ...jsonBody({ vm, source, target, ...(reason ? { reason } : {}) }) });
+}
 // The member a new VM goes to on "auto" (load balancing's placement, docs/design/drs.md 3.6): { node, local, skipped }.
 export async function fetchPlacement({ name, memoryMb, vcpus, network, storagePool }) {
   const params = new URLSearchParams({ memory_mb: String(memoryMb), vcpus: String(vcpus), name: name || "", network: network || "default", storage_pool: storagePool || "default" });
