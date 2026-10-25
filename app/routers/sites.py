@@ -105,6 +105,66 @@ def site_remove(name: str, user: dict = Depends(require_role("admin"))):
     return {"deleted": name}
 
 
+class SiteToken(BaseModel):
+    token: str = Field(min_length=1, max_length=4096)
+
+
+@router.put("/sites/remotes/{name}/tokens/{use}")
+def site_set_token(name: str, use: str, payload: SiteToken, user: dict = Depends(require_role("admin"))):
+    """Give the remote a token for a use (`view`, `manage`), once the remote accepts it."""
+    try:
+        remote = sites.set_token(name, use, payload.token)
+    except sites.SiteError as e:
+        log_action(user["username"], "site_token", f"{name}/{use}", "failed", e.message)
+        raise _error(e) from None
+    log_action(user["username"], "site_token", f"{name}/{use}", "success", "set")
+    return remote
+
+
+@router.delete("/sites/remotes/{name}/tokens/{use}")
+def site_remove_token(name: str, use: str, user: dict = Depends(require_role("admin"))):
+    try:
+        remote = sites.set_token(name, use, None)
+    except sites.SiteError as e:
+        raise _error(e) from None
+    log_action(user["username"], "site_token", f"{name}/{use}", "success", "removed")
+    return remote
+
+
+class SiteAction(BaseModel):
+    on: str | None = Field(None, max_length=63, description="The remote node the VM runs on, as its list says")
+
+
+class SiteMigrate(SiteAction):
+    target_node: str = Field(min_length=1, max_length=63)
+
+
+@router.post("/sites/{remote}/vms/{vm}/migrate", status_code=202)
+def site_migrate(remote: str, vm: str, payload: SiteMigrate, user: dict = Depends(require_role("admin"))):
+    """Move a VM of the remote to another of its nodes, with the remote's manage token."""
+    target = f"{remote}/{vm}"
+    try:
+        answer = sites.migrate(remote, vm, payload.target_node, payload.on)
+    except sites.SiteError as e:
+        log_action(user["username"], "site_vm_migrate", target, "failed", e.message)
+        raise _error(e) from None
+    log_action(user["username"], "site_vm_migrate", target, "success", f"{payload.on or '?'} -> {payload.target_node}")
+    return answer
+
+
+@router.post("/sites/{remote}/vms/{vm}/{action}", status_code=202)
+def site_action(remote: str, vm: str, action: str, payload: SiteAction, user: dict = Depends(require_role("admin"))):
+    """A power action (start, shutdown, stop, reboot, reset) on a VM of the remote, with its manage token."""
+    target, what = f"{remote}/{vm}", f"site_vm_{action if action in sites.ACTIONS else 'unknown'}"
+    try:
+        answer = sites.act(remote, vm, action, payload.on)
+    except sites.SiteError as e:
+        log_action(user["username"], what, target, "failed", e.message)
+        raise _error(e) from None
+    log_action(user["username"], what, target, "success", payload.on or "")
+    return answer
+
+
 @router.get("/sites/{remote}/{what}")
 def site_list(remote: str, what: str, user: dict = Depends(require_role("admin"))):
     """One remote's VMs, nodes or storage pools, as its own API answers them."""
