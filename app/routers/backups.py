@@ -187,7 +187,9 @@ def delete_backup(
         row = backup_service.delete(backup_id)
     except backup_service.BackupNotFound:
         raise HTTPException(status_code=404, detail="Backup not found") from None
-    except backup_use.BackupInUse as e:
+    except (backup_use.BackupInUse, RuntimeError) as e:
+        # In use, or files hyperlite-daemon does not delete (a directory that holds more than a backup): the record
+        # stays with its files.
         log_action(user["username"], "delete_backup", backup_service.find(backup_id)["vm_name"], "failed", str(e))
         raise HTTPException(status_code=409, detail=str(e)) from None
     log_action(user["username"], "delete_backup", row["vm_name"], "success", f"backup #{backup_id}")

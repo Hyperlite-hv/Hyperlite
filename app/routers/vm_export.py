@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from app.core import cluster_view, vm_locks
+from app.core import cluster_view, privileged, vm_locks
 from app.core.audit import log_action
 from app.core.backups import refuse_vm_with_block_disks
 from app.core.listing import listing
@@ -70,10 +70,17 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
 @router.delete("/vm-exports/{filename}")
 def delete_vm_export(filename: str, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
-    path = safe_child(EXPORTS_DIR, filename)
-    if not path.exists():
+    # hyperlite-daemon removes it: the exports directory is root's.
+    if not privileged.ask(
+        "vm.export_delete",
+        user,
+        "delete_vm_export",
+        filename,
+        refused=404,
+        failed="Export not deleted: {}",
+        name=filename,
+    )["deleted"]:
         raise HTTPException(status_code=404, detail="Export not found")
-    path.unlink()
     log_action(user["username"], "delete_vm_export", filename, "success")
     return {"name": filename, "deleted": True}
 
