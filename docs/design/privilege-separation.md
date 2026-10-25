@@ -799,3 +799,21 @@ sessions, groups, roles, resource pools, ACLs and the SSO and LDAP settings.
 The file is root's only (0600) for now. When the API's unit changes user, it gets `www-data`'s group read (0640), as
 `/etc/pve` is readable by `www-data` on Proxmox VE: the API checks a password or a token itself, so the hashes stay
 readable to it, as before.
+
+### 14.5 4e: signing in is the daemon's from start to end (2026-10-25)
+
+Before a session exists, a request carries no proof. From 4e the API runs as `www-data`, and the daemon refuses a call
+from it that has no proof (14, 4d). So anything a sign-in writes has to be written by the daemon's sign-in operations
+themselves. On Proxmox VE, pveproxy likewise hands the ticket request to pvedaemon, which writes `user.cfg`.
+
+- **The last sign-in** is recorded by `sign_in._signed_in`, inside `auth.password`, `auth.totp`, `auth.webauthn` and
+  `auth.sso`, when a session is signed. A password change's fresh token is not a sign-in. The API's own `record_login`
+  calls are gone.
+- **SSO's start and callback** are `auth.sso_start` and `auth.sso_callback`. Both need the client secret, which only the
+  daemon opens.
+  - The callback checks the state bound to the browser, exchanges the code, validates the identity token, makes or
+    updates the account (`provision_sso_user`) and leaves the one-time handoff code.
+  - The API keeps the browser's side: the redirects, the cookies and the audit log.
+  - Without the daemon, nobody signs in (503), as with a password.
+- What a sign-in writes in the main file stays the API's: the failure counters and locks, the SSO state and handoff
+  rows, the audit log.
