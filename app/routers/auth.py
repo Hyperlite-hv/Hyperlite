@@ -228,10 +228,6 @@ def _sign_in(op, log_user=None, **args):
         ) from None
 
 
-def _record_login(username):
-    account_service.record_login(username)
-
-
 @router.post("/login")
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), remember: bool = Form(False)):
     ip = _client_ip(request)
@@ -274,7 +270,6 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
         return {"require_2fa": True, "preauth_token": answer["preauth_token"], "methods": answer["methods"]}
 
     _login_clear_failures(user["username"], ip)
-    _record_login(user["username"])
     log_action(user["username"], "login", "auth", "success")
     return _session_response(answer["token"], user)
 
@@ -332,7 +327,6 @@ def login_webauthn(request: Request, payload: LoginWebAuthn):
         log_action(username, "login", "auth", "failed", "Security key refused")
         raise HTTPException(status_code=401, detail="Security key refused: try again, or use the code")
     _login_clear_failures(username, ip)
-    _record_login(username)
     log_action(username, "login", "auth", "success", "Security key validated")
     return _session_response(answer["token"], answer["user"])
 
@@ -376,7 +370,6 @@ def login_2fa(request: Request, payload: Login2FA):
         raise HTTPException(status_code=401, detail="Invalid code (a code is accepted once: wait for the next one)")
 
     _login_clear_failures(username, ip)
-    _record_login(username)
     log_action(username, "login", "auth", "success", "2FA validated")
     return _session_response(answer["token"], answer["user"])
 
