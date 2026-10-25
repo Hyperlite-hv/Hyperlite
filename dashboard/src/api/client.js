@@ -878,17 +878,18 @@ export async function migrateVM(name, targetNode, sourceNode, ignorerVerificatio
   const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, skip_checks: ignorerVerifications }) });
 }
-// ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode;
-// targetNode null only marks the node.
+// ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode, or each
+// where load balancing places it (spread); targetNode null without spread only marks the node.
 export async function fetchNodeMaintenance() {
   return realList("/nodes/maintenance");
 }
-export async function fetchDrainPlan(node, targetNode) {
-  const qs = targetNode ? `?target_node=${encodeURIComponent(targetNode)}` : "";
+export async function fetchDrainPlan(node, targetNode, spread = false) {
+  const qs = spread ? "?spread=true" : targetNode ? `?target_node=${encodeURIComponent(targetNode)}` : "";
   return realFetch(`/nodes/${encodeURIComponent(node)}/drain-plan${qs}`);
 }
-export async function enterNodeMaintenance(node, targetNode) {
-  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "POST", ...jsonBody({ target_node: targetNode || null }) });
+export async function enterNodeMaintenance(node, targetNode, spread = false) {
+  const body = spread ? { spread: true } : { target_node: targetNode || null };
+  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "POST", ...jsonBody(body) });
 }
 export async function leaveNodeMaintenance(node) {
   return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "DELETE" });
@@ -1021,8 +1022,34 @@ export async function testSso() {
   return realFetch("/auth/sso/test", { method: "POST" });
 }
 
-export async function createVM(payload) {
-  return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
+// node: the member the VM is created on (?node=, which sends the request there); omitted for this host.
+export async function createVM(payload, node = null) {
+  const qs = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms${qs}`, { method: "POST", ...jsonBody(payload) });
+}
+// Load balancing (docs/design/drs.md, #334): { settings, state, rules, behaviours }, and what an administrator changes.
+export async function fetchDrs() {
+  return realFetch("/drs");
+}
+export async function saveDrsSettings(mode, threshold) {
+  return realFetch("/drs/settings", { method: "PUT", ...jsonBody({ mode, threshold }) });
+}
+export async function saveDrsRule(rule) {
+  return realFetch(`/drs/rules/${encodeURIComponent(rule.name)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function deleteDrsRule(name) {
+  return realFetch(`/drs/rules/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function setDrsBehaviour(vm, behaviour) {
+  return realFetch(`/drs/vms/${encodeURIComponent(vm)}`, { method: "PUT", ...jsonBody({ behaviour }) });
+}
+export async function applyDrsMove({ vm, source, target, reason }) {
+  return realFetch("/drs/apply", { method: "POST", ...jsonBody({ vm, source, target, ...(reason ? { reason } : {}) }) });
+}
+// The member a new VM goes to on "auto" (load balancing's placement, docs/design/drs.md 3.6): { node, local, skipped }.
+export async function fetchPlacement({ name, memoryMb, vcpus, network, storagePool }) {
+  const params = new URLSearchParams({ memory_mb: String(memoryMb), vcpus: String(vcpus), name: name || "", network: network || "default", storage_pool: storagePool || "default" });
+  return realFetch(`/drs/placement?${params}`);
 }
 // The same creation as a task (202): for large imported disks, whose conversion outlasts a request.
 export async function createVMTask(payload) {

@@ -27,7 +27,7 @@ from app.core.security import (
     set_password,
     verify_password,
 )
-from app.core.twofa import generate_secret, provisioning_uri, qr_code_svg, seal_secret, verify_code
+from app.core.twofa import provisioning_uri, qr_code_svg
 from app.daemon.registry import DaemonError
 from app.services import account_service
 
@@ -407,8 +407,7 @@ def setup_2fa(payload: PasswordConfirm, user: dict = Depends(get_session_user)):
         raise HTTPException(status_code=400, detail="2FA is already enabled: disable it before generating a new one")
     _check_current_password(user, payload.password, "enable_2fa")
     _reauth_clear_failures(user["username"])
-    secret = generate_secret()
-    account_service.start_totp(user["username"], seal_secret(secret))
+    secret = account_service.start_totp(user["username"])  # made and sealed by hyperlite-daemon
     uri = provisioning_uri(secret, user["username"])
     return {"secret": secret, "otpauth_uri": uri, "qr_code_svg": qr_code_svg(uri)}
 
@@ -418,7 +417,7 @@ def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_session_user)):
     fresh = get_user(user["username"])
     if not fresh["totp_secret"]:
         raise HTTPException(status_code=400, detail="No pending 2FA setup: run /auth/2fa/setup first")
-    if not verify_code(user["username"], fresh["totp_secret"], payload.code):
+    if not account_service.check_totp(user["username"], payload.code):
         # 400, not 401: the session itself is valid, only the submitted code is wrong (a 401 makes
         # the dashboard treat the session as expired and sign the user out).
         raise HTTPException(status_code=400, detail="Invalid code")
@@ -438,7 +437,7 @@ def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(ge
         _refuse_reauth_if_locked(username, "disable_2fa")  # no password to ask: the code alone, below
     else:
         _check_current_password(user, payload.password, "disable_2fa")  # a directory account's, from the directory
-    if user["totp_enabled"] and not verify_code(username, user["totp_secret"], payload.code or ""):
+    if user["totp_enabled"] and not account_service.check_totp(username, payload.code or ""):
         _reauth_record_failure(username)
         log_action(username, "disable_2fa", username, "failed", "Invalid 2FA code")
         raise HTTPException(status_code=400, detail="Invalid 2FA code (a code is accepted once: wait for the next one)")

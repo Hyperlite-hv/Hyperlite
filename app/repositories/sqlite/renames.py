@@ -21,9 +21,9 @@ _VM_COLUMNS = (
     ("vm_cloudinit_custom", "vm_name"),
     ("backup_jobs", "vm_name"),
     ("backups", "vm_name"),
-    ("pool_members", "vm_name"),
     ("ha_protected_vms", "vm_name"),
 )
+# A VM's resource pools and ACLs follow it too, written by hyperlite-daemon (SqliteAccessStore.move_vm, step 4b).
 
 _CONTAINER_COLUMNS = (
     ("container_ssh_users", "container_name"),
@@ -59,13 +59,10 @@ def _move(db, tables, table, column, old, new, extra="", params=()):
     )
 
 
-# Objects known by an id, whose name is only a label: renaming them changes nothing else.
+# Objects known by an id, whose name is only a label: renaming them changes nothing else. A resource pool's, a group's,
+# a custom role's and an API token's are the permissions', renamed by hyperlite-daemon (SqliteAccessStore.rename_label).
 LABELS = {
-    "pool": ("pools", "name"),
-    "group": ("groups", "name"),
-    "custom_role": ("custom_roles", "name"),
     "job": ("jobs", "name"),
-    "api_token": ("api_tokens", "name"),
 }
 
 # What rename_label() reports when the new name belongs to another object.
@@ -79,7 +76,6 @@ class SqliteRenameStore:
             tables = _tables(db)
             for table, column in _VM_COLUMNS:
                 _move(db, tables, table, column, old, new)
-            _move(db, tables, "acl", "resource_id", old, new, " AND resource_type = 'vm'")
             shared_key = self_node.to_db(node_key)  # shared tables name the node (app/core/self_node.py)
             _move(db, tables, "vm_boot", "vm_name", old, new, " AND node = ?", (shared_key,))
             _move(db, tables, "object_meta", "name", old, new, " AND kind = 'vm' AND node = ?", (shared_key,))
@@ -109,7 +105,6 @@ class SqliteRenameStore:
             tables = _tables(db)
             for table, column in _CONTAINER_COLUMNS:
                 _move(db, tables, table, column, old, new)
-            _move(db, tables, "acl", "resource_id", old, new, " AND resource_type = 'container'")
             _move(db, tables, "object_meta", "name", old, new, " AND kind = 'container'")
             db.commit()
 

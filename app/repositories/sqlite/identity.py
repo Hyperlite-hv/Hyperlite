@@ -10,6 +10,7 @@ exception, so this layer stays free of the provider logic.
 import asyncio
 
 from app.core.database import get_conn
+from app.repositories.daemon_write import daemon_write
 
 # Outcomes of a provisioning: the account was created or updated, or the name is someone else's.
 PROVISIONED = "ok"
@@ -44,6 +45,16 @@ def _upsert_singleton(db, table, fields):
         )
 
 
+def _unusable_password():
+    """A directory or SSO account's local password: random, never told, so only its directory or IdP signs it in.
+    Hashed by the daemon, which provisions the account (hashing is deliberately slow)."""
+    import secrets
+
+    from app.core.security import hash_password
+
+    return hash_password(secrets.token_hex(32))
+
+
 class SqliteIdentityStore:
     # ---- Security keys ----
 
@@ -58,9 +69,11 @@ class SqliteIdentityStore:
     def has_keys(self, username):
         return _one("SELECT 1 AS x FROM webauthn_credentials WHERE username = ? LIMIT 1", (username,)) is not None
 
+    @daemon_write("access.key_delete")
     def delete_key(self, username, key_id):
         return _write("DELETE FROM webauthn_credentials WHERE id = ? AND username = ?", (key_id, username)).rowcount > 0
 
+    @daemon_write("access.key_delete_all")
     def delete_all_keys(self, username):
         _write("DELETE FROM webauthn_credentials WHERE username = ?", (username,))
 
@@ -77,6 +90,7 @@ class SqliteIdentityStore:
             (username, credential_id, rp_id),
         )
 
+    @daemon_write("access.key_add")
     def add_credential(self, username, name, credential_id, public_key, sign_count, rp_id, created_at):
         """The new key's id, or None when this credential is already registered (to anyone)."""
         with get_conn() as db:
@@ -90,6 +104,7 @@ class SqliteIdentityStore:
             db.commit()
             return cur.lastrowid
 
+    @daemon_write("access.key_used")
     def record_key_use(self, key_id, sign_count, used_at):
         _write(
             "UPDATE webauthn_credentials SET sign_count = ?, used_at = ? WHERE id = ?", (sign_count, used_at, key_id)
@@ -163,8 +178,9 @@ class SqliteIdentityStore:
             db.commit()
         return dict(row) if row else None
 
-    def provision_sso_user(self, username, role, subject, new_password_hash):
-        """(outcome, users row). The account is found by its IdP subject first; `new_password_hash()` is only
+    @daemon_write("access.provision_sso")
+    def provision_sso_user(self, username, role, subject):
+        """(outcome, users row). The account is found by its IdP subject first; `_unusable_password()` is only
         called for a new account (hashing is deliberately slow)."""
         with get_conn() as db:
             if subject:
@@ -183,7 +199,7 @@ class SqliteIdentityStore:
             if existing is None:
                 db.execute(
                     "INSERT INTO users (username, hashed_password, role, auth_source, sso_subject) VALUES (?, ?, ?, 'sso', ?)",
-                    (username, new_password_hash(), role, subject),
+                    (username, _unusable_password(), role, subject),
                 )
             else:
                 db.execute(
@@ -203,8 +219,9 @@ class SqliteIdentityStore:
             _upsert_singleton(db, "ldap_config", fields)
             db.commit()
 
-    def provision_ldap_user(self, username, dn, role, new_password_hash):
-        """(outcome, users row); `new_password_hash()` is only called for a new account."""
+    @daemon_write("access.provision_ldap")
+    def provision_ldap_user(self, username, dn, role):
+        """(outcome, users row); `_unusable_password()` is only called for a new account."""
         with get_conn() as db:
             row = db.execute("SELECT username, auth_source FROM users WHERE username = ?", (username,)).fetchone()
             if row is not None and row["auth_source"] != "ldap":
@@ -212,7 +229,7 @@ class SqliteIdentityStore:
             if row is None:
                 db.execute(
                     "INSERT INTO users (username, hashed_password, role, auth_source, ldap_dn) VALUES (?, ?, ?, 'ldap', ?)",
-                    (username, new_password_hash(), role, dn),
+                    (username, _unusable_password(), role, dn),
                 )
             else:
                 db.execute("UPDATE users SET role = ?, ldap_dn = ? WHERE username = ?", (role, dn, username))
