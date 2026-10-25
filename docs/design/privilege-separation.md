@@ -766,3 +766,36 @@ written in place, never asked of the daemon again.
 
 What 4d holds before 4e: a route's mistake (a check forgotten) is caught by the daemon for every request that carries
 its caller's proof. What it does not hold yet: the API, still root, may call without a proof; 4e takes that away.
+
+### 14.3 4e, first part: the permission tables in a file of their own (2026-10-25)
+
+From 4e the API runs as `www-data`, and it writes the main database (tasks, audit, metrics). Had the permission tables
+stayed in it, a compromised API could have changed a role or an ACL and the daemon, which reads them to check each
+operation (14), would have trusted the change. As Proxmox VE keeps `user.cfg` and `priv/` root's, they move to
+`/etc/hyperlite/access.db` (`app/core/database.py`, `ACCESS_TABLES`): the accounts, API tokens, security keys, revoked
+sessions, groups, roles, resource pools, ACLs and the SSO and LDAP settings.
+
+- **Every connection attaches it** as `acc` (`get_conn`): read-write for the processes that may write it (root's
+  services), with `?mode=ro` otherwise. Queries keep unqualified names; SQLite finds the tables in the attached file. It
+  uses a rollback journal, not WAL, so a read-only reader writes nothing beside it.
+- **The main file cannot stand in for it.** SQLite looks unqualified names up in the main file first, and the API writes
+  that file: a table or a view it made there under a permission table's name would be read instead. Each connection has
+  an authorizer (`_only_from_the_access_file`) that refuses, when a statement is prepared, any read or write of those
+  names outside the access file (a view's columns are checked under the view's name). The next start of a root service
+  drops such a view and sets such a table aside as `*_pre_access`, and says so.
+- **The cluster still sees every change.** A trigger stored in the access file cannot write the main file's outbox, so
+  each writer's connection gets TEMP triggers (`shadow.access_triggers`); ids of new rows are reserved in the access
+  file's `sqlite_sequence` (`ids.Connection.schemas`).
+- **Moved once.** The first start of this version copies each table, with its indexes and AUTOINCREMENT counter, in one
+  transaction per table, then drops it from the main file (`_move_to_access`). API v1's renames run on the main file
+  before that.
+- **Back on a return to an older version.** An older version reads the main file. On a downgrade the package's `prerm`
+  stops the writers and runs `python -m app.core.database move-back`: the tables go back into the main file and
+  `access.db` is set aside as `access.db.before-<version>`; the next start of a newer version moves them again.
+- **Copies.** The pre-update copy has its own `hyperlite-access-backup-<stamp>.db`, and the archive leaves the file out,
+  so a rollback that extracts it never restores an older one. A cluster-copy bundle (`config_copy`) still holds one
+  database, the permission tables included; a promoted node sets its own file aside and moves them in at its start.
+
+The file is root's only (0600) for now. When the API's unit changes user, it gets `www-data`'s group read (0640), as
+`/etc/pve` is readable by `www-data` on Proxmox VE: the API checks a password or a token itself, so the hashes stay
+readable to it, as before.
