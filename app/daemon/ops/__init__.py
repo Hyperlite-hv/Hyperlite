@@ -1,6 +1,7 @@
 """The operations of hyperlite-daemon, one module per domain. Importing this package registers them all."""
 
 from app.daemon.ops import (  # noqa: F401
+    access,
     auth,
     backup,
     cluster,

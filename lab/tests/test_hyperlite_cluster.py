@@ -243,6 +243,33 @@ def test_root_drives_another_member_with_hyperlite_admin(cluster):
     assert on(1, "hyperlite-admin", "api", "/vms/x/migrate").startswith("POST /vms/{name}/migrate")
 
 
+def test_the_permissions_are_written_by_the_daemon(cluster):
+    """A group, its member, an ACL, an API token and a rename, written by hyperlite-daemon on a real node, never by
+    the API (docs/design/privilege-separation.md, section 14.1): each appears in the daemon's journal as its own
+    operation, and the API token then signs a request in."""
+    t = cluster["tokens"][1]
+    since = on(1, "date", "+%Y-%m-%d %H:%M:%S").strip()
+    group = ok(api(1, "POST", "/groups", {"name": "lab-ops"}, t))["id"]
+    ok(api(1, "POST", f"/groups/{group}/members", {"username": "admin"}, t))
+    acl = {
+        "subject_type": "group",
+        "subject_id": str(group),
+        "role": "operator",
+        "resource_type": "vm",
+        "resource_id": "labacl",
+    }
+    acl_id = ok(api(1, "POST", "/acl", acl, t))["id"]
+    ok(api(1, "PATCH", f"/groups/{group}", {"name": "lab-ops2"}, t))
+    made = ok(api(1, "POST", "/auth/tokens", {"name": "lab-4b", "expires_days": 1}, t))
+    assert ok(api(1, "GET", "/auth/me", token=made["token"]))["username"] == "admin"
+    journal = on(1, "journalctl", "-u", "hyperlite-daemon", "--since", since, "--no-pager", "-o", "cat")
+    for op in ("group_create", "group_member_add", "acl_create", "rename_label", "token_create", "token_used"):
+        assert f"access.{op} by" in journal, op
+    ok(api(1, "DELETE", f"/acl/{acl_id}", token=t))
+    ok(api(1, "DELETE", f"/auth/tokens/{made['id']}", token=t))
+    ok(api(1, "DELETE", f"/groups/{group}", token=t))
+
+
 def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
     status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])

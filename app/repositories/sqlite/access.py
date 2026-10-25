@@ -6,6 +6,7 @@ Rows only: resolving a role to its privileges and deciding a permission stay in 
 import asyncio
 
 from app.core.database import get_conn
+from app.repositories.daemon_write import daemon_write
 
 
 def _rows(sql, params=()):
@@ -28,6 +29,10 @@ def _write_all(*statements):
         db.commit()
 
 
+# The permissions' objects known by an id, whose name is only a label.
+LABELS = {"pool": "pools", "group": "groups", "custom_role": "custom_roles", "api_token": "api_tokens"}
+
+
 class SqliteAccessStore:
     # ---- Custom roles ----
 
@@ -38,13 +43,16 @@ class SqliteAccessStore:
         rows = _rows("SELECT id, name, privileges FROM custom_roles WHERE id = ?", (role_id,))
         return rows[0] if rows else None
 
+    @daemon_write("access.role_create")
     def create_custom_role(self, name, privileges):
         return _write("INSERT INTO custom_roles (name, privileges) VALUES (?, ?)", (name, privileges)).lastrowid
 
+    @daemon_write("access.role_privileges")
     def set_custom_role_privileges(self, role_id, privileges):
         """False when there is no such role."""
         return _write("UPDATE custom_roles SET privileges = ? WHERE id = ?", (privileges, role_id)).rowcount > 0
 
+    @daemon_write("access.role_delete")
     def delete_custom_role(self, role_key, role_id):
         _write_all(
             ("DELETE FROM acl WHERE role = ?", (role_key,)),
@@ -63,9 +71,11 @@ class SqliteAccessStore:
                 g["members"] = [r["username"] for r in rows]
         return groups
 
+    @daemon_write("access.group_create")
     def create_group(self, name):
         return _write("INSERT INTO groups (name) VALUES (?)", (name,)).lastrowid
 
+    @daemon_write("access.group_delete")
     def delete_group(self, group_id):
         _write_all(
             ("DELETE FROM group_members WHERE group_id = ?", (group_id,)),
@@ -73,9 +83,11 @@ class SqliteAccessStore:
             ("DELETE FROM groups WHERE id = ?", (group_id,)),
         )
 
+    @daemon_write("access.group_member_add")
     def add_group_member(self, group_id, username):
         _write("INSERT OR IGNORE INTO group_members (group_id, username) VALUES (?, ?)", (group_id, username))
 
+    @daemon_write("access.group_member_remove")
     def remove_group_member(self, group_id, username):
         _write("DELETE FROM group_members WHERE group_id = ? AND username = ?", (group_id, username))
 
@@ -94,13 +106,16 @@ class SqliteAccessStore:
                 p["vms"] = [r["vm_name"] for r in rows]
         return pools
 
+    @daemon_write("access.pool_create")
     def create_pool(self, name, description):
         return _write("INSERT INTO pools (name, description) VALUES (?, ?)", (name, description)).lastrowid
 
+    @daemon_write("access.pool_description")
     def set_pool_description(self, pool_id, description):
         """False when there is no such pool."""
         return _write("UPDATE pools SET description = ? WHERE id = ?", (description, pool_id)).rowcount > 0
 
+    @daemon_write("access.pool_delete")
     def delete_pool(self, pool_id):
         _write_all(
             ("DELETE FROM pool_members WHERE pool_id = ?", (pool_id,)),
@@ -108,12 +123,15 @@ class SqliteAccessStore:
             ("DELETE FROM pools WHERE id = ?", (pool_id,)),
         )
 
+    @daemon_write("access.pool_member_add")
     def add_pool_member(self, pool_id, vm_name):
         _write("INSERT OR IGNORE INTO pool_members (pool_id, vm_name) VALUES (?, ?)", (pool_id, vm_name))
 
+    @daemon_write("access.pool_member_remove")
     def remove_pool_member(self, pool_id, vm_name):
         _write("DELETE FROM pool_members WHERE pool_id = ? AND vm_name = ?", (pool_id, vm_name))
 
+    @daemon_write("access.pool_member_rename")
     def rename_pool_member(self, old_vm_name, new_vm_name):
         _write_all(
             ("UPDATE pool_members SET vm_name = ? WHERE vm_name = ?", (new_vm_name, old_vm_name)),
@@ -123,6 +141,7 @@ class SqliteAccessStore:
     def pools_of(self, vm_name):
         return [r["pool_id"] for r in _rows("SELECT pool_id FROM pool_members WHERE vm_name = ?", (vm_name,))]
 
+    @daemon_write("access.pool_vm_forget")
     def remove_vm_from_all_pools(self, vm_name):
         _write("DELETE FROM pool_members WHERE vm_name = ?", (vm_name,))
 
@@ -137,17 +156,59 @@ class SqliteAccessStore:
             (resource_type,),
         )
 
+    @daemon_write("access.acl_create")
     def create_acl(self, subject_type, subject_id, role, resource_type, resource_id):
         return _write(
             "INSERT INTO acl (subject_type, subject_id, role, resource_type, resource_id) VALUES (?, ?, ?, ?, ?)",
             (subject_type, subject_id, role, resource_type, resource_id),
         ).lastrowid
 
+    @daemon_write("access.acl_delete")
     def delete_acl(self, acl_id):
         _write("DELETE FROM acl WHERE id = ?", (acl_id,))
 
+    @daemon_write("access.acl_vm_forget")
     def delete_acl_for_vm(self, vm_name):
         _write("DELETE FROM acl WHERE resource_type = 'vm' AND resource_id = ?", (vm_name,))
+
+    @daemon_write("access.vm_moved")
+    def move_vm(self, old, new):
+        """A renamed VM's resource pools and ACLs follow it. UPDATE OR REPLACE, as the VM's other records: a row left
+        under the new name by a VM deleted long ago does not block the rename."""
+        _write_all(
+            ("UPDATE OR REPLACE pool_members SET vm_name = ? WHERE vm_name = ?", (new, old)),
+            ("UPDATE OR REPLACE acl SET resource_id = ? WHERE resource_id = ? AND resource_type = 'vm'", (new, old)),
+        )
+
+    @daemon_write("access.container_moved")
+    def move_container(self, old, new):
+        _write(
+            "UPDATE OR REPLACE acl SET resource_id = ? WHERE resource_id = ? AND resource_type = 'container'",
+            (new, old),
+        )
+
+    @daemon_write("access.rename_label")
+    def rename_label(self, kind, object_id, new, owner=None):
+        """A resource pool, group, custom role or API token renamed (objects known by an id, whose name is only a label):
+        {"old"} its old name, None when there is no such object (for `owner`, when given); {"taken": True} when
+        another one already has the name (API tokens are named per account, and two may share a name)."""
+        table = LABELS[kind]
+        where, params = "id = ?", [object_id]
+        if owner is not None:
+            where, params = "id = ? AND username = ?", [object_id, owner]
+        # Fixed table names from LABELS; every value is a parameter.
+        select = f"SELECT name FROM {table} WHERE {where}"  # noqa: S608
+        taken = f"SELECT 1 FROM {table} WHERE name = ? AND id != ?"  # noqa: S608
+        update = f"UPDATE {table} SET name = ? WHERE id = ?"  # noqa: S608
+        with get_conn() as db:
+            row = db.execute(select, params).fetchone()
+            if not row:
+                return {"old": None}
+            if kind != "api_token" and db.execute(taken, (new, object_id)).fetchone():
+                return {"taken": True}
+            db.execute(update, (new, object_id))
+            db.commit()
+        return {"old": row["name"]}
 
 
 class SqliteAccessRepository:
