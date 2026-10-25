@@ -1,0 +1,1 @@
+- The API reads this node's libvirt, and its containers', through libvirt's read-only socket, as it will have to once it runs as www-data; enabling HA on a VM turns libvirt's autostart off through hyperlite-daemon.

@@ -24,7 +24,7 @@ def hosts(monkeypatch):
     from app.routers import meta
 
     monkeypatch.setattr(meta, "open_conn", lambda node=None, **_k: _Conn({"web", "db"} if not node else {"far"}))
-    monkeypatch.setattr(meta, "open_lxc_conn_if_any", lambda: _Conn({"cache"}))
+    monkeypatch.setattr(meta, "open_lxc_conn_if_any", lambda readonly=False: _Conn({"cache"}))
 
 
 def test_tags_are_short_lowercase_words_without_duplicates():

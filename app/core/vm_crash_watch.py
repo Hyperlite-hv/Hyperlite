@@ -70,7 +70,7 @@ def _loop():
 
     while True:
         try:
-            conn = open_conn()
+            conn = open_conn(readonly=True)
             try:
                 tick(conn)
             finally:

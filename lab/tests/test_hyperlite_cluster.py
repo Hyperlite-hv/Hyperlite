@@ -1133,3 +1133,14 @@ def test_only_the_lrm_keeps_a_node_with_an_ha_vm_alive(cluster):
     ok(api(1, "POST", f"/vms/svcvm/stop?node={c}&force=true", token=t[1]))
     wait("svcvm stopped", lambda: ok(api(1, "GET", f"/vms/svcvm?node={c}", token=t[1]))["state"] == "stopped")
     ok(api(1, "DELETE", f"/vms/svcvm?node={c}&confirm=true", token=t[1]))
+
+
+def test_the_api_was_never_refused_by_libvirts_read_only_socket(cluster):
+    """Last, after every other test (docs/design/privilege-separation.md, 4e, points 10 and 18 of #298): the API reads
+    libvirt through its read-only socket, so a read it may not do there (a secure definition, a guest agent's command)
+    would be refused, and said in its journal. None was, on any member, for the whole run."""
+    for n in NODES:
+        journal = on(n, "journalctl", "-u", "hyperlite", "--no-pager", "-o", "cat")
+        # libvirt's words: "read only access prevents virDomain…", or "virDomainGetXMLDesc with secure flag".
+        refused = [line for line in journal.splitlines() if "operation forbidden" in line]
+        assert refused == [], f"node {n}: " + "\n".join(refused[:5])
