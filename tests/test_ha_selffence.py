@@ -3,6 +3,7 @@ it has the quorum, starved without it (the node resets), disarmed cleanly otherw
 host's own watchdog is never touched (tests/conftest.py points HYPERLITE_WATCHDOG_DEVICE elsewhere)."""
 
 import json
+import time
 
 import pytest
 
@@ -36,6 +37,10 @@ def node(tmp_path, monkeypatch):
     monkeypatch.setattr(ha_selffence, "published", lambda name: world["mine"])
     monkeypatch.setattr(ha_selffence, "state", ha_selffence._State())
     world["dev"] = dev
+    world["heartbeat_age"] = 1.0
+    from app.core import statd
+
+    monkeypatch.setattr(statd, "heartbeat_age", lambda: world["heartbeat_age"])
     yield world
     ha_selffence.stop()
 
@@ -179,3 +184,33 @@ def test_a_round_that_started_before_a_stop_never_arms_it_after(node, monkeypatc
     monkeypatch.setattr(ha_selffence, "_hosts_running_ha_vm", hosts_then_stop)
     ha_selffence.tick()
     assert not ha_selffence.report()["armed"] and node["published"] == []
+
+
+def test_a_node_whose_heartbeat_does_not_go_out_is_starved(node):
+    """The leader declares a member lost when its heartbeat stops, then waits for its reset: a node with the quorum that
+    cannot send its heartbeat (libvirt hung, the thread stuck) must not keep feeding, or its VMs would run twice."""
+    ha_selffence.tick()
+    node["heartbeat_age"] = ha_selffence.HEARTBEAT_STALE_S + 1
+    ha_selffence.tick()
+    ha_selffence.tick()
+    assert written(node) == b"\0"  # not fed: the node resets before the leader acts
+    assert b"V" not in written(node)  # never disarmed either
+    node["heartbeat_age"] = 1.0
+    ha_selffence.tick()
+    assert written(node) == b"\0\0"
+
+
+def test_the_heartbeat_records_when_it_went_out(monkeypatch):
+    from app.core import statd
+
+    class Client:
+        def stat_put(self, blob):
+            pass
+
+    monkeypatch.setattr(statd, "summary", lambda: {"node": "n1"})
+    monkeypatch.setattr("app.repositories.cfs.shadow._get_client", lambda: Client())
+    # An hour ago on the monotonic clock, which starts near 0 on a machine just booted (a CI runner).
+    monkeypatch.setattr(statd, "_sent", [time.monotonic() - 3600])
+    assert statd.heartbeat_age() > 1000
+    statd.publish()
+    assert statd.heartbeat_age() < 5

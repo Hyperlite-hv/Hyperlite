@@ -120,6 +120,7 @@ def recover(vm_name: str, payload: RecoverRequest, user: dict = Depends(require_
 def watch_status(user: dict = Depends(get_current_user)):
     """The HA page's state: in a cluster, automatic HA (the leader restarts the HA VMs of a lost member) with every
     member's state; outside one, the dry run of ha_watch."""
+    from app import ha_services
     from app.core import cluster_lead, ha_recovery
 
     automatic = cluster_lead.in_cluster()
@@ -127,7 +128,7 @@ def watch_status(user: dict = Depends(get_current_user)):
         **ha_watch.status(),
         "admission": ha_admission.check(),
         "automatic": automatic,
-        "leading": automatic and cluster_lead.is_leader(),
+        "leading": automatic and ha_services.crm_leads(),  # the CRM's lead (app/ha_services), not the API's
         "members": ha_recovery.members_view() if automatic else [],
     }
 
