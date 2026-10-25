@@ -88,8 +88,7 @@ Each one ships with its tests and the docs:
 
 ## 9. Migration between clusters (steps 4 and 5)
 
-Status: **proposal** (2026-10-25). The choices below are the maintainer's, from the questions asked the same day; no
-code before this section is accepted.
+Status: **accepted (maintainer, 2026-10-25).** The choices below are the maintainer's, from the questions asked the same day.
 
 | Question | Proxmox | vSphere | Hyperlite |
 |---|---|---|---|
