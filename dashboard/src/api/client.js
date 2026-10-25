@@ -494,8 +494,8 @@ export async function fetchSiteList(remote, what, node) {
   return realList(`/sites/${encodeURIComponent(remote)}/${what}${query}`);
 }
 // A stopped VM of this node moved to another cluster: what goes and what stays, then the move itself (a task).
-export async function fetchSiteOutgoing(vm) {
-  return realFetch(`/sites/outgoing/${encodeURIComponent(vm)}`);
+export async function fetchSiteOutgoing(vm, live = false) {
+  return realFetch(`/sites/outgoing/${encodeURIComponent(vm)}${live ? "?live=true" : ""}`);
 }
 export async function moveVmToSite(vm, payload) {
   return realFetch(`/sites/outgoing/${encodeURIComponent(vm)}`, { method: "POST", ...jsonBody(payload) });
