@@ -460,12 +460,20 @@ def members_view():
     return out
 
 
+_round = [time.monotonic()]  # when the last round ended: hyperlite-ha-crm keeps the lead only while they run
+
+
+def round_age():
+    return time.monotonic() - _round[0]
+
+
 def _loop():
     while True:
         try:
             tick()
         except Exception:  # the thread must survive anything, or no VM would ever be restarted again
             logger.exception("HA recovery round failed")
+        _round[0] = time.monotonic()
         time.sleep(TICK_S)
 
 

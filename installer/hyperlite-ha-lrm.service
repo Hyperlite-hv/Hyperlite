@@ -25,6 +25,8 @@ Environment=HYPERLITE_HA_SERVICE=1
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
 ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
 ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.ha_services lrm
+# A normal stop disarms the watchdog at once (ha_selffence.stop, the magic close). One killed at this timeout would
+# skip it, and the node would reset after the watchdog's own timeout: the stop is short, keep it so.
 TimeoutStopSec=20
 Restart=on-failure
 RestartSec=3

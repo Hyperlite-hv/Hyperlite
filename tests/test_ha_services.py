@@ -51,7 +51,10 @@ def _run(monkeypatch, role):
     monkeypatch.setattr("app.core.database.init_db", lambda: ran.append("schema"))
     monkeypatch.setattr("app.core.tasks.close_interrupted_tasks", lambda: ran.append("tasks"))
     monkeypatch.setattr("app.core.statd.start", lambda: ran.append("heartbeat"))
-    monkeypatch.setattr("app.core.cluster_lead.start_lead_loop", lambda follow_setup: ran.append("lead"))
+    monkeypatch.setattr(
+        "app.core.cluster_lead.start_lead_loop",
+        lambda follow_setup, lock=None, healthy=None: ran.append(("lead", lock)),
+    )
     monkeypatch.setattr(ha_services, "start", lambda role: ran.append(role))
     monkeypatch.setattr("app.core.ha_selffence.stop", lambda: ran.append("disarmed"))
     monkeypatch.delenv("HYPERLITE_SERVICE", raising=False)
@@ -77,7 +80,7 @@ def test_the_lrm_sends_the_heartbeat_and_disarms_the_watchdog_when_stopped(monke
 
 def test_the_crm_renews_the_lead_and_never_touches_the_watchdog(monkeypatch):
     ran, service = _run(monkeypatch, "crm")
-    assert ran == ["schema", "tasks", "lead", ha_services.CRM]
+    assert ran == ["schema", "tasks", ("lead", "hyperlite-ha-lead"), ha_services.CRM]
     assert service == ha_services.CRM
 
 
@@ -132,3 +135,59 @@ def test_the_units_split_ha_from_the_api():
     assert "hyperlite-ha-lrm.service" in api and "hyperlite-ha-crm.service" in api
     postinst = (UNITS / "deb" / "postinst").read_text()
     assert "installer/hyperlite-ha-lrm.service" in postinst and "installer/hyperlite-ha-crm.service" in postinst
+
+
+def test_the_lrms_heartbeat_carries_the_load_the_api_measured(database, monkeypatch):
+    """Load balancing reads each member's load in its heartbeat: the LRM, which has no collector, sends the API's."""
+    import time
+
+    from app.core import metrics
+
+    monkeypatch.setenv(ha_services.SEPARATE_ENV, "1")
+    monkeypatch.setattr(metrics, "_latest", {"at": 0.0, "load": None})
+    assert metrics.latest_load() is None
+    metrics._record_load(time.time(), {"cpu_pct": 93.0, "mem_used_mb": 1, "mem_total_mb": 2}, {})
+    monkeypatch.setattr(metrics, "_latest", {"at": 0.0, "load": None})  # the LRM: no collector of its own
+    assert metrics.latest_load()["host"]["cpu_pct"] == 93.0
+
+
+def test_a_crm_whose_rounds_stopped_lets_its_lead_go(monkeypatch):
+    """A hung CRM on the leader would stop HA's recovery cluster-wide: it renews its own lock only while its rounds
+    run, so the lock expires and another member's CRM takes over."""
+    from app.core import cluster_lead
+
+    taken = []
+
+    class Client:
+        def lock(self, name, holder, ttl):
+            taken.append(name)
+
+    monkeypatch.setattr(cluster_lead, "in_cluster", lambda: True)
+    monkeypatch.setattr("app.repositories.cfs.shadow._get_client", lambda: Client())
+    healthy = [True]
+    monkeypatch.setattr(cluster_lead, "_lead", {"lock": cluster_lead.HA_LOCK, "healthy": lambda: healthy[0]})
+    monkeypatch.setattr(cluster_lead, "_leading_until", 0.0)
+    assert cluster_lead.renew() and cluster_lead.is_leader() and taken == [cluster_lead.HA_LOCK]
+    healthy[0] = False
+    assert not cluster_lead.renew() and not cluster_lead.is_leader() and taken == [cluster_lead.HA_LOCK]
+
+
+def test_the_crm_is_healthy_while_its_rounds_run(monkeypatch):
+    from app.core import ha_recovery
+
+    monkeypatch.setattr(ha_recovery, "_round", [time.monotonic()])
+    monkeypatch.setattr(drs, "_round", [time.monotonic()])
+    assert ha_services.crm_healthy()
+    monkeypatch.setattr(ha_recovery, "_round", [time.monotonic() - 3600])
+    assert not ha_services.crm_healthy()
+
+
+def test_the_pages_show_the_crms_lead(database, monkeypatch):
+    monkeypatch.setenv(ha_services.SEPARATE_ENV, "1")
+    assert not ha_services.crm_leads()  # nothing published: not leading
+    monkeypatch.setenv("HYPERLITE_SERVICE", ha_services.CRM)
+    monkeypatch.setattr("app.core.cluster_lead.is_leader", lambda: True)
+    drs._publish()
+    monkeypatch.setenv("HYPERLITE_SERVICE", "api")
+    monkeypatch.setattr("app.core.cluster_lead.is_leader", lambda: False)  # the API's own lead does not count
+    assert ha_services.crm_leads()
