@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app import scheduler
 from app.core import (
     cluster_view,
     drs,
@@ -31,7 +32,6 @@ from app.core import (
     version,
 )
 from app.core.audit import request_ip
-from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
 from app.core.cluster import start_node_poller
 from app.core.cluster_lead import start_lead_loop
@@ -43,15 +43,11 @@ from app.core.k8s_cluster import recover_interrupted as recover_interrupted_k8s_
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import start_metrics_collector
 from app.core.network_firewall import reapply_all as reapply_network_firewalls
-from app.core.replication import start_replication_scheduler
 from app.core.security import optional_user
 from app.core.seed import seed_admin
 from app.core.tasks import close_interrupted_tasks
 from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
-from app.core.update_check import start_update_check_scheduler
-from app.core.vm_boot import start_boot_sequence
 from app.core.vm_builder import protect_existing_drives
-from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.core.vm_crash_watch import start_vm_crash_watch
 from app.daemon.registry import DaemonError
 from app.repositories.cfs.ids import NoId
@@ -533,12 +529,13 @@ def on_startup():
         print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
     initial_password.start()
     encrypt_stored_totp_secrets()
-    # Before anything starts new tasks: the ones still "running" belonged to the previous process.
+    # Before anything starts new tasks: the ones still "running" whose process is gone (app/core/tasks.py).
     close_interrupted_tasks()
     # This node updated itself as the last step of a rolling update: now that it runs, out of maintenance.
     rolling_update.finish_self_after_restart()
     start_metrics_collector()
-    start_backup_scheduler()
+    if not scheduler.separate():  # hyperlite-scheduler runs them on an installed node (app/scheduler)
+        scheduler.start()
     ensure_lb_job_exists()
     start_node_poller()
     start_config_copy()
@@ -548,14 +545,10 @@ def on_startup():
     ha_monitor.start()  # each node, its own HA VMs whose monitoring is on
     drs.start()  # load balancing: acts on the leader only, with the quorum (docs/design/drs.md)
     start_vm_crash_watch()
-    start_replication_scheduler()
-    start_auto_cleanup_scheduler()
-    start_update_check_scheduler()
     start_shadow_copy()
     start_apply_loop()
     start_lead_loop()
     recover_interrupted_k8s_clusters()
-    start_boot_sequence()
     # Cloud-init drives written before they were private (they hold the account and its password's hash).
     threading.Thread(target=protect_existing_drives, daemon=True, name="protect-cloudinit-drives").start()
 
