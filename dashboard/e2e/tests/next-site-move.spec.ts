@@ -45,3 +45,36 @@ test("a stopped VM is moved to another cluster from its actions", async ({ page 
   expect((await sent).postDataJSON()).toEqual({ remote: "lyon", node: "ly1", pools: ["default"], networks: ["lan"], name: null, start: false, limit_mib: 50 });
   await expect(page.getByText("Move started")).toBeVisible();
 });
+
+test("a running VM is moved live, keeping its name", async ({ page }) => {
+  const RUNNING = { ...FAKE, name: "e2e-live-demo", state: "active", uuid: "00000000-0000-0000-0000-00000000a0e2" };
+  await page.route(/\/vms(\?cluster=true)?$/, (route) =>
+    route.request().method() === "GET" ? route.fulfill({ json: listing([{ ...RUNNING, node: "local" }]) }) : route.continue());
+  let asked = "";
+  await page.route(/\/api\/v1\/sites\/outgoing\/e2e-live-demo(\?live=true)?$/, async (route) => {
+    if (route.request().method() === "POST") return route.fulfill({ status: 202, json: { task_id: "t-live", status: "running" } });
+    asked = new URL(route.request().url()).search;
+    return route.fulfill({ json: { spec: { ...SPEC, name: RUNNING.name }, left: [], allocated: { sda: 1024 ** 3 }, cpu: "<cpu mode='custom'/>" } });
+  });
+  await page.route(/\/api\/v1\/sites$/, (route) => route.fulfill({ json: listing([
+    { name: "lyon", self: false, reachable: true, summary: { nodes: [{ name: "ly1", online: true }] } },
+  ]) }));
+  await page.route(/\/api\/v1\/sites\/remotes$/, (route) => route.fulfill({ json: listing([{ name: "lyon", uses: ["manage", "view"], endpoints: [] }]) }));
+  await page.route(/\/api\/v1\/sites\/lyon\/storage\?node=ly1$/, (route) => route.fulfill({ json: listing([{ name: "default", type: "dir", state: "active", available_gb: 120 }]) }));
+  await page.route(/\/api\/v1\/sites\/lyon\/networks\?node=ly1$/, (route) => route.fulfill({ json: listing([{ name: "lan" }]) }));
+
+  await uiLogin(page);
+  await goTo(page, "Virtual Machines");
+  await page.getByRole("row", { name: /e2e-live-demo/ }).click({ button: "right", position: { x: 40, y: 10 } });
+  await page.getByRole("menu", { name: "Actions of e2e-live-demo" }).getByRole("menuitem", { name: /Move to another cluster/ }).click();
+  const drawer = page.getByRole("dialog", { name: "Move e2e-live-demo live to another cluster" });
+  await expect(drawer.getByText(/keeps running/).first()).toBeVisible();
+  expect(asked).toBe("?live=true");
+  await drawer.getByLabel("Cluster").selectOption("lyon");
+  await drawer.getByLabel("Node").selectOption("ly1");
+  await expect(drawer.getByLabel(/Pool for sda/)).toHaveValue("default");
+  await expect(drawer.getByLabel("Name there")).toHaveCount(0); // it keeps its name
+  const sent = page.waitForRequest((r) => r.method() === "POST" && /\/sites\/outgoing\/e2e-live-demo$/.test(r.url()));
+  await drawer.getByRole("button", { name: "Move", exact: true }).click();
+  expect((await sent).postDataJSON()).toEqual({ remote: "lyon", node: "ly1", pools: ["default"], networks: ["lan"], limit_mib: null, live: true });
+});
