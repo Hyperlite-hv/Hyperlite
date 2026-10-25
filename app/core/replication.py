@@ -27,6 +27,7 @@ reported with the reason.
 
 import json
 import logging
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -268,7 +269,57 @@ def replicate(vm_name, target_dir, username="scheduler"):
 
 
 def _replicate(vm_name, target_dir):
-    from app.core.libvirt_utils import open_conn
+    """The API's part: the chain's state read and recorded, hyperlite-daemon's point (replication.point)."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    state = _store().state(vm_name) or {}
+    try:
+        done = privileged.run(
+            "replication.point",
+            user="scheduler",
+            timeout=JOB_TIMEOUT_S + 600,
+            vm=vm_name,
+            target=target_dir or "",
+            previous_target=state.get("target_dir"),
+            previous=state.get("last_point"),
+            checkpoint=state.get("checkpoint"),
+            chain=state.get("chain"),
+            points=int(state.get("points") or 0),
+            disks_mtime=state.get("disks_mtime"),
+        )
+    except DaemonError as e:
+        raise ReplicationError(e.detail) from None
+    if done["kind"] == "unchanged":
+        _store().save_state(vm_name, status="ok", error=None, updated_at=_now().isoformat())
+        return "unchanged"
+    if done.get("checkpoints_dropped"):
+        checkpoints.forget(vm_name, done["checkpoints_dropped"])
+    _store().save_state(
+        vm_name,
+        target_dir=done["target_dir"],
+        chain=done["chain"],
+        last_point=done["point"],
+        checkpoint=done["checkpoint"],
+        points=done["points"],
+        last_success_at=_now().isoformat(),
+        disks_mtime=done["disks_mtime"],
+        status="ok",
+        error=None,
+        updated_at=_now().isoformat(),
+    )
+    return done["kind"]
+
+
+# A point's name and a checkpoint's, as make_point names them: what the API's records may name back.
+STAMP = re.compile(r"\d{8}T\d{6}Z")
+
+
+def make_point(vm_name, target_dir, previous_target, previous, last_checkpoint, chain, points, disks_mtime):
+    """hyperlite-daemon's part of a replication (replication.point): the next point of `vm_name` under `target_dir`,
+    from the chain's state the API recorded (checked here: a point and a checkpoint are names of the form make_point
+    gives them). Returns {"kind": "unchanged" | "full" | "incremental", and the chain's new state}."""
+    from app.core import libvirt_utils
 
     try:
         root = Path(backup_groups.validate_target(target_dir) or "")
@@ -276,25 +327,26 @@ def _replicate(vm_name, target_dir):
         raise ReplicationError(str(e)) from None
     if not root.is_absolute():
         raise ReplicationError("Choose the directory of the other site's storage")
+    for name in (previous, chain):
+        if name is not None and not STAMP.fullmatch(name):
+            raise ValueError(f"Not a replication point: {name}")
+    if last_checkpoint is not None and not STAMP.fullmatch(last_checkpoint.removeprefix(checkpoints.PREFIX)):
+        raise ValueError(f"Not a replication checkpoint: {last_checkpoint}")
     vm_dir = safe_child(root, vm_name)
-    conn = open_conn()
-    try:
+    with libvirt_utils.local_conn() as conn:
         try:
             domain = conn.lookupByName(vm_name)
         except libvirt.libvirtError:
             raise ReplicationError(f"VM '{vm_name}' not found") from None
         disks = disks_of(domain)
-        state = _store().state(vm_name) or {}
         running = domain.isActive()
-        same_target = state.get("target_dir") == str(root)
-        previous = state.get("last_point") if same_target else None
+        same_target = previous_target == str(root)
+        previous = previous if same_target else None
         previous_ok = bool(previous) and all((vm_dir / previous / f"{dev}.qcow2").is_file() for dev, _p in disks)
 
-        last_checkpoint = state.get("checkpoint")
         chain_alive = previous_ok and last_checkpoint in checkpoints.names(domain)
-        if not running and previous_ok and state.get("disks_mtime") == _disks_mtime(disks):
-            _store().save_state(vm_name, status="ok", error=None, updated_at=_now().isoformat())
-            return "unchanged"
+        if not running and previous_ok and disks_mtime == _disks_mtime(disks):
+            return {"kind": "unchanged"}
         paused = not running and not _has_hostdev(domain)
 
         vm_dir.mkdir(parents=True, exist_ok=True)
@@ -302,17 +354,18 @@ def _replicate(vm_name, target_dir):
         point_dir = vm_dir / stamp
         point_dir.mkdir()
         new_checkpoint = f"{checkpoints.PREFIX}{stamp}"
-        incremental = (running or paused) and chain_alive and int(state.get("points") or 0) < MAX_POINTS
+        incremental = (running or paused) and chain_alive and int(points or 0) < MAX_POINTS
+        dropped = 0
         try:
             if paused:
                 domain.createWithFlags(libvirt.VIR_DOMAIN_START_PAUSED)
             if incremental:
                 _create_incremental_targets(disks, point_dir, previous)
                 _run_backup_job(domain, disks, point_dir, new_checkpoint, last_checkpoint)
-                kind, chain, parent, points = "incremental", state["chain"], previous, int(state["points"]) + 1
+                kind, parent, points = "incremental", previous, int(points) + 1
             else:
                 # A new chain: the old checkpoints would only accumulate bitmaps in the disks.
-                checkpoints.release(domain, vm_name)
+                dropped = checkpoints.drop(domain)
                 if running or paused:
                     _run_backup_job(domain, disks, point_dir, new_checkpoint, None)
                 else:
@@ -339,24 +392,18 @@ def _replicate(vm_name, target_dir):
             if paused and domain.isActive():
                 # Never a guest boot: it was started paused, for the copy only.
                 domain.destroy()
-        _store().save_state(
-            vm_name,
-            target_dir=str(root),
-            chain=chain,
-            last_point=stamp,
-            checkpoint=new_checkpoint,
-            points=points,
-            last_success_at=_now().isoformat(),
-            disks_mtime=None if domain.isActive() else _disks_mtime(disks),
-            status="ok",
-            error=None,
-            updated_at=_now().isoformat(),
-        )
         if kind == "full":
             _prune(vm_dir, chain)
-        return kind
-    finally:
-        conn.close()
+        return {
+            "kind": kind,
+            "target_dir": str(root),
+            "chain": chain,
+            "point": stamp,
+            "checkpoint": new_checkpoint,
+            "points": points,
+            "disks_mtime": None if domain.isActive() else _disks_mtime(disks),
+            "checkpoints_dropped": dropped,
+        }
 
 
 def forget(vm_name):

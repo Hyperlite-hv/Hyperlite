@@ -61,7 +61,7 @@ def _allowed_roots():
     roots += [paths.current(dict(row).get("target_dir")) for row in backup_groups._store().list_group_jobs()]
     roots += [paths.current(dict(row).get("target_dir")) for row in replication._store().list_jobs()]
     try:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             roots += [pool_type_and_target_path(pool)[1] for pool in conn.listAllStoragePools()]
         finally:
@@ -166,7 +166,7 @@ def scan(directory):
 def _mark_existing(vms):
     from app.core.libvirt_utils import open_conn
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         local = {d.name() for d in conn.listAllDomains()}
     finally:
@@ -306,7 +306,7 @@ def plan(items, network):
             raise RecoveryError(f"The name {name} is used twice")
         names.add(name)
         pairs.append((str(backup_dir), name))
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         taken = sorted(names & {d.name() for d in conn.listAllDomains()})
         if network:
