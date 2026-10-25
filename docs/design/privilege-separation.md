@@ -744,3 +744,29 @@ written in place, never asked of the daemon again.
 
 What 4d holds before 4e: a route's mistake (a check forgotten) is caught by the daemon for every request that carries
 its caller's proof. What it does not hold yet: the API, still root, may call without a proof; 4e takes that away.
+
+### 14.4 4e: the copy to and from hyperlite-cfs done by the daemon (2026-10-25)
+
+Two loops copy between SQLite and the cluster's tree: changes go out from the outbox (`shadow.py`), and the other
+members' changes come in (`inbound.py`). Both are root's work:
+
+- the copy in writes every replicated table, and the permission tables are in root's file (14.3);
+- the copy out writes the tree. A row that `www-data` could put there would reach every member's permissions.
+
+So, from this step on:
+
+- **The loops run in `hyperlite-daemon`** (`app/daemon/__main__.py`). The API starts them only when it runs the daemon's
+  operations in process (the test suite, the e2e backend). The daemon's unit loads the node's env file, as the API's
+  does. Without it, the daemon would not know that `HYPERLITE_CFS_SHADOW` forces shadow mode on, would take shadow mode
+  for off, and would empty the outbox.
+- **A request asks the daemon** (`app/daemon/ops/cfs.py`):
+  - `cfs.catch_up` before its writes;
+  - `cfs.confirm` with its outbox ids before its answer.
+
+  Only one process copies, in the order SQLite made the changes, under one lock.
+
+  Both operations are `public`: each copies only what the node already holds, and a sign-in's own changes have no proof
+  yet. `Changed` comes back as the paths whose other version the cluster kept (the API's 409). `NotConfirmed` comes back
+  as `unavailable` with its sentence (503).
+- **Administration > Replicated configuration** (`/cfs/shadow*`) asks the daemon too: `cfs.report`, `cfs.seed`,
+  `cfs.enable` and `cfs.disable`, for administrators. They start and stop `hyperlite-cfs` and write its tree.
