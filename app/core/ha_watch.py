@@ -249,8 +249,7 @@ def status():
     conf = settings()
     nodes = list_nodes()
     possible, reason = auto_restart_possible(nodes, conf["witness"])
-    with _lock:
-        states = {k: dict(v) for k, v in _state.items()}
+    states = _states()
     return {
         "mode": "attempt",
         "settings": conf,
@@ -260,8 +259,25 @@ def status():
     }
 
 
+PUBLISHED = "ha_watch"  # the members' states, as hyperlite-ha-crm last published them (app/core/service_state.py)
+
+
+def _states():
+    """Each watched member's state: this process's, or, in the API beside hyperlite-ha-crm, what it published."""
+    from app import ha_services
+
+    if not ha_services.here(ha_services.CRM):
+        from app.core import service_state
+
+        published, _at = service_state.read(PUBLISHED)
+        return published or {}
+    with _lock:
+        return {k: dict(v) for k, v in _state.items()}
+
+
 def _loop():
-    from app.core import cluster_lead
+    from app import ha_services
+    from app.core import cluster_lead, service_state
 
     while True:
         try:
@@ -269,6 +285,9 @@ def _loop():
             # driven over SSH from one controller only.
             if not cluster_lead.in_cluster():
                 tick()
+            if ha_services.separate():
+                with _lock:
+                    service_state.publish(PUBLISHED, {k: dict(v) for k, v in _state.items()})
         except Exception:
             logger.exception("HA watcher round failed")
         time.sleep(WATCH_INTERVAL_S)
