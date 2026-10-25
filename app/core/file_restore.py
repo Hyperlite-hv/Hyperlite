@@ -326,5 +326,7 @@ def is_open(backup_id):
 
     try:
         return privileged.run("restore.busy", backup_id=backup_id)["open"]
-    except DaemonError:
+    except DaemonError as e:
+        # The sessions are the daemon's: one it cannot answer for holds none (they end with it).
+        logger.warning("Whether backup %s is being browsed could not be asked: %s", backup_id, e.detail)
         return False
