@@ -189,7 +189,7 @@ def forget():
         _quorum = (0.0, None)
 
 
-def _loop():
+def _loop(follow_setup=True):
     from app.core import cluster_setup
 
     while True:
@@ -197,7 +197,7 @@ def _loop():
             renew()
         except Exception:  # the thread must survive anything, or no node would run the cluster-wide tasks
             logger.exception("Renewing the cluster lead failed")
-        if mode() == "cluster":
+        if follow_setup and mode() == "cluster":
             try:
                 cluster_setup.sync()  # Corosync's configuration and the members' SSH keys follow the shared ones
             except Exception:
@@ -205,5 +205,7 @@ def _loop():
         time.sleep(RENEW_S)
 
 
-def start_lead_loop():
-    threading.Thread(target=_loop, daemon=True, name="cluster-lead").start()
+def start_lead_loop(follow_setup=True):
+    """`follow_setup`: the API's. hyperlite-scheduler renews the lead too, under the node's name: the lock is the
+    node's, so each of its services knows whether the node leads, even while another of them is stopped."""
+    threading.Thread(target=_loop, args=(follow_setup,), daemon=True, name="cluster-lead").start()
