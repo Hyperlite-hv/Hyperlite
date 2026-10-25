@@ -1,6 +1,8 @@
+import faulthandler
 import ipaddress
 import logging
 import os
+import signal
 import threading
 from contextlib import asynccontextmanager
 
@@ -112,6 +114,8 @@ if not _app_log.handlers:
 
 @asynccontextmanager
 async def lifespan(_app):
+    # SIGUSR1 writes every thread's stack to the journal: what a stalled event loop is doing, on a live node.
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     on_startup()
     from app.core import spice_proxy
 
