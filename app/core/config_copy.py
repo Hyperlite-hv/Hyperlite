@@ -114,20 +114,45 @@ def _read_keys():
 
 
 def config_digest(db_path=None):
-    """SHA-256 over the rows of the configuration tables that exist in this database."""
+    """SHA-256 over the rows of the configuration tables that exist in this database: this node's (with the
+    permission tables' file, database.ACCESS), or a bundle's snapshot, which holds them all."""
     conn = sqlite3.connect(db_path or database.DB_PATH, timeout=30)
     try:
-        existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        h = hashlib.sha256()
-        for table in CONFIG_TABLES:
-            if table not in existing:
-                continue
-            h.update(table.encode())
-            for row in conn.execute(f"SELECT * FROM {table} ORDER BY rowid"):  # noqa: S608 (fixed names only)
-                h.update(repr(tuple(row)).encode())
-        return h.hexdigest()
+        if db_path is None and database.access_path().exists():
+            conn.execute("ATTACH DATABASE ? AS access", (str(database.access_path()),))
+        return _digest(conn)
     finally:
         conn.close()
+
+
+def _digest(conn):
+    schemas = [r[1] for r in conn.execute("PRAGMA database_list").fetchall() if r[1] != "temp"]
+    existing = {
+        r[0]
+        for schema in schemas  # names from SQLite itself
+        for r in conn.execute(f"SELECT name FROM \"{schema}\".sqlite_master WHERE type = 'table'")  # noqa: S608
+    }
+    h = hashlib.sha256()
+    for table in CONFIG_TABLES:
+        if table not in existing:
+            continue
+        h.update(table.encode())
+        for row in conn.execute(f"SELECT * FROM {table} ORDER BY rowid"):  # noqa: S608 (fixed names only)
+            h.update(repr(tuple(row)).encode())
+    return h.hexdigest()
+
+
+def _add_access_tables(dst):
+    """The permission tables, kept in a file of their own on each node (database.ACCESS), copied into the snapshot:
+    a bundle stays one database, as every version reads it, and a promoted node moves them back at its start."""
+    access = database.access_path()
+    if not access.exists():
+        return
+    dst.execute("ATTACH DATABASE ? AS access", (str(access),))
+    try:
+        database.copy_tables(dst, "access", database.ACCESS_TABLES, replace=True)
+    finally:
+        dst.execute("DETACH DATABASE access")
 
 
 def build_bundle(dest_dir):
@@ -140,6 +165,7 @@ def build_bundle(dest_dir):
         dst = sqlite3.connect(snapshot)
         try:
             src.backup(dst)  # consistent even while the service writes
+            _add_access_tables(dst)
             existing = {r[0] for r in dst.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
             for table in TELEMETRY_TABLES:
                 if table in existing:
@@ -342,6 +368,12 @@ def install(work, meta, self_names, db_path=None, env_path=None, old_label=None)
             Path(f"{db_path}{suffix}").unlink(missing_ok=True)
     shutil.copy2(work / "hyperlite.db", db_path)
     db_path.chmod(0o600)
+    # The bundle holds the permission tables: this node's own file is set aside, and the start moves them into a new
+    # one (database._move_to_access).
+    access = database.access_path() if db_path == Path(database.DB_PATH) else None
+    if access is not None and access.exists():
+        shutil.copy2(access, access.with_name(f"{access.name}.before-promote-{stamp}"))
+        access.unlink()
 
     keys = dict(line.split("=", 1) for line in (work / "keys.env").read_text().splitlines() if "=" in line)
     lines = env_path.read_text().splitlines() if env_path.exists() else []

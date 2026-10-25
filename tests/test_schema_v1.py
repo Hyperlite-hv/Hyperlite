@@ -19,6 +19,13 @@ def as_before_v1(path, monkeypatch):
     for (table, column), renames in schema_v1.VALUES.items():
         old_column = {new: old for old, new in schema_v1.COLUMNS.get(table, {}).items()}.get(column, column)
         values[(table, old_column)] = {new: old for old, new in renames.items()}
+    from app.core import config_copy, database
+
+    # One file, as before the permission tables had their own (database.ACCESS).
+    conn = sqlite3.connect(path)
+    config_copy._add_access_tables(conn)
+    conn.close()
+    database.access_path().unlink()
     with monkeypatch.context() as m:
         m.setattr(schema_v1, "COLUMNS", columns)
         m.setattr(schema_v1, "VALUES", values)
@@ -43,6 +50,10 @@ def as_before_v1(path, monkeypatch):
 
 
 def columns(path, table):
+    from app.core import database
+
+    if table in database.ACCESS_TABLES and path == database.DB_PATH and database.access_path().exists():
+        path = database.access_path()  # moved there once renamed
     conn = sqlite3.connect(path)
     try:
         return {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
@@ -68,7 +79,7 @@ def test_an_older_database_is_renamed_once_after_a_copy(database, monkeypatch):
         db.execute("UPDATE tasks SET status = 'succeeded'")  # the CHECK names the new values
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("UPDATE tasks SET status = 'termine'")
-        assert db.execute("SELECT seq FROM sqlite_sequence WHERE name = 'users'").fetchone()[0] >= 1
+        assert db.execute(f"SELECT seq FROM {database.ACCESS}.sqlite_sequence WHERE name = 'users'").fetchone()[0] >= 1  # noqa: S608
     copy = path.with_name(path.name + schema_v1.BACKUP_SUFFIX)
     assert "nom" in columns(copy, "webauthn_credentials")  # the database as it was
     assert oct(copy.stat().st_mode & 0o777) == "0o600"

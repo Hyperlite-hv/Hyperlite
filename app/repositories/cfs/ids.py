@@ -22,6 +22,7 @@ import os
 import re
 import sqlite3
 import threading
+from types import MappingProxyType
 
 from app.core.cfs_client import MUST_NOT_EXIST, Conflict, NotFound
 from app.repositories.cfs import confirm
@@ -48,10 +49,14 @@ class NoId(sqlite3.OperationalError):
 
 
 def numbered_tables(db):
-    """The replicated tables numbered by AUTOINCREMENT."""
+    """The replicated tables numbered by AUTOINCREMENT, in the main file and the permission tables' (database.py,
+    ACCESS)."""
+    schemas = [r[1] for r in db.execute("PRAGMA database_list").fetchall() if r[1] != "temp"]
     return [
         name
-        for name, sql in db.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table'").fetchall()
+        for schema in schemas
+        # Schema names from SQLite itself.
+        for name, sql in db.execute(f"SELECT name, sql FROM \"{schema}\".sqlite_master WHERE type = 'table'").fetchall()  # noqa: S608
         if name in TABLES and re.search(r"\bAUTOINCREMENT\b", sql or "", re.IGNORECASE)
     ]
 
@@ -120,6 +125,9 @@ class Connection(sqlite3.Connection):
     request makes so that it answers once the cluster took them (confirm.py)."""
 
     reserve_ids = True
+    schemas = MappingProxyType(
+        {}
+    )  # the file of the tables not in the main one (database.get_conn): where their sqlite_sequence is
 
     def _before(self, sql):
         global _numbered
@@ -136,11 +144,12 @@ class Connection(sqlite3.Connection):
         if table not in _numbered or not _in_cluster():
             return
         execute = super().execute
+        sequence = f'"{self.schemas.get(table, "main")}".sqlite_sequence'
         # Take the write lock first: another connection of this node cannot insert between the reservation and this
         # insert, so no id reserved earlier can come after this one.
         execute(
-            "INSERT INTO sqlite_sequence (name, seq) SELECT ?, 0 WHERE NOT EXISTS "
-            "(SELECT 1 FROM sqlite_sequence WHERE name = ?)",
+            f"INSERT INTO {sequence} (name, seq) SELECT ?, 0 WHERE NOT EXISTS "  # noqa: S608
+            f"(SELECT 1 FROM {sequence} WHERE name = ?)",
             (table, table),
         )
         try:
@@ -148,7 +157,7 @@ class Connection(sqlite3.Connection):
         except Exception as e:
             logger.warning("hyperlite-cfs: no id could be reserved for a new row of %s: %s", table, e)
             raise NoId(f"hyperlite-cfs does not answer: no new row of {table} can be created") from None
-        execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?", (fresh - 1, table))
+        execute(f"UPDATE {sequence} SET seq = MAX(seq, ?) WHERE name = ?", (fresh - 1, table))  # noqa: S608
 
     def execute(self, sql, parameters=(), /):
         confirm.before(self, sql)
