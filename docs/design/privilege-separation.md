@@ -685,7 +685,29 @@ API (`Wants=`) and after it, and follows its restarts and stops (`PartOf=`): a p
 may be deferred, never leaves the two on different versions. Both units set `HYPERLITE_SCHEDULER_SERVICE=1`, so the
 API starts none of these schedulers. The schema is made by one service at a time (a lock in `/run/lock/hyperlite`),
 and the scheduler renews the node's lead under the node's name, so the stores' copies run on the leading node as
-before. HA's watch and recovery become `hyperlite-ha-crm` and `hyperlite-ha-lrm` next (drs' split, #298).
+before.
+
+**4c, HA's two services** (`app/ha_services`, drs' split chosen by Antho, taken over on #298), as Proxmox VE's
+pve-ha-lrm and pve-ha-crm, so a hang or a crash of the cluster's decisions never stops the watchdog's feeding:
+
+- `hyperlite-ha-lrm`, every node: the watchdog (`ha_selffence`), the monitoring of its own HA VMs (`ha_monitor`), the
+  load-balancing moves asked of it (`drs` carry-out loop) and **the node's heartbeat** (`statd`). The leader declares a
+  member lost when its heartbeat stops, then waits for its watchdog's reset before restarting its VMs elsewhere: the
+  heartbeat must stop with the feeding, never apart from it, or a dead API would have a member's VMs restarted while
+  they still run. The API keeps sending a summary at once after a change; a summary is idempotent per node.
+- `hyperlite-ha-crm`, every node, acting on the leader: the recovery (`ha_recovery`), the dry run outside a cluster
+  (`ha_watch`), load balancing's observation and evaluation (`drs` evaluate loop). It renews the node's lead.
+- **The heartbeat feeds the watchdog** (multi-cluster's review, #742): the LRM feeds it only while the node's
+  heartbeat went out within 40 s, so a node that cannot send it (libvirt hung) resets before the leader, which waits
+  LOST_S (60 s) and then the reset, restarts its VMs elsewhere. The heartbeat carries the node's load, which the API's
+  collector publishes (`metrics.load`).
+- **The CRM holds a lock of its own** (`hyperlite-ha-lead`), renewed only while its recovery and evaluation rounds
+  run: a CRM that hangs on the leader loses it, and another member's takes over, as Proxmox VE's CRM holds the
+  manager lock. The pages show whether this node's CRM leads.
+- What the API's pages read in their memory is published in a local table (`service_state`): load balancing's state
+  and the dry run's, each round; the API's resume and a manual move's cool-down are written there for the CRM.
+- Both units, the scheduler's and the API's set `HYPERLITE_HA_SERVICE=1`; follow the API's restarts (`PartOf=`), and
+  a normal stop of the LRM disarms the watchdog, as the API's did.
 
 ### 14.1 4b in detail: the permissions written by the daemon only (2026-10-25)
 
@@ -762,3 +784,4 @@ themselves. On Proxmox VE, pveproxy likewise hands the ticket request to pvedaem
   - Without the daemon, nobody signs in (503), as with a password.
 - What a sign-in writes in the main file stays the API's: the failure counters and locks, the SSO state and handoff
   rows, the audit log.
+
