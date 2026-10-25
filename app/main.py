@@ -85,6 +85,7 @@ from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
 from app.routers.replication import router as replication_router
+from app.routers.sites import router as sites_router
 from app.routers.sso import pages as sso_pages
 from app.routers.sso import router as sso_router
 from app.routers.storage import router as storage_router
@@ -208,6 +209,7 @@ _API_ROUTERS = (
     ldap_router,
     api_docs_router,
     admin_cli_router,
+    sites_router,
 )
 for _router in _API_ROUTERS:
     app.include_router(_router, prefix=API)

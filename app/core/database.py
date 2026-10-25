@@ -274,6 +274,34 @@ def init_db():
                 created_at TEXT
             )
         """)
+        # The remote clusters of the multi-cluster view (app/core/sites.py): each node's address and pinned certificate,
+        # and a token per use (sealed, replicated under /priv).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS remotes (
+                name TEXT PRIMARY KEY,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS remote_endpoints (
+                remote TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                address TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                node TEXT,
+                PRIMARY KEY (remote, position)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS remote_tokens (
+                remote TEXT NOT NULL,
+                use TEXT NOT NULL CHECK(use IN ('view', 'manage')),
+                token_encrypted TEXT NOT NULL,
+                PRIMARY KEY (remote, use)
+            )
+        """)
         # A backup or a job into a store: its name; NULL for a backup directory (the format of every backup before).
         for ddl in (
             # A store made as the copy of another (same chunk size and key): the source's name.
