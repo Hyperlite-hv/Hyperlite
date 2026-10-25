@@ -135,7 +135,7 @@ def test_no_operation_has_an_argument_the_client_takes_for_itself():
         ("unreachable", 502),
         ("unavailable", 503),
         ("failed", 500),
-        ("forbidden", 500),
+        ("forbidden", 403),  # the daemon refused the caller (step 4d): the routes' own 403
         ("bad_request", 500),
     ],
 )

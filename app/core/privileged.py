@@ -19,7 +19,8 @@ INPROCESS_ENV = "HYPERLITE_DAEMON_INPROCESS"
 # is the route's own: what it answered before its domain moved. A failure of the daemon is this node's (500), never
 # 502, which says another member of the cluster failed. A server outside this node refusing (an SMB server, an iSCSI
 # target) is the 502 the storage routes gave it before their domain moved.
-STATUS = {"not_found": 404, "in_use": 409, "unreachable": 502, "unavailable": 503}
+# "forbidden": what the daemon refused the caller (app/daemon/needs.py, step 4d), as the routes refuse it.
+STATUS = {"forbidden": 403, "not_found": 404, "in_use": 409, "unreachable": 502, "unavailable": 503}
 
 
 def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
