@@ -35,6 +35,10 @@ TLS_DIR = ETC / "local"  # the web interface's certificate and key
 
 # /run/hyperlite: what lasts as long as the services (hyperlite-daemon's socket, its tunnels to the other nodes).
 RUN = Path(os.environ.get("HYPERLITE_RUN_DIR") or "/run/hyperlite")
+# /run/lock/hyperlite: the claims on VMs (app/core/vm_locks.py), shared by every process that works on a VM (the API,
+# the schedulers), as Proxmox VE locks a guest with /run/lock/qemu-server/lock-<vmid>.conf. Not under /run/hyperlite,
+# which is hyperlite-daemon's and removed when it stops: a claim's file must outlive any one service.
+LOCKS = Path(os.environ.get("HYPERLITE_LOCK_DIR") or "/run/lock/hyperlite")
 
 # /var/lib/hyperlite
 DB = VAR / "hyperlite.db"

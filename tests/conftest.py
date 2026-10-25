@@ -33,6 +33,8 @@ os.environ["HYPERLITE_ACCESS_LOG_DIR"] = tempfile.mkdtemp(prefix="hyperlite-acce
 # goes to directories of its own.
 os.environ["HYPERLITE_VAR_DIR"] = tempfile.mkdtemp(prefix="hyperlite-var-tests-")
 os.environ["HYPERLITE_ETC_DIR"] = tempfile.mkdtemp(prefix="hyperlite-etc-tests-")
+# Nor /run/lock/hyperlite: each worker's claims on VMs are its own (app/core/shared_claims.py).
+os.environ["HYPERLITE_LOCK_DIR"] = tempfile.mkdtemp(prefix="hyperlite-lock-tests-")
 # No hyperlite-daemon runs here: sessions are signed in this process, with keys under HYPERLITE_ETC_DIR
 # (app/core/tickets.py).
 os.environ["HYPERLITE_AUTH_SIGNING"] = "local"
@@ -233,14 +235,13 @@ def _fresh_inventory():
 
 @pytest.fixture(autouse=True)
 def _no_vm_claim_left():
-    """The claims on VMs (app/core/vm_locks.py) never carry over from one test: a test that replaced the thread which
-    releases one (a snapshot's, a backup's) left the VM busy for every later test of its worker, which then answered
-    409 where it expected its own refusal."""
-    from app.core import vm_locks
+    """The claims on VMs and containers (app/core/shared_claims.py) never carry over from one test: a test that replaced
+    the thread which releases one (a snapshot's, a backup's) left the VM busy for every later test of its worker, which
+    then answered 409 where it expected its own refusal."""
+    from app.core import shared_claims
 
     yield
-    with vm_locks._registry_lock:
-        vm_locks._held.clear()
+    shared_claims.release_all()
 
 
 def agent_answer(addresses):

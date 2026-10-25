@@ -18,9 +18,11 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.core import shared_claims
 from app.core.safe_paths import safe_child
 
 SNAPSHOTS = ".snapshots"
+KIND = "container"
 RSYNC = ["rsync", "-aHAXS", "--numeric-ids"]
 # A full copy needs room for the container's whole file system; this much more is kept free on the host.
 MARGIN_BYTES = 512 * 1024 * 1024
@@ -35,22 +37,21 @@ class ContainerBusy(SnapshotError):
         super().__init__(f"Container '{name}' is busy: {running} is in progress. Try again when it has finished.")
 
 
-_lock = threading.Lock()
-_busy = {}  # container name -> what runs on it
-
-
 class Claim:
     """One operation at a time on a container's files, released once (release() or leaving a `with` block). Taken by
-    the endpoint, so the refusal reaches the caller; released by the thread that does the work."""
+    the endpoint, so the refusal reaches the caller; released by the thread that does the work. Shared with the other
+    processes that work on containers (app/core/shared_claims.py)."""
 
-    def __init__(self, name):
-        self.name, self._released = name, False
+    def __init__(self, key):
+        self._key, self._released = key, False
+        self._lock = threading.Lock()
 
     def release(self):
-        with _lock:
-            if not self._released:
-                self._released = True
-                _busy.pop(self.name, None)
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        shared_claims.release(self._key)
 
     def __enter__(self):
         return self
@@ -62,17 +63,15 @@ class Claim:
 
 def claim(name, what):
     """Raises ContainerBusy when another operation runs on the container."""
-    with _lock:
-        if name in _busy:
-            raise ContainerBusy(name, _busy[name])
-        _busy[name] = what
-    return Claim(name)
+    try:
+        return Claim(shared_claims.take(KIND, "local", name, what))
+    except shared_claims.Busy as e:
+        raise ContainerBusy(name, e.running) from None
 
 
 def busy(name):
     """What runs on the container's files, or None."""
-    with _lock:
-        return _busy.get(name)
+    return shared_claims.holder(KIND, "local", name)
 
 
 def _snapshots_dir(rootfs):
