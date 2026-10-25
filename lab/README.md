@@ -39,3 +39,10 @@ the provider's test; `HYPERLITE_LAB_DIR` keeps each node's logs (`nN/hyperlite.l
 node's memory in MB (3072 by default; 2048 is enough, the VM of the migration test takes 256). The VM test runs only
 where the nodes get nested virtualization (`/sys/module/kvm_*/parameters/nested` is `Y` or `1`): skipped on GitHub's
 runners.
+
+`HYPERLITE_LAB_API_USER=www-data` runs the API as that account on every node (`lab/tests/conftest.py`, the probe of
+`docs/design/privilege-separation.md`'s step 4e): a drop-in on `hyperlite.service` right after the package is installed,
+or once the cluster is formed as root with `HYPERLITE_LAB_API_AFTER=cluster`. `HYPERLITE_LAB_API_DROPIN_FILE` gives the
+whole drop-in instead, and `HYPERLITE_LAB_API_PATCH_FILE` a script run as root on each node first (a lab's workaround
+for what a pull request has not changed yet). Before the lab is taken down, every refusal in each node's journal goes to
+`nN/api-user.txt` in `HYPERLITE_LAB_DIR`.
