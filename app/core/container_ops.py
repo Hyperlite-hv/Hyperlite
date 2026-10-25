@@ -11,6 +11,7 @@ writes into Hyperlite's own container directories only."""
 
 import logging
 import os
+import re
 import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -306,3 +307,95 @@ def log(qemu, conn, name, lines):
 
     dom = domain(conn, name)
     return {"active": bool(dom.isActive()), "lines": container_console.read_tail(rootfs(qemu, dom), lines)}
+
+
+# --- The containers' archives (docs/design/privilege-separation.md, the backups domain, part 4) ---
+
+# What an archive is named (`<container>-<time>.tar.gz`, archive): the only files archive_delete removes, and the only
+# ones archive_restore unpacks.
+ARCHIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}-\d{8}T\d{6}Z\.tar\.gz")
+
+
+def archive_path(path):
+    """An archive of the containers' backup directory, whatever the records say (the API writes them)."""
+    from app.core import paths
+
+    p = Path(str(path or ""))
+    if p.parent != paths.CONTAINER_BACKUPS or not ARCHIVE_NAME.fullmatch(p.name):
+        raise ContainerError("refused", f"Not a container archive: {path}")
+    return p
+
+
+def archive(qemu, conn, name):
+    """A stopped container's filesystem, the one its definition names, archived into the containers' backup
+    directory: {"path", "size"}."""
+    import subprocess
+    from datetime import UTC, datetime
+
+    from app.core import paths
+
+    _dom, src = _stopped(conn, qemu, name, "backing it up (no hot backup for containers)")
+    paths.CONTAINER_BACKUPS.mkdir(parents=True, exist_ok=True)
+    dest = paths.CONTAINER_BACKUPS / f"{name}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
+    try:
+        subprocess.run(
+            ["tar", "-czf", str(dest), "-C", str(src.parent), src.name], check=True, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as e:
+        dest.unlink(missing_ok=True)
+        raise ContainerError("failed", f"The archive failed: {(e.stderr or '').strip()[:300]}") from None
+    return {"path": str(dest), "size": dest.stat().st_size}
+
+
+def archive_delete(path):
+    """An archive removed: False when there is none at that path."""
+    p = archive_path(path)
+    if not p.is_file() or p.is_symlink():
+        return False
+    p.unlink()
+    return True
+
+
+def archive_restore(conn, path, name, original):
+    """An archive unpacked as the container `name` in the default containers' directory, and defined: as an
+    application container when `original` was one (its image's process, its network), else as a system container.
+    {"mac", "ip", "network"}, for the API's records."""
+    import subprocess
+
+    import libvirt as _libvirt
+
+    from app.core import container_builder, container_create
+    from app.core.container_meta import get_container_app
+    from app.core.error_messages import describe_exception
+    from app.core.network_alloc import generate_mac, release_static_ip
+
+    tar = archive_path(path)
+    try:
+        conn.lookupByName(name)
+        raise ContainerError("in_use", f"A container '{name}' already exists: delete it first or choose another name")
+    except _libvirt.libvirtError:
+        pass
+    try:
+        root = container_builder.restore_container_rootfs(tar, name, original_name=original)
+    except (subprocess.CalledProcessError, ValueError) as e:
+        msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
+        raise ContainerError("failed", f"Restore failed: {msg}") from None
+    # KNOWN LIMITATION: the original vcpu/memory are not kept in the archive (unlike cloning, which reads them
+    # straight from the still defined source domain): the default values, adjustable afterwards.
+    app = get_container_app(original)
+    network = (app["network"] or "default") if app else "default"
+    mac = ip = None
+    try:
+        if app:
+            xml, mac, ip = container_create.app_definition(conn, name, root, app["spec"], network, 1, 512)
+        else:
+            mac = generate_mac(conn)
+            xml = container_builder.build_container_xml(name, 1, 512, root, network=network, mac=mac)
+        conn.defineXML(xml)
+    except (ValueError, _libvirt.libvirtError) as e:
+        if app and ip:
+            release_static_ip(conn, network, mac)
+        container_builder.delete_container_rootfs(name)
+        detail = describe_exception(e) if isinstance(e, _libvirt.libvirtError) else str(e)
+        raise ContainerError("failed", f"Failed to define the restored container: {detail}") from None
+    return {"mac": mac, "ip": ip, "network": network}

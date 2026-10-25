@@ -14,7 +14,6 @@ The local password of such an account is a random secret nobody knows: it can on
 
 import logging
 import re
-import secrets
 import ssl
 
 from ldap3 import NONE, SUBTREE, Connection, Server, Tls
@@ -247,10 +246,9 @@ def role_for(cfg, groups):
 
 
 def provision(username, dn, role):
-    from app.core.security import hash_password  # security imports this module for the sign-in
     from app.repositories.sqlite import identity
 
-    outcome, row = _store().provision_ldap_user(username, dn, role, lambda: hash_password(secrets.token_hex(32)))
+    outcome, row = _store().provision_ldap_user(username, dn, role)
     if outcome == identity.LOCAL_ACCOUNT:
         raise LocalAccountConflict(row["username"])
     return row

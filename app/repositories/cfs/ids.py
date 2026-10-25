@@ -38,6 +38,10 @@ _offset = None
 _numbered = None
 
 
+# What a request that needed a new id is told (app/main.py), whichever process reserved it.
+NO_ID_DETAIL = "The cluster configuration service does not answer: nothing new can be created right now"
+
+
 class NoId(sqlite3.OperationalError):
     """In a cluster, no id could be reserved for a new row."""
 

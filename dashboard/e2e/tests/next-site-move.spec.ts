@@ -10,13 +10,10 @@ const SPEC = {
 };
 
 test("a stopped VM is moved to another cluster from its actions", async ({ page }) => {
-  await page.route(/\/vms(\?cluster=true)?$/, async (route) => {
-    if (route.request().method() !== "GET") return route.continue();
-    const res = await route.fetch();
-    const body = await res.json();
-    const json = Array.isArray(body) ? [...body, FAKE] : { ...body, items: [...(body.items || []), { ...FAKE, node: "local" }] };
-    return route.fulfill({ response: res, json });
-  });
+  // The list is the test's whole: a real answer read and completed here was disposed when the page asked again
+  // meanwhile (seen in CI), and this VM is all the test needs.
+  await page.route(/\/vms(\?cluster=true)?$/, (route) =>
+    route.request().method() === "GET" ? route.fulfill({ json: listing([{ ...FAKE, node: "local" }]) }) : route.continue());
   await page.route(/\/api\/v1\/sites\/outgoing\/e2e-move-demo$/, async (route) => {
     if (route.request().method() === "POST") return route.fulfill({ status: 202, json: { task_id: "t-move", status: "running" } });
     return route.fulfill({ json: { spec: SPEC, left: ["CPU pinning (it names this host's CPUs)"], allocated: { sda: 3 * 1024 ** 3 } } });

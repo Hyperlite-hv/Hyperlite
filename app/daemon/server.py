@@ -86,6 +86,19 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     allowed_uids = staticmethod(allowed_uids)
 
 
+def notify_ready():
+    """Tell systemd the socket answers (Type=notify): hyperlite.service, ordered after this unit, starts only then.
+    The API writes the accounts through it from its first start (the admin account, step 4b)."""
+    address = os.environ.get("NOTIFY_SOCKET")
+    if not address:
+        return
+    if address.startswith("@"):  # an abstract socket
+        address = "\0" + address[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+        sock.connect(address)
+        sock.sendall(b"READY=1")
+
+
 def serve(path=None):
     """Listen on the socket until stopped: 0660, owned by root and the API's group when it exists."""
     import app.daemon.ops  # noqa: F401  (registers the operations)
@@ -105,6 +118,7 @@ def serve(path=None):
     os.chown(path, 0, gid)
     os.chmod(path, 0o660)
     logger.info("hyperlite-daemon listening on %s", path)
+    notify_ready()
     try:
         server.serve_forever()
     finally:
