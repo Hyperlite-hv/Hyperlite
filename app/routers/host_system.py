@@ -12,7 +12,7 @@ from app.core import host_system, privileged
 from app.core.audit import log_action
 from app.core.listing import listing
 from app.core.security import require_role
-from app.core.tasks import create_task, finish_task, task_log
+from app.core.tasks import create_task, finish_task, start_thread, task_log
 
 router = APIRouter(prefix="/host/system", tags=["host"])
 
@@ -63,7 +63,7 @@ def upgrade(payload: UpgradeRequest, user: dict = Depends(require_role("admin"))
         finally:
             _upgrade_lock.release()
 
-    threading.Thread(target=work, name="host-upgrade", daemon=True).start()
+    start_thread(work, task_id=task_id, name="host-upgrade")
     return {"task": task_id}
 
 
@@ -224,5 +224,5 @@ def power(payload: PowerRequest, user: dict = Depends(require_role("admin"))):
         except Exception as e:  # the task must end whatever happened, with the cause in its log
             finish_task(task_id, "failed", str(e))
 
-    threading.Thread(target=work, name="node-power", daemon=True).start()
+    start_thread(work, task_id=task_id, name="node-power")
     return {"task": task_id}

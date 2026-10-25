@@ -27,6 +27,7 @@ from app.core.tasks import (
     finish_task,
     register_cancel,
     request_cancel,
+    start_thread,
     task_log,
     task_status,
     update_task_progress,
@@ -394,8 +395,8 @@ def get_drain_plan(
     return _plan(source, target, spread)
 
 
-def _run_in_background(target, *args):
-    threading.Thread(target=target, args=args, daemon=True).start()
+def _run_in_background(target, task_id, *args):
+    start_thread(target, task_id, *args, task_id=task_id)
 
 
 def _drain_job(parent_id, username, source, target, names):

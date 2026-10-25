@@ -179,15 +179,8 @@ def test_a_recovery_restores_each_vm_and_reports_the_ones_that_failed(tmp_path, 
             raise RuntimeError("The backup failed its integrity check")
         calls.append((mode, new_name, network))
 
-    class Inline:
-        def __init__(self, target, args, daemon):
-            self.target, self.args = target, args
-
-        def start(self):
-            self.target(*self.args)
-
     monkeypatch.setattr("app.core.backups.restore_backup", fake_restore)
-    monkeypatch.setattr(site_recovery.threading, "Thread", Inline)
+    monkeypatch.setattr(site_recovery, "start_thread", lambda fn, *args, task_id=None, name=None: fn(*args))
     monkeypatch.setattr(site_recovery, "update_task_progress", lambda *a: None)
     monkeypatch.setattr(site_recovery, "finish_task", lambda task, status, msg=None: finished.update(s=status, m=msg))
     monkeypatch.setattr(backup_integrity, "_qemu_img_check", lambda path: None)

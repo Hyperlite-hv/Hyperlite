@@ -4,7 +4,6 @@ validates input, checks permissions and orchestrates the background task."""
 
 import logging
 import re
-import threading
 import uuid
 
 import libvirt
@@ -26,7 +25,7 @@ from app.core.backups import (
 from app.core.libvirt_utils import open_conn
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role, require_vm_privilege
-from app.core.tasks import create_task, finish_task
+from app.core.tasks import create_task, finish_task, start_thread
 from app.core.vm_builder import validate_name
 from app.services import backup_service
 
@@ -167,7 +166,7 @@ def create_backup(
             claim.release()  # run_backup releases it too; a no-op then, a safety net if it failed before
 
     try:
-        threading.Thread(target=job, daemon=True).start()
+        start_thread(job)  # its task is made by run_backup, on the thread: it takes the proof then
     except BaseException:
         claim.release()
         raise
@@ -214,7 +213,7 @@ def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("ad
             logger.warning("Verification of backup #%s failed", backup_id, exc_info=True)
             finish_task(task_id, "failed", str(e))
 
-    threading.Thread(target=job, daemon=True).start()
+    start_thread(job, task_id=task_id)
     return {"task_id": task_id, "backup": backup_id}
 
 
@@ -255,7 +254,7 @@ def restore_backup_endpoint(
             claim.release()
 
     try:
-        threading.Thread(target=job, daemon=True).start()
+        start_thread(job)  # its task is made by restore_backup, on the thread
     except BaseException:
         claim.release()
         raise
@@ -447,7 +446,7 @@ def collect_store_garbage(name: str, user: dict = Depends(require_role("admin"))
         freed = result["freed_bytes"] / 1024**3
         log_action(user["username"], "backup_store_gc", name, "success", f"{result['removed']} chunks, {freed:.1f} GiB")
 
-    threading.Thread(target=job, daemon=True).start()
+    start_thread(job, task_id=task_id)
     return {"task_id": task_id}
 
 
@@ -549,7 +548,7 @@ def run_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
             return
         finish_task(task_id, "succeeded")
 
-    threading.Thread(target=work, daemon=True).start()
+    start_thread(work, task_id=task_id)
     return {"task_id": task_id}
 
 
@@ -748,5 +747,5 @@ def import_backup_into_store(
             return
         finish_task(task_id, "succeeded")
 
-    threading.Thread(target=job, daemon=True).start()
+    start_thread(job, task_id=task_id)
     return {"task_id": task_id}
