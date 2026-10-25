@@ -489,8 +489,16 @@ export async function createSite(payload) {
 export async function fetchSiteRemotes() {
   return realList("/sites/remotes");
 }
-export async function fetchSiteList(remote, what) {
-  return realList(`/sites/${encodeURIComponent(remote)}/${what}`);
+export async function fetchSiteList(remote, what, node) {
+  const query = node ? `?node=${encodeURIComponent(node)}` : "";
+  return realList(`/sites/${encodeURIComponent(remote)}/${what}${query}`);
+}
+// A stopped VM of this node moved to another cluster: what goes and what stays, then the move itself (a task).
+export async function fetchSiteOutgoing(vm) {
+  return realFetch(`/sites/outgoing/${encodeURIComponent(vm)}`);
+}
+export async function moveVmToSite(vm, payload) {
+  return realFetch(`/sites/outgoing/${encodeURIComponent(vm)}`, { method: "POST", ...jsonBody(payload) });
 }
 export async function setSiteToken(name, use, token) {
   return realFetch(`/sites/remotes/${encodeURIComponent(name)}/tokens/${use}`, { method: "PUT", ...jsonBody({ token }) });
