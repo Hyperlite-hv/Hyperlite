@@ -1,0 +1,1 @@
+- On an installed node, the API no longer runs what nobody asks for: hyperlite-daemon makes the admin account, checks the initial password and seals the second factors at its own start; hyperlite-scheduler polls the nodes, copies the configuration, and sets the network firewall's rules and the running VMs' VLANs again at its start.
