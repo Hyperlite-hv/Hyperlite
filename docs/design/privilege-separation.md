@@ -218,6 +218,8 @@ These move with the domains of step 3 (authentication first); step 1 only moves 
 6. **The API runs as `www-data`**, as `pveproxy` does.
 7. **The cluster configuration as files in `/etc/hyperlite`**, as pmxcfs mounts `/etc/pve`: hyperlite-cfs gets a FUSE
    mount, after the split (#525).
+8. **The daemon checks who asks** (2026-10-25): the caller's proof and permissions on every operation, as pvedaemon
+   and vSphere do; it replaces decision 3's "decided in the proxy" (section 14).
 
 ## 12. Step 3, first domain: authentication (2026-10-21)
 
@@ -382,7 +384,9 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Cluster, part 4: the copies and the commands (`iso.list`, `iso.size`, `iso.copy`, `iso.delete_remote`, `config.copy`, `node.facts`, `node.probe`, `node.peer_call`): an ISO, the configuration (built by the daemon, keys included), a boot id and a host name, the fixed probes, the peer calls' SSH fallback; the remaining reads of another node through the read-only tunnel. What still reads the cluster's key in the API: the consoles' tunnels (the consoles domain) and HA's own calls (`ha*.py`, with HA's owner) | done |
 | Consoles: the host shell, a container's shell and terminal, a VM's serial console, terminal, VNC and SPICE displays, opened by the daemon and handed to the API as a file descriptor (`console.*`, `vm.add_console`, `vm.spice_password`) | done |
 | The automation jobs' steps (`app/core/jobs.py`): a command as root on the host, or over SSH with the automation key on a VM whose address and account the daemon reads (`job.step`, `job.cancel`) | done |
-| Backups | next: proposed on #298 |
+| Backups, part 1a: the directory backups and the exports (`backup.run`, `backup.restore`, `backup.verify`, `backup.delete`, `vm.export`) | next |
+| Backups, part 1b: the replication's points (`replication.point`); the site recovery reads through a read-only connection and restores with `backup.restore` | next |
+| Backups, part 2: the backup stores; part 3: the file restore; part 4: the containers' archives | then |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -551,6 +555,36 @@ the API keeps the tickets, who may open what, the audit log and the bridge to th
 The workstation tunnel (`app/routers/vms/tunnel.py`) stays in the API: a TCP connection to a guest's address on this
 node, which needs no key and no root.
 
+**The backups domain (proposed, 2026-10-25, agreed with backups-store on #298).** A backup reads a VM's disks
+(`qemu-img`, an external snapshot then a block commit, libvirt's backup API, `qemu-nbd`), its NVRAM and TPM state,
+and writes a directory or a store's chunks; a restore writes disks, the firmware state and a definition; a store's
+keys are root's. As Proxmox VE runs vzdump as root in a task of pvedaemon, **a backup, a restore, a verification, a
+deletion, an export, a replication point or a store's job is one daemon operation that runs the whole job**, its
+progress written into the task as the migration's. The API keeps the routes, the schedules, the retention decisions,
+the records (`backups`, `backup_jobs`), the locks and the audit log; the daemon answers what it wrote (the path, the
+sizes, the checksums) and the API records it.
+
+- **A backup's directory is checked by the daemon, never taken from the records alone**: the records are the API's
+  to write. It is `<target>/<vm>/<time>` under a target `backup_groups.validate_target` accepts (the default
+  directory, or an administrator's directory outside the system's own), and the daemon deletes in it only the files
+  a backup holds (its images, `vm-config.json`, `manifest.json`, the NVRAM and TPM state), as it deletes a
+  container's filesystem only where Hyperlite puts containers.
+- **A restore names the backup and the mode**: overwrite writes into the disks the VM's own definition names, a new
+  VM into the images directory, its definition built from checked fields (`build_domain_xml`), never from XML.
+- **The operations**:
+
+| Part | What moves | Operations |
+|---|---|---|
+| 1a | The directory backups (`app/core/backups.py`: cold copy, live copy through an external snapshot or libvirt's backup API for a replicated VM, the firmware state, the manifest; restore over the VM or as a new VM; verification; deletion) and the exports (`app/core/vm_export.py`) | `backup.run`, `backup.restore`, `backup.verify`, `backup.delete`, `vm.export` |
+| 1b | The replication's points (`app/core/replication.py`); the site recovery (`site_recovery.py`) reads the other site's directories and restores with part 1a's operation | `replication.point` |
+| 2 | The backup stores (`backup_store_vm`, `backup_stores`, `backup_store_sync`, the keys and the remotes' tokens under `/etc/hyperlite/priv`) | `store.backup`, `store.restore`, `store.gc`, `store.sync`, `store.create`, `store.unlock` |
+| 3 | The file restore (`file_restore.py`): a backup's disk mounted by the daemon, a file handed to the API as a descriptor | `restore.open`, `restore.list`, `restore.export`, `restore.close` |
+| 4 | The containers' archives (`container_builder`'s tar archives) | `container.archive`, `container.restore` |
+
+backups-store builds its step 5 (the file restore from a store, the read-only export of a backup for #513's live
+restore) on these operations: the export is a Unix socket under `/run/hyperlite/backup/` that QEMU's AppArmor
+profile allows, opened and closed by the daemon.
+
 **The automation jobs' steps.** A job's step runs an administrator's command as root on the host, or over SSH with
 the automation key on a VM (`app/core/jobs.py`): arbitrary code by design, as the host shell is. It is the one
 operation that takes a command, `job.step(task_id, target_type, target, command)`, under the same decision as the
@@ -577,3 +611,51 @@ scale lab). `tests/test_privileged.py` checks that every operation a route names
 When the last domain has moved, step 4 runs the API as `www-data`. Measured on 2026-10-22: about 325 privileged calls in
 82 files remain, mostly libvirt, `qemu-img` and SSH to the other nodes.
 
+
+## 14. Step 4: the daemon checks who asks (Antho, 2026-10-25)
+
+**Decision**: "the most secure, and what Proxmox VE and vSphere do". hyperlite-daemon no longer takes the API's word
+for who asks: **it checks the caller's own proof and permissions on every operation**, as pvedaemon checks the ticket
+of each call pveproxy hands it, and as vCenter's and ESXi's services check the session of each call against their own
+permissions. A flaw in the API then gives what its current caller may do, not root. Section 8's decision 3 (the API
+decides who may open the host shell) is replaced by this one.
+
+**Where it starts.** Every request already names a user (`ctx.user`), for the log only. Sessions are tokens only the
+daemon's keys sign (section 12); API tokens are hashes in the database; accounts, roles, ACLs, resource pools and
+privileges are tables of the database, which the API writes. The schedulers (backups, replication, the inactive VMs'
+cleanup, the start at boot, the store copies and garbage collections, the update check) and HA's watch run in the API
+and call the daemon as `system` or `scheduler`.
+
+**Target**:
+
+- **A proof with every call.** The API passes the caller's own credential with each request: the session token it was
+  given, or the API token. The daemon verifies it itself: a session's signature, expiry and revocation with its own
+  keys, an API token against its hash. `ctx.user` becomes the proven user; a request without a valid proof is
+  `forbidden`. A WebSocket's ticket (the consoles) carries the proof of the request that made the ticket.
+- **Permissions the API cannot write.** The accounts, the API tokens' hashes, the roles, the ACLs, the resource pools
+  and the second factors move to a store only the daemon writes (`/etc/hyperlite/priv`, as Proxmox VE keeps
+  `user.cfg`, `token.cfg` and `priv/` in pmxcfs, written by pvedaemon): their routes become daemon operations
+  (`auth.user_*`, `auth.token_*`, `auth.acl_*`). The API reads them to answer, never to decide.
+- **Each operation declares what it needs.** `@operation(name, Args, needs=...)`: a privilege on the object it names
+  (`vm.power` on that VM, `container.console` on that container, `storage.allocate` on that pool) or the
+  administrator's role (the host shell, the automation jobs, the hook scripts, a host disk or device given to a VM).
+  The registry checks it against the proven user before the operation runs (`app/core/permissions.py`, evaluated by
+  the daemon on its own store). The routes keep their checks for their answers; the daemon's is the one that holds.
+- **The schedulers leave the API.** What runs without a person behind it runs as root in a process of its own,
+  `hyperlite-scheduler`, as Proxmox VE's pvescheduler and vSphere's vpxd run the scheduled tasks: the backups, the
+  replication, the cleanup, the start at boot, the stores' jobs, the update check. HA's watch and recovery move with
+  HA's owner (#333). The API keeps no `system` identity: the daemon refuses `system` from the API's socket.
+- **Calls between members** carry the member's own signature (section 12.1, PR C), checked by the receiving daemon.
+- **Then the API runs as `www-data`** (section 11, decision 6): its unit with `User=www-data`, the socket's group, the
+  files it reads (the TLS key, the public keys, the database it still writes: tasks, audit, records of its own), the
+  read-only libvirt and LXC sockets, and the lab run on that unit.
+
+**In this order**, each a pull request with its tests and a lab run:
+
+| PR | Content |
+|---|---|
+| 4a | The proof travels: `privileged.run` passes the caller's credential, the daemon verifies it and logs the proven user; calls without one are logged, not yet refused |
+| 4b | The permissions' store owned by the daemon: accounts, tokens, roles, ACLs, pools, second factors; their routes as daemon operations; the API reads |
+| 4c | `hyperlite-scheduler`: the schedulers out of the API, with their own identity on the daemon's socket |
+| 4d | Each operation's `needs`, checked by the daemon; a call without a valid proof refused |
+| 4e | The API as `www-data`: unit, groups, file modes, read-only libvirt and LXC; the lab on it |
