@@ -436,10 +436,61 @@ class NotConfirmed(Exception):
     """The cluster did not take the request's changes in time, or refused them (no quorum): a fixed sentence."""
 
 
+def _here():
+    """Whether this process does the copy itself: hyperlite-daemon (its loops and operations, app/daemon/ops/cfs.py),
+    or the API when it runs the daemon's operations in process (the test suite, the e2e backend)."""
+    from app.core.privileged import INPROCESS_ENV
+    from app.daemon.registry import running_here
+
+    return running_here() or os.environ.get(INPROCESS_ENV) == "1"
+
+
+def catch_up():
+    """Before a request changes something (app/main.py): this node's changes out, the cluster's in. Done by the
+    daemon, which writes both (app/daemon/ops/cfs.py)."""
+    if _here():
+        return catch_up_here()
+    from app.core import privileged
+
+    privileged.run("cfs.catch_up")
+
+
+def catch_up_here():
+    from app.repositories.cfs import inbound  # imports this module
+
+    try:
+        drain()  # this node's own changes go out first, or nothing is applied (inbound.apply)
+        inbound.apply()
+    except Exception as e:  # the daemon does not answer: the change is refused or confirmed after, as the cluster says
+        logger.debug("The cluster's changes not applied before the request: %s", e)
+
+
 def confirm(wanted, timeout=None):
     """Copy the outbox entries `wanted` (a request's, confirm.py) and return once the cluster took them all. Raises
     Changed when it kept another node's version of one (that node changed it first), NotConfirmed when it could not
-    take them within `timeout` (CONFIRM_S) or refused them: they stay in the outbox, for the copy loop."""
+    take them within `timeout` (CONFIRM_S) or refused them: they stay in the outbox, for the copy loop. Done by
+    hyperlite-daemon, where the copy loop runs: one process copies, in the order SQLite made the changes."""
+    wanted = set(wanted)
+    if not wanted:
+        return
+    if _here():
+        return confirm_here(wanted, timeout)
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        answer = privileged.run(
+            "cfs.confirm", ids=sorted(wanted), timeout=(CONFIRM_S if timeout is None else timeout) + 10
+        )
+    except DaemonError as e:
+        raise NotConfirmed(
+            e.detail if e.kind == "unavailable" else "The cluster did not confirm the change: hyperlite-daemon failed"
+        ) from None
+    if answer["changed"]:
+        raise Changed(answer["changed"])
+
+
+def confirm_here(wanted, timeout=None):
     from app.repositories.cfs import inbound  # imports this module
 
     wanted = set(wanted)
