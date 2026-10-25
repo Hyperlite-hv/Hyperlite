@@ -961,12 +961,13 @@ def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
     began = time.monotonic()
 
     def where(vm):
-        return [
-            n
-            for n in NODES
-            if api(n, "GET", f"/vms/{vm}", token=t[n])[0] == 200
-            and ok(api(n, "GET", f"/vms/{vm}", token=t[n]))["state"] == "active"
-        ]
+        # One read per member: during a move, the member it leaves may answer neither 200 nor 404 for a moment.
+        found = []
+        for n in NODES:
+            status, body = api(n, "GET", f"/vms/{vm}", token=t[n])
+            if status == 200 and body["state"] == "active":
+                found.append(n)
+        return found
 
     def one_moved():
         places = {vm: where(vm) for vm in busy}
@@ -1120,3 +1121,21 @@ def test_only_the_lrm_keeps_a_node_with_an_ha_vm_alive(cluster):
     ok(api(1, "POST", f"/vms/svcvm/stop?node={c}&force=true", token=t[1]))
     wait("svcvm stopped", lambda: ok(api(1, "GET", f"/vms/svcvm?node={c}", token=t[1]))["state"] == "stopped")
     ok(api(1, "DELETE", f"/vms/svcvm?node={c}&confirm=true", token=t[1]))
+
+
+    def removed(vm):
+        """Stopped, then deleted, through the member it runs on (which names itself no "?node="). A move load
+        balancing started before the switch to manual finishes first: the VM is busy (409) until then, and stopped and
+        deleted where it ends up."""
+        for n in NODES:
+            status, body = api(n, "GET", f"/vms/{vm}", token=t[n])
+            if status != 200:
+                continue
+            if body["state"] != "stopped":
+                api(n, "POST", f"/vms/{vm}/stop?force=true", token=t[n])
+                return False
+            return api(n, "DELETE", f"/vms/{vm}?confirm=true", token=t[n])[0] in (200, 202)
+        return True
+
+    for vm in busy:
+        wait(f"{vm} stopped and deleted", lambda vm=vm: removed(vm), timeout=300, every=5)
