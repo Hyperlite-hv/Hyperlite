@@ -159,6 +159,24 @@ provision_hyperlite() { # provision_hyperlite DIR N: install the package $DEB, a
     reach "$dir" "$i"
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
     on "$dir" "$i" tee /root/hyperlite.deb > /dev/null < "$DEB"
+    if [ -n "${HYPERLITE_LAB_API_USER:-}" ]; then # the probe of 4e: the API as that user from its first start
+        on "$dir" "$i" tee /usr/local/sbin/lab-api-modes > /dev/null < "$(dirname "$0")/www-data.sh"
+        on "$dir" "$i" chmod 755 /usr/local/sbin/lab-api-modes
+        on "$dir" "$i" mkdir -p /etc/systemd/system/hyperlite.service.d
+        on "$dir" "$i" tee /etc/systemd/system/hyperlite.service.d/lab-api-user.conf > /dev/null <<UNIT
+[Service]
+User=$HYPERLITE_LAB_API_USER
+Group=$HYPERLITE_LAB_API_USER
+Environment=HOME=/var/lib/hyperlite
+ExecStartPre=
+ExecStartPre=+/bin/bash /usr/lib/hyperlite/scripts/migrate_layout.sh forward
+ExecStartPre=+/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStartPre=+/bin/mkdir -p /var/lib/hyperlite/tmp
+ExecStartPre=+/usr/lib/hyperlite/scripts/ensure-tls-cert.sh
+ExecStartPre=+/usr/lib/hyperlite/scripts/write-motd.sh
+ExecStartPre=+/usr/local/sbin/lab-api-modes
+UNIT
+    fi
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q /root/hyperlite.deb
     # The lab's own tool, not the package's: cut and heal drop Corosync's traffic with nftables.
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q nftables > /dev/null
@@ -343,7 +361,7 @@ down() {
         if [ -n "$dir" ] && [ -f "$(key_of "$dir")" ]; then
             mkdir -p "$dir/n$i"
             on "$dir" "$i" journalctl -u corosync -u hyperlite-cfs --no-pager > "$dir/n$i/cfs.log" 2>&1 || true
-            on "$dir" "$i" journalctl -u hyperlite -u hyperlite-daemon -u libvirtd --no-pager > "$dir/n$i/hyperlite.log" 2>&1 || true
+            on "$dir" "$i" journalctl -u 'hyperlite*' -u libvirtd --no-pager > "$dir/n$i/hyperlite.log" 2>&1 || true
         fi
         virsh destroy ${P}$i > /dev/null 2>&1 || true
         virsh undefine ${P}$i > /dev/null 2>&1 || true

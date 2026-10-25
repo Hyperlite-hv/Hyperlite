@@ -354,8 +354,8 @@ class LdapConfig(Args):
     fields: dict[LdapColumn, Setting] = Field(min_length=1)
 
 
-_register("sso_config", "identity", "save_sso_config", SsoConfig)
-_register("ldap_config", "identity", "save_ldap_config", LdapConfig)
+_register("sso_config", "identity", "save_sso_config", SsoConfig, needs=ADMIN)
+_register("ldap_config", "identity", "save_ldap_config", LdapConfig, needs=ADMIN)
 
 # --- What needs the node's secrets: the second factor's ---
 
