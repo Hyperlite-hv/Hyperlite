@@ -19,14 +19,13 @@ starting the same VMs on both sides would corrupt their data.
 import json
 import logging
 import os
-import threading
 from pathlib import Path
 
 import libvirt
 
 from app.core import backup_integrity, backup_store, paths
 from app.core.backup_groups import GroupError, validate_target
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, start_thread, update_task_progress
 
 logger = logging.getLogger(__name__)
 
@@ -353,5 +352,5 @@ def recover(items, network, username):
     pairs = plan(items, network)
     task_id = create_task("site_recovery", f"{len(pairs)} VM(s)", username=username)
     log_action(username, "site_recovery_requested", f"{len(pairs)} VM(s)", "success")
-    threading.Thread(target=_run, args=(task_id, pairs, network, username), daemon=True).start()
+    start_thread(_run, task_id, pairs, network, username, task_id=task_id)
     return task_id

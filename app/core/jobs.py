@@ -45,7 +45,15 @@ import libvirt
 from app.core import privileged
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
-from app.core.tasks import create_task, finish_task, raise_if_cancelled, register_cancel, task_log, update_task_progress
+from app.core.tasks import (
+    create_task,
+    finish_task,
+    raise_if_cancelled,
+    register_cancel,
+    start_thread,
+    task_log,
+    update_task_progress,
+)
 from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
@@ -196,11 +204,7 @@ def start_job_run(job_id, targets=None, dry_run=False, username="system"):
         finish_task(task_id, "failed", f"Could not record the run: {e}")
         raise
 
-    threading.Thread(
-        target=_execute_run,
-        args=(run_id, task_id, job["name"], build_steps, dry_run, username),
-        daemon=True,
-    ).start()
+    start_thread(_execute_run, run_id, task_id, job["name"], build_steps, dry_run, username, task_id=task_id)
     return run_id
 
 
