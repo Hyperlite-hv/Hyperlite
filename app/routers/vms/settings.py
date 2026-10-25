@@ -34,7 +34,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
     if payload.vcpu is None and payload.memory_mb is None and payload.os_label is None:
         raise HTTPException(status_code=422, detail="No change requested (vcpu, memory_mb or os_label required)")
     if payload.vcpu is None and payload.memory_mb is None:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             try:
                 domain = conn.lookupByName(name)
@@ -49,7 +49,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
     if limit_errors:
         raise HTTPException(status_code=422, detail=limit_errors)
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -140,7 +140,7 @@ def _limits_summary(domain):
 
 @router.get("/{name}/limits")
 def get_vm_limits(name: str, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -153,7 +153,7 @@ def get_vm_limits(name: str, user: dict = Depends(require_vm_privilege("vm.resiz
 
 @router.put("/{name}/limits")
 def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -197,7 +197,7 @@ def _pinning_summary(conn, domain):
 
 @router.get("/{name}/cpu-pinning")
 def get_vm_cpu_pinning(name: str, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -210,7 +210,7 @@ def get_vm_cpu_pinning(name: str, user: dict = Depends(require_vm_privilege("vm.
 
 @router.put("/{name}/cpu-pinning")
 def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -318,7 +318,7 @@ def _cloudinit_view(name, domain):
 @router.get("/{name}/cloud-init")
 def get_vm_cloudinit(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
     """Whether the VM has a cloud-init drive Hyperlite can rewrite, and the account and keys last written there."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return _cloudinit_view(name, _lookup(conn, name))
     finally:
@@ -328,7 +328,7 @@ def get_vm_cloudinit(name: str, user: dict = Depends(require_vm_privilege("vm.vi
 @router.put("/{name}/cloud-init")
 def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(require_vm_privilege("vm.options"))):
     """Rewrite the VM's cloud-init drive; the guest applies it at its next boot."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         domain = _lookup(conn, name)
         drive = cloudinit_edit.drive_path(domain, name)

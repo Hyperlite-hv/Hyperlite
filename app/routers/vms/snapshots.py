@@ -60,7 +60,7 @@ def _disk_only(name, created_at):
 
 @router.get("/{name}/snapshots")
 def list_snapshots(name: str, user: dict = Depends(get_current_user)):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)

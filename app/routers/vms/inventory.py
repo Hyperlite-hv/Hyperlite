@@ -39,7 +39,7 @@ def _cluster_vms(username):
     if own and not own["stale"]:
         items = [{**v, "node": "local"} for v in own["vms"]]
     else:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             items = [{**v, "node": "local"} for v in _domain_summaries(conn, None)]
         finally:

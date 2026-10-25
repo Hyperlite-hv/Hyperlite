@@ -23,7 +23,7 @@ def _apply(user, name, action, detail, op, **fields):
     """A change written by hyperlite-daemon (`op`, app/daemon/ops/vm.py) under the VM's lock: refused values 422,
     libvirt failures 500."""
     with vm_locks.claim_or_409(name, "a hardware change"):
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             _lookup(conn, name)
             result = privileged.ask(op, user, action, name, vm=name, **fields)
@@ -35,7 +35,7 @@ def _apply(user, name, action, detail, op, **fields):
 
 @router.get("/{name}/hardware-options")
 def get_hardware_options(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         domain = _lookup(conn, name)
         described = opts.describe(domain)
