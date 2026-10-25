@@ -388,7 +388,7 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Backups, part 1b: the replication's points (`replication.point`); the site recovery reads through a read-only connection and restores with `backup.restore` | next |
 | Backups, part 2: the backup stores (`store.check`, `store.describe`, `store.gc`, `store.make`, `store.unlock`, `store.backup`, `store.import`, `store.sync`) and the remotes (`remote.add`, `remote.stores`): only the daemon opens a store's key or a remote's token, the token sealed with the address and certificate it may be sent to | next |
 | Backups, part 3: the file restore (`restore.open`, `restore.ls`, `restore.export`, `restore.close`, `restore.busy`): the daemon holds the libguestfs sessions on a backup's images and hands an exported file to the API as an open, already unlinked descriptor | next |
-| Backups, part 4: the containers' archives | then |
+| Backups, part 4: the containers' archives (`container.archive`, `container.archive_delete`, `container.archive_restore`): the filesystem the definition names archived, an archive of the containers' backup directory only deleted or unpacked | next |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -581,7 +581,7 @@ sizes, the checksums) and the API records it.
 | 1b | The replication's points (`app/core/replication.py`); the site recovery (`site_recovery.py`) reads the other site's directories and restores with part 1a's operation | `replication.point` |
 | 2 | The backup stores (`backup_store_vm`, `backup_stores`, `backup_store_sync`, `backup_remotes`: the stores' keys and the remotes' tokens, sealed with the cluster's secrets). A remote's token is sealed with the address and the certificate it was given with: the records being the API's, an address changed there never receives it. A store's raw reads for another cluster (its export) stay in the API | `store.check`, `store.describe`, `store.gc`, `store.make`, `store.unlock`, `store.backup`, `store.import`, `store.sync`, `remote.add`, `remote.stores` (the restore from a store is part 1a's `backup.restore`) |
 | 3 | The file restore (`file_restore.py`): the libguestfs sessions held by the daemon on a backup's images, a file handed to the API as a descriptor | `restore.open`, `restore.ls`, `restore.export`, `restore.close`, `restore.busy` |
-| 4 | The containers' archives (`container_builder`'s tar archives) | `container.archive`, `container.restore` |
+| 4 | The containers' archives (`container_builder`'s tar archives): the filesystem the definition names, an archive of the containers' backup directory only | `container.archive`, `container.archive_delete`, `container.archive_restore` |
 
 backups-store builds its step 5 (the file restore from a store, the read-only export of a backup for #513's live
 restore) on these operations: the export is a Unix socket under `/run/hyperlite/backup/` that QEMU's AppArmor
@@ -678,3 +678,38 @@ process:
   cancellation for a task another process runs is written for it (`task_cancel_requests`); that process's watcher
   thread reads its own tasks' every 2 s and calls their cancellers. Local tables, whatever each service's user is (4e),
   and no new socket.
+
+### 14.1 4b in detail: the permissions written by the daemon only (2026-10-25)
+
+Agreed with cfs-files on #298: the store stays in hyperlite-cfs, our pmxcfs. `users`, `api_tokens` and
+`webauthn_credentials` (under `priv/`) are Proxmox VE's `priv/shadow.cfg` and `token.cfg`; `groups`, `group_members`,
+`custom_roles`, `acl`, `pools`, `pool_members` and `revoked_sessions` are its `user.cfg`. #525 only adds a read-only
+file view of the same tree, so nothing 4b writes moves when it lands.
+
+**Measured on test**: every write to these tables is in three repositories (`app/repositories/sqlite/accounts.py`,
+`identity.py`, `access.py`), 39 methods, called from the account service, `permissions.py`, the API tokens, the
+security keys, the second factor, the sign-out, LDAP and SSO. Sign-in already runs in the daemon (section 12).
+
+**The seam is the repository**, as pvedaemon is the only writer of `user.cfg` whatever the API path:
+
+- Each writing method of those repositories is marked `@daemon_write("access.<method>")`. In the API, it becomes a
+  call to hyperlite-daemon with the method's arguments; in the daemon (or in an operation run in process: the test
+  suite, the e2e backend), it runs its SQL. No caller changes, and a new writing method without the mark is caught
+  by a test that scans the repositories' SQL.
+- Each operation has its own argument model in `app/daemon/ops/access.py`: names, ids and roles with their limits,
+  never SQL or a path. 4d adds each one's `needs` (`User.Modify`, `Permissions.Modify` on the ACL's path, as Proxmox
+  VE's `/access` methods).
+- **What needs a secret moves to the daemon itself**, since the API loses the node's keys in 4e:
+  - a second factor's secret is made, sealed and stored by the daemon (`access.totp_start`, which answers the secret
+    once for the QR code); a code is checked there, once (`access.totp_check`), before it is enabled
+    (`access.totp_enable`);
+  - an account provisioned at an LDAP or SSO sign-in gets its random password hash from the daemon
+    (`access.provision_ldap`, `access.provision_sso`), as the repository took a function to call.
+- What stays in the API: the sign-in's own state (challenges, SSO states and hand-offs, failure counters), which are
+  not configuration and not replicated, and the reads.
+
+**Left to 4e**, which makes this hold against a compromised API rather than only in the code: these tables in a
+database file the API opens read-only (`ATTACH ... mode=ro`), written by root, and the copy of another member's rows
+into SQLite (`app/repositories/cfs/inbound.py`), done by root. The volatile columns (`last_used_at`, `last_login_at`,
+`used_at`, `sign_count`, `totp_last_step`) go through the daemon from 4b like the rest, so the file needs no
+exception.

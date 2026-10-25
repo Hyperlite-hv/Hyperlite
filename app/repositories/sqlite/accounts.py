@@ -11,6 +11,7 @@ import time
 
 from app.core.database import get_conn
 from app.domain.common import AlreadyExists
+from app.repositories.daemon_write import daemon_write
 
 
 def _one(sql, params=()):
@@ -43,6 +44,7 @@ class SqliteAccountStore:
             ).fetchall()
         return [{**dict(r), "totp_enabled": bool(r["totp_enabled"])} for r in rows]
 
+    @daemon_write("access.user_create")
     def create(self, username, hashed_password, role, auth_source=None, ldap_dn=None):
         """A new account starts with nothing of a former one of the same name (a new colleague also called Bob): its
         API tokens, left by a deletion before they were removed with the account, are deleted, and password_changed_at
@@ -59,6 +61,7 @@ class SqliteAccountStore:
         except sqlite3.IntegrityError as e:
             raise AlreadyExists(f"User '{username}' already exists") from e
 
+    @daemon_write("access.user_update")
     def update(self, username, role=None, hashed_password=None, changed_at=None):
         """Role and password in one transaction. A new password clears must_change_password and records when it
         changed, which signs out every session issued before (app/core/security.py)."""
@@ -72,9 +75,11 @@ class SqliteAccountStore:
                 )
             db.commit()
 
+    @daemon_write("access.user_ldap")
     def set_ldap(self, username, role, dn):
         _write("UPDATE users SET role = ?, ldap_dn = ? WHERE username = ?", (role, dn, username))
 
+    @daemon_write("access.user_delete")
     def delete(self, username):
         """The account and its API tokens, in one transaction: a token found by its owner's name would otherwise sign in
         again as any later account of that name."""
@@ -89,23 +94,29 @@ class SqliteAccountStore:
                 "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND username != ?", (username,)
             ).fetchone()["n"]
 
+    @daemon_write("access.user_login")
     def record_login(self, username, at):
         _write("UPDATE users SET last_login_at = ? WHERE username = ?", (at, username))
 
+    @daemon_write("access.user_must_change")
     def flag_must_change(self, username):
         _write("UPDATE users SET must_change_password = 1 WHERE username = ?", (username,))
 
     # ---- TOTP (secrets arrive sealed) ----
 
+    @daemon_write("access.totp_secret")
     def set_totp_secret(self, username, sealed):
         _write("UPDATE users SET totp_secret = ?, totp_last_step = NULL WHERE username = ?", (sealed, username))
 
+    @daemon_write("access.totp_enable")
     def enable_totp(self, username):
         _write("UPDATE users SET totp_enabled = 1 WHERE username = ?", (username,))
 
+    @daemon_write("access.totp_disable")
     def disable_totp(self, username):
         _write("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE username = ?", (username,))
 
+    @daemon_write("access.totp_step")
     def claim_totp_step(self, username, step):
         """One conditional write: of two concurrent uses of the same code, only one updates the row."""
         cur = _write(
@@ -120,11 +131,13 @@ class SqliteAccountStore:
                 dict(r) for r in db.execute("SELECT username, totp_secret FROM users WHERE totp_secret IS NOT NULL")
             ]
 
+    @daemon_write("access.totp_reseal")
     def replace_totp_secret(self, username, sealed):
         _write("UPDATE users SET totp_secret = ? WHERE username = ?", (sealed, username))
 
     # ---- API tokens (stored as their hash) ----
 
+    @daemon_write("access.token_create")
     def create_token(self, username, name, token_hash, created_at, expires_at, kind):
         return _write(
             "INSERT INTO api_tokens (username, name, token_hash, created_at, expires_at, kind) VALUES (?, ?, ?, ?, ?, ?)",
@@ -139,20 +152,24 @@ class SqliteAccountStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    @daemon_write("access.token_revoke")
     def revoke_token(self, username, token_id):
         return _write("DELETE FROM api_tokens WHERE id = ? AND username = ?", (token_id, username)).rowcount > 0
 
+    @daemon_write("access.token_revoke_all")
     def revoke_all_tokens(self, username):
         return _write("DELETE FROM api_tokens WHERE username = ?", (username,)).rowcount
 
     def token_by_hash(self, token_hash):
         return _one("SELECT id, username, expires_at FROM api_tokens WHERE token_hash = ?", (token_hash,))
 
+    @daemon_write("access.token_used")
     def touch_token(self, token_hash, at):
         _write("UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?", (at, token_hash))
 
     # ---- Signed-out sessions ----
 
+    @daemon_write("access.session_revoke")
     def revoke_session(self, jti, expires_at, now):
         with get_conn() as db:
             db.execute("DELETE FROM revoked_sessions WHERE expires_at < ?", (now,))
