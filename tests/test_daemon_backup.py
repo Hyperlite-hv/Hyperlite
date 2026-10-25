@@ -97,3 +97,15 @@ def test_only_an_export_of_the_exports_directory_is_deleted(tmp_path, monkeypatc
 def test_the_default_directory_is_accepted():
     assert backups.backup_target(None) == paths.BACKUPS
     assert backups.backup_dir(paths.BACKUPS / "web" / "20261025T080000Z")
+
+
+def test_a_backup_whose_directory_holds_other_files_keeps_its_record(client, auth_headers, database, target):
+    from app.repositories import registry
+
+    d = _backup(target, extra=("notes.txt",))
+    store = registry.backups().sync
+    backup_id = store.create("web", None, str(d), "cold", "2026-10-25T08:00:00+00:00", None)
+    store.mark_done(backup_id, 4, None)
+    answer = client.delete(f"/backups/{backup_id}?confirm=true", headers=auth_headers("root"))
+    assert answer.status_code == 409 and "notes.txt" in answer.json()["detail"]
+    assert store.get(backup_id) is not None and (d / "notes.txt").exists()

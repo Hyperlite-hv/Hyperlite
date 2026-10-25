@@ -1186,7 +1186,13 @@ def _apply_retention(vm_name, policy):
         if row["id"] not in keep:
             if backup_use.holder(row["id"]):
                 continue  # being restored or read: the next run of the schedule removes it
-            remove_backup_files(row["path"])
+            try:
+                remove_backup_files(row["path"])
+            except RuntimeError as e:
+                # Its files are not only a backup's: kept with its record, the others still go.
+                logger.warning("Retention kept backup #%s of %s: %s", row["id"], vm_name, e)
+                log_action("system", "backup_retention", vm_name, "failed", str(e)[:300])
+                continue
             _store().delete(row["id"])
 
 
