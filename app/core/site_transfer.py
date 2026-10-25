@@ -142,7 +142,7 @@ def _serve(key, path, fmt, readonly):
             raise TransferError("in_use", f"{key[1]} of {key[0]} is already being moved")
         _jobs[key] = {}
     RUN.mkdir(parents=True, exist_ok=True)
-    os.chmod(RUN, 0o700)
+    os.chmod(RUN, 0o711)  # noqa: S103 - traversable, not listable: QEMU reaches a live migration's directory
     socket = RUN / f"{secrets.token_hex(8)}.sock"
     args = ["qemu-nbd", "--format", "raw" if fmt == "raw" else fmt, "--socket", str(socket), "--shared=1"]
     args += ["--read-only"] if readonly else ["--cache=none", "--discard=unmap"]

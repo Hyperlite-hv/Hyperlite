@@ -8,7 +8,7 @@ The privileges, for hyperlite-daemon's checks (#511, step 4): the source's opera
 administrator's, as POST /vms/{name}/migrate), the target's vm.allocate and the pools' space (an administrator's)."""
 
 import functools
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -125,3 +125,115 @@ def abort(args, conn):
     from app.core import site_transfer
 
     site_transfer.abort(conn, args.incoming)
+
+
+# ---- A live migration (docs/design/multi-cluster.md, section 9.2; app/core/site_live.py) ----
+
+
+class CpuArgs(Args):
+    cpu_xml: str = Field(min_length=1, max_length=64 * 1024)
+
+
+@operation("transfer.cpu_check", CpuArgs)
+@_transfer
+def cpu_check(args, conn):
+    """Whether this host can run a VM with this <cpu>: {"compatible", "detail"}."""
+    from app.core import site_live
+
+    return site_live.cpu_check(conn, args.cpu_xml)
+
+
+class LivePrepareArgs(IncomingArgs):
+    networks: list[NAME] = Field(default_factory=list, max_length=16)
+
+
+@operation("transfer.live_prepare", LivePrepareArgs)
+@_transfer
+def live_prepare(args, conn):
+    """The prepared incoming VM made ready to arrive running: {"sockets", "volumes"}."""
+    from app.core import site_live
+
+    return site_live.prepare(conn, args.incoming, args.networks)
+
+
+@operation("transfer.live_expect", IncomingArgs)
+@_transfer
+def live_expect(args, conn):
+    """What the relay accepts for this incoming VM (site_relay.check_destination_xml)."""
+    from app.core import site_live
+
+    return site_live.expected(conn, args.incoming)
+
+
+class ChannelArgs(IncomingArgs):
+    kind: Literal["libvirt", "memory", "disks"]
+
+
+@operation("transfer.live_connect", ChannelArgs)
+@_transfer
+def live_connect(args, conn):
+    """A socket connected to this host's end of a channel: its libvirt (the API puts the relay between), or the
+    target QEMU's migration stream or NBD server."""
+    from app.core import site_live
+
+    sock = site_live.connect(args.incoming, args.kind)
+    return Handover({}, [sock.detach()])
+
+
+@operation("transfer.live_define", IncomingArgs)
+@_transfer
+def live_define(args, conn):
+    """The VM that arrived running defined here, from what it runs: {"name"}."""
+    from app.core import site_live
+
+    return site_live.define(conn, args.incoming)
+
+
+@operation("transfer.live_listen", IncomingArgs)
+def live_listen(args, ctx):
+    """The source's three listening sockets (libvirt, memory, disks), for the API to accept on."""
+    from app.core import site_live, site_transfer
+
+    try:
+        return Handover({"kinds": list(site_live.KINDS)}, site_live.listen(args.incoming))
+    except site_transfer.TransferError as e:
+        raise DaemonError(e.kind, e.detail) from e
+
+
+class LiveRunArgs(IncomingArgs):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    volumes: list[Annotated[str, Field(min_length=1, max_length=4096)]] = Field(min_length=1, max_length=16)
+    networks: list[NAME] = Field(default_factory=list, max_length=16)
+    limit_mib: int | None = Field(None, ge=1, le=100000)
+    task_id: str | None = Field(None, max_length=64)
+
+
+@operation("transfer.live_run", LiveRunArgs)
+@_transfer
+def live_run(args, conn):
+    """libvirt's live migration of the running VM through this migration's sockets, its progress in the task: one
+    call that waits; transfer.live_abort stops it (the VM keeps running here). The volumes are the target's paths,
+    which only its relay judges."""
+    from app.core import site_live
+    from app.core.tasks import update_task_progress
+
+    progress = (lambda p: update_task_progress(args.task_id, p)) if args.task_id else None
+    return site_live.run(conn, args.vm, args.incoming, args.volumes, args.networks, args.limit_mib, progress)
+
+
+@operation("transfer.live_abort", IncomingArgs)
+def live_abort(args, ctx):
+    from app.core import site_live, site_transfer
+
+    try:
+        site_live.abort(args.incoming)
+    except site_transfer.TransferError as e:
+        raise DaemonError(e.kind, e.detail) from e
+
+
+@operation("transfer.live_close", IncomingArgs)
+def live_close(args, ctx):
+    """The migration's sockets removed, at either end."""
+    from app.core import site_live
+
+    site_live.close(args.incoming)
