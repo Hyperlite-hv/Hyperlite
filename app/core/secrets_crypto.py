@@ -5,7 +5,7 @@ Honest limitation: the encryption key lives in the SAME `.env` file as the
 rest of the configuration, on the SAME disk as `hyperlite.db`. An attacker
 with FULL access to the filesystem is NOT stopped by this encryption (the
 project has no external vault or KMS). It does provide real protection against
-a narrower purpose realistic scenario: a leak of the `hyperlite.db` file alone (a
+a narrower but realistic scenario: a leak of the `hyperlite.db` file alone (a
 backup copied or shared without its `.env`, a limited SQL extraction, a
 partial dump).
 

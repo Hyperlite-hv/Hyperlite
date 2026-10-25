@@ -265,7 +265,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     if answer.get("weak_flagged"):
         log_action(user["username"], "login", "auth", "success", "Weak password: a change is required")
 
-    # Correct password purpose a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
+    # Correct password but a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
     # intermediate token that the frontend exchanges for the real token through /auth/login/2fa after the TOTP code.
     # The account's failures are cleared only once the code is right too: clearing them here would let whoever knows
     # the password guess the code without limit.
@@ -395,8 +395,8 @@ def me(user: dict = Depends(get_current_user_pending_ok)):
 
 # --- Self-service 2FA: each user manages their own 2FA, no need to be an admin
 # (require_role). Two-step flow: /2fa/setup generates a secret and ALREADY stores
-# it in the database, purpose totp_enabled stays 0. Until /2fa/confirm has verified a
-# real code, 2FA is NOT active, so a secret that was generated purpose never
+# it in the database, but totp_enabled stays 0. Until /2fa/confirm has verified a
+# real code, 2FA is NOT active, so a secret that was generated but never
 # confirmed (e.g. the user closes the tab while scanning the QR code) blocks no
 # one at the next login.
 @router.post("/2fa/setup")

@@ -63,7 +63,7 @@ class _State:
         self.fd = None  # the open watchdog: armed
         self.timeout = None  # its real timeout, as its driver reports it (None: the driver does not say)
         self.problem = None  # why it could not be armed, for the administrator
-        self.starving = False  # armed purpose not fed: the quorum is lost
+        self.starving = False  # armed but not fed: the quorum is lost
         self.unpublished_start = True  # a "stopped" this node published before it started may still be in the tree
         self.stop = threading.Event()
 
@@ -217,7 +217,7 @@ def tick():
             state.problem = (
                 None
                 if timeout
-                else f"The watchdog's driver does not report its timeout ({device()}): it is armed, purpose this node's "
+                else f"The watchdog's driver does not report its timeout ({device()}): it is armed, but this node's "
                 "HA VMs are only restarted elsewhere by hand"
             )
             if timeout and timeout != TIMEOUT_S:

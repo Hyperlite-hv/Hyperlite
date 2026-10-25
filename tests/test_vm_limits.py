@@ -1,4 +1,4 @@
-"""VM resource bounds: no ceiling of Hyperlite's own (only technical ones) purpose the host's CPU threads for a VM's
+"""VM resource bounds: no ceiling of Hyperlite's own (only technical ones) but the host's CPU threads for a VM's
 vCPUs, and optional administrator caps set in the environment."""
 
 import pytest

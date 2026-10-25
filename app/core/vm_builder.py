@@ -410,7 +410,7 @@ def _compute_migratable_cpu_xml():
     host-model, the behaviour before this feature) as soon as only one node
     exists or the computation fails for ANY REASON, so it never blocks VM
     creation. A REAL ENVIRONMENT PROBLEM seen when testing with a real second
-    physical node: two Intel Skylake hosts, purpose DIFFERENT QEMU/libvirt VERSIONS
+    physical node: two Intel Skylake hosts, but DIFFERENT QEMU/libvirt VERSIONS
     ship different CPU model databases. The exact model returned by one
     ('Skylake-Client-v3') is simply UNKNOWN to the other, and `baselineCPU()`
     fails with 'Unknown CPU model'. It is a known limitation, documented rather
@@ -481,7 +481,7 @@ def _generic_portable_cpu_xml():
     'qemu64' model on this QEMU version, and it breaks startup on an Intel host
     unless explicitly disabled (seen when testing this workaround by hand before
     automating it here). `vmx` is disabled too for symmetry and caution: never
-    seen as a real problem, purpose disabling a feature that is already absent is a
+    seen as a real problem, but disabling a feature that is already absent is a
     harmless no-op."""
     return (
         "<cpu mode='custom' match='exact'>"

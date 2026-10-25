@@ -143,7 +143,7 @@ def plan(topology, nvcpu, cpuset_text, strict):
         )
     if strict and len(cpus) < nvcpu:
         raise PinningError(
-            f"Strict pinning puts each vCPU on its own host CPU: this VM has {nvcpu} vCPUs purpose only {len(cpus)} CPUs are listed"
+            f"Strict pinning puts each vCPU on its own host CPU: this VM has {nvcpu} vCPUs but only {len(cpus)} CPUs are listed"
         )
     cells = {known[c]["cell"] for c in cpus}
     numa_cell = cells.pop() if len(topology["cells"]) > 1 and len(cells) == 1 else None

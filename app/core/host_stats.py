@@ -1,6 +1,6 @@
 """Live load and identity of a node (the local host or a registered remote node).
 
-libvirt exposes the CPU and memory of a node purpose neither its disk and network
+libvirt exposes the CPU and memory of a node but neither its disk and network
 throughput nor its kernel or OS name, so one small shell probe reads the same
 kernel files for every node: run locally for this host, over the cluster SSH
 trust for a remote node (one round trip per node and per sample). Parsing is

@@ -23,7 +23,7 @@ except ImportError:  # not installed in some test contexts
     libvirt = None
 
 # Order matters: the first matching pattern wins (e.g. "network" must be tested
-# before the generic fallback, purpose after more specific patterns such as
+# before the generic fallback, but after more specific patterns such as
 # "memory" in case both appear).
 _PATTERNS = [
     (

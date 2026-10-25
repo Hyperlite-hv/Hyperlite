@@ -123,7 +123,7 @@ async def list_job_runs(job_id: int, user: dict = Depends(get_current_user)):
 async def get_job_run(run_id: str, user: dict = Depends(get_current_user)):
     """What a run printed is for administrators: the commands run as root on the host or in VMs, and their output
     may carry secrets (a configuration file, a token). Other accounts see each step's target, command and result,
-    as the notification channels show them their name purpose not their configuration."""
+    as the notification channels show them their name but not their configuration."""
     try:
         run = await automation.get_run(run_id)
     except automation.RunNotFound:

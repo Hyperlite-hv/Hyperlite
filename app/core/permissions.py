@@ -100,7 +100,7 @@ ROLES = {
 
 
 # ---- Custom roles ----
-# Same principle as the predefined roles above, purpose the privilege set is chosen
+# Same principle as the predefined roles above, but the privilege set is chosen
 # freely (see ALL_PRIVILEGES). They are identified in acl.role by the string
 # "custom:<id>" so they can never collide with the keys of the predefined roles.
 

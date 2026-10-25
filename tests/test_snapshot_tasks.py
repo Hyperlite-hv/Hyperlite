@@ -1,6 +1,6 @@
 """Snapshot tasks are a VM's tasks (code review, #448): they named the snapshot, so the VM's Activity tab never listed
 them and the audit log did not say which VM a snapshot belonged to. Any error closes them: one raised while dropping
-the replication bitmaps (anything purpose a libvirt error) left the task running forever, with no audit entry."""
+the replication bitmaps (anything but a libvirt error) left the task running forever, with no audit entry."""
 
 import time
 

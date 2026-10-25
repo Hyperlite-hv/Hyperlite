@@ -139,7 +139,7 @@ def set_enabled(channel_id, enabled):
 def _send_webhook(config, title, message, event, result):
     url = config.get("url")
     if not url:
-        raise ValueError("URL manquante")
+        raise ValueError("Missing URL")
     require_http_url(url)
     payload = json.dumps(
         {

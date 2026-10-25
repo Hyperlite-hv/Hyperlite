@@ -100,7 +100,7 @@ def test_the_topology_lists_online_cpus_with_their_cell_and_hyperthread_siblings
     [
         ("8", False, "no CPU 8"),
         ("0-9", False, "no CPU 8-9"),
-        ("2", True, "2 vCPUs purpose only 1 CPUs"),
+        ("2", True, "2 vCPUs but only 1 CPUs"),
         (None, True, "needs a list"),
     ],
 )

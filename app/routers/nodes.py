@@ -436,7 +436,7 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
             # A node that is down is still worth marking: it must not become a migration or HA target.
             log_action(user["username"], "enter_maintenance", source, "success", "node unreachable, nothing migrated")
             raise HTTPException(
-                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, purpose no VM was migrated"
+                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, but no VM was migrated"
             ) from e
         if result["migratable"]:
             task_id = create_task("drain_node", source, node=source, username=user["username"])
