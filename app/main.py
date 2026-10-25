@@ -53,7 +53,7 @@ from app.core.vm_builder import protect_existing_drives
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.core.vm_crash_watch import start_vm_crash_watch
 from app.daemon.registry import DaemonError
-from app.repositories.cfs.ids import NoId
+from app.repositories.cfs.ids import NO_ID_DETAIL, NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
@@ -464,7 +464,7 @@ async def no_id_handler(request: Request, exc: NoId):
     return JSONResponse(
         status_code=503,
         content={
-            "detail": "The cluster configuration service does not answer: nothing new can be created right now",
+            "detail": NO_ID_DETAIL,
             "code": "cluster_unavailable",
         },
     )
