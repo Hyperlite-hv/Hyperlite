@@ -697,6 +697,13 @@ pve-ha-lrm and pve-ha-crm, so a hang or a crash of the cluster's decisions never
   they still run. The API keeps sending a summary at once after a change; a summary is idempotent per node.
 - `hyperlite-ha-crm`, every node, acting on the leader: the recovery (`ha_recovery`), the dry run outside a cluster
   (`ha_watch`), load balancing's observation and evaluation (`drs` evaluate loop). It renews the node's lead.
+- **The heartbeat feeds the watchdog** (multi-cluster's review, #742): the LRM feeds it only while the node's
+  heartbeat went out within 40 s, so a node that cannot send it (libvirt hung) resets before the leader, which waits
+  LOST_S (60 s) and then the reset, restarts its VMs elsewhere. The heartbeat carries the node's load, which the API's
+  collector publishes (`metrics.load`).
+- **The CRM holds a lock of its own** (`hyperlite-ha-lead`), renewed only while its recovery and evaluation rounds
+  run: a CRM that hangs on the leader loses it, and another member's takes over, as Proxmox VE's CRM holds the
+  manager lock. The pages show whether this node's CRM leads.
 - What the API's pages read in their memory is published in a local table (`service_state`): load balancing's state
   and the dry run's, each round; the API's resume and a manual move's cool-down are written there for the CRM.
 - Both units, the scheduler's and the API's set `HYPERLITE_HA_SERVICE=1`; follow the API's restarts (`PartOf=`), and

@@ -39,3 +39,27 @@ def start(role):
         ha_watch.start_ha_watch()
         ha_recovery.start()  # acts on the leader only, with the quorum
         drs.start_evaluate()  # load balancing: acts on the leader only, with the quorum (docs/design/drs.md)
+
+
+def crm_healthy():
+    """Whether hyperlite-ha-crm's rounds run: its lead is renewed only then (app/core/cluster_lead.py, HA_LOCK)."""
+    from app.core import drs, ha_recovery
+
+    return ha_recovery.round_age() < 3 * ha_recovery.TICK_S + 30 and drs.round_age() < 3 * drs.OBSERVE_S + 30
+
+
+def crm_leads():
+    """Whether this node's HA decisions are taken here: its CRM leads (published each round), or, without the
+    services, the API leads."""
+    import time
+
+    from app.core import cluster_lead
+
+    if not separate():
+        return cluster_lead.is_leader()
+    from app.core import drs, service_state
+
+    published, _at = service_state.read(drs.PUBLISHED)
+    if not published or time.time() - published.get("published_at", 0) > 3 * drs.OBSERVE_S + 30:
+        return False
+    return bool(published.get("crm_leading"))
