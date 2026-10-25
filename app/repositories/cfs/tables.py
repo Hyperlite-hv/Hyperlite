@@ -75,6 +75,9 @@ TABLES = {
     "backup_store_keys": {"priv": True},
     "backup_store_syncs": {"volatile": {"last_run", "last_result"}},
     "backup_remotes": {"priv": True},
+    "remotes": {},
+    "remote_endpoints": {},
+    "remote_tokens": {"priv": True},
     "network_firewall": {},
     # Protection and automation
     "backup_jobs": {"volatile": {"last_run"}},

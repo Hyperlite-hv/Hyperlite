@@ -15,6 +15,7 @@ from app.repositories.sqlite.objects import SqliteObjectRepository
 from app.repositories.sqlite.renames import SqliteRenameRepository
 from app.repositories.sqlite.replication import SqliteReplicationRepository
 from app.repositories.sqlite.settings import SqliteSettingsRepository
+from app.repositories.sqlite.sites import SqliteSiteRepository
 from app.repositories.sqlite.tasks import SqliteTaskRepository
 
 
@@ -86,3 +87,8 @@ def settings():
 @cache
 def replication():
     return SqliteReplicationRepository()
+
+
+@cache
+def sites():
+    return SqliteSiteRepository()
