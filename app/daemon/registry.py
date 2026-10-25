@@ -78,13 +78,19 @@ def running_here():
     return _running.get() is not None
 
 
-def operation(name, args=NoArgs):
-    """Register a function as the operation `name`, its arguments checked against `args` before it runs."""
+NEEDS = {}  # operation -> what it needs of the person who asks (app/daemon/needs.py); an administrator by default
+
+
+def operation(name, args=NoArgs, needs=None):
+    """Register a function as the operation `name`, its arguments checked against `args` before it runs, and its
+    caller against `needs` (app/daemon/needs.py: an administrator unless it says otherwise)."""
 
     def register(fn):
         if name in OPERATIONS:
             raise ValueError(f"operation {name} registered twice")
         OPERATIONS[name] = (args, fn)
+        if needs is not None:
+            NEEDS[name] = needs
         return fn
 
     return register
@@ -104,6 +110,13 @@ def dispatch(request, ctx):
     except ValidationError as e:
         fields = ", ".join(".".join(str(p) for p in err["loc"]) or "?" for err in e.errors())
         return _error("invalid_arguments", f"Invalid arguments for {op}: {fields}")
+    from app.daemon import needs
+
+    try:
+        needs.check(op, NEEDS.get(op, needs.ADMIN), ctx, args)
+    except DaemonError as e:
+        logger.warning("%s by %s refused: %s", op, ctx.user or "?", e.detail)
+        return _error(e.kind, e.detail)
     running = _running.set(op)
     try:
         result = fn(args, ctx)
@@ -127,18 +140,38 @@ def proven(proof):
     required)."""
     if not proof:
         return None
-    from app.core import peer_auth
 
+    # Checking an API token records its last use, a write of the permissions (app/repositories/daemon_write.py): done
+    # here, as the daemon's own, never asked of the daemon again, which would check this proof again, without end.
+    account = proven_account(proof)
+    return account["username"] if account else None
+
+
+def proven_account(proof):
+    """The account a caller's credential proves, as the API resolves it (a users row, or root of a node through
+    hyperlite-admin, which has none, as root@pam on Proxmox VE), or None."""
+    if not proof:
+        return None
+    from app.core import peer_auth, security
+    from app.repositories import registry
+
+    running = _running.set("proof")
     try:
         claims = peer_auth.verify(proof)
-        if claims is not None:
-            return claims["sub"]
-        return peer_auth._account(proof)["username"]
+        if claims is None:
+            return peer_auth._account(proof)
+        if claims.get(security.LOCAL_ROOT_CLAIM):
+            return security._local_root(claims)
+        return registry.accounts().sync.get(claims["sub"])
     except (PermissionError, KeyError, TypeError, ValueError):
         return None
-    except Exception:
+    except Exception as e:
+        if getattr(e, "status_code", None) in (401, 403):  # the API's own refusal of a credential
+            return None
         logger.warning("A credential could not be checked", exc_info=True)
         return None
+    finally:
+        _running.reset(running)
 
 
 def _proven_note(ctx):

@@ -234,6 +234,18 @@ def _fresh_inventory():
 
 
 @pytest.fixture(autouse=True)
+def _no_credential_left():
+    """A request's credential (peer_auth.CREDENTIAL) never carries over from one test: one remembered by a test went
+    with the next test's calls to hyperlite-daemon, which, checking each proof since step 4d, refused a token of
+    another test's database."""
+    from app.core import peer_auth
+
+    token = peer_auth.CREDENTIAL.set(None)
+    yield
+    peer_auth.CREDENTIAL.reset(token)
+
+
+@pytest.fixture(autouse=True)
 def _no_libvirt_error_left():
     """libvirtError(msg) takes the thread's last libvirt error over `msg`: a real one left by an earlier test of the
     same worker replaced a fake error's message, and a test reading it failed on and off (found by multi-cluster)."""
