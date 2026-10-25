@@ -76,7 +76,9 @@ class Handler(socketserver.StreamRequestHandler):
                 continue
             user = request.get("user") if isinstance(request.get("user"), str) else None
             rid = request.get("request_id") if isinstance(request.get("request_id"), str) else None
-            _answer(self, dispatch(request, Context(user=user, request_id=rid, peer_pid=pid, peer_uid=uid)))
+            proof = request.get("proof") if isinstance(request.get("proof"), str) else None
+            ctx = Context(user=user, request_id=rid, peer_pid=pid, peer_uid=uid, proof=proof)
+            _answer(self, dispatch(request, ctx))
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
