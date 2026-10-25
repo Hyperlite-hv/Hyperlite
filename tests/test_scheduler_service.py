@@ -22,10 +22,38 @@ def test_the_scheduler_starts_every_scheduler(monkeypatch):
         ("app.core.vm_cleanup", "start_auto_cleanup_scheduler"),
         ("app.core.update_check", "start_update_check_scheduler"),
         ("app.core.vm_boot", "start_boot_sequence"),
+        ("app.core.cluster", "start_node_poller"),
+        ("app.core.config_copy", "start_config_copy"),
+        ("app.core.network_firewall", "reapply_all"),
     ):
         monkeypatch.setattr(f"{module}.{name}", lambda name=name: started.append(name))
+    vlans = []
+    monkeypatch.setattr("app.core.privileged.run", lambda op, **k: vlans.append(op))
     scheduler.start()
-    assert len(started) == 5
+    assert len(started) == 8 and vlans == ["network.vlan_boot"]
+
+
+def test_the_network_at_start_survives_a_daemon_that_refuses(monkeypatch, caplog):
+    from app.daemon.registry import DaemonError
+
+    monkeypatch.setattr("app.core.network_firewall.reapply_all", lambda: None)
+
+    def refuse(op, **k):
+        raise DaemonError("failed", "no bridge")
+
+    monkeypatch.setattr("app.core.privileged.run", refuse)
+    scheduler._at_start()
+    assert "The VLANs of the running VMs were not set: no bridge" in caplog.text
+
+
+def test_the_api_leaves_the_nodes_poll_the_copy_and_the_network_to_the_scheduler():
+    import inspect
+
+    from app import main
+
+    source = inspect.getsource(main.on_startup)
+    for name in ("start_node_poller", "start_config_copy", "reapply", "vlan_boot", "seed_admin", "encrypt_stored"):
+        assert name not in source, name
 
 
 def test_the_api_starts_them_only_without_the_service(monkeypatch):
