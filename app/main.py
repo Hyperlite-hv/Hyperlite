@@ -15,13 +15,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import scheduler
+from app import ha_services, scheduler
 from app.core import (
     cluster_view,
-    drs,
     error_codes,
-    ha_monitor,
-    ha_recovery,
     ha_selffence,
     initial_password,
     inventory_cache,
@@ -36,7 +33,6 @@ from app.core.client_address import client_address
 from app.core.cluster import start_node_poller
 from app.core.cluster_lead import start_lead_loop
 from app.core.config_copy import start_config_copy
-from app.core.ha_watch import start_ha_watch
 from app.core.http_headers import api_docs_enabled, inline_script_hashes, security_headers
 from app.core.jobs import ensure_lb_job_exists
 from app.core.k8s_cluster import recover_interrupted as recover_interrupted_k8s_clusters
@@ -140,8 +136,10 @@ async def lifespan(_app):
     await spice_proxy.start()  # virt-viewer's way to a VM's SPICE display (docs/design/spice-console.md)
     yield
     await spice_proxy.stop()
-    # A normal stop (an update, a restart) disarms the HA watchdog: the node must not be reset for it.
-    ha_selffence.stop()
+    # A normal stop (an update, a restart) disarms the HA watchdog: the node must not be reset for it. On an installed
+    # node it is hyperlite-ha-lrm's, which does so on its own stop.
+    if not ha_services.separate():
+        ha_selffence.stop()
 
 
 _API_DOCS = api_docs_enabled()
@@ -558,11 +556,8 @@ def on_startup():
     ensure_lb_job_exists()
     start_node_poller()
     start_config_copy()
-    start_ha_watch()
-    ha_selffence.start_selffence()
-    ha_recovery.start()  # acts on the leader only, with the quorum
-    ha_monitor.start()  # each node, its own HA VMs whose monitoring is on
-    drs.start()  # load balancing: acts on the leader only, with the quorum (docs/design/drs.md)
+    if not ha_services.separate():  # hyperlite-ha-lrm and hyperlite-ha-crm run them on an installed node
+        ha_services.start(None)
     start_vm_crash_watch()
     start_shadow_copy()
     start_apply_loop()

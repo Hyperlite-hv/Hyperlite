@@ -299,6 +299,15 @@ def _init_db():
                 runner TEXT NOT NULL
             )
         """)
+        # What a service publishes for the others to read (app/core/service_state.py): HA's and load balancing's state,
+        # made in hyperlite-ha-crm and shown by the API. This node's only, never replicated.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS service_state (
+                name TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                at TEXT NOT NULL
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS task_cancel_requests (
                 task_id TEXT PRIMARY KEY,
