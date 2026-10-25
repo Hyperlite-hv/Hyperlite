@@ -102,6 +102,9 @@ def test_a_stopped_vm_arrives_identical(conn):
     paths = {
         d.find("target").get("dev"): d.find("source").get("file") for d in root.findall("devices/disk[@device='disk']")
     }
+    # A raw source arrives as a qcow2 volume of the file pool, and the definition says so (the lab's two-cluster run
+    # found it declared raw).
+    assert {d.find("driver").get("type") for d in root.findall("devices/disk[@device='disk']")} == {"qcow2"}
     for dev, (fmt, path) in sources.items():
         assert paths[dev] != str(path) and same(fmt, path, "qcow2", paths[dev])
 
