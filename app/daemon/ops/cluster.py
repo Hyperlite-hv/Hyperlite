@@ -296,3 +296,24 @@ def probe(args, ctx):
     from app.core import host_stats
 
     return {"output": host_stats.run_script_on(host_stats._probes()[args.probe], _registered(args.node))}
+
+
+# ---- The cluster's status (app/core/statd.py): this node's summary sent at once, for an API that is not root ----
+
+STATD_MIN_S = 1.0  # at most one summary a second, however many accounts ask
+_statd_last = [0.0]
+
+
+@operation("statd.publish", needs=ANYONE)
+def statd_publish(args, ctx):
+    """This node's summary sent now (hyperlite-cfs takes it from root only), after a change any account made through
+    the API: {"sent": bytes or None}. Asked again within STATD_MIN_S, nothing is sent: the one just sent is current."""
+    import time
+
+    from app.core import statd
+
+    now = time.monotonic()
+    if now - _statd_last[0] < STATD_MIN_S:
+        return {"sent": None}
+    _statd_last[0] = now
+    return {"sent": statd.publish()}

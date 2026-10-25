@@ -529,7 +529,10 @@ def on_startup():
     db_health.start()  # PRAGMA quick_check now and once a day: a damaged file is said, not only logged by the loops
     from app.core import statd
 
-    statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
+    if (
+        not ha_services.separate()
+    ):  # hyperlite-ha-lrm sends it on an installed node; the API asks at once (statd.changed)
+        statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
     from app.core import cluster_v1
 
     cluster_v1.start()  # the replicated configuration rewritten once every member runs 1.0 (docs/design/api-v1.md)
