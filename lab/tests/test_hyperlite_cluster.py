@@ -317,8 +317,10 @@ def console(n, path):
     try:
         return connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=30, max_size=None)
     except TimeoutError:
-        journal = on(n, "sh", "-c", "journalctl -u hyperlite -u hyperlite-daemon -n 80 --no-pager -o short-precise")
-        raise AssertionError(f"no WebSocket handshake from node {n} in 30 s; its journal:\n{journal}") from None
+        # Every thread's stack of the API at that moment (faulthandler on SIGUSR1, app/main.py), then the journal.
+        on(n, "sh", "-c", "kill -USR1 $(systemctl show --property=MainPID --value hyperlite); sleep 2")
+        journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 150 --no-pager -o cat")
+        raise AssertionError(f"no WebSocket handshake from node {n} in 30 s; its API:\n{journal[-3500:]}") from None
 
 
 def read_until(ws, text, timeout=30):
