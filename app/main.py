@@ -54,7 +54,7 @@ from app.core.vm_builder import protect_existing_drives
 from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.core.vm_crash_watch import start_vm_crash_watch
 from app.daemon.registry import DaemonError
-from app.repositories.cfs.ids import NoId
+from app.repositories.cfs.ids import NO_ID_DETAIL, NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
@@ -115,10 +115,29 @@ if not _app_log.handlers:
     _app_log.propagate = False
 
 
+def _log_tasks():
+    import asyncio
+    import io
+
+    out = io.StringIO()
+    tasks = asyncio.all_tasks()
+    for task in tasks:
+        task.print_stack(limit=12, file=out)
+    logger.warning("event loop: %d task(s)\n%s", len(tasks), out.getvalue())
+
+
 @asynccontextmanager
 async def lifespan(_app):
     # SIGUSR1 writes every thread's stack to the journal: what a stalled event loop is doing, on a live node.
     faulthandler.register(signal.SIGUSR1, all_threads=True)
+    # SIGUSR2 logs the event loop's own tasks and where each waits: a request stuck in a coroutine (a lock, a queue)
+    # leaves every thread idle, and only this shows it.
+    import asyncio
+
+    try:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGUSR2, _log_tasks)
+    except (ValueError, RuntimeError) as e:  # a loop outside the main thread: the test client's
+        logger.info("SIGUSR2 does not log the event loop's tasks here: %s", e)
     on_startup()
     from app.core import spice_proxy
 
@@ -467,7 +486,7 @@ async def no_id_handler(request: Request, exc: NoId):
     return JSONResponse(
         status_code=503,
         content={
-            "detail": "The cluster configuration service does not answer: nothing new can be created right now",
+            "detail": NO_ID_DETAIL,
             "code": "cluster_unavailable",
         },
     )

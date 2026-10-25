@@ -40,6 +40,14 @@ def end(token):
     _current.reset(token)
 
 
+def note(ids):
+    """Outbox entries another process wrote for the running request (hyperlite-daemon's writes of the permissions,
+    app/repositories/daemon_write.py): confirmed with its own before its answer. Outside a request: nothing."""
+    request = _current.get()
+    if request is not None:
+        request.ids.update(ids)
+
+
 def settle():
     """Have the cluster take the writes the running request made so far, now rather than before its answer: for a
     request that then does something after which the cluster could not take them (a member added takes the quorum away
