@@ -24,6 +24,13 @@ list of root operations, each with checked arguments (no "run this command"). Th
 `app/core/privileged.py`; the domains move to it one by one, after which the API runs without root
 ([design](design/privilege-separation.md), section 13 for the rules a domain follows).
 
+**hyperlite-scheduler** (`app/scheduler/`, `hyperlite-scheduler.service`) runs the work no person asks for, as Proxmox
+VE's pvescheduler: the scheduled backups (and the backup groups, the stores' copies and garbage collections), the
+replication, the inactive VMs' automatic deletion, the update check and the start at boot. It is started and restarted
+with the API (`PartOf=`), so both run the same version, and keeps running if the API crashes. Its tasks record it as
+their runner, and the claims on VMs are shared files, so the dashboard lists and cancels its tasks as the API's own.
+A checkout and the test suite run these schedulers in the API (`HYPERLITE_SCHEDULER_SERVICE` unset).
+
 ISO images are per node: a VM boots only from an image in its own host's library (`/var/lib/hyperlite/template/iso`, at the same path on every node). The Library lists every node's images and shares one by copying it through the local host with the cluster SSH key (`app/core/iso_share.py`); a copy lands under a hidden temporary name and is renamed once complete.
 
 ## Backend (`app/`)
