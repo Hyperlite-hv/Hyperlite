@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.daemon.registry import Args, DaemonError, operation
+from app.daemon.registry import Args, DaemonError, Handover, operation
 
 VM_NAME = 64
 PATH = 4096
@@ -362,3 +362,79 @@ def remote_stores(args, ctx):
     from app.core import backup_remotes
 
     return {"stores": _store_job(backup_remotes.stores_here, args.name)}
+
+
+# --- Part 3: the file restore ---
+
+
+def _restore_job(fn, *args):
+    from app.core import file_restore
+
+    try:
+        return fn(*args)
+    except file_restore.RestoreError as e:
+        raise DaemonError("refused", str(e)) from None
+
+
+class RestoreOpenArgs(Args):
+    backup_id: int = Field(ge=1)
+    path: str = Field(min_length=1, max_length=PATH)
+    username: str = Field(min_length=1, max_length=64)
+
+
+@operation("restore.open", RestoreOpenArgs)
+def restore_open(args, ctx):
+    """A browsing session on a directory backup (file_restore.open_here): libguestfs opens its images read-only.
+    {"session", "filesystems"}."""
+    from app.core import file_restore
+
+    session = _restore_job(file_restore.open_here, args.backup_id, args.path, args.username)
+    return {"session": session.id, "filesystems": session.filesystems}
+
+
+class SessionArgs(Args):
+    session: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=64)
+
+
+class PathArgs(SessionArgs):
+    device: str = Field(min_length=1, max_length=256)
+    path: str = Field(min_length=1, max_length=4096)
+
+
+@operation("restore.ls", PathArgs)
+def restore_ls(args, ctx):
+    """A folder of the backup's file system: {"entries"}."""
+    from app.core import file_restore
+
+    session = _restore_job(file_restore.session_here, args.session, args.username)
+    return _restore_job(session.request, {"op": "ls", "device": args.device, "path": args.path})
+
+
+@operation("restore.export", PathArgs)
+def restore_export(args, ctx):
+    """A file of the backup, or a folder as a .tar.gz, handed to the API as an open descriptor: {"name"}."""
+    from app.core import file_restore
+
+    session = _restore_job(file_restore.session_here, args.session, args.username)
+    fd, name = _restore_job(file_restore.export_here, session, args.device, args.path)
+    return Handover({"name": name}, [fd])
+
+
+@operation("restore.close", SessionArgs)
+def restore_close(args, ctx):
+    from app.core import file_restore
+
+    _restore_job(file_restore.close_here, args.session, args.username)
+
+
+class BusyArgs(Args):
+    backup_id: int = Field(ge=1)
+
+
+@operation("restore.busy", BusyArgs)
+def restore_busy(args, ctx):
+    """Whether a browsing session reads this backup: {"open"}."""
+    from app.core import file_restore
+
+    return {"open": file_restore.is_open_here(args.backup_id)}

@@ -209,7 +209,7 @@ def test_files_are_not_browsed_in_a_store_backup_yet(database, pools):
     store = backup_stores.open_store("main")
     backup_id = _row(_backup_into(store, "t1"), "2026-01-01T02:00:00+00:00")
     with pytest.raises(file_restore.RestoreError, match="backup store"):
-        file_restore.backup_disks(backup_id)
+        file_restore.backup_row(backup_id)
 
 
 def test_a_store_backup_records_its_directory_and_size(database, pools, monkeypatch, daemon_libvirt):

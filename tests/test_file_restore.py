@@ -127,4 +127,4 @@ def test_an_image_naming_another_file_is_never_browsed(restore, monkeypatch):
 
     monkeypatch.setattr(fr.disk_images, "check", unsafe)
     with pytest.raises(fr.RestoreError, match="based on another file"):
-        fr.backup_disks(1)
+        fr.backup_disks_at(fr.backup_row(1)["path"])  # hyperlite-daemon's check, before libguestfs opens anything
