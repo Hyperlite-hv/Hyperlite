@@ -1,9 +1,11 @@
 """Several clusters and sites from one view (app/core/sites.py, docs/design/multi-cluster.md): what this cluster tells
 another one that has it as a remote, and the remotes this cluster views."""
 
+import contextlib
+import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -13,6 +15,7 @@ from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.daemon.registry import DaemonError
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -173,13 +176,13 @@ def site_action(remote: str, vm: str, action: str, payload: SiteAction, user: di
 
 
 @router.get("/sites/outgoing/{vm}")
-def site_outgoing(vm: str, user: dict = Depends(require_role("admin"))):
+def site_outgoing(vm: str, live: bool = False, user: dict = Depends(require_role("admin"))):
     """What the move dialog shows: the stopped VM's disks and cards, and what stays behind; a VM that cannot go (it
     runs, has a snapshot or a device of this host) is refused with why."""
     from app.core import site_move
 
     try:
-        return site_move.describe(vm, user["username"])
+        return site_move.describe(vm, user["username"], live)
     except DaemonError as e:
         raise privileged.http_error(e, refused=409) from None
 
@@ -192,6 +195,9 @@ class SiteMove(BaseModel):
     name: str | None = Field(None, max_length=63, description="Its name there; the same by default")
     start: bool = False
     limit_mib: int | None = Field(None, ge=1, le=100000, description="Bandwidth limit, MiB/s")
+    live: bool = Field(
+        False, description="The VM runs and keeps running: a live migration (docs/design/multi-cluster.md, 9.2)"
+    )
 
 
 @router.post("/sites/outgoing/{vm}", status_code=202)
@@ -205,6 +211,8 @@ def site_move_vm(vm: str, payload: SiteMove, user: dict = Depends(require_role("
         raise HTTPException(status_code=404, detail=f"No remote '{payload.remote}'")
     if "manage" not in sites._repo().token_uses(payload.remote):
         raise HTTPException(status_code=409, detail=f"Give {payload.remote} a manage token to move a VM there")
+    if payload.live and (payload.name or payload.start):
+        raise HTTPException(status_code=422, detail="A VM moved live keeps its name and keeps running")
     claim = vm_locks.claim_or_409(vm, "a move to another cluster")
     try:
         task_id = create_task("site_move", vm, username=user["username"])
@@ -215,10 +223,16 @@ def site_move_vm(vm: str, payload: SiteMove, user: dict = Depends(require_role("
 
     def work():
         try:
-            moved = site_move.move(
-                task_id, user["username"], vm, payload.remote, payload.node, payload.pools, payload.networks,
-                start=payload.start, limit_mib=payload.limit_mib, name=payload.name,
-            )  # fmt: skip
+            if payload.live:
+                moved = site_move.move_live(
+                    task_id, user["username"], vm, payload.remote, payload.node, payload.pools, payload.networks,
+                    limit_mib=payload.limit_mib,
+                )  # fmt: skip
+            else:
+                moved = site_move.move(
+                    task_id, user["username"], vm, payload.remote, payload.node, payload.pools, payload.networks,
+                    start=payload.start, limit_mib=payload.limit_mib, name=payload.name,
+                )  # fmt: skip
         except (site_move.MoveError, sites.SiteError, DaemonError) as e:
             detail = getattr(e, "message", None) or getattr(e, "detail", None) or str(e)
             log_action(user["username"], "site_move", target, "failed", detail, task_id=task_id)
@@ -296,6 +310,84 @@ def site_incoming_cancel(incoming: str, user: dict = Depends(require_role("admin
     privileged.ask("transfer.abort", user, "site_incoming_cancel", incoming[:8], incoming=incoming)
     log_action(user["username"], "site_incoming_cancel", incoming[:8], "success", "")
     return {"cancelled": incoming}
+
+
+# ---- A VM arriving running (docs/design/multi-cluster.md, section 9.2): the target's side ----
+
+
+class CpuCheck(BaseModel):
+    cpu_xml: str = Field(min_length=1, max_length=64 * 1024)
+
+
+@router.post("/sites/incoming/cpu-check")
+def site_incoming_cpu(payload: CpuCheck, user: dict = Depends(require_role("admin"))):
+    """Whether this node can run a VM with this <cpu> live: {"compatible", "detail"}."""
+    return privileged.ask("transfer.cpu_check", user, "site_incoming_cpu", "cpu", cpu_xml=payload.cpu_xml)
+
+
+class IncomingLive(BaseModel):
+    networks: list[str] = Field(default_factory=list, max_length=16)
+
+
+@router.post("/sites/incoming/{incoming}/live")
+def site_incoming_live(incoming: str, payload: IncomingLive, user: dict = Depends(require_role("admin"))):
+    """The prepared incoming VM made ready to arrive running, on these networks: {"sockets", "volumes"}."""
+    return privileged.ask(
+        "transfer.live_prepare", user, "site_incoming_live", incoming[:8], incoming=incoming, networks=payload.networks
+    )
+
+
+@router.post("/sites/incoming/{incoming}/live/define")
+def site_incoming_live_define(incoming: str, user: dict = Depends(require_role("admin"))):
+    """The VM that arrived running defined here, from what it runs (checked again)."""
+    answer = privileged.ask(
+        "transfer.live_define", user, "site_incoming_finish", incoming[:8], refused=409, incoming=incoming
+    )
+    log_action(
+        user["username"], "site_incoming_finish", answer["name"], "success", "arrived running from another cluster"
+    )
+    return answer
+
+
+@router.websocket("/sites/incoming/{incoming}/tunnel")
+async def site_incoming_tunnel(websocket: WebSocket, incoming: str):
+    """The tunnel of a live migration (app/core/site_tunnel.py): an administrator's token, in the Authorization header
+    the source's node sends; the `libvirt` channel through the relay (app/core/site_relay.py)."""
+    from app.core import security, site_relay, site_tunnel
+
+    header = websocket.headers.get("authorization", "")
+    try:
+        user = security._current_user(header.removeprefix("Bearer ").strip(), pending_ok=False)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    if user.get("role") != "admin":
+        await websocket.close(code=1008)
+        return
+    try:
+        expected = await run_in_threadpool(
+            privileged.run, "transfer.live_expect", user=user["username"], incoming=incoming
+        )
+    except DaemonError as e:
+        log_action(user["username"], "site_incoming_tunnel", incoming[:8], "failed", e.detail)
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+
+    def connect(kind):
+        _, fds = privileged.run_fds("transfer.live_connect", user=user["username"], incoming=incoming, kind=kind)
+        return site_tunnel.socket_from_fd(fds[0])
+
+    def refused(reason):
+        log_action(user["username"], "site_incoming_tunnel", incoming[:8], "failed", f"closed by the relay: {reason}")
+
+    try:
+        await site_tunnel.serve(websocket, connect, lambda: site_relay.CallFilter(expected), refused)
+    except (WebSocketDisconnect, ValueError, DaemonError) as e:
+        logger.info("Tunnel of %s closed: %s", incoming[:8], e)
+    finally:
+        with contextlib.suppress(Exception):
+            await websocket.close()
 
 
 # Last: /sites/<anything>/<anything> would take the routes above.

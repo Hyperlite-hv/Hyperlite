@@ -9,12 +9,14 @@ const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 const POOL_TYPES = new Set(["dir", "netfs", "logical"]); // what a target takes in this version (app/core/site_transfer.py)
 const mib = (bytes) => `${Math.round(bytes / 1024 ** 2)} MiB`;
 
-// A stopped VM moved to another cluster, as `qm remote-migrate --delete` (docs/design/multi-cluster.md, section 9):
+// A VM moved to another cluster, as `qm remote-migrate` (docs/design/multi-cluster.md, section 9): stopped, its disks
+// sent and it is deleted here; running, live (`--online`, its CPU checked by the target first), it keeps running there.
 // a remote this cluster holds a manage token for, one of its online nodes, a pool there for each disk and a network
 // for each card (the same name chosen first), and what stays behind said before anything goes. The move is a task;
 // the VM is deleted here once the target defined it.
 export default function SiteMoveDialog({ vm, onClose }) {
   const t = useT();
+  const live = vm.state === "active";
   const pushToast = useInfraStore((s) => s.pushToast);
   const refreshAll = useInfraStore((s) => s.refreshAll);
   const [info, setInfo] = useState(null);
@@ -25,9 +27,9 @@ export default function SiteMoveDialog({ vm, onClose }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    fetchSiteOutgoing(vm.name).then(setInfo).catch((e) => setInfo({ error: errorMessage(e) }));
+    fetchSiteOutgoing(vm.name, live).then(setInfo).catch((e) => setInfo({ error: errorMessage(e) }));
     Promise.all([fetchSites(), fetchSiteRemotes()]).then(([s, r]) => { setSites(s); setRemotes(r); }).catch(() => { setSites([]); setRemotes([]); });
-  }, [vm.name]);
+  }, [vm.name, live]);
 
   const usable = remotes.filter((r) => r.uses?.includes("manage"));
   const nodes = useMemo(() => {
@@ -70,7 +72,8 @@ export default function SiteMoveDialog({ vm, onClose }) {
   async function go() {
     setBusy(true);
     try {
-      await moveVmToSite(vm.name, { remote: form.remote, node: form.node, pools: form.pools, networks: form.networks, name: form.name === vm.name ? null : form.name, start: form.start, limit_mib: limit });
+      const common = { remote: form.remote, node: form.node, pools: form.pools, networks: form.networks, limit_mib: limit };
+      await moveVmToSite(vm.name, live ? { ...common, live: true } : { ...common, name: form.name === vm.name ? null : form.name, start: form.start });
       pushToast({ kind: "success", title: t("smv.started"), message: t("smv.startedMsg", { vm: vm.name, site: `${form.remote}/${form.node}` }) });
       refreshAll?.();
       onClose();
@@ -81,11 +84,11 @@ export default function SiteMoveDialog({ vm, onClose }) {
   }
 
   return (
-    <SideDrawer open title={t("smv.title", { name: vm.name })} onClose={onClose} busy={busy} footer={<>
+    <SideDrawer open title={t(live ? "smv.titleLive" : "smv.title", { name: vm.name })} onClose={onClose} busy={busy} footer={<>
       <button type="button" className="nx-btn nx-btn--ghost" onClick={onClose} disabled={busy}>{t("action.cancel")}</button>
       <button type="button" className="nx-btn nx-btn--primary" disabled={!ready || busy} onClick={go}>{busy ? t("smv.starting") : t("smv.go")}</button>
     </>}>
-      <p className="nx-muted" style={{ margin: 0 }}>{t("smv.help")}</p>
+      <p className="nx-muted" style={{ margin: 0 }}>{t(live ? "smv.helpLive" : "smv.help")}</p>
       {!info ? <Loading /> : info.error ? <div className="nx-bn" data-tone="danger" role="alert">{info.error}</div> : <>
         {sites && usable.length === 0 && <div className="nx-bn" data-tone="warning" role="status">{t("smv.noRemote")}</div>}
         <Field label={t("smv.remote")}>{(p) => <select {...p} className="nx-inp" value={form.remote} onChange={set("remote")} disabled={busy}>
@@ -113,16 +116,16 @@ export default function SiteMoveDialog({ vm, onClose }) {
             )}</Field>
           ))}
           <div className="nx-fg">
-            <Field label={t("smv.name")} error={NAME_RE.test(form.name) ? null : t("vx.nameRule")}>{(p) => <input {...p} className="nx-inp" value={form.name} onChange={set("name")} disabled={busy} />}</Field>
+            {!live && <Field label={t("smv.name")} error={NAME_RE.test(form.name) ? null : t("vx.nameRule")}>{(p) => <input {...p} className="nx-inp" value={form.name} onChange={set("name")} disabled={busy} />}</Field>}
             <Field label={t("smv.limit")} hint={t("smv.limitHint")}>{(p) => <input {...p} className="nx-inp nx-mono" type="number" min={1} value={form.limit} onChange={set("limit")} disabled={busy} />}</Field>
           </div>
-          <label className="nx-check"><input type="checkbox" checked={form.start} onChange={set("start")} disabled={busy} /> {t("smv.start")}</label>
+          {!live && <label className="nx-check"><input type="checkbox" checked={form.start} onChange={set("start")} disabled={busy} /> {t("smv.start")}</label>}
         </>}
         {info.left?.length > 0 && <div className="nx-bn" data-tone="warning" role="status">
           <strong>{t("smv.left")}</strong>
           <ul style={{ margin: "var(--space-1) 0 0", paddingLeft: "1.2em" }}>{info.left.map((x) => <li key={x}>{x}</li>)}</ul>
         </div>}
-        <p className="nx-f-h" style={{ margin: 0 }}>{t("smv.deleteNote")}</p>
+        <p className="nx-f-h" style={{ margin: 0 }}>{t(live ? "smv.deleteNoteLive" : "smv.deleteNote")}</p>
       </>}
     </SideDrawer>
   );
