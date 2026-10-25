@@ -1948,6 +1948,7 @@ export default {
   "nt.desc": "Get a message on every important event (VM crashed, backup failed, node offline, HA alert).",
   "nt.ev.node_status_change": "Node state change",
   "nt.ev.ha_alert": "HA alert (protected node down)",
+  "nt.ev.drs": "Load balancing (a VM moved, load balancing paused)",
   "nt.ev.hyperlite_update": "Hyperlite update",
   "nt.ev.update_available": "New Hyperlite version available",
   "nt.ev.create_vm": "VM creation",

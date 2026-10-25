@@ -12,7 +12,11 @@ not moved in the last COOLDOWN_S, and the target has its memory free with MEM_MA
 rule broken, no "should" rule broken by the move). A move is kept only if it lowers the spread by a quarter of the
 threshold at least; among equal gains, the VM with the least memory first.
 
-This module recommends; applying them (automatic mode) is step 4.
+In automatic mode (the default, section 8) the leader applies them (3.5, 3.7, step 4): at most MAX_RUNNING migrations
+at a time in the cluster and one per member, never a VM in manual or excluded, each through the live migration of
+POST /vms/{name}/migrate (app/routers/vms/migration.py, start), with its checks and its lock. A migration that fails
+keeps its VM for COOLDOWN_S; FAILURES_TO_PAUSE failures in a row pause automatic mode until an administrator saves the
+settings again, said in a notification. In manual mode, an administrator applies a move from the page.
 """
 
 import logging
@@ -30,10 +34,14 @@ MAX_MOVES = 4
 MEM_MARGIN = 1.10
 COOLDOWN_S = 3600
 SPREAD = {1: None, 2: 40.0, 3: 25.0, 4: 15.0, 5: 10.0}  # the threshold's levels, in points of score
+MAX_RUNNING = 2
+FAILURES_TO_PAUSE = 2
 
 _lock = threading.Lock()
 _cpu = {}  # node -> [(monotonic, cpu %)] over CPU_WINDOW_S
-_state = {"unbalanced": 0, "at": None, "spread": None, "moves": [], "nodes": {}, "reason": None}
+_state = {"unbalanced": 0, "at": None, "spread": None, "moves": [], "nodes": {}, "reason": None, "paused": None}
+_running = {}  # task id -> the move it carries out
+_failures = [0]  # migrations failed in a row
 _moved = {}  # vm -> monotonic time of its last move by load balancing
 
 
@@ -243,12 +251,99 @@ def evaluate():
             moves=moves if sustained else rule_moves,  # a burst is no imbalance; a broken rule is always a reason
             reason=None,
         )
-        return dict(_state)
+    if settings["mode"] == "automatic":
+        _automatic(list(_state["moves"]), drs_rules.behaviours())
+    return state()
 
 
 def state():
     with _lock:
-        return {**_state, "moves": list(_state["moves"])}
+        return {**_state, "moves": list(_state["moves"]), "running": list(_running.values())}
+
+
+# ---- Applying the moves ----
+
+
+def _notify(title, message, result="failed"):
+    from app.core.notifications import notify
+
+    notify("drs", title, message, result=result)
+
+
+def apply(move, username):
+    """Carry `move` out through the live migration (its checks, the VM's lock, the task). {"task_id", "status"}, or
+    the HTTPException the migration raises."""
+    from app.core import self_node
+    from app.core.audit import log_action
+    from app.routers.vms import migration
+
+    me = self_node.name()
+    source = None if move["source"] == me else move["source"]
+    target = "local" if move["target"] == me else move["target"]
+    with _lock:
+        _moved[move["vm"]] = time.monotonic()  # tried once: not again for COOLDOWN_S, whatever comes of it
+    result = migration.start(move["vm"], source, target, username)
+    with _lock:
+        _running[result["task_id"]] = move
+    detail = f"{move['source']} -> {move['target']}: {move['reason']}"
+    log_action(username, "drs_move", move["vm"], "success", detail)
+    if username == "drs":
+        _notify(f"Load balancing: {move['vm']} moved to {move['target']}", detail, result="success")
+    return result
+
+
+def _settle():
+    """The running moves that finished: a success resets the failures, a failure counts."""
+    from app.core.tasks import task_status
+
+    with _lock:
+        running = dict(_running)
+    for task_id, move in running.items():
+        status = task_status(task_id)
+        if status in (None, "pending", "running"):
+            continue
+        with _lock:
+            _running.pop(task_id, None)
+            if status == "succeeded":
+                _failures[0] = 0
+                continue
+            _failures[0] += 1
+            paused = _failures[0] >= FAILURES_TO_PAUSE and _state["paused"] is None
+            if paused:
+                _state["paused"] = f"{_failures[0]} migrations failed in a row (the last: {move['vm']})"
+        logger.warning("Load balancing: moving %s to %s failed (%s)", move["vm"], move["target"], status)
+        if paused:
+            _notify("Load balancing paused", f"{_state['paused']}: save the settings again to resume")
+
+
+def _automatic(moves, behaviours):
+    from fastapi import HTTPException
+
+    _settle()
+    with _lock:
+        if _state["paused"]:
+            return
+        busy = {n for m in _running.values() for n in (m["source"], m["target"])}
+        room = MAX_RUNNING - len(_running)
+    for move in moves:
+        if room <= 0:
+            break
+        if behaviours.get(move["vm"]) == "manual" or busy & {move["source"], move["target"]}:
+            continue
+        try:
+            apply(move, "drs")
+        except HTTPException as e:  # refused by the migration's checks: not tried again for COOLDOWN_S
+            logger.warning("Load balancing: moving %s to %s refused: %s", move["vm"], move["target"], e.detail)
+            continue
+        busy |= {move["source"], move["target"]}
+        room -= 1
+
+
+def resume():
+    """An administrator saved the settings: automatic mode resumes after a pause."""
+    with _lock:
+        _state["paused"] = None
+        _failures[0] = 0
 
 
 def _loop():

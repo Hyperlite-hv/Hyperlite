@@ -1979,6 +1979,7 @@ export default {
   "nt.desc": "Recevez un message à chaque événement important (VM plantée, sauvegarde en échec, nœud hors ligne, alerte HA).",
   "nt.ev.node_status_change": "Changement d’état d’un nœud",
   "nt.ev.ha_alert": "Alerte HA (nœud protégé hors ligne)",
+  "nt.ev.drs": "Équilibrage de charge (une VM déplacée, l'équilibrage en pause)",
   "nt.ev.hyperlite_update": "Mise à jour de Hyperlite",
   "nt.ev.update_available": "Nouvelle version de Hyperlite disponible",
   "nt.ev.create_vm": "Création de VM",

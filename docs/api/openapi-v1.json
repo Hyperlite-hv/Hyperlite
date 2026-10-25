@@ -232,6 +232,19 @@
     "title": "Balloon",
     "type": "object"
    },
+   "Behaviour": {
+    "properties": {
+     "behaviour": {
+      "title": "Behaviour",
+      "type": "string"
+     }
+    },
+    "required": [
+     "behaviour"
+    ],
+    "title": "Behaviour",
+    "type": "object"
+   },
    "Body_cli_start_api_v1_auth_cli_start_post": {
     "properties": {
      "client_version": {
@@ -2417,6 +2430,34 @@
     "title": "MonitoringRequest",
     "type": "object"
    },
+   "Move": {
+    "properties": {
+     "reason": {
+      "default": "applied by an administrator",
+      "title": "Reason",
+      "type": "string"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     },
+     "target": {
+      "title": "Target",
+      "type": "string"
+     },
+     "vm": {
+      "title": "Vm",
+      "type": "string"
+     }
+    },
+    "required": [
+     "vm",
+     "source",
+     "target"
+    ],
+    "title": "Move",
+    "type": "object"
+   },
    "NetworkCreate": {
     "properties": {
      "bridge_name": {
@@ -3125,6 +3166,50 @@
     "title": "RollingRequest",
     "type": "object"
    },
+   "Rule": {
+    "properties": {
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "nodes": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Nodes",
+      "type": "array"
+     },
+     "strength": {
+      "default": "should",
+      "title": "Strength",
+      "type": "string"
+     },
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "kind"
+    ],
+    "title": "Rule",
+    "type": "object"
+   },
    "RunRequest": {
     "properties": {
      "dry_run": {
@@ -3284,6 +3369,26 @@
      "time"
     ],
     "title": "ScheduleRequest",
+    "type": "object"
+   },
+   "Settings": {
+    "properties": {
+     "mode": {
+      "title": "Mode",
+      "type": "string"
+     },
+     "threshold": {
+      "maximum": 5.0,
+      "minimum": 1.0,
+      "title": "Threshold",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "mode",
+     "threshold"
+    ],
+    "title": "Settings",
     "type": "object"
    },
    "SiteAction": {
@@ -10268,6 +10373,297 @@
     "summary": "Dashboard",
     "tags": [
      "dashboard"
+    ]
+   }
+  },
+  "/api/v1/drs": {
+   "get": {
+    "operationId": "get_drs_api_v1_drs_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Drs",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/apply": {
+   "post": {
+    "description": "A recommended move carried out by an administrator, through the live migration (its checks, its lock).",
+    "operationId": "apply_move_api_v1_drs_apply_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Move"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Apply Move",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/rules": {
+   "get": {
+    "operationId": "list_rules_api_v1_drs_rules_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Rules",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/rules/{name}": {
+   "delete": {
+    "operationId": "delete_rule_api_v1_drs_rules__name__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Rule",
+    "tags": [
+     "drs"
+    ]
+   },
+   "put": {
+    "operationId": "put_rule_api_v1_drs_rules__name__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Rule"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Rule",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/settings": {
+   "put": {
+    "operationId": "put_settings_api_v1_drs_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Settings"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Settings",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/vms/{vm_name}": {
+   "put": {
+    "description": "A VM left to the cluster's mode (\"default\"), kept in manual while the cluster is automatic (\"manual\"), or never\nmoved by load balancing (\"excluded\").",
+    "operationId": "put_behaviour_api_v1_drs_vms__vm_name__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "vm_name",
+      "required": true,
+      "schema": {
+       "title": "Vm Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Behaviour"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Behaviour",
+    "tags": [
+     "drs"
     ]
    }
   },
