@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.daemon.needs import ANYONE, on_vm
 from app.daemon.registry import Args, DaemonError, Handover, operation
 
 VM_NAME = 64
@@ -59,7 +60,7 @@ class RunArgs(Args):
 
 
 # One call that waits: a backup copies for as long as its disks take.
-@operation("backup.run", RunArgs)
+@operation("backup.run", RunArgs, needs=on_vm("vm.snapshot"))
 def run(args, ctx):
     """A directory backup of a VM of this node, cold or live, under a target backups.backup_target accepts: {"path",
     "mode", "size", "checksum"}, the API records them."""
@@ -147,7 +148,7 @@ class ExportArgs(Args):
     task_id: str = Field(min_length=1, max_length=TASK_ID)
 
 
-@operation("vm.export", ExportArgs)
+@operation("vm.export", ExportArgs, needs=on_vm("vm.snapshot"))
 def export(args, ctx):
     """A VM's system disk copied, cold or live, into the exports directory: {"name", "size_bytes"}."""
     from app.core import vm_export
@@ -432,7 +433,7 @@ class BusyArgs(Args):
     backup_id: int = Field(ge=1)
 
 
-@operation("restore.busy", BusyArgs)
+@operation("restore.busy", BusyArgs, needs=ANYONE)
 def restore_busy(args, ctx):
     """Whether a browsing session reads this backup: {"open"}."""
     from app.core import file_restore
