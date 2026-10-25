@@ -182,29 +182,67 @@ def install_triggers(db):
     for (name,) in db.execute(
         "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'cfs!_%' ESCAPE '!'"
     ):
-        db.execute(f'DROP TRIGGER "{name}"')
+        db.execute(f'DROP TRIGGER main."{name}"')
+    main = {r[0] for r in db.execute("SELECT name FROM main.sqlite_master WHERE type = 'table'")}
     for name, (columns, pk) in _schema(db).items():
-        table = _Table(name, TABLES[name], columns, pk)
+        if name not in main:
+            continue  # the permission tables' file: TEMP triggers of each writer's connection (access_triggers)
+        for sql in _trigger_sql(_Table(name, TABLES[name], columns, pk), name):
+            db.execute(sql)
 
-        def record(alias, table=table, name=name):
-            keys = ", ".join(f'{alias}."{c}"' for c in table.pk)
-            # Rows that stay on each node (tables.py, local_rows) are not recorded at all.
-            local = " AND ".join(
-                f'{alias}."{c}" NOT IN ({", ".join(_quote(v) for v in values)})'
-                for c, values in table.local_rows.items()
-            )
-            # Table and column names come from tables.py and the schema, never from a request.
-            return f"INSERT INTO cfs_outbox (tbl, pk) SELECT '{name}', json_array({keys})" + (
-                f" WHERE {local};" if local else ";"
-            )
 
-        tracked = ", ".join(f'"{c}"' for c in table.columns)
-        db.execute(f'CREATE TRIGGER "cfs_{name}_ins" AFTER INSERT ON "{name}" BEGIN {record("NEW")} END')
-        db.execute(
-            f'CREATE TRIGGER "cfs_{name}_upd" AFTER UPDATE OF {tracked} ON "{name}" '
-            f"BEGIN {record('OLD')} {record('NEW')} END"
+def _trigger_sql(table, name, temp=False, schema=None):
+    """The three triggers that record `name`'s changes in the outbox."""
+
+    def record(alias):
+        keys = ", ".join(f'{alias}."{c}"' for c in table.pk)
+        # Rows that stay on each node (tables.py, local_rows) are not recorded at all.
+        local = " AND ".join(
+            f'{alias}."{c}" NOT IN ({", ".join(_quote(v) for v in values)})' for c, values in table.local_rows.items()
         )
-        db.execute(f'CREATE TRIGGER "cfs_{name}_del" AFTER DELETE ON "{name}" BEGIN {record("OLD")} END')
+        # Table and column names come from tables.py and the schema, never from a request.
+        return f"INSERT INTO cfs_outbox (tbl, pk) SELECT '{name}', json_array({keys})" + (
+            f" WHERE {local};" if local else ";"
+        )
+
+    kind = "TEMP TRIGGER IF NOT EXISTS" if temp else "TRIGGER"
+    target = f'{schema}."{name}"' if schema else f'"{name}"'
+    tracked = ", ".join(f'"{c}"' for c in table.columns)
+    return (
+        f'CREATE {kind} "cfs_{name}_ins" AFTER INSERT ON {target} BEGIN {record("NEW")} END',
+        f'CREATE {kind} "cfs_{name}_upd" AFTER UPDATE OF {tracked} ON {target} BEGIN {record("OLD")} {record("NEW")} END',
+        f'CREATE {kind} "cfs_{name}_del" AFTER DELETE ON {target} BEGIN {record("OLD")} END',
+    )
+
+
+_access_sql = []  # the TEMP triggers of the permission tables, made once per process (forget_access_triggers)
+
+
+def access_triggers(db):
+    """The TEMP triggers that record the permission tables' changes in this connection's outbox (database.py, ACCESS):
+    a trigger stored in their own file cannot reach the main file's outbox, so each writer's connection gets them."""
+    from app.core.database import ACCESS
+
+    if not db.execute("SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = 'cfs_outbox'").fetchone():
+        return []
+    with _access_lock:
+        if not _access_sql:
+            here = {r[0] for r in db.execute(f"SELECT name FROM {ACCESS}.sqlite_master WHERE type = 'table'")}  # noqa: S608
+            for name, (columns, pk) in _schema(db).items():
+                if name in here:
+                    _access_sql.extend(
+                        _trigger_sql(_Table(name, TABLES[name], columns, pk), name, temp=True, schema=ACCESS)
+                    )
+        return list(_access_sql)
+
+
+_access_lock = threading.Lock()
+
+
+def forget_access_triggers():
+    """The permission tables' schema changed (database.init_db): their triggers are made again."""
+    with _access_lock:
+        _access_sql.clear()
 
 
 class _Stats:

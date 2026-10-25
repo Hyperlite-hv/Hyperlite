@@ -324,6 +324,39 @@ _register("container_moved", "access", "move_container", Moved, needs=ADMIN)
 _register("rename_label", "access", "rename_label", RenameLabel, needs=by_rule(_own_token_label))
 
 
+# --- Who may sign in through an IdP or a directory, and which of its groups are administrators ---
+
+SsoColumn = Literal[
+    "enabled", "issuer", "client_id", "client_secret", "redirect_uri", "scope", "group_claim", "admin_groups"
+]
+LdapColumn = Literal[
+    "enabled",
+    "url",
+    "starttls",
+    "verify_tls",
+    "ca_cert",
+    "bind_dn",
+    "bind_password",
+    "base_dn",
+    "user_filter",
+    "group_attribute",
+    "admin_groups",
+    "allowed_groups",
+]
+Setting = Annotated[str, Field(max_length=65536)] | int | bool | None
+
+
+class SsoConfig(Args):
+    fields: dict[SsoColumn, Setting] = Field(min_length=1)
+
+
+class LdapConfig(Args):
+    fields: dict[LdapColumn, Setting] = Field(min_length=1)
+
+
+_register("sso_config", "identity", "save_sso_config", SsoConfig, needs=ADMIN)
+_register("ldap_config", "identity", "save_ldap_config", LdapConfig, needs=ADMIN)
+
 # --- What needs the node's secrets: the second factor's ---
 
 

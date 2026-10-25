@@ -20,7 +20,6 @@ from app.core import (
     cluster_view,
     error_codes,
     ha_selffence,
-    initial_password,
     inventory_cache,
     paths,
     privileged,
@@ -30,19 +29,14 @@ from app.core import (
 )
 from app.core.audit import request_ip
 from app.core.client_address import client_address
-from app.core.cluster import start_node_poller
 from app.core.cluster_lead import start_lead_loop
-from app.core.config_copy import start_config_copy
 from app.core.http_headers import api_docs_enabled, inline_script_hashes, security_headers
 from app.core.jobs import ensure_lb_job_exists
 from app.core.k8s_cluster import recover_interrupted as recover_interrupted_k8s_clusters
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import start_metrics_collector
-from app.core.network_firewall import reapply_all as reapply_network_firewalls
 from app.core.security import optional_user
-from app.core.seed import seed_admin
 from app.core.tasks import close_interrupted_tasks
-from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
 from app.core.vm_builder import protect_existing_drives
 from app.core.vm_crash_watch import start_vm_crash_watch
 from app.daemon.registry import DaemonError
@@ -519,7 +513,10 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 def on_startup():
-    pwd = seed_admin()
+    from app.core import seed
+
+    if not seed.in_daemon():  # the test suite, the end-to-end backend: hyperlite-daemon's start does it otherwise
+        seed.first_start()
     from app.core import access_log
 
     access_log.start()  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
@@ -535,16 +532,6 @@ def on_startup():
     from app.core import cluster_v1
 
     cluster_v1.start()  # the replicated configuration rewritten once every member runs 1.0 (docs/design/api-v1.md)
-    if pwd:
-        # Never log the password: store it in a root-only file and log only where it is.
-        pw_file = paths.INITIAL_PASSWORD_FILE
-        pw_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(pw_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(pwd + "\n")
-        print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
-    initial_password.start()
-    encrypt_stored_totp_secrets()
     # Before anything starts new tasks: the ones still "running" whose process is gone (app/core/tasks.py).
     close_interrupted_tasks()
     # This node updated itself as the last step of a rolling update: now that it runs, out of maintenance.
@@ -553,8 +540,6 @@ def on_startup():
     if not scheduler.separate():  # hyperlite-scheduler runs them on an installed node (app/scheduler)
         scheduler.start()
     ensure_lb_job_exists()
-    start_node_poller()
-    start_config_copy()
     if not ha_services.separate():  # hyperlite-ha-lrm and hyperlite-ha-crm run them on an installed node
         ha_services.start(None)
     start_vm_crash_watch()
@@ -566,21 +551,8 @@ def on_startup():
     # Cloud-init drives written before they were private (they hold the account and its password's hash).
     threading.Thread(target=protect_existing_drives, daemon=True, name="protect-cloudinit-drives").start()
 
-    # The iptables rules of the network firewall do not survive a host reboot
-    # (unlike the per-VM firewall's nwfilter, which libvirt itself manages):
-    # reapply everything persisted in the database each time the service starts.
-    # Both need root: hyperlite-daemon does them (app/daemon/ops/network.py); a failure is logged, the service starts.
-    reapply_network_firewalls()
     # Uploads a stop interrupted, left in the spool before hyperlite-daemon stored them (app/core/disk_library.py).
     from app.core import disk_library
 
     if removed := disk_library.clean_spool():
         logger.info("Removed %d interrupted upload(s) from the spool", removed)
-    # VMs started while the service was not running (a host boot runs libvirt's hook too; a VLAN changed by hand would
-    # be set back here): their ports on VLAN-aware bridges get their VLANs (app/core/bridge_vlan.py). The boot unit
-    # (installer/hyperlite-vlan-bridges.service) has made the bridges VLAN-aware already; this covers a node where it
-    # has not run yet (first installation).
-    try:
-        privileged.run("network.vlan_boot")
-    except DaemonError as e:
-        logger.error("The VLANs of the running VMs were not set: %s", e.detail)
