@@ -4,7 +4,6 @@ the API's pages read of them published."""
 
 import os
 import signal
-import threading
 import time
 from pathlib import Path
 
@@ -43,6 +42,12 @@ def test_each_service_starts_its_own_loops(started):
     assert len(started) == 6
 
 
+def _stopped_at_once(signum, handler):
+    """signal.signal for a service's main(): its SIGTERM handler is run as soon as it is set."""
+    if signum == signal.SIGTERM:
+        handler(signum, None)
+
+
 def _run(monkeypatch, role):
     from app.ha_services import __main__ as entry
 
@@ -58,15 +63,10 @@ def _run(monkeypatch, role):
     monkeypatch.setattr(ha_services, "start", lambda role: ran.append(role))
     monkeypatch.setattr("app.core.ha_selffence.stop", lambda: ran.append("disarmed"))
     monkeypatch.delenv("HYPERLITE_SERVICE", raising=False)
-    previous = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)
-    timer = threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGTERM))
-    timer.start()
-    try:
-        entry.main([role])
-    finally:
-        timer.cancel()
-        signal.signal(signal.SIGTERM, previous[0])
-        signal.signal(signal.SIGINT, previous[1])
+    # systemd's stop, once the service has said how it handles it: no real signal, and no timer that a slow start
+    # (a CI runner importing the modules for the first time) outruns, killing the test's own process.
+    monkeypatch.setattr(signal, "signal", _stopped_at_once)
+    entry.main([role])
     service = os.environ.pop("HYPERLITE_SERVICE")
     return ran, service
 
