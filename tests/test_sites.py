@@ -35,8 +35,10 @@ class _Connection:
     def settimeout(self, _):
         pass
 
-    def request(self, method, path, body=None, headers=None):
+    def request(self, method, path, body=None, headers=None, encode_chunked=False):
         path = path.removeprefix(sites.API)
+        if encode_chunked:  # a disk's stream: the test client takes it whole
+            body = b"".join(body)
         self.state["requests"].append((self.address, method, path, headers["Authorization"], body))
         if (method, path) in self.state["canned"]:
             self._last = _Canned(*self.state["canned"][(method, path)])

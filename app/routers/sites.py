@@ -1,13 +1,17 @@
 """Several clusters and sites from one view (app/core/sites.py, docs/design/multi-cluster.md): what this cluster tells
 another one that has it as a remote, and the remotes this cluster views."""
 
-from fastapi import APIRouter, Depends, HTTPException
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import sites
+from app.core import privileged, sites
 from app.core.audit import log_action
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role
+from app.daemon.registry import DaemonError
 
 router = APIRouter()
 
@@ -165,10 +169,140 @@ def site_action(remote: str, vm: str, action: str, payload: SiteAction, user: di
     return answer
 
 
-@router.get("/sites/{remote}/{what}")
-def site_list(remote: str, what: str, user: dict = Depends(require_role("admin"))):
-    """One remote's VMs, nodes or storage pools, as its own API answers them."""
+# ---- A VM moved to another cluster (docs/design/multi-cluster.md, section 9): the source's side ----
+
+
+@router.get("/sites/outgoing/{vm}")
+def site_outgoing(vm: str, user: dict = Depends(require_role("admin"))):
+    """What the move dialog shows: the stopped VM's disks and cards, and what stays behind; a VM that cannot go (it
+    runs, has a snapshot or a device of this host) is refused with why."""
+    from app.core import site_move
+
     try:
-        return sites.remote_list(remote, what)
+        return site_move.describe(vm, user["username"])
+    except DaemonError as e:
+        raise privileged.http_error(e, refused=409) from None
+
+
+class SiteMove(BaseModel):
+    remote: str = Field(min_length=1, max_length=63)
+    node: str = Field(min_length=1, max_length=63, description="The remote node the VM goes to")
+    pools: list[str] = Field(min_length=1, max_length=16, description="A storage pool of that node for each disk")
+    networks: list[str] = Field(default_factory=list, max_length=16, description="A network of that node per card")
+    name: str | None = Field(None, max_length=63, description="Its name there; the same by default")
+    start: bool = False
+    limit_mib: int | None = Field(None, ge=1, le=100000, description="Bandwidth limit, MiB/s")
+
+
+@router.post("/sites/outgoing/{vm}", status_code=202)
+def site_move_vm(vm: str, payload: SiteMove, user: dict = Depends(require_role("admin"))):
+    """Move the stopped VM to a node of another cluster, as `qm remote-migrate --delete`: a task (202), at the end of
+    which the VM is defined there and deleted here. Needs the remote's manage token."""
+    from app.core import site_move, vm_locks
+    from app.core.tasks import answer_later, create_task
+
+    if not sites._repo().get_remote(payload.remote):
+        raise HTTPException(status_code=404, detail=f"No remote '{payload.remote}'")
+    if "manage" not in sites._repo().token_uses(payload.remote):
+        raise HTTPException(status_code=409, detail=f"Give {payload.remote} a manage token to move a VM there")
+    claim = vm_locks.claim_or_409(vm, "a move to another cluster")
+    try:
+        task_id = create_task("site_move", vm, username=user["username"])
+    except BaseException:
+        claim.release()
+        raise
+    target = f"{vm} -> {payload.remote}/{payload.node}"
+
+    def work():
+        try:
+            moved = site_move.move(
+                task_id, user["username"], vm, payload.remote, payload.node, payload.pools, payload.networks,
+                start=payload.start, limit_mib=payload.limit_mib, name=payload.name,
+            )  # fmt: skip
+        except (site_move.MoveError, sites.SiteError, DaemonError) as e:
+            detail = getattr(e, "message", None) or getattr(e, "detail", None) or str(e)
+            log_action(user["username"], "site_move", target, "failed", detail, task_id=task_id)
+            raise HTTPException(status_code=409, detail=detail) from None
+        log_action(
+            user["username"], "site_move", target, "success", f"defined there as {moved['name']}", task_id=task_id
+        )
+        return moved
+
+    return answer_later(task_id, vm_locks.released_after(claim, work), name=vm)
+
+
+# ---- The target's side: an incoming VM, asked by another cluster with an administrator's token ----
+
+
+class Incoming(BaseModel):
+    spec: dict = Field(description="The VM in Hyperlite's terms (app/core/site_spec.py), checked as a new VM")
+    pools: list[str] = Field(min_length=1, max_length=16)
+    allocated: list[int] = Field(min_length=1, max_length=16)
+
+
+@router.post("/sites/incoming", status_code=201)
+def site_incoming(payload: Incoming, user: dict = Depends(require_role("admin"))):
+    """Prepare a VM another cluster sends: its specification checked, a new volume for each disk. {"incoming", "disks"}."""
+    answer = privileged.ask(
+        "transfer.prepare", user, "site_incoming", str(payload.spec.get("name"))[:64], refused=422,
+        spec=payload.spec, pools=payload.pools, allocated=payload.allocated,
+    )  # fmt: skip
+    log_action(user["username"], "site_incoming", str(payload.spec.get("name"))[:64], "success", answer["incoming"])
+    return answer
+
+
+@router.put("/sites/incoming/{incoming}/disks/{dev}")
+async def site_incoming_disk(incoming: str, dev: str, request: Request, user: dict = Depends(require_role("admin"))):
+    """One disk of an incoming VM, as the stream of app/core/site_stream.py: every frame checked before it is
+    written; refused whole (422) on the first one that breaks a rule. {"digest"}."""
+    from app.core import site_receive
+
+    try:
+        result, fds = await run_in_threadpool(
+            privileged.run_fds, "transfer.import", user=user["username"], incoming=incoming, dev=dev
+        )
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
+    try:
+        digest = await site_receive.receive(request.stream(), fds[0], result["size"])
+    except site_receive.ReceiveError as e:
+        log_action(user["username"], "site_incoming_disk", f"{incoming[:8]}/{dev}", "failed", str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    finally:
+        for fd in fds[1:]:
+            os.close(fd)
+    return {"digest": digest}
+
+
+class IncomingFinish(BaseModel):
+    networks: list[str] = Field(default_factory=list, max_length=16)
+    start: bool = False
+
+
+@router.post("/sites/incoming/{incoming}/finish")
+def site_incoming_finish(incoming: str, payload: IncomingFinish, user: dict = Depends(require_role("admin"))):
+    """Define the incoming VM once its disks were written, with the networks chosen for its cards."""
+    answer = privileged.ask(
+        "transfer.define", user, "site_incoming_finish", incoming[:8], refused=409,
+        incoming=incoming, networks=payload.networks, start=payload.start,
+    )  # fmt: skip
+    log_action(user["username"], "site_incoming_finish", answer["name"], "success", "defined from another cluster")
+    return answer
+
+
+@router.delete("/sites/incoming/{incoming}")
+def site_incoming_cancel(incoming: str, user: dict = Depends(require_role("admin"))):
+    """The incoming VM cancelled by the cluster that sent it: its volumes removed."""
+    privileged.ask("transfer.abort", user, "site_incoming_cancel", incoming[:8], incoming=incoming)
+    log_action(user["username"], "site_incoming_cancel", incoming[:8], "success", "")
+    return {"cancelled": incoming}
+
+
+# Last: /sites/<anything>/<anything> would take the routes above.
+@router.get("/sites/{remote}/{what}")
+def site_list(remote: str, what: str, node: str | None = None, user: dict = Depends(require_role("admin"))):
+    """One remote's VMs, nodes, storage pools or networks (`node`: those of that node), as its own API answers them."""
+    try:
+        return sites.remote_list(remote, what, node)
     except sites.SiteError as e:
         raise _error(e) from None

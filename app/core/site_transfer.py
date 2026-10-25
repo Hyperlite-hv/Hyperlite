@@ -299,7 +299,8 @@ def _create_volume(pool, pool_name, base, size):
 
 
 def import_disk(incoming, dev):
-    """A pipe into which the disk `dev` of the incoming VM goes as frames (site_transfer_nbd.py): its write end."""
+    """A pipe into which the disk `dev` of the incoming VM goes as frames (site_transfer_nbd.py): (its write end, the
+    disk's size)."""
     state = _load(incoming)
     n = next((i for i, d in enumerate(state["spec"]["disks"]) if d["dev"] == dev), None)
     if n is None:
@@ -322,7 +323,7 @@ def import_disk(incoming, dev):
         target=_written, args=(incoming, n, key), daemon=True, name=f"transfer-{incoming[:8]}-{dev}"
     ).start()
     _save(state)
-    return fd
+    return fd, disk["size"]
 
 
 def _written(incoming, n, key):
