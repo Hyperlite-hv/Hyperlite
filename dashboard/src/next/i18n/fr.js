@@ -3446,6 +3446,7 @@ export default {
   "cfs.domainName.drs_settings": "Réglages de l'équilibrage de charge",
   "cfs.domainName.drs_rules": "Règles de l'équilibrage de charge",
   "cfs.domainName.drs_vms": "Exceptions de l'équilibrage de charge",
+  "cfs.domainName.drs_requests": "Déplacements de l'équilibrage de charge",
   "cfs.domainName.app_settings": "Réglages de l’application",
   "cfs.domainName.object_meta": "Notes et tags",
   "cfs.domainName.vm_boot": "Démarrage automatique",

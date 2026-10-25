@@ -629,6 +629,23 @@ def init_db():
                 behaviour TEXT NOT NULL DEFAULT 'default' CHECK(behaviour IN ('default', 'manual', 'excluded'))
             )
         """)
+        # A move of automatic load balancing: requested by the leader, carried out by the member the VM runs on (only
+        # that member reads its full configuration, which the migration's checks need), its outcome written back.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_requests (
+                id TEXT PRIMARY KEY,
+                vm_name TEXT NOT NULL,
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                reason TEXT,
+                requested_by TEXT NOT NULL DEFAULT 'drs',
+                requested_at TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending', 'started', 'succeeded', 'failed')),
+                task_id TEXT,
+                detail TEXT,
+                updated_at TEXT
+            )
+        """)
         # VM monitoring of an HA VM (docs/design/ha-automatic.md, 4.9): a table of its own, for the same reason.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ha_monitoring (

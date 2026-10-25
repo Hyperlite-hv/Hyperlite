@@ -110,6 +110,9 @@ In a cluster, "auto" is the default node of the creation form; a node can still 
 - A migration that fails is not tried again for that VM for an hour; two failures in a row stop automatic mode, said
   in a notification.
 - Every move goes through the existing live migration, with its checks; DRS adds no other way to move a VM.
+- The leader does not start a move itself: it writes it in a replicated table (`drs_requests`), and the member the VM
+  runs on, the only one that reads the VM's full configuration, starts the migration and writes back how it ended. A
+  move no member starts within 5 minutes (its member down) counts as failed.
 
 ## 4. Compared with vSphere DRS and Proxmox VE
 

@@ -3415,6 +3415,7 @@ export default {
   "cfs.domainName.drs_settings": "Load balancing settings",
   "cfs.domainName.drs_rules": "Load balancing rules",
   "cfs.domainName.drs_vms": "Load balancing exceptions",
+  "cfs.domainName.drs_requests": "Load balancing moves",
   "cfs.domainName.app_settings": "Application settings",
   "cfs.domainName.object_meta": "Notes and tags",
   "cfs.domainName.vm_boot": "Start at boot",
