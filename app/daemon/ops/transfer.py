@@ -92,10 +92,11 @@ class ImportArgs(Args):
 @operation("transfer.import", ImportArgs)
 @_transfer
 def import_disk(args, conn):
-    """The write end of a pipe the incoming VM's disk goes into, as frames."""
+    """{"size"} and the write end of a pipe the incoming VM's disk goes into, as frames."""
     from app.core import site_transfer
 
-    return Handover({}, [site_transfer.import_disk(args.incoming, args.dev)])
+    fd, size = site_transfer.import_disk(args.incoming, args.dev)
+    return Handover({"size": size}, [fd])
 
 
 class DefineArgs(Args):
