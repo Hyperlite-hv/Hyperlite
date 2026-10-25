@@ -136,7 +136,14 @@ class SqliteIdentityStore:
     def sso_config(self):
         return _one("SELECT * FROM sso_config WHERE id = 1")
 
+    @daemon_write("access.sso_config")
     def save_sso_config(self, fields):
+        """Who may sign in through the IdP, and which of its groups are administrators: hyperlite-daemon's to write. A
+        client secret given in clear is sealed here, by the daemon, which holds the node's keys."""
+        if fields.get("client_secret"):
+            from app.core import secrets_crypto
+
+            fields = {**fields, "client_secret": secrets_crypto.encrypt(fields["client_secret"])}
         with get_conn() as db:
             _upsert_singleton(db, "sso_config", fields)
             db.commit()
@@ -214,7 +221,14 @@ class SqliteIdentityStore:
     def ldap_config(self):
         return _one("SELECT * FROM ldap_config WHERE id = 1")
 
+    @daemon_write("access.ldap_config")
     def save_ldap_config(self, fields):
+        """Who may sign in through the directory, and which of its groups are administrators: hyperlite-daemon's to
+        write. A bind password given in clear is sealed here, by the daemon."""
+        if fields.get("bind_password"):
+            from app.core import secrets_crypto
+
+            fields = {**fields, "bind_password": secrets_crypto.encrypt(fields["bind_password"])}
         with get_conn() as db:
             _upsert_singleton(db, "ldap_config", fields)
             db.commit()
