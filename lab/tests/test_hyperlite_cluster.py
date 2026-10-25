@@ -278,23 +278,28 @@ def test_the_permissions_are_written_by_the_daemon(cluster):
     ok(api(1, "DELETE", f"/groups/{group}", token=t))
 
 
-def test_the_scheduler_runs_beside_the_api(cluster):
-    """hyperlite-scheduler (app/scheduler) on every member: running, started by the package with the API, and the API
-    told to start no scheduler of its own (docs/design/privilege-separation.md, section 14, 4c)."""
+SERVICES = ("hyperlite-scheduler", "hyperlite-ha-lrm", "hyperlite-ha-crm")
+
+
+def test_the_services_run_beside_the_api(cluster):
+    """hyperlite-scheduler (app/scheduler) and HA's two services (app/ha_services) on every member: running, started
+    by the package with the API, and the API told to start none of their loops (docs/design/privilege-separation.md,
+    section 14, 4c)."""
     for n in NODES:
-        assert on(n, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active", n
-        assert "hyperlite-scheduler started" in on(
-            n, "journalctl", "-u", "hyperlite-scheduler", "--no-pager", "-o", "cat"
-        )
+        for service in SERVICES:
+            assert on(n, "systemctl", "is-active", service).strip() == "active", (n, service)
+            journal = on(n, "journalctl", "-u", service, "--no-pager", "-o", "cat")
+            assert f"{service} started" in journal, (n, service)
         env = on(n, "systemctl", "show", "hyperlite", "--property=Environment", "--value")
-        assert "HYPERLITE_SCHEDULER_SERVICE=1" in env, n
-    # A restart of the API restarts the scheduler with it (PartOf=): both always run the same version.
-    before = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
+        assert "HYPERLITE_SCHEDULER_SERVICE=1" in env and "HYPERLITE_HA_SERVICE=1" in env, n
+    # A restart of the API restarts them with it (PartOf=): all always run the same version.
+    before = {s: on(1, "systemctl", "show", s, "--property=MainPID", "--value").strip() for s in SERVICES}
     on(1, "systemctl", "restart", "hyperlite")
     wait("node 1's API back", lambda: signed_in(1, PASSWORD), timeout=120)
-    after = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
-    assert after not in ("", "0", before)
-    assert on(1, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active"
+    for service in SERVICES:
+        after = on(1, "systemctl", "show", service, "--property=MainPID", "--value").strip()
+        assert after not in ("", "0", before[service]), service
+        assert on(1, "systemctl", "is-active", service).strip() == "active", service
 
 
 def test_the_daemon_makes_the_admin_account_at_its_start(cluster):
@@ -909,7 +914,14 @@ def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
             n,
             "sh",
             "-c",
-            f"mkdir -p /etc/systemd/system/hyperlite.service.d && printf '{conf}' > /etc/systemd/system/hyperlite.service.d/lab-drs.conf && systemctl daemon-reload",
+            # Load balancing runs in HA's services (app/ha_services), restarted with the API (PartOf=): each gets the
+            # drop-in, the API too for a checkout's way of running everything in it.
+            " && ".join(
+                f"mkdir -p /etc/systemd/system/{unit}.service.d && printf '{conf}' > "
+                f"/etc/systemd/system/{unit}.service.d/lab-drs.conf"
+                for unit in ("hyperlite", "hyperlite-ha-lrm", "hyperlite-ha-crm")
+            )
+            + " && systemctl daemon-reload",
         )
     for n in NODES:
         before = main_pid(n)
@@ -983,3 +995,128 @@ def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
         ok(api(n, "POST", f"/vms/{vm}/stop?force=true", token=t[n]))
         wait(f"{vm} stopped", lambda vm=vm, n=n: ok(api(n, "GET", f"/vms/{vm}", token=t[n]))["state"] == "stopped")
         ok(api(n, "DELETE", f"/vms/{vm}?confirm=true", token=t[n]))
+
+
+def _boot_id(n):
+    return on(n, "cat", "/proc/sys/kernel/random/boot_id").strip()
+
+
+def _watchdog(t, name):
+    """What member `name`'s watchdog published, as the leader's HA status shows it (armed, reset_within_s, stopped)."""
+    return next(m for m in ok(api(1, "GET", "/ha/status", token=t[1]))["members"] if m["name"] == name)["watchdog"]
+
+
+def _unit_pid(n, unit):
+    return on(n, "systemctl", "show", "--property=MainPID", "--value", unit).strip()
+
+
+def _still(n, vm, boot, seconds, t):
+    """For `seconds`: node n not reset, `vm` still running there, and running nowhere else."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        time.sleep(10)
+        assert _boot_id(n) == boot, f"node {n} was reset"
+        assert on(n, "virsh", "domstate", vm).strip() == "running", f"{vm} stopped on node {n}"
+        for other in (m for m in NODES if m != n):
+            code, body = api(other, "GET", f"/vms/{vm}", token=t[other])
+            assert not (code == 200 and body.get("state") == "active"), f"{vm} started on node {other} too"
+
+
+def test_only_the_lrm_keeps_a_node_with_an_ha_vm_alive(cluster):
+    """HA's two services (#742, docs/design/privilege-separation.md, section 14, 4c), on node 3 running an HA VM: a
+    crash of the CRM or of the API neither resets the node nor stops the VM; a normal stop disarms the watchdog and says
+    so, and the leader leaves the VM where it is; a crash of the LRM is restarted by systemd within the watchdog's
+    timeout, which it arms again."""
+    t, names = cluster["tokens"], cluster["names"]
+    c = names[3]
+    if not nested(3):
+        pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
+    on(1, "sh", "-c", "DEBIAN_FRONTEND=noninteractive apt-get install -y -q nfs-kernel-server >/dev/null 2>&1")
+    on(
+        1,
+        "sh",
+        "-c",
+        "mkdir -p /srv/ha && chmod 777 /srv/ha && echo '/srv/ha 192.0.2.0/24(rw,sync,no_root_squash,no_subtree_check)' > /etc/exports && exportfs -ra && systemctl restart nfs-kernel-server",
+    )
+    if not any(p["name"] == "hapool" for p in ok(api(1, "GET", "/storage", token=t[1]))["items"]):
+        pool = {"name": "hapool", "type": "netfs", "nfs_host": ip(1), "nfs_export_path": "/srv/ha", "all_nodes": True}
+        ok(api(1, "POST", "/storage", pool, t[1]), 200, 201, 202)
+    form, content_type = multipart("svcboot.iso", b"\0" * (1 << 20))
+    ok(api(1, "POST", f"/isos?node={c}", form=form, content_type=content_type, token=t[1]))
+    spec = {"name": "svcvm", "vcpu": 1, "memory_mb": 256, "disks": [{"size_gb": 1}], "iso": "svcboot.iso", "storage_pool": "hapool"}  # fmt: skip
+    finished(1, t[1], ok(api(1, "POST", f"/vms?node={c}&wait=false", spec, t[1]))["task_id"], node=c)
+    if ok(api(1, "GET", f"/vms/svcvm?node={c}", token=t[1]))["state"] != "active":
+        ok(api(1, "POST", f"/vms/svcvm/start?node={c}", token=t[1]))
+    wait("svcvm running", lambda: ok(api(1, "GET", f"/vms/svcvm?node={c}", token=t[1]))["state"] == "active")
+    ok(api(1, "POST", "/ha/svcvm/enable", {"node": c}, t[1]), 201)
+    wait("node 3's watchdog armed", lambda: _watchdog(t, c).get("armed"), timeout=120, every=5)
+    reset_within = _watchdog(t, c).get("reset_within_s") or 60
+    hold = reset_within + 30  # past the moment a node that stopped feeding would have been reset
+    boot = _boot_id(3)
+    print(f"[lab] node 3 armed, reset within {reset_within} s")
+
+    # A crash of the CRM, then of the API: systemd restarts each; no reset, the HA VM keeps running.
+    for unit in ("hyperlite-ha-crm", "hyperlite"):
+        pid = _unit_pid(3, unit)
+        on(3, "kill", "-9", pid)
+        began = time.monotonic()
+        wait(
+            f"{unit} restarted",
+            lambda unit=unit, pid=pid: _unit_pid(3, unit) not in ("0", "", pid),
+            timeout=120,
+            every=1,
+        )
+        print(f"[lab] kill -9 {unit}: restarted after {time.monotonic() - began:.0f} s")
+        _still(3, "svcvm", boot, hold, t)
+    t[3] = wait("node 3's API back", lambda: signed_in(3, PASSWORD), timeout=120)
+
+    # A normal stop: the watchdog disarmed and "stopped" published; the leader leaves the VM where it is.
+    on(3, "systemctl", "stop", "hyperlite")
+    for unit in ("hyperlite-ha-lrm", "hyperlite-ha-crm", "hyperlite-scheduler"):
+        assert on(3, "sh", "-c", f"systemctl is-active {unit} || true").strip() == "inactive", unit
+    wait("node 3's stop published", lambda: _watchdog(t, c).get("stopped"), timeout=60, every=3)
+    assert not _watchdog(t, c).get("armed")
+    _still(3, "svcvm", boot, hold, t)
+    on(3, "systemctl", "start", "hyperlite")
+    t[3] = wait("node 3's API back", lambda: signed_in(3, PASSWORD), timeout=120)
+    wait(
+        "node 3 armed again",
+        lambda: _watchdog(t, c).get("armed") and not _watchdog(t, c).get("stopped"),
+        timeout=120,
+        every=5,
+    )
+
+    # A crash of the LRM: no magic close, the device keeps counting; systemd restarts it (RestartSec=3), and the new LRM
+    # opens the device again and feeds it before the timeout.
+    since = on(3, "date", "+%s").strip()
+    pid = _unit_pid(3, "hyperlite-ha-lrm")
+    on(3, "kill", "-9", pid)
+    began = time.monotonic()
+    wait(
+        "hyperlite-ha-lrm restarted",
+        lambda: _unit_pid(3, "hyperlite-ha-lrm") not in ("0", "", pid),
+        timeout=60,
+        every=1,
+    )
+    restarted = time.monotonic() - began
+    wait(
+        "the new LRM armed the watchdog",
+        lambda: (
+            "Watchdog armed"
+            in on(3, "journalctl", "-u", "hyperlite-ha-lrm", "--since", f"@{since}", "--no-pager", "-o", "cat")
+        ),
+        timeout=reset_within,
+        every=2,
+    )
+    armed = time.monotonic() - began
+    print(
+        f"[lab] kill -9 hyperlite-ha-lrm: restarted after {restarted:.1f} s, watchdog armed again after {armed:.0f} s"
+    )
+    assert armed < reset_within, "armed again only after the watchdog's timeout"
+    assert _watchdog(t, c).get("armed") and not _watchdog(t, c).get("stopped")
+    _still(3, "svcvm", boot, hold, t)
+
+    ok(api(1, "DELETE", "/ha/svcvm", token=t[1]))
+    ok(api(1, "POST", f"/vms/svcvm/stop?node={c}&force=true", token=t[1]))
+    wait("svcvm stopped", lambda: ok(api(1, "GET", f"/vms/svcvm?node={c}", token=t[1]))["state"] == "stopped")
+    ok(api(1, "DELETE", f"/vms/svcvm?node={c}&confirm=true", token=t[1]))

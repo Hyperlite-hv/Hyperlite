@@ -309,9 +309,26 @@ def latest_load():
     """{"host": {"cpu_pct", "cpus", "mem_used_mb", "mem_total_mb"}, "vms": {name: {"cpu_pct", "vcpus", "mem_used_mb",
     "mem_total_mb"}}} of the last tick, or None when it is older than LOAD_FRESH_S (or there was none)."""
     with _latest_lock:
-        if time.time() - _latest["at"] > LOAD_FRESH_S:
-            return None
-        return _latest["load"]
+        latest = dict(_latest)
+    if latest["at"] == 0.0:
+        # No collector in this process: hyperlite-ha-lrm's heartbeat (app/ha_services) reads the API's, published.
+        latest = _published() or latest
+    if time.time() - latest["at"] > LOAD_FRESH_S:
+        return None
+    return latest["load"]
+
+
+PUBLISHED = "metrics.load"  # the last tick's load, for the node's other services (app/core/service_state.py)
+
+
+def _published():
+    from app import ha_services
+    from app.core import service_state
+
+    if not ha_services.separate():
+        return None
+    data, _at = service_state.read(PUBLISHED)
+    return data
 
 
 # VM uuid -> (monotonic time, all its disks on a shared pool): asked every SHARED_EVERY_S at most (pool lookups).
@@ -346,6 +363,14 @@ def _record_load(now, load, vms):
     }
     with _latest_lock:
         _latest.update(at=now, load={"host": host, "vms": vms})
+    from app import ha_services
+
+    if ha_services.separate():
+        # The node's heartbeat is sent by hyperlite-ha-lrm too: without it, its summary had no load, and load
+        # balancing saw no member but its own.
+        from app.core import service_state
+
+        service_state.publish(PUBLISHED, {"at": now, "load": {"host": host, "vms": vms}})
 
 
 def _collect_tick():

@@ -2,8 +2,9 @@
 Description=Hyperlite API (FastAPI + libvirt)
 # hyperlite-daemon first, as pveproxy comes after pvedaemon: the API writes the accounts through it (step 4b).
 After=network-online.target libvirtd.service hyperlite-daemon.service
-# hyperlite-scheduler runs the schedulers (app/scheduler): started with the API, after it.
-Wants=network-online.target hyperlite-daemon.service hyperlite-scheduler.service
+# hyperlite-scheduler runs the schedulers (app/scheduler), hyperlite-ha-lrm and hyperlite-ha-crm HA (app/ha_services):
+# started with the API, after it.
+Wants=network-online.target hyperlite-daemon.service hyperlite-scheduler.service hyperlite-ha-lrm.service hyperlite-ha-crm.service
 Requires=libvirtd.service
 
 [Service]
@@ -17,6 +18,8 @@ Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/root
 # The schedulers are hyperlite-scheduler's (installer/hyperlite-scheduler.service): the API starts none of them.
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
+# HA's loops and the watchdog are hyperlite-ha-lrm's and hyperlite-ha-crm's: the API starts none of them.
+Environment=HYPERLITE_HA_SERVICE=1
 # The tools Hyperlite reads (apt, df, virsh, qemu-img...) answer in English whatever the server's language, so the
 # parsing of their output does not depend on it (a French server answered "fermé", "Candidat :"...). The dashboard has
 # its own languages. libvirtd's messages stay in the system's language: the code reads their error codes only.
