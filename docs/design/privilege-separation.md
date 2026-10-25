@@ -672,9 +672,12 @@ process:
   under `/run/hyperlite`, which is hyperlite-daemon's and removed when it stops. The directory must be root's or the
   service's and written by nobody else, since `/run/lock` is writable by every account; with 4e it becomes root's
   and the API's group's (`tmpfiles.d`).
-- **A task's cancellation** (`tasks.register_cancel`): the API cancels a copy its own thread runs. A task the
-  scheduler runs is cancelled through the daemon instead, which forwards the request to the scheduler's own socket,
-  as Proxmox VE stops a task by its UPID wherever it runs.
+- **A task's runner and its cancellation** (`app/core/tasks.py`, proposed on #298): each task records the process
+  that runs it, `<service>:<pid>:<start time>` (`task_runners`), as Proxmox VE's UPID names a task's process. A task
+  is abandoned only when that process is gone, so a restart of the API no longer closes the scheduler's tasks. A
+  cancellation for a task another process runs is written for it (`task_cancel_requests`); that process's watcher
+  thread reads its own tasks' every 2 s and calls their cancellers. Local tables, whatever each service's user is (4e),
+  and no new socket.
 
 ### 14.1 4b in detail: the permissions written by the daemon only (2026-10-25)
 
@@ -698,7 +701,8 @@ security keys, the second factor, the sign-out, LDAP and SSO. Sign-in already ru
   VE's `/access` methods).
 - **What needs a secret moves to the daemon itself**, since the API loses the node's keys in 4e:
   - a second factor's secret is made, sealed and stored by the daemon (`access.totp_start`, which answers the secret
-    once for the QR code), and enabled by the daemon only after it checks a code (`access.totp_enable`);
+    once for the QR code); a code is checked there, once (`access.totp_check`), before it is enabled
+    (`access.totp_enable`);
   - an account provisioned at an LDAP or SSO sign-in gets its random password hash from the daemon
     (`access.provision_ldap`, `access.provision_sso`), as the repository took a function to call.
 - What stays in the API: the sign-in's own state (challenges, SSO states and hand-offs, failure counters), which are

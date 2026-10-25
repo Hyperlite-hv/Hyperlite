@@ -48,7 +48,8 @@ def test_filters_sort_and_export(repos):
 def test_interrupted_tasks_are_closed_and_stats_count_them(repos):
     tasks, _audit = repos
     tasks.sync.create("t1", "migrate_vm", "web", None, None, "2026-09-30T10:00:00")
-    assert tasks.sync.close_interrupted("2026-09-30T11:00:00") == 1
+    assert tasks.sync.running_with_runners() == {"t1": None}
+    assert tasks.sync.close_interrupted(["t1"], "2026-09-30T11:00:00") == 1
     assert run(tasks.get("t1"))["status"] == "failed"
     assert run(tasks.stats()) == {"running": 0, "total": 1, "failed": 1, "avg_duration_s": 0}
     assert tasks.sync.latest_running("migrate_vm", "2026-09-30T00:00:00") is None
