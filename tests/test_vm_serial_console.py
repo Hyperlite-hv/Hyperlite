@@ -47,18 +47,20 @@ class Conn:
 
 
 @pytest.fixture()
-def libvirt_vm(monkeypatch):
-    """open_conn() answers with the VM this test sets; the nodes it was asked for are recorded."""
-    state = {"conn": Conn(None), "nodes": []}
+def libvirt_vm(monkeypatch, daemon_libvirt):
+    """open_conn() (read-only) and hyperlite-daemon's connection answer with the VM this test sets; the nodes the API
+    asked for are recorded."""
+    state = {"conn": daemon_libvirt(Conn(None)), "nodes": []}
 
-    def fake_open(node=None):
+    def fake_open(node=None, readonly=False):
+        assert readonly, "the API reads the VM, the daemon adds its serial port"
         state["nodes"].append(node)
         return state["conn"]
 
     monkeypatch.setattr(console, "open_conn", fake_open)
 
     def set_vm(domain):
-        state["conn"] = Conn(domain)
+        state["conn"] = daemon_libvirt(Conn(domain))
         return state["conn"]
 
     state["set"] = set_vm
@@ -77,8 +79,8 @@ def test_a_running_vm_with_a_serial_port_gets_a_ticket_on_its_node(client, auth_
     answer = client.post("/vms/web/serial-ticket?node=node-b", headers=auth_headers("root"))
     assert answer.status_code == 200
     assert libvirt_vm["nodes"] == ["node-b"]
-    name, _expiry, node, uuid = console.SERIAL_TICKETS[answer.json()["ticket"]]
-    assert (name, node, uuid) == ("web", "node-b", "6f1c2d3e-0000-4000-8000-000000000001")
+    name, _expiry, node, username = console.SERIAL_TICKETS[answer.json()["ticket"]]
+    assert (name, node, username) == ("web", "node-b", "root")
 
 
 def test_a_vm_without_a_serial_port_gets_one_for_its_next_start(client, auth_headers, libvirt_vm):
@@ -121,32 +123,22 @@ def test_it_takes_the_graphical_console_privilege_not_the_administrator_role(cli
     assert client.post("/vms/web/terminal-ticket", headers=auth_headers("bob", role="viewer")).status_code == 403
 
 
-def test_virsh_console_runs_against_the_vm_node_by_its_uuid(monkeypatch):
-    """The UUID libvirt gave the VM, never the name the request carried: no name can pass for an option of virsh."""
-    uuid = "6f1c2d3e-0000-4000-8000-000000000001"
-    assert console.serial_command(uuid, None) == [
-        "virsh",
-        "--quiet",
-        "--connect",
-        "qemu:///system",
-        "console",
-        "--domain",
-        uuid,
-    ]
-    monkeypatch.setattr(console, "get_node", lambda name: {"name": name, "hostname": "10.0.0.2"})
-    monkeypatch.setattr(console, "libvirt_uri_from_here", lambda node: f"qemu+ssh://root@{node['hostname']}/system")
-    assert console.serial_command(uuid, "node-b")[3] == "qemu+ssh://root@10.0.0.2/system"
+def test_the_serial_console_is_virsh_on_the_vms_node_by_its_uuid_relayed_both_ways(client, monkeypatch, libvirt_vm):
+    """hyperlite-daemon runs `virsh console` on the VM's node, the VM named by the UUID libvirt gave it (no name can
+    pass for an option of virsh), and hands its terminal to the API, which relays it."""
+    from app.core import cluster, console_sessions
 
+    libvirt_vm["set"](Domain(WITH_SERIAL))
+    monkeypatch.setattr(cluster, "get_node", lambda name: {"name": name, "hostname": "10.0.0.2"})
+    monkeypatch.setattr(cluster, "libvirt_uri_from_here", lambda node: f"qemu+ssh://root@{node['hostname']}/system")
+    seen, real = [], console_sessions.open_pty
 
-def test_the_serial_console_relays_both_ways(client, monkeypatch):
-    seen = []
+    def open_pty(argv, env, cols=80, rows=24):
+        seen.append(argv)
+        return real(["sh", "-c", "printf 'login: '; read who; echo \"hello $who\""], env, cols, rows)
 
-    def command(uuid, node):
-        seen.append((uuid, node))
-        return ["sh", "-c", "printf 'login: '; read who; echo \"hello $who\""]
-
-    monkeypatch.setattr(console, "serial_command", command)
-    console.SERIAL_TICKETS["s1"] = ("web", 10**12, "node-b", "uuid-1")
+    monkeypatch.setattr(console_sessions, "open_pty", open_pty)
+    console.SERIAL_TICKETS["s1"] = ("web", 10**12, "node-b", "alice")
     with client.websocket_connect("/api/v1/vms/web/serial?ticket=s1") as ws:
         out = ""
         while "login: " not in out:
@@ -154,11 +146,13 @@ def test_the_serial_console_relays_both_ways(client, monkeypatch):
         ws.send_text("alice\r")
         while "hello alice" not in out:
             out += ws.receive_text()
-    assert seen == [("uuid-1", "node-b")]
+    uuid = "6f1c2d3e-0000-4000-8000-000000000001"
+    assert seen == [["virsh", "--quiet", "--connect", "qemu+ssh://root@10.0.0.2/system", "console", "--domain", uuid]]
     assert "s1" not in console.SERIAL_TICKETS, "a ticket is used once"
+    assert console_sessions.open_count() == 0, "the session ended with the console"
 
 
-@pytest.mark.parametrize("ticket", [("other", 10**12, None, "uuid-1"), ("web", 0, None, "uuid-1")])
+@pytest.mark.parametrize("ticket", [("other", 10**12, None, "alice"), ("web", 0, None, "alice")])
 def test_a_ticket_is_bound_to_its_vm_and_expires(client, ticket):
     console.SERIAL_TICKETS["s2"] = ticket
     with (

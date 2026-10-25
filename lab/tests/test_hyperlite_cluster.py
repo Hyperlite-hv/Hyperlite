@@ -308,6 +308,81 @@ def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
     ok(api(1, "DELETE", f"/vms/labvm?node={c}&confirm=true", token=t[1]))
 
 
+def console(n, path):
+    """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api())."""
+    from websockets.sync.client import connect
+
+    return connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=30, max_size=None)
+
+
+def read_until(ws, text, timeout=30):
+    """What a terminal printed, up to `text`."""
+    seen, deadline = "", time.monotonic() + timeout
+    while text not in seen:
+        assert time.monotonic() < deadline, f"not printed: {text!r}; seen: {seen[-500:]!r}"
+        seen += ws.recv(timeout=max(0.1, deadline - time.monotonic()))
+    return seen
+
+
+def daemon_children(n):
+    """The consoles' sessions hyperlite-daemon runs on node n now: its children but the read-only tunnels to the other
+    nodes (`ssh -N -L`, app/core/node_tunnel.py)."""
+    pid = on(n, "systemctl", "show", "--property=MainPID", "--value", "hyperlite-daemon").strip()
+    running = on(n, "sh", "-c", f"ps -o args= --ppid {pid} || true")
+    return [line for line in running.splitlines() if line.strip() and " -L " not in line]
+
+
+def test_the_consoles_are_opened_by_the_daemon(cluster):
+    """The host shell, and a VM's VNC and serial consoles on another member, opened by hyperlite-daemon as root and
+    relayed by the API (docs/design/privilege-separation.md, the consoles domain). A session ends with its console."""
+    t, names = cluster["tokens"], cluster["names"]
+    ticket = ok(api(1, "POST", "/host/terminal-ticket", token=t[1]))["ticket"]
+    with console(1, f"/host/terminal?ticket={ticket}") as ws:
+        ws.send("echo hl-$((6*7)) uid-$(id -u) key-${HYPERLITE_SECRET_KEY:-none}\r")
+        read_until(ws, "hl-42 uid-0 key-none")  # root's shell, never the service's environment
+    wait("the host shell ended", lambda: daemon_children(1) == [], timeout=30, every=1)
+
+    b = names[2]
+    if not nested(2):
+        pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
+    form, content_type = multipart("console.iso", b"\0" * (1 << 20))
+    ok(api(1, "POST", f"/isos?node={b}", form=form, content_type=content_type, token=t[1]))
+    spec = {"name": "labcon", "vcpu": 1, "memory_mb": 256, "disks": [{"size_gb": 1}], "iso": "console.iso"}
+    finished(1, t[1], ok(api(1, "POST", f"/vms?node={b}&wait=false", spec, t[1]))["task_id"], node=b)
+    if ok(api(1, "GET", f"/vms/labcon?node={b}", token=t[1]))["state"] != "active":
+        ok(api(1, "POST", f"/vms/labcon/start?node={b}", token=t[1]))
+    wait("labcon running", lambda: ok(api(1, "GET", f"/vms/labcon?node={b}", token=t[1]))["state"] == "active")
+
+    # Node 1's daemon reaches the VNC server on node 2's loopback with `ssh -W` and the cluster's key.
+    ticket = ok(api(1, "POST", f"/vms/labcon/console-ticket?node={b}", token=t[1]))["ticket"]
+    with console(1, f"/vms/labcon/console?ticket={ticket}") as ws:
+        assert ws.recv(timeout=30)[:4] == b"RFB ", "QEMU's VNC greeting"
+    wait("the VNC relay ended", lambda: daemon_children(1) == [], timeout=30, every=1)
+
+    # The serial console: a port added by the daemon on node 2 when the VM has none, then `virsh console` over SSH.
+    status, answer = api(1, "POST", f"/vms/labcon/serial-ticket?node={b}", token=t[1])
+    if status == 409:
+        ok(api(1, "POST", f"/vms/labcon/stop?node={b}&force=true", token=t[1]))
+        wait("labcon stopped", lambda: ok(api(1, "GET", f"/vms/labcon?node={b}", token=t[1]))["state"] == "stopped")
+        ok(api(1, "POST", f"/vms/labcon/start?node={b}", token=t[1]))
+        wait("labcon running", lambda: ok(api(1, "GET", f"/vms/labcon?node={b}", token=t[1]))["state"] == "active")
+        status, answer = api(1, "POST", f"/vms/labcon/serial-ticket?node={b}", token=t[1])
+    assert status == 200, answer
+    with console(1, f"/vms/labcon/serial?ticket={answer['ticket']}") as ws:
+        ws.send("\r")
+        try:
+            said = ws.recv(timeout=5)  # a guest without a system prints nothing: virsh just stays connected
+        except TimeoutError:
+            said = ""
+        assert "error" not in said.lower() and "[hyperlite]" not in said, said
+        assert daemon_children(1) != [], "virsh console runs while the console is open"
+    wait("the serial console ended", lambda: daemon_children(1) == [], timeout=30, every=1)
+
+    ok(api(1, "POST", f"/vms/labcon/stop?node={b}&force=true", token=t[1]))
+    wait("labcon stopped", lambda: ok(api(1, "GET", f"/vms/labcon?node={b}", token=t[1]))["state"] == "stopped")
+    ok(api(1, "DELETE", f"/vms/labcon?node={b}&confirm=true", token=t[1]))
+
+
 TERRAFORM_HEAD = """
 terraform {{
   required_providers {{
@@ -617,6 +692,12 @@ def test_a_container_lives_and_goes_on_a_member(cluster):
     root = "/var/lib/libvirt/containers"
     assert on(2, "test", "-d", f"{root}/labct/etc") == ""
     wait("labct running", lambda: ok(api(2, "GET", "/containers/labct", token=t))["state"] == "active")
+    # Its root shell, opened by hyperlite-daemon (nsenter into its PID 1, found by the daemon).
+    ticket = ok(api(2, "POST", "/containers/labct/shell-ticket", token=t))["ticket"]
+    with console(2, f"/containers/labct/shell?ticket={ticket}") as ws:
+        ws.send("echo ct-$((6*7)) $(cat /etc/hostname)\r")  # its own filesystem: the shell is inside
+        read_until(ws, "ct-42 labct")
+    wait("the container shell ended", lambda: daemon_children(2) == [], timeout=30, every=1)
     ok(api(2, "POST", "/containers/labct/stop?force=true", token=t))
     wait("labct stopped", lambda: ok(api(2, "GET", "/containers/labct", token=t))["state"] == "stopped")
     taken = ok(api(2, "POST", "/containers/labct/snapshots", {"name": "clean"}, t))
