@@ -51,6 +51,38 @@ def summary(directory):
     print(f"::notice title=pytest summary::{escape(text)}")
 
 
+PERMISSION = (
+    "Permission denied",
+    "EACCES",
+    "PermissionError",
+    "Operation not permitted",
+    "readonly database",
+    "attempt to write a readonly",
+    "needs the proof",
+    "forbidden",
+    "unable to open database",
+    "not authorized",
+)
+
+
+def permissions(directory):
+    """The probe of 4e (the API as www-data): every distinct line of the nodes' journals that says a permission was
+    refused, its time and process stripped, as notices."""
+    import re
+
+    seen = {}
+    for log in sorted(Path(directory).glob("n*/hyperlite.log")):
+        for line in log.read_text(errors="replace").splitlines():
+            if any(p in line for p in PERMISSION):
+                key = re.sub(r"^\w+ +\d+ [\d:]+ \S+ ", "", line)
+                key = re.sub(r"\[\d+\]", "", key)
+                key = re.sub(r"pid \d+", "pid N", key)
+                seen.setdefault(key, f"{log.parent.name}: {line[:600]}")
+    text = "\n".join(seen.values()) or "no permission refused in the nodes' journals"
+    for i in range(0, min(len(text), LIMIT * 8), LIMIT):
+        print(f"::notice title=www-data probe {i // LIMIT + 1}::{escape(text[i : i + LIMIT])}")
+
+
 def main(directory):
     root = Path(directory)
     logs = [root / "pytest.log"]
@@ -78,6 +110,9 @@ def main(directory):
         print(f"::{level} title={title}::{escape(tail)}")
 
 
+if __name__ == "__main__" and sys.argv[1:2] == ["--permissions"]:
+    permissions(sys.argv[2])
+    sys.exit(0)
 if __name__ == "__main__":
     if sys.argv[1] == "--summary":
         summary(sys.argv[2])
