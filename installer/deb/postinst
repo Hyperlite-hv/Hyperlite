@@ -102,6 +102,7 @@ log "systemd service"
 cp "$CODE/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
 cp "$CODE/installer/hyperlite-cfs.service" /etc/systemd/system/hyperlite-cfs.service
 cp "$CODE/installer/hyperlite-daemon.service" /etc/systemd/system/hyperlite-daemon.service
+cp "$CODE/installer/hyperlite-scheduler.service" /etc/systemd/system/hyperlite-scheduler.service
 cp "$CODE/installer/hyperlite-vlan-bridges.service" /etc/systemd/system/hyperlite-vlan-bridges.service
 systemctl daemon-reload
 # Runs at boot only when a bridge was made VLAN-aware from the dashboard (its list exists): nothing to start now.
@@ -133,6 +134,9 @@ if ! systemctl restart hyperlite-daemon.service; then
     log "WARNING: hyperlite-daemon did not start: systemctl status hyperlite-daemon"
 fi
 systemctl enable hyperlite.service
+# hyperlite-scheduler: started and restarted with the API (Wants=, PartOf=), so both always run the same version; a
+# deferred restart of the API defers its own too.
+systemctl enable hyperlite-scheduler.service
 if [ "$FRESH_INSTALL" = "1" ]; then
     systemctl start hyperlite.service
 elif [ -z "$HYPERLITE_SKIP_RESTART" ]; then

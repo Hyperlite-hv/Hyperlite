@@ -1,0 +1,30 @@
+[Unit]
+Description=Hyperlite scheduler (scheduled backups, replication, automatic deletion, start at boot)
+Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/privilege-separation.md
+# The work no person asks for, out of the API, as Proxmox VE's pvescheduler (app/scheduler). After hyperlite-daemon,
+# which does its root work, and after the API; PartOf: a restart or a stop of the API (an update) restarts or stops it
+# too, so both run the same version. A crash of the API leaves it running.
+After=hyperlite-daemon.service hyperlite.service
+Wants=hyperlite-daemon.service
+PartOf=hyperlite.service
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/lib/hyperlite
+EnvironmentFile=-/etc/hyperlite/priv/env
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/root
+# The tools' output read in English, as the API's (installer/hyperlite.service).
+Environment=LC_ALL=C.UTF-8
+Environment=TMPDIR=/var/lib/hyperlite/tmp
+# Its tasks' runner (app/core/tasks.py); the schedulers run here, not in the API.
+Environment=HYPERLITE_SERVICE=scheduler
+Environment=HYPERLITE_SCHEDULER_SERVICE=1
+ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.scheduler
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
