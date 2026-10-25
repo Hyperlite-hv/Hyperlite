@@ -473,6 +473,41 @@ export async function deleteBackupRemote(name) {
 export async function fetchRemoteStores(name) {
   return realList(`/backup-remotes/${encodeURIComponent(name)}/stores`);
 }
+// Other Hyperlite clusters seen from this one (app/core/sites.py): each with its summary, or why it is missing.
+export async function fetchSites() {
+  return realList("/sites");
+}
+export async function searchSites(q) {
+  return realFetch(`/sites/search?q=${encodeURIComponent(q)}`);
+}
+export async function probeSite(address, port) {
+  return realFetch("/sites/probe", { method: "POST", ...jsonBody({ address, port }) });
+}
+export async function createSite(payload) {
+  return realFetch("/sites/remotes", { method: "POST", ...jsonBody(payload) });
+}
+export async function fetchSiteRemotes() {
+  return realList("/sites/remotes");
+}
+export async function fetchSiteList(remote, what) {
+  return realList(`/sites/${encodeURIComponent(remote)}/${what}`);
+}
+export async function setSiteToken(name, use, token) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}/tokens/${use}`, { method: "PUT", ...jsonBody({ token }) });
+}
+export async function deleteSiteToken(name, use) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}/tokens/${use}`, { method: "DELETE" });
+}
+// A VM of another cluster, with its manage token: start, shutdown, stop, reboot, reset; or moved to another of its nodes.
+export async function siteVmAction(remote, vm, action, on) {
+  return realFetch(`/sites/${encodeURIComponent(remote)}/vms/${encodeURIComponent(vm)}/${action}`, { method: "POST", ...jsonBody({ on }) });
+}
+export async function siteVmMigrate(remote, vm, on, targetNode) {
+  return realFetch(`/sites/${encodeURIComponent(remote)}/vms/${encodeURIComponent(vm)}/migrate`, { method: "POST", ...jsonBody({ on, target_node: targetNode }) });
+}
+export async function deleteSite(name) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
 export async function fetchThisNodeFingerprint() {
   return realFetch("/backup-remotes/this-node");
 }

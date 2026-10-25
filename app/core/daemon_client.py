@@ -15,6 +15,14 @@ MAX_FDS = 4
 _CHUNK = 65536
 
 
+def _proof():
+    """The credential of the request this call serves (the session or API token it came with, peer_auth.CREDENTIAL):
+    hyperlite-daemon checks who asks itself (docs/design/privilege-separation.md, section 14)."""
+    from app.core import peer_auth
+
+    return peer_auth.CREDENTIAL.get()
+
+
 def close_fds(fds):
     for fd in fds:
         with contextlib.suppress(OSError):
@@ -45,7 +53,7 @@ def call_fds(op, args=None, user=None, timeout=TIMEOUT_S):
     """call(), and the file descriptors the answer carries (a session's terminal or socket), which are the caller's to
     close."""
     path = os.environ.get(SOCKET_ENV) or DEFAULT_SOCKET
-    request = {"op": op, "args": args or {}, "user": user, "request_id": uuid.uuid4().hex}
+    request = {"op": op, "args": args or {}, "user": user, "request_id": uuid.uuid4().hex, "proof": _proof()}
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
