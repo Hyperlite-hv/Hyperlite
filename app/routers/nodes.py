@@ -312,11 +312,15 @@ _draining_lock = threading.Lock()
 class MaintenanceRequest(BaseModel):
     # Where the running VMs go; None = only mark the node, every VM stays where it is.
     target_node: str | None = None
+    # Each running VM where load balancing places it instead (docs/design/drs.md, 3.6): never with a target_node.
+    spread: bool = False
 
 
-def _checked_pair(name, target_node):
+def _checked_pair(name, target_node, spread=False):
     source = maintenance.label(name)
     maintenance.check_node_exists(source)
+    if spread and target_node is not None:
+        raise HTTPException(status_code=422, detail="Either a target node or the spread by load balancing, not both")
     target = None
     if target_node is not None:
         target = maintenance.label(target_node)
@@ -327,12 +331,17 @@ def _checked_pair(name, target_node):
     return source, target
 
 
-def _plan(source, target):
+def _plan(source, target, spread=False):
     """The drain plan, or a 502 when a node cannot be reached."""
     try:
         src_conn = open_conn(maintenance.conn_key(source))
     except libvirt.libvirtError as e:
         raise HTTPException(status_code=502, detail=f"Node '{source}' unreachable: {describe_exception(e)}") from e
+    if spread:
+        try:
+            return _spread_plan(source, src_conn)
+        finally:
+            src_conn.close()
     dst_conn = None
     try:
         if target is not None:
@@ -349,16 +358,40 @@ def _plan(source, target):
             dst_conn.close()
 
 
+def _spread_plan(source, src_conn):
+    """The drain plan when each running VM goes where load balancing places it, with "targets": {vm: label}."""
+    from app.core import drs, self_node
+
+    me = self_node.name()
+    running = [d.name() for d in src_conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE)]
+    placed = drs.spread(me if source == maintenance.LOCAL else source, running)
+    targets = {vm: (maintenance.LOCAL if n == me else n) if n else None for vm, n in placed.items()}
+    conns = {}
+    try:
+        for label in {t for t in targets.values() if t}:
+            try:
+                conns[label] = open_conn(maintenance.conn_key(label))
+            except libvirt.libvirtError:
+                conns[label] = None  # its VMs stay, said why
+        return maintenance.spread_plan(src_conn, targets, conns)
+    finally:
+        for conn in conns.values():
+            if conn:
+                conn.close()
+
+
 @router.get("/maintenance")
 def list_maintenance(user: dict = Depends(get_current_user)):
     return listing(maintenance.list_all())
 
 
 @router.get("/{name}/drain-plan")
-def get_drain_plan(name: str, target_node: str | None = None, user: dict = Depends(require_role("admin"))):
+def get_drain_plan(
+    name: str, target_node: str | None = None, spread: bool = False, user: dict = Depends(require_role("admin"))
+):
     """What draining would do, without doing it: shown to the admin before confirming."""
-    source, target = _checked_pair(name, target_node)
-    return _plan(source, target)
+    source, target = _checked_pair(name, target_node, spread)
+    return _plan(source, target, spread)
 
 
 def _run_in_background(target, *args):
@@ -393,8 +426,9 @@ def _drain_job(parent_id, username, source, target, names):
                 with claim:
                     task_id = create_task("migrate_vm", vm_name, node=source, username=username)
                     current["task"] = task_id
-                    task_log(parent_id, f"Migrating {vm_name} ({i + 1}/{len(names)})")
-                    _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
+                    to = target[vm_name] if isinstance(target, dict) else target  # spread: each its own
+                    task_log(parent_id, f"Migrating {vm_name} to {to} ({i + 1}/{len(names)})")
+                    _migrate_vm_job(task_id, username, maintenance.conn_key(source), to, vm_name)
                     current.pop("task", None)
                 if task_status(task_id) != "succeeded":
                     failed.append(vm_name)
@@ -406,7 +440,9 @@ def _drain_job(parent_id, username, source, target, names):
         with _draining_lock:
             _draining.discard(source)
     moved = len(names) - len(failed) - len(not_started)
-    summary = f"{moved}/{len(names)} VM(s) migrated to {target}"
+    summary = f"{moved}/{len(names)} VM(s) migrated to " + (
+        "the members load balancing chose" if isinstance(target, dict) else target
+    )
     if failed:
         summary += f"; failed: {', '.join(failed)}"
     if not_started:
@@ -419,8 +455,9 @@ def _drain_job(parent_id, username, source, target, names):
 
 @router.post("/{name}/maintenance", status_code=202)
 def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depends(require_role("admin"))):
-    """Put a node in maintenance, then live-migrate its running VMs to `target_node`, one after another."""
-    source, target = _checked_pair(name, payload.target_node)
+    """Put a node in maintenance, then live-migrate its running VMs to `target_node`, or each where load balancing
+    places it (`spread`), one after another."""
+    source, target = _checked_pair(name, payload.target_node, payload.spread)
     # Reserved under the lock, planned outside it: the plan talks to both nodes and can take seconds.
     with _draining_lock:
         if source in _draining:
@@ -431,7 +468,7 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
         # Marked before the plan: from now on no VM can be created on it or sent to it.
         maintenance.enter(source, user["username"])
         try:
-            result = _plan(source, target)
+            result = _plan(source, target, payload.spread)
         except HTTPException as e:
             # A node that is down is still worth marking: it must not become a migration or HA target.
             log_action(user["username"], "enter_maintenance", source, "success", "node unreachable, nothing migrated")
@@ -451,10 +488,11 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
         "enter_maintenance",
         source,
         "success",
-        f"target {target or 'none'}; to migrate: {len(result['migratable'])}; staying: {len(result['not_migratable'])}",
+        f"target {'spread' if payload.spread else target or 'none'}; to migrate: {len(result['migratable'])}; staying: {len(result['not_migratable'])}",
     )
     if task_id:
-        _run_in_background(_drain_job, task_id, user["username"], source, target, result["migratable"])
+        where = result["targets"] if payload.spread else target
+        _run_in_background(_drain_job, task_id, user["username"], source, where, result["migratable"])
     return {"node": source, "in_maintenance": True, "task_id": task_id, **result}
 
 
