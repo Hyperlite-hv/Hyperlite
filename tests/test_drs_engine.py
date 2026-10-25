@@ -20,8 +20,11 @@ def fresh(database, monkeypatch):
     monkeypatch.setattr(drs, "_cpu", {})
     monkeypatch.setattr(drs, "_moved", {})
     monkeypatch.setattr(
-        drs, "_state", {"unbalanced": 0, "at": None, "spread": None, "moves": [], "nodes": {}, "reason": None}
+        drs,
+        "_state",
+        {"unbalanced": 0, "at": None, "spread": None, "moves": [], "nodes": {}, "reason": None, "paused": None},
     )
+    monkeypatch.setattr(drs, "_automatic", lambda moves, behaviours: None)  # these tests read the recommendations
 
 
 def test_the_view_scores_each_member_and_leaves_out_what_cannot_receive():

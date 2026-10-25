@@ -31,6 +31,7 @@ def _store():
 NOTIFY_EVENTS = {
     "node_status_change": "Node state change",
     "ha_alert": "HA alert (protected node down)",
+    "drs": "Load balancing (a VM moved, load balancing paused)",
     "hyperlite_update": "Hyperlite update",
     "update_available": "New Hyperlite version available (to be applied)",
     "create_vm": "VM creation",

@@ -1,5 +1,6 @@
-"""Load balancing in SQLite (docs/design/drs.md): its settings (`drs_settings`), its rules (`drs_rules`) and each VM's
-exception (`drs_vms`). All three are replicated: every node reads the same."""
+"""Load balancing in SQLite (docs/design/drs.md): its settings (`drs_settings`), its rules (`drs_rules`), each VM's
+exception (`drs_vms`) and the moves of automatic mode (`drs_requests`). All four are replicated: every node reads the
+same."""
 
 import json
 
@@ -77,4 +78,52 @@ class SqliteDrsStore:
                     "ON CONFLICT(vm_name) DO UPDATE SET behaviour = excluded.behaviour",
                     (vm_name, behaviour),
                 )
+            db.commit()
+
+    def add_request(self, row):
+        with get_conn() as db:
+            db.execute(
+                "INSERT INTO drs_requests (id, vm_name, source, target, reason, requested_by, requested_at, state, "
+                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+                (
+                    row["id"],
+                    row["vm_name"],
+                    row["source"],
+                    row["target"],
+                    row["reason"],
+                    row["requested_by"],
+                    row["requested_at"],
+                    row["requested_at"],
+                ),
+            )
+            db.commit()
+
+    def requests(self, source=None):
+        with get_conn() as db:
+            if source is None:
+                rows = db.execute("SELECT * FROM drs_requests ORDER BY requested_at").fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM drs_requests WHERE source = ? ORDER BY requested_at", (source,)
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def request(self, request_id):
+        with get_conn() as db:
+            row = db.execute("SELECT * FROM drs_requests WHERE id = ?", (request_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_request(self, request_id, state, now, task_id=None, detail=None):
+        with get_conn() as db:
+            db.execute(
+                "UPDATE drs_requests SET state = ?, task_id = COALESCE(?, task_id), detail = COALESCE(?, detail), "
+                "updated_at = ? WHERE id = ?",
+                (state, task_id, detail, now, request_id),
+            )
+            db.commit()
+
+    def delete_requests_before(self, when):
+        """The finished moves last changed before `when` (ISO time)."""
+        with get_conn() as db:
+            db.execute("DELETE FROM drs_requests WHERE state IN ('succeeded', 'failed') AND updated_at < ?", (when,))
             db.commit()

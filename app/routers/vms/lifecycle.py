@@ -62,6 +62,20 @@ def _stopped_networks(conn, domain):
     return stopped
 
 
+def _keep_drs_rules(name, node, username, task_id=None):
+    """A start where the VM would break a "must" rule of load balancing is refused (docs/design/drs.md, 3.4); a
+    "should" one is said in the log."""
+    from app.core import drs_rules, self_node
+
+    where = self_node.name() if node in (None, "", "local") else node
+    try:
+        for rule, why in drs_rules.refuse_if_broken(name, where):
+            logger.warning("Starting %s on %s: rule '%s' (should): %s", name, where, rule, why)
+    except RuntimeError as e:
+        log_action(username, "start_vm", name, "failed", str(e), task_id=task_id)
+        raise HTTPException(status_code=409, detail=str(e)) from None
+
+
 def _admit_ha_start(name, node, domain, user, task_id):
     """An HA VM about to start counts in HA's admission control (app/core/ha_admission.py): refused under "strict"
     when the loss of a member would then leave no room for its HA VMs; said in the log under "warn"."""
@@ -126,6 +140,7 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
             log_action(user["username"], "start_vm", name, "failed", msg, task_id=task_id)
             raise HTTPException(status_code=409, detail=msg)
         _admit_ha_start(name, node, domain, user, task_id)
+        _keep_drs_rules(name, node, user["username"], task_id)
         stopped = _stopped_networks(conn, domain)
         if stopped:
             # libvirt's own refusal named no remedy ("network 'default' is not active").
