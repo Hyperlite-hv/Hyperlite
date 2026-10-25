@@ -16,9 +16,8 @@ Architecture choice: IN-PROCESS ASYNCIO/THREADING, NOT Celery/RQ.
     job runs kills it without resuming, which is acceptable for jobs lasting a
     few minutes and worth revisiting if multi-hour jobs ever appear.
 
-SSH execution on a target VM: `ssh`
-in a subprocess with the automation key, rather than reimplementing a
-persistent asyncssh session (one command per step, not an interactive shell).
+SSH execution on a target VM: `ssh` with the automation key, one command per
+step, run by hyperlite-daemon (job.step), which alone reads that key.
 
 Security: creating and editing jobs is restricted to admins (see
 app/routers/jobs.py). A job command is arbitrary code BY DESIGN (this is a shell
@@ -37,17 +36,17 @@ terminal already is.
 
 import json
 import logging
-import subprocess
 import threading
 import uuid
 from datetime import UTC, datetime
 
 import libvirt
 
+from app.core import privileged
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
 from app.core.tasks import create_task, finish_task, raise_if_cancelled, register_cancel, task_log, update_task_progress
-from app.core.vm_meta import get_vm_ssh_user
+from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
@@ -58,84 +57,41 @@ def _now():
     return datetime.now(UTC).isoformat()
 
 
-def _resolve_vm_ssh(vm_name):
-    """(ip, username, key_path) for a VM. Raises RuntimeError if the VM is not
-    running, has no known IP, or has no registered SSH user (the same guard as
-    create_terminal_ticket)."""
-    from app.core.vm_builder import get_automation_private_key_path
-    from app.routers.vms._shared import (
-        _get_ip,  # late import: avoids a routers<->core cycle, the same pattern as backups.py
-    )
-
-    conn = open_conn()
-    try:
-        try:
-            domain = conn.lookupByName(vm_name)
-        except libvirt.libvirtError:
-            raise RuntimeError(f"VM '{vm_name}' not found") from None
-        if not domain.isActive():
-            raise RuntimeError(f"VM '{vm_name}' is stopped")
-        ip = _get_ip(domain)
-        if not ip:
-            raise RuntimeError(f"IP address of '{vm_name}' unknown")
-        username = get_vm_ssh_user(vm_name)
-        if not username:
-            raise RuntimeError(f"No known SSH user for '{vm_name}'")
-        return ip, username, get_automation_private_key_path()
-    finally:
-        conn.close()
-
-
-# The task of the run executing in this thread: a running command registers how to stop it (see _run).
+# The task of the run executing in this thread, and who started it (see _run_steps).
 _current = threading.local()
-
-
-def _run(args):
-    """A step's process, stoppable by cancelling the run's task."""
-    task_id = getattr(_current, "task_id", None)
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if task_id:
-        register_cancel(task_id, proc.terminate)
-    try:
-        out, err = proc.communicate(timeout=STEP_TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        return "", f"Timed out after {STEP_TIMEOUT_S}s", 124
-    finally:
-        if task_id:
-            register_cancel(task_id)
-    return out, err, proc.returncode
+# What the API waits for a step's answer: the daemon's own limit (app/daemon/ops/job.py), and a margin.
+STEP_ANSWER_S = STEP_TIMEOUT_S + 30
 
 
 def _run_command(target_type, target, command, dry_run):
-    """Run a shell command on the local host, or over SSH on a VM. Returns
-    (stdout, stderr, exit_code). In dry-run mode nothing is executed: it just
-    returns a fake exit_code 0 with an explicit message."""
+    """Run a shell command on the local host, or over SSH on a VM: hyperlite-daemon runs it as root, with the
+    automation key for a VM (job.step). Returns (stdout, stderr, exit_code); raises RuntimeError when the step could
+    not run (a VM stopped, without an address or an account). In dry-run mode nothing is executed: it just returns a
+    fake exit_code 0 with an explicit message."""
     if dry_run:
         return f"[dry-run] command not executed: {command}", "", 0
+    task_id = getattr(_current, "task_id", None) or "-"
+    try:
+        result = privileged.run(
+            "job.step",
+            user=getattr(_current, "username", None),
+            timeout=STEP_ANSWER_S,
+            task_id=task_id,
+            target_type=target_type,
+            target=None if target_type == "host" else target,
+            command=command,
+        )
+    except DaemonError as e:
+        raise RuntimeError(e.detail) from None
+    return result["stdout"], result["stderr"], result["exit"]
 
-    if target_type == "host":
-        return _run(["bash", "-c", command])
 
-    ip, username, key_path = _resolve_vm_ssh(target)
-    return _run(
-        [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ConnectTimeout=10",
-            "-i",
-            str(key_path),
-            f"{username}@{ip}",
-            command,
-        ]
-    )
+def _cancel_step(task_id):
+    """Cancelling a run stops the step in progress, in the daemon (job.cancel)."""
+    try:
+        privileged.run("job.cancel", task_id=task_id)
+    except DaemonError as e:
+        logger.warning("The step of %s was not stopped: %s", task_id, e.detail)
 
 
 def _step_succeeded(condition_type, condition_value, stdout, exit_code):
@@ -252,7 +208,7 @@ def _run_steps(run_id, task_id, steps, dry_run):
     """Run the steps in order and log each one. Returns True when all succeeded."""
     total = max(len(steps), 1)
     _current.task_id = task_id
-    register_cancel(task_id)
+    register_cancel(task_id, lambda: _cancel_step(task_id))
     for i, step in enumerate(steps):
         # Cancelling stops the command in progress (see _run) and the steps after it.
         raise_if_cancelled(task_id)
@@ -293,6 +249,7 @@ def _execute_run(run_id, task_id, job_name, build_steps, dry_run, username):
     """Body of the run thread. An exception raised in a daemon thread is only
     printed on stderr: without this catch-all the run would stay 'running'
     forever and nobody would learn why it stopped."""
+    _current.username = username  # named in the daemon's log for each step
     try:
         ok = _run_steps(run_id, task_id, build_steps(), dry_run)
         error = None
