@@ -76,7 +76,7 @@ def create_tunnel_ticket(
     if workstation.open_tunnel_count(user["username"]) >= workstation.tunnel_max_per_user():
         log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "failed", "too many open tunnels")
         raise HTTPException(status_code=429, detail="Too many open tunnels for this account: close some first.")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -211,7 +211,7 @@ def _directly_reachable(conn, root):
 def vm_access(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
     """How a workstation can reach this VM: directly (a bridged network of the site,
     like any machine of the LAN) or through a tunnel of the hyperlite client."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
