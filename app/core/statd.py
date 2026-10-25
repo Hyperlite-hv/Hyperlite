@@ -45,7 +45,7 @@ def summary():
     from app.core.libvirt_utils import open_conn
     from app.routers.vms._shared import inventory
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         vms = inventory(conn)["vms"]
     finally:

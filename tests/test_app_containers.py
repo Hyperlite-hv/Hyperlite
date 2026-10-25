@@ -238,7 +238,7 @@ def api(database, image, monkeypatch, tmp_path, daemon_libvirt, daemon_lxc):
 
     conn = _Conn()
     reserved = {}
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: conn)
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: conn)
     monkeypatch.setattr(container_create, "generate_mac", lambda c: f"52:54:00:00:00:{len(reserved) + 1:02x}")
 
     def allocate(c, network, mac):

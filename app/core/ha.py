@@ -32,7 +32,6 @@ node after a failover.
 
 """
 
-import contextlib
 import logging
 import re
 import subprocess
@@ -132,7 +131,7 @@ def _unlocked_reason(domain):
 
 def enable_protection(vm_name, node, username):
     node_label = node or "local"
-    conn = open_conn(_conn_key(node_label))
+    conn = open_conn(_conn_key(node_label), readonly=True)  # what it changes, hyperlite-daemon does (vm.autostart)
     try:
         try:
             domain = conn.lookupByName(vm_name)
@@ -160,13 +159,24 @@ def enable_protection(vm_name, node, username):
 
             need = ha_recovery.memory_mib(domain.XMLDesc(0))
             admission = ha_admission.refuse_if_strict((vm_name, node_label, need, False))
-        with contextlib.suppress(libvirt.libvirtError):
-            domain.setAutostart(0)  # started at boot by Hyperlite only, which checks the HA record first (4.4)
+        _autostart_off(vm_name, _conn_key(node_label), username)
         _store().protect(vm_name, node_label, _portable_xml(domain.XMLDesc(0)), username, _now())
         log_action(username, "ha_enable", vm_name, "success", f"node {node_label}")
     finally:
         conn.close()
     return admission
+
+
+def _autostart_off(vm_name, node, username):
+    """libvirt's own autostart turned off: an HA VM is started at boot by Hyperlite only, which checks the HA record
+    first (docs/design/ha-automatic.md, 4.4). A refusal is logged; the protection is recorded all the same."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        privileged.run("vm.autostart", user=username, vm=vm_name, autostart=False, node=node)
+    except DaemonError as e:
+        logger.warning("HA %s: libvirt's autostart not turned off: %s", vm_name, e.detail)
 
 
 NODE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")

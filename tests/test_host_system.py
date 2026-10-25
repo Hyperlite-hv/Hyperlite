@@ -245,7 +245,7 @@ def test_stop_guests_reports_what_did_not_stop(monkeypatch, daemon_libvirt):
         return Conn()
 
     monkeypatch.setattr(lu, "open_conn", readonly)
-    monkeypatch.setattr(lu, "open_lxc_conn", lambda: Conn())
+    monkeypatch.setattr(lu, "open_lxc_conn", lambda readonly=False: Conn())
     daemon_libvirt(Conn())
     monkeypatch.setattr(guest_agent, "shutdown", lambda dom: setattr(dom, "asked", True) or "acpi")
     lines = []

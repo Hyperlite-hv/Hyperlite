@@ -190,7 +190,7 @@ def delete_job(job_id):
 
 
 def _local_vm_names():
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return sorted(d.name() for d in conn.listAllDomains())
     finally:
