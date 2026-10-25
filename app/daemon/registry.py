@@ -56,12 +56,14 @@ class Handover:
 
 @dataclass(frozen=True)
 class Context:
-    """Who asked: the user the API names (for the log and the audit) and the process at the other end of the socket."""
+    """Who asked: the user the API names (for the log and the audit), the process at the other end of the socket, and
+    the caller's own credential (docs/design/privilege-separation.md, section 14: the daemon checks who asks)."""
 
     user: str | None
     request_id: str | None
     peer_pid: int
     peer_uid: int
+    proof: str | None = None
 
 
 OPERATIONS = {}
@@ -101,10 +103,40 @@ def dispatch(request, ctx):
     except Exception:
         logger.exception("%s by %s failed", op, ctx.user or "?")
         return _error("failed", f"{op} failed (details in the daemon's log)")
-    logger.info("%s by %s (pid %d)", op, ctx.user or "?", ctx.peer_pid)
+    logger.info("%s by %s (pid %d)%s", op, ctx.user or "?", ctx.peer_pid, _proven_note(ctx))
     if isinstance(result, Handover):
         return {"ok": True, "result": result.result, "fds": list(result.fds)}
     return {"ok": True, "result": result}
+
+
+def proven(proof):
+    """The account a caller's credential proves to this daemon, or None: a session or an API token of this node, a
+    task ticket, or a ticket another member signed for this node (section 14, PR 4a: checked and logged, not yet
+    required)."""
+    if not proof:
+        return None
+    from app.core import peer_auth
+
+    try:
+        claims = peer_auth.verify(proof)
+        if claims is not None:
+            return claims["sub"]
+        return peer_auth._account(proof)["username"]
+    except (PermissionError, KeyError, TypeError, ValueError):
+        return None
+    except Exception:
+        logger.warning("A credential could not be checked", exc_info=True)
+        return None
+
+
+def _proven_note(ctx):
+    """What the log says of the caller's proof: nothing when it proves the user the API named."""
+    who = proven(ctx.proof)
+    if who is None:
+        return " [no proof]"
+    if who != ctx.user:
+        return f" [proof of {who}]"
+    return ""
 
 
 def _error(kind, detail):
