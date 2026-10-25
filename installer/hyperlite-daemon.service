@@ -5,7 +5,8 @@ After=libvirtd.service
 Before=hyperlite.service
 
 [Service]
-Type=simple
+# Ready once its socket answers (app/daemon/server.py, notify_ready): the API, after it, writes through it.
+Type=notify
 WorkingDirectory=/usr/lib/hyperlite
 Environment=PYTHONUNBUFFERED=1
 Environment=LC_ALL=C.UTF-8

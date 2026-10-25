@@ -5,8 +5,13 @@ Like a password, the plain token is NEVER stored, only its SHA-256 hash: it
 cannot be recovered after creation and is shown only once in the UI."""
 
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime
+
+from app.daemon.registry import DaemonError
+
+logger = logging.getLogger(__name__)
 
 TOKEN_PREFIX = "hlt_"  # noqa: S105 -- public token prefix, not a credential
 
@@ -63,7 +68,11 @@ def verify_token(token: str):
         return None
     if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= datetime.now(UTC):
         return None
-    _accounts().touch_token(token_hash, datetime.now(UTC).isoformat())
+    try:
+        _accounts().touch_token(token_hash, datetime.now(UTC).isoformat())
+    except DaemonError as e:
+        # Its last use is for the list of tokens: a daemon that cannot record it does not refuse the request.
+        logger.warning("The last use of API token %s was not recorded: %s", row["id"], e.detail)
     user = _accounts().get(row["username"])
     if not user:
         return None

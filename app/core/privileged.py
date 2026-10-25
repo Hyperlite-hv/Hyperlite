@@ -34,6 +34,18 @@ def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
 def run_fds(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
     """run(), and the file descriptors the operation hands over (a session's terminal or socket, the consoles
     domain): the caller's to close."""
+    return _call(op, user, timeout, args)
+
+
+def write(op, **args):
+    """A write of the permissions (app/repositories/daemon_write.py): run() under a name of its own, which a test
+    standing in for the daemon's other operations leaves alone."""
+    result, fds = _call(op, None, daemon_client.TIMEOUT_S, args)
+    daemon_client.close_fds(fds)
+    return result
+
+
+def _call(op, user, timeout, args):
     if os.environ.get(INPROCESS_ENV) != "1":
         return daemon_client.call_fds(op, args, user=user, timeout=timeout)
     import app.daemon.ops  # noqa: F401  (registers the operations)
