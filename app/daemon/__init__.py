@@ -10,6 +10,9 @@ The protocol is one JSON object per line on a Unix socket:
     request   {"op": "system.ping", "args": {}, "user": "alice", "request_id": "..."}
     answer    {"ok": true, "result": ...}  or  {"ok": false, "error": "<kind>", "detail": "<sentence>"}
 
+An answer may carry open file descriptors with its first bytes (SCM_RIGHTS): a console's terminal or socket, which the
+daemon opened as root and the API relays (registry.Handover, app/core/daemon_client.call_fds).
+
 The error kinds are the daemon's own, not the codes of API v1 (registry.KINDS):
 
     invalid_arguments  the arguments do not match the operation's model (an unknown field, a length, a type)
@@ -30,4 +33,4 @@ routes answered it before), `unavailable` 503, the others 500.
 
 SOCKET_ENV = "HYPERLITE_DAEMON_SOCKET"
 DEFAULT_SOCKET = "/run/hyperlite/daemon.sock"
-MAX_REQUEST_BYTES = 1 << 20  # one request line; bulk data never crosses the socket, file descriptors will
+MAX_REQUEST_BYTES = 1 << 20  # one request line; bulk data never crosses the socket, file descriptors do

@@ -380,7 +380,8 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Cluster, part 2: a node registered over SSH only: its VMs' power, pre-stop, start at boot, autostart flag, agents, rename, hook script and deletion, its pools, LVM report and host details by the daemon's operations with `node` (`libvirt_utils.node_conn`); the API's reads through a read-only tunnel the daemon opens (`app/core/node_tunnel.py`, `open_conn(node, readonly=True)`) | done |
 | Cluster, part 3: migration (`vm.migrate`, `vm.migrate_finish`, `vm.migrate_cancel`, `app/core/vm_migrate.py`): the move and its progress by the daemon; the API writes where the VM runs (HA first), then the daemon cleans the source up from what it kept, never from paths the API gives | done |
 | Cluster, part 4: the copies and the commands (`iso.list`, `iso.size`, `iso.copy`, `iso.delete_remote`, `config.copy`, `node.facts`, `node.probe`, `node.peer_call`): an ISO, the configuration (built by the daemon, keys included), a boot id and a host name, the fixed probes, the peer calls' SSH fallback; the remaining reads of another node through the read-only tunnel. What still reads the cluster's key in the API: the consoles' tunnels (the consoles domain) and HA's own calls (`ha*.py`, with HA's owner) | done |
-| Consoles; then backups | next: the consoles |
+| Consoles: the host shell, a container's shell and terminal, a VM's serial console, terminal, VNC and SPICE displays, opened by the daemon and handed to the API as a file descriptor (`console.*`, `vm.add_console`, `vm.spice_password`) | done |
+| Backups; the automation jobs' SSH steps (`app/core/jobs.py`) | next: the backups |
 
 **How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
 
@@ -511,6 +512,51 @@ holds the cluster's keys**, and the API asks it for named work on a named node, 
 
 HA's own calls (`app/core/ha*.py`, its fencing over SSH included) move with HA's owner through #298, onto these
 operations. The consoles' tunnels to another node (`spice.py`, `console.py`) move with the consoles.
+
+**The consoles domain (proposed, 2026-10-24).** Hyperlite opens seven kinds of interactive session, each from a
+single-use ticket the API issues after its permission check: a VM's graphical console (noVNC, the VNC server QEMU runs
+on 127.0.0.1 of the VM's node), its SPICE display (Hyperlite's proxy relays virt-viewer to QEMU's TLS port on that
+loopback), its serial console (`virsh console`), its SSH terminal and a system container's (ssh with the automation
+key, through the node for a VM of another node), a container's root shell (`nsenter` into its PID 1), and the host
+shell (a root login shell). Each needs root: a root terminal, the cluster's key, the automation key, `/proc` of the
+container's init, or `qemu.conf` (root's only) for SPICE's setup. As section 4 decided, **the daemon opens the session
+and hands its file descriptor to the API** (`SCM_RIGHTS` with the answer, `app/daemon/registry.py`, `Handover`): a
+pseudo-terminal's master for a program, a connected socket for a display. The bytes never cross the daemon's socket;
+the API keeps the tickets, who may open what, the audit log and the bridge to the browser (`app/core/pty_session.py`).
+
+- **The operation names the guest and its node**, never a port, an address, an account or a command: the daemon reads
+  the display's port from the running definition, the guest's address as the VM page shows it (the guest agent's,
+  else the DHCP lease), the account from the records, the container's PID 1 from libvirt's controller, and runs a
+  fixed program (`app/core/console_sessions.py`).
+- **Another node is reached with the host key recorded when it was registered**: `StrictHostKeyChecking=yes` comes
+  first, so a session never learns a key (a changed key is refused, as the noVNC relay refused it before).
+- **A session ends when the API lets go of it**: the daemon closes its copy once handed over, so the terminal hangs up
+  (or ssh reads the end of its input) when the API closes its own, even when the API stops; `console.close` ends its
+  whole process group and answers its exit status (ssh's 255, said in the terminal and as noVNC's error). A restart
+  of the daemon ends the sessions, as a restart of the API ended them before.
+- **What a console adds to a VM** goes through the daemon too (`vm.add_console`: the VNC display of a stopped VM, a
+  serial port, a SPICE display on a node set up for it), and the SPICE ticket's short-lived password
+  (`vm.spice_password`): the API reads the VM through its read-only connection.
+
+| Operation | Session |
+|---|---|
+| `console.host_shell` | Root's login shell, in a clean environment (never the API's, which held its secrets) |
+| `console.container_shell(container)` | `nsenter` into the running container's namespaces |
+| `console.container_terminal(container)`, `console.terminal(vm, node)` | `ssh -tt` with the automation key to the guest's account |
+| `console.serial(vm, node)` | `virsh console` by the VM's UUID, on its node |
+| `console.display(vm, node, protocol)` | A socket connected to the VM's VNC or SPICE TLS port: a connection on this node, `ssh -W` to another |
+| `console.close(session)`, `console.spice_tls(node)` | The end of a session; a node's SPICE CA and server subject for the `.vv` |
+
+The workstation tunnel (`app/routers/vms/tunnel.py`) stays in the API: a TCP connection to a guest's address on this
+node, which needs no key and no root.
+
+**Who may open a root session: a question for step 4.** As decided (section 8), the API decides who may open the host
+shell, a container's shell or a terminal, and the daemon runs what the API asks. So a compromised API can still open a
+root shell, as it can still ask for a VM with a host disk or a hook script: the operations that are root by design.
+A proof on the consoles alone would not close that. What would, as pvedaemon checks the ticket of every call pveproxy
+hands it: the daemon checking the user's own session on every operation, a token only its keys sign (section 12),
+and its role in it. The API tokens would then need a store the API cannot write, and so would the accounts' roles.
+That belongs to step 4, with the database's owner.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of
