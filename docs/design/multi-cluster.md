@@ -121,10 +121,13 @@ Administrator role there (a migration creates a VM and its volumes, as `qm remot
 4. **The disks**, one after the other (`PUT /sites/incoming/{id}/disks/{n}` on that node, streamed): the source reads
    only what is allocated (the disk's allocation map, as the backups do), and sends frames of up to 4 MiB, each with
    its offset and length, compressed with zstd; the target checks every frame falls inside the disk it declared and
-   writes it into the new volume; the stream ends with the SHA-256 of the whole disk (holes as zeros), which the
-   target compares with its own. Progress is in a task at both ends. Both ends read and write the disks through
-   hyperlite-daemon (a `qemu-nbd` export under `/run/hyperlite/migration/`, read-only at the source, writable at the
-   target, opened and closed by the daemon: from #511's step 4 the API cannot open a disk itself).
+   writes it into the new volume; the stream ends with the SHA-256 of every frame's offset, length and data (hashing
+   a terabyte of holes as zeros would cost minutes at both ends for nothing), which the target compares with what it
+   received (`app/core/site_stream.py`). Progress is in a task at both ends. Both ends read and write the disks
+   through hyperlite-daemon: a `qemu-nbd` export under `/run/hyperlite/migration/`, read-only at the source,
+   writable at the target, root's, and a helper of the system's Python (libnbd, as the backups' reads) that turns it
+   into frames on a pipe whose other end the daemon hands the API, as the consoles hand their sockets (#511's advice:
+   from its step 4 the API cannot open a disk, nor a root socket).
 5. **The target finishes** (`POST /sites/incoming/{id}/finish`): it defines the VM on that node with its new volumes,
    the mapped networks, the same MAC addresses and UUID, its tags and notes, and starts it if asked. It answers once
    the VM is defined.
@@ -145,11 +148,15 @@ included, and the VM continues on the target. Its own section is written when st
 
 ### 9.3 hyperlite-daemon
 
-New operations, coordinated with #511 on #298 before any code: at the source, `migration.export` (a read-only export
-of a stopped VM's disk, and its allocation map); at the target, `migration.prepare` (the empty volumes in the chosen
-pools), `migration.import` (a writable export of one of them), `migration.define` (the VM from the checked
-specification) and `migration.abort` (the volumes of an incoming removed). Each one takes fixed arguments, checked
-again by the daemon.
+New operations in `app/daemon/ops/transfer.py` (agreed with #511 on #298; a prefix of their own, apart from
+`vm.migrate` within a cluster): at the source, `transfer.describe` (the stopped VM's specification, what stays
+behind and its disks' allocated sizes) and `transfer.export` (a pipe a disk comes out of); at the target,
+`transfer.prepare` (the specification checked, the empty volumes in the chosen pools), `transfer.import` (a pipe a
+disk goes into), `transfer.define` (the VM from the checked specification, once every disk was written) and
+`transfer.abort` (the volumes of an incoming removed). Each one names a VM, a disk, a pool or an incoming, never a
+path or XML; the daemon keeps its incomings in `/var/lib/hyperlite/transfer` (root's), where it finds their volumes.
+The source's need `vm.migrate` on the VM, the target's `vm.allocate` and the pools' space, for the daemon's own checks
+(#511, step 4). The target's pools in this version: file pools (directory, NFS, SMB) and LVM; iSCSI and ZFS later.
 
 ### 9.4 Its risks
 
