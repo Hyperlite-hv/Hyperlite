@@ -1,6 +1,5 @@
 import logging
 import re
-import threading
 import xml.etree.ElementTree as ET
 
 import libvirt
@@ -22,7 +21,7 @@ from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, pool_for_path
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role, require_vm_privilege
-from app.core.tasks import create_task, finish_task, register_cancel
+from app.core.tasks import create_task, finish_task, register_cancel, start_thread
 from app.core.vm_limits import validate_vm_resources
 from app.daemon.registry import DaemonError
 from app.routers.vms._shared import TARGET_DEV_RE, _get_ip, router
@@ -160,8 +159,8 @@ class DiskMove(BaseModel):
     delete_source: bool = False
 
 
-def _run_in_background(target, *args):
-    threading.Thread(target=target, args=args, daemon=True).start()
+def _run_in_background(target, task_id, *args):
+    start_thread(target, task_id, *args, task_id=task_id)
 
 
 # A disk's copy is one call to hyperlite-daemon that waits: hours for the largest, as a backup's.

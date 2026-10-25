@@ -169,7 +169,7 @@ def test_a_manual_backup_or_a_schedule_names_its_store(client, auth_headers, poo
     client.post("/backup-stores", json={"name": "main", "pool": "nas"}, headers=admin)
     ran = []
     monkeypatch.setattr(router, "run_backup", lambda name, target, **k: ran.append((name, target, k["store"])))
-    monkeypatch.setattr(router, "threading", _Threads(lambda target: target()))
+    monkeypatch.setattr(router, "start_thread", lambda fn, *args, task_id=None, name=None: fn(*args))
     monkeypatch.setattr(router, "refuse_vm_with_block_disks", lambda *a: pytest.fail("a store takes block disks"))
     r = client.post("/vms/web/backups", json={"store": "main"}, headers=admin)
     assert r.status_code == 202 and ran == [("web", None, "main")]

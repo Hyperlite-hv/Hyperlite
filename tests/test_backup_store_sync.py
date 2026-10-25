@@ -128,11 +128,7 @@ def test_the_api_runs_a_copy_job_in_a_task(client, auth_headers, pools, monkeypa
     assert client.post("/backup-store-syncs", json=body, headers=admin).status_code == 409
     assert client.get("/backup-store-syncs", headers=admin).json()["total"] == 1
 
-    class Threads:
-        def Thread(self, target, **kwargs):
-            return type("T", (), {"start": lambda s: target()})()
-
-    monkeypatch.setattr(router, "threading", Threads())
+    monkeypatch.setattr(router, "start_thread", lambda fn, *args, task_id=None, name=None: fn(*args))
     r = client.post(f"/backup-store-syncs/{job['id']}/run", headers=admin)
     assert r.status_code == 202
     done = client.get(f"/backup-store-syncs/{job['id']}", headers=admin).json()

@@ -1,5 +1,4 @@
 import logging
-import threading
 
 import libvirt
 from fastapi import Depends, HTTPException
@@ -23,7 +22,7 @@ from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.security import require_role
-from app.core.tasks import create_task, finish_task, register_cancel, task_log, update_task_progress
+from app.core.tasks import create_task, finish_task, register_cancel, start_thread, task_log, update_task_progress
 from app.daemon.registry import DaemonError
 from app.routers.vms._shared import router
 
@@ -230,11 +229,9 @@ def start(name, source, target, username, skip_checks=False):
         claim = vm_locks.claim_or_409(name, "a migration", node=source_node)
         try:
             task_id = create_task("migrate_vm", name, node=source_node, username=username)
-            threading.Thread(
-                target=vm_locks.released_after(claim, _migrate_vm_job),
-                args=(task_id, username, node, target, name),
-                daemon=True,
-            ).start()
+            start_thread(
+                vm_locks.released_after(claim, _migrate_vm_job), task_id, username, node, target, name, task_id=task_id
+            )
         except BaseException:
             claim.release()
             raise

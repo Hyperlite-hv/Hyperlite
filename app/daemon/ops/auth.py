@@ -148,6 +148,11 @@ class DelegateArgs(Args):
     credential: str = Field(max_length=SECRET)
 
 
+class TaskTicketArgs(Args):
+    credential: str = Field(max_length=SECRET)
+    task_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+
+
 @operation("auth.peer", PeerArgs)
 def peer(args, ctx):
     """The tickets of calls to other members, for the account the credential of the request in progress proves
@@ -165,5 +170,15 @@ def delegate(args, ctx):
     """A task ticket, for a run across the cluster that outlives the administrator's request (the rolling update)."""
     try:
         return peer_auth.delegate(args.credential)
+    except PermissionError as e:
+        raise DaemonError("forbidden", str(e)) from None
+
+
+@operation("auth.task", TaskTicketArgs)
+def task(args, ctx):
+    """A task ticket bound to one task of the account the request's credential proves, whatever its role: the work the
+    request started for that task keeps its proof while the task runs (app/core/tasks.py, thread)."""
+    try:
+        return peer_auth.bound_ticket(args.credential, args.task_id)
     except PermissionError as e:
         raise DaemonError("forbidden", str(e)) from None
