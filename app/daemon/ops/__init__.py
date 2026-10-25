@@ -14,5 +14,6 @@ from app.daemon.ops import (  # noqa: F401
     storage,
     system,
     tls,
+    transfer,
     vm,
 )
