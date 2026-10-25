@@ -114,7 +114,7 @@ def _store_for(name, target_dir):
     if target_dir:
         raise HTTPException(status_code=422, detail="Choose a backup store or a directory, not both")
     try:
-        backup_stores.open_store(name)
+        backup_stores.check(name)
     except backup_stores.StoreError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from None
     return name
@@ -431,7 +431,7 @@ def delete_backup_store(name: str, user: dict = Depends(require_role("admin"))):
 def collect_store_garbage(name: str, user: dict = Depends(require_role("admin"))):
     """Free the chunks no backup uses any more, in the background (a large store takes a while)."""
     try:
-        backup_stores.open_store(name)
+        backup_stores.check(name)
     except backup_stores.StoreError as e:
         raise _store_error(e) from None
     task_id = create_task("backup_store_gc", name, node=None, username=user["username"])

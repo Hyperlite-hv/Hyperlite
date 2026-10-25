@@ -126,3 +126,63 @@ def test_a_replication_point_is_never_written_under_a_system_directory():
     with pytest.raises(DaemonError) as e:
         privileged.run("replication.point", vm="web", target="/etc/hyperlite")
     assert e.value.kind == "failed" and "cannot be written" in e.value.detail
+
+
+# --- Part 2: the backup stores ---
+
+
+def test_a_remotes_token_goes_only_where_it_was_sealed_with(database, monkeypatch):
+    """The records are the API's to write: an address changed there never receives the token."""
+    from app.core import backup_remotes, secrets_crypto
+
+    seen = []
+    monkeypatch.setattr(
+        backup_remotes, "_Client", lambda address, port, fingerprint, token: seen.append((address, port, token))
+    )
+    sealed = backup_remotes._seal("10.0.0.9", 8000, "a" * 64, "tok")
+    row = {"name": "dr", "address": "evil.example", "port": 443, "fingerprint": "b" * 64, "token_encrypted": sealed}
+    backup_remotes._client(row)
+    assert seen == [("10.0.0.9", 8000, "tok")]
+    # A remote recorded before: its token was sealed alone, its record's address is the one it was saved with.
+    legacy = {**row, "token_encrypted": secrets_crypto.encrypt("old-token")}
+    backup_remotes._client(legacy)
+    assert seen[-1] == ("evil.example", 443, "old-token")
+
+
+@pytest.mark.parametrize("vm_uuid", ["../../etc", "web", "6F1C2D3E-0000-4000-8000-000000000001/.."])
+def test_an_import_names_a_vm_uuid_never_a_path(vm_uuid):
+    with pytest.raises(DaemonError) as e:
+        privileged.run(
+            "store.import", path="/x/y/z/w", created_at="t", vm="web", vm_uuid=vm_uuid, store="main", task_id="t"
+        )
+    assert e.value.kind == "invalid_arguments"
+
+
+def test_an_import_reads_only_a_backup_directory(target):
+    with pytest.raises(DaemonError) as e:
+        privileged.run(
+            "store.import",
+            path="/etc/ssh/a/b",
+            created_at="t",
+            vm="web",
+            vm_uuid="6f1c2d3e-0000-4000-8000-000000000001",
+            store="main",
+            task_id="t",
+        )
+    assert e.value.kind == "refused"
+
+
+def test_a_store_is_made_in_a_directory_of_its_pool_only(database):
+    for bad in ("../etc", "a/b", ".."):
+        with pytest.raises(DaemonError) as e:
+            privileged.run("store.make", name="main", pool="nas", directory=bad)
+        assert e.value.kind in ("refused", "invalid_arguments"), bad
+
+
+def test_a_copy_job_is_read_from_the_records_by_its_id(database):
+    with pytest.raises(DaemonError) as e:
+        privileged.run("store.sync", job_id=4242)
+    assert e.value.kind == "not_found"
+    with pytest.raises(DaemonError) as e:
+        privileged.run("store.sync", job_id=1, source="/etc", target="main")
+    assert e.value.kind == "invalid_arguments"

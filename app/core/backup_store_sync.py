@@ -88,8 +88,12 @@ def validate(payload):
             "time": payload["time"], "active": bool(payload.get("active", True)), **policy}  # fmt: skip
 
 
+# The jobs this process asked hyperlite-daemon to run and that have not answered yet (_running is the daemon's own).
+_asked = set()
+
+
 def _row(row):
-    return {**row, "active": bool(row["active"]), "running": row["id"] in _running}
+    return {**row, "active": bool(row["active"]), "running": row["id"] in _running or row["id"] in _asked}
 
 
 def list_jobs():
@@ -163,6 +167,34 @@ def run_job(job):
             _running.discard(job["id"])
 
 
+# A copy job reads and writes whole stores: generous.
+JOB_TIMEOUT_S = 24 * 3600
+
+
+def _run_in_daemon(job, username):
+    """run_job by hyperlite-daemon (store.sync), which alone opens the stores' keys and the remotes' tokens."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    with _running_lock:
+        _asked.add(job["id"])
+    try:
+        return privileged.run("store.sync", user=username, timeout=JOB_TIMEOUT_S, job_id=int(job["id"]))
+    except DaemonError as e:
+        raise SyncError(e.detail, {"not_found": 404, "in_use": 409}.get(e.kind, 422)) from None
+    finally:
+        with _running_lock:
+            _asked.discard(job["id"])
+
+
+def run_job_by_id(job_id):
+    """hyperlite-daemon's part of run_now(): the job read from the records by its id, then run_job."""
+    job = get_job(job_id)
+    if not job:
+        raise SyncError(f"No copy job #{job_id}", 404)
+    return run_job(job)
+
+
 def _describe(result):
     return (
         f"{result['copied']} backups copied ({result['chunks']} chunks), {result['removed']} removed by its retention"
@@ -176,7 +208,7 @@ def run_now(job, username):
 
     started = _now()
     try:
-        result = run_job(job)
+        result = _run_in_daemon(job, username)
     except Exception as e:
         message = getattr(e, "message", None) or str(e) or type(e).__name__
         # The next run at its time, not at the next tick: a store out of reach would fail every minute.
@@ -198,7 +230,7 @@ def run_due(now=None):
         return
     for job in _repo().due_syncs((now or _now()).isoformat()):
         with _running_lock:
-            if job["id"] in _running:
+            if job["id"] in _running or job["id"] in _asked:
                 continue
 
         def run(job=job):
