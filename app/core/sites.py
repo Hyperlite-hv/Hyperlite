@@ -31,9 +31,11 @@ _cache_lock = threading.Lock()
 
 
 class SiteError(Exception):
-    def __init__(self, message, status=422):
+    """`sent`: the request reached the remote (an action may have run there), so it is not tried on another endpoint."""
+
+    def __init__(self, message, status=422, sent=False):
         super().__init__(message)
-        self.message, self.status = message, status
+        self.message, self.status, self.sent = message, status, sent
 
 
 def _repo():
@@ -158,12 +160,12 @@ def check_address(address, port):
 
 
 class _Client:
-    """GET calls to one endpoint of a remote over HTTPS, its certificate pinned, with a token."""
+    """Calls to one endpoint of a remote over HTTPS, its certificate pinned, with a token."""
 
     def __init__(self, endpoint, token):
         self.endpoint, self.token, self._conn = endpoint, token, None
 
-    def json(self, path):
+    def json(self, path, method="GET", body=None):
         import http.client
         import json
 
@@ -175,29 +177,49 @@ class _Client:
                 self._conn = peer_https._connect(
                     self.endpoint["address"], self.endpoint["port"], self.endpoint["fingerprint"], TIMEOUT_S
                 )
-            self._conn.sock.settimeout(TIMEOUT_S)
-            self._conn.request("GET", API + path, headers={"Authorization": f"Bearer {self.token}"})
-            response = self._conn.getresponse()
-            status, body = response.status, response.read()
         except peer_https.Unavailable as e:
             self.close()
             raise SiteError(f"{where}: {e}", 502) from None
-        except (OSError, http.client.HTTPException) as e:
+        except OSError as e:
             self.close()
             raise SiteError(f"{where} does not answer: {e}", 502) from None
-        if status in (401, 403):
-            raise SiteError(f"{where} refused the token ({status})", 403)
-        if status != 200:
-            raise SiteError(f"{where} answered {status}", 404 if status == 404 else 502)
+        headers = {"Authorization": f"Bearer {self.token}"}
+        payload = None
+        if body is not None:
+            payload, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
         try:
-            return json.loads(body)
+            self._conn.sock.settimeout(TIMEOUT_S)
+            self._conn.request(method, API + path, body=payload, headers=headers)
+            response = self._conn.getresponse()
+            status, raw = response.status, response.read()
+        except (OSError, http.client.HTTPException) as e:
+            self.close()
+            raise SiteError(f"{where} stopped answering: {e}", 502, sent=method != "GET") from None
+        if status in (401, 403):
+            raise SiteError(f"{where} refused the token ({status}): {_detail(raw)}", 403, sent=True)
+        if status in (404, 409, 422):  # the remote's own refusal, passed on as it gave it
+            raise SiteError(f"{where}: {_detail(raw)}", status, sent=True)
+        if not 200 <= status < 300:
+            raise SiteError(f"{where} answered {status}: {_detail(raw)}", 502, sent=True)
+        try:
+            return json.loads(raw)
         except ValueError:
-            raise SiteError(f"{where} gave an answer that is not JSON", 502) from None
+            raise SiteError(f"{where} gave an answer that is not JSON", 502, sent=True) from None
 
     def close(self):
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+
+def _detail(raw):
+    import json
+
+    try:
+        detail = json.loads(raw).get("detail")
+    except (ValueError, AttributeError):
+        return raw[:200].decode(errors="replace")
+    return (detail if isinstance(detail, str) else json.dumps(detail))[:300]
 
 
 def _client(endpoint, token):
@@ -235,20 +257,29 @@ def _token(remote, use):
         raise SiteError(f"The {use} token of '{remote}' cannot be read on this node", 409) from None
 
 
-def call(remote, path, use="view"):
-    """The JSON answer of GET <API>path on the remote, from the first of its endpoints that answers."""
+def call(remote, path, use="view", method="GET", body=None, on=None):
+    """The JSON answer of <method> <API>path on the remote, from the first of its endpoints that answers. `on`: the
+    remote node a VM runs on: its own endpoint is asked first, and any other is asked with ?node=<on>, as the
+    remote's dashboard asks it. An action is tried on another endpoint only when it did not reach the first."""
+    import urllib.parse
+
     endpoints = _repo().endpoints(remote)
     if not endpoints:
         raise SiteError(f"No remote '{remote}'", 404)
     token = _token(remote, use)
+    if on:
+        endpoints = sorted(endpoints, key=lambda e: e.get("node") != on)
     last = None
     for endpoint in endpoints:
+        target = path
+        if on and endpoint.get("node") != on:
+            target += ("&" if "?" in path else "?") + "node=" + urllib.parse.quote(on, safe="")
         client = _client(endpoint, token)
         try:
-            return client.json(path)
+            return client.json(target, method, body)
         except SiteError as e:
             last = e
-            if e.status in (403, 404):  # the remote answered: another endpoint would answer the same
+            if e.status in (403, 404, 409, 422) or e.sent:  # the remote answered, or the action may have run
                 raise
         finally:
             client.close()
@@ -288,7 +319,15 @@ def add(name, address, port, fingerprint, view_token, username, manage_token=Non
         raise SiteError("The fingerprint is the SHA-256 of the remote's certificate: 64 hexadecimal digits")
     if not view_token:
         raise SiteError("Give the API token of a dedicated viewer account on the remote")
+    if manage_token and len(manage_token) > 4096:
+        raise SiteError("A token is at most 4096 characters")
     first = {"address": address, "port": port, "fingerprint": fingerprint, "node": None}
+    if manage_token:  # accepted by the remote too, before anything is saved
+        check = _client(first, manage_token)
+        try:
+            check.json("/sites/summary")
+        finally:
+            check.close()
     client = _client(first, view_token)
     try:
         remote_summary = client.json("/sites/summary")
@@ -311,6 +350,44 @@ def add(name, address, port, fingerprint, view_token, username, manage_token=Non
         _repo().save_token(name, "manage", secrets_crypto.encrypt(manage_token))
     forget_cache()
     return describe(_repo().get_remote(name))
+
+
+def set_token(name, use, token):
+    """Give the remote a token for `use` (checked there first), or take it back (`token` None)."""
+    from app.core import secrets_crypto
+
+    if use not in USES:
+        raise SiteError(f"Unknown use: {use}", 404)
+    if not _repo().get_remote(name):
+        raise SiteError(f"No remote '{name}'", 404)
+    if not token:
+        if use == "view":
+            raise SiteError("The view token is what the view reads with: replace it, or remove the remote", 409)
+        _repo().delete_token(name, use)
+    else:
+        if len(token) > 4096:
+            raise SiteError("A token is at most 4096 characters")
+        _check_token(name, token)
+        _repo().save_token(name, use, secrets_crypto.encrypt(token))
+    forget_cache()
+    return describe(_repo().get_remote(name))
+
+
+def _check_token(name, token):
+    """The remote accepts the token (any of its endpoints that answers)."""
+    last = None
+    for endpoint in _repo().endpoints(name):
+        client = _client(endpoint, token)
+        try:
+            client.json("/sites/summary")
+            return
+        except SiteError as e:
+            last = e
+            if e.status == 403:
+                raise
+        finally:
+            client.close()
+    raise last or SiteError(f"'{name}' does not answer", 502)
 
 
 def describe(row):
@@ -400,3 +477,46 @@ def search(query):
                     found.append({"site": site, "vm": vm.get("name"), "node": vm.get("on") or vm.get("node"),
                                   "state": vm.get("state"), "ip": vm.get("ip")})  # fmt: skip
     return {"items": found, "total": len(found), "unreachable": missing}
+
+
+# ---- Actions (step 2): with the remote's `manage` token, checked there with that account's rights ----
+
+# action -> (the remote's route under /vms/{vm}, its query): what the remote's own dashboard calls.
+ACTIONS = {
+    "start": ("start", ""),
+    "shutdown": ("stop", ""),
+    "stop": ("stop", "?force=true"),
+    "reboot": ("restart", ""),
+    "reset": ("restart", "?force=true"),
+}
+
+
+def _vm_path(vm, route):
+    import urllib.parse
+
+    if not vm or len(vm) > 255:
+        raise SiteError("Invalid VM name")
+    return f"/vms/{urllib.parse.quote(vm, safe='')}/{route}"
+
+
+def act(remote, vm, action, on=None):
+    """Run a power action on a VM of the remote, as its own dashboard does: the remote's answer (its task)."""
+    if action not in ACTIONS:
+        raise SiteError(f"Unknown action: {action}", 404)
+    route, query = ACTIONS[action]
+    try:
+        return call(remote, _vm_path(vm, route) + query, "manage", "POST", on=on)
+    finally:
+        forget_cache()
+
+
+def migrate(remote, vm, target_node, on=None):
+    """Move a VM of the remote to another of its nodes (a live migration there, its checks included)."""
+    if not target_node or len(target_node) > 63:
+        raise SiteError("Name the remote node to move the VM to")
+    if target_node == on:
+        raise SiteError(f"{vm} already runs on {target_node}")
+    try:
+        return call(remote, _vm_path(vm, "migrate"), "manage", "POST", {"target_node": target_node}, on=on)
+    finally:
+        forget_cache()

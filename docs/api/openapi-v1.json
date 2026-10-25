@@ -3286,6 +3286,25 @@
     "title": "ScheduleRequest",
     "type": "object"
    },
+   "SiteAction": {
+    "properties": {
+     "on": {
+      "anyOf": [
+       {
+        "maxLength": 63,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The remote node the VM runs on, as its list says",
+      "title": "On"
+     }
+    },
+    "title": "SiteAction",
+    "type": "object"
+   },
    "SiteCreate": {
     "properties": {
      "address": {
@@ -3337,6 +3356,34 @@
     "title": "SiteCreate",
     "type": "object"
    },
+   "SiteMigrate": {
+    "properties": {
+     "on": {
+      "anyOf": [
+       {
+        "maxLength": 63,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The remote node the VM runs on, as its list says",
+      "title": "On"
+     },
+     "target_node": {
+      "maxLength": 63,
+      "minLength": 1,
+      "title": "Target Node",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target_node"
+    ],
+    "title": "SiteMigrate",
+    "type": "object"
+   },
    "SiteProbe": {
     "properties": {
      "address": {
@@ -3355,6 +3402,21 @@
      "address"
     ],
     "title": "SiteProbe",
+    "type": "object"
+   },
+   "SiteToken": {
+    "properties": {
+     "token": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Token",
+      "type": "string"
+     }
+    },
+    "required": [
+     "token"
+    ],
+    "title": "SiteToken",
     "type": "object"
    },
    "SnapshotCreate": {
@@ -16614,6 +16676,117 @@
     "summary": "Site Remove"
    }
   },
+  "/api/v1/sites/remotes/{name}/tokens/{use}": {
+   "delete": {
+    "operationId": "site_remove_token_api_v1_sites_remotes__name__tokens__use__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "use",
+      "required": true,
+      "schema": {
+       "title": "Use",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Remove Token"
+   },
+   "put": {
+    "description": "Give the remote a token for a use (`view`, `manage`), once the remote accepts it.",
+    "operationId": "site_set_token_api_v1_sites_remotes__name__tokens__use__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "use",
+      "required": true,
+      "schema": {
+       "title": "Use",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SiteToken"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Set Token"
+   }
+  },
   "/api/v1/sites/search": {
    "get": {
     "description": "The VMs of every remote whose name, tag or address holds `q`.",
@@ -16677,6 +16850,139 @@
      }
     ],
     "summary": "Site Summary"
+   }
+  },
+  "/api/v1/sites/{remote}/vms/{vm}/migrate": {
+   "post": {
+    "description": "Move a VM of the remote to another of its nodes, with the remote's manage token.",
+    "operationId": "site_migrate_api_v1_sites__remote__vms__vm__migrate_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "remote",
+      "required": true,
+      "schema": {
+       "title": "Remote",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "vm",
+      "required": true,
+      "schema": {
+       "title": "Vm",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SiteMigrate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Migrate"
+   }
+  },
+  "/api/v1/sites/{remote}/vms/{vm}/{action}": {
+   "post": {
+    "description": "A power action (start, shutdown, stop, reboot, reset) on a VM of the remote, with its manage token.",
+    "operationId": "site_action_api_v1_sites__remote__vms__vm___action__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "remote",
+      "required": true,
+      "schema": {
+       "title": "Remote",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "vm",
+      "required": true,
+      "schema": {
+       "title": "Vm",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "action",
+      "required": true,
+      "schema": {
+       "title": "Action",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SiteAction"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Action"
    }
   },
   "/api/v1/sites/{remote}/{what}": {

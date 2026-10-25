@@ -53,6 +53,11 @@ class SqliteSiteStore:
             )
             db.commit()
 
+    def delete_token(self, remote, use):
+        with get_conn() as db:
+            db.execute("DELETE FROM remote_tokens WHERE remote = ? AND use = ?", (remote, use))
+            db.commit()
+
     def get_token(self, remote, use):
         row = _one("SELECT token_encrypted FROM remote_tokens WHERE remote = ? AND use = ?", (remote, use))
         return row["token_encrypted"] if row else None

@@ -2,6 +2,8 @@
 certificate pinned and a viewer token kept sealed; the view asks every remote at once and names those that do not
 answer. Both sides are this test's application: the pinned HTTPS connection is replaced by one to the test client."""
 
+import json
+
 import pytest
 
 from app.core import peer_https, self_node, sites, statd
@@ -18,17 +20,28 @@ class _Response:
         return self._body
 
 
-class _Connection:
-    """What peer_https._connect gives, answered by the test client."""
+class _Canned:
+    def __init__(self, status, body):
+        self.status_code, self.content = status, json.dumps(body).encode()
 
-    def __init__(self, client):
-        self.client, self.sock, self._last = client, self, None
+
+class _Connection:
+    """What peer_https._connect gives, answered by the test client (or by `canned`, {(method, path): (status, body)},
+    for what the test backend cannot do: a VM that runs)."""
+
+    def __init__(self, client, state, address):
+        self.client, self.state, self.address, self.sock, self._last = client, state, address, self, None
 
     def settimeout(self, _):
         pass
 
-    def request(self, method, path, headers):
-        self._last = self.client.request(method, path.removeprefix(sites.API).lstrip("/"), headers=headers)
+    def request(self, method, path, body=None, headers=None):
+        path = path.removeprefix(sites.API)
+        self.state["requests"].append((self.address, method, path, headers["Authorization"], body))
+        if (method, path) in self.state["canned"]:
+            self._last = _Canned(*self.state["canned"][(method, path)])
+            return
+        self._last = self.client.request(method, path.lstrip("/"), content=body, headers=headers)
 
     def getresponse(self):
         return _Response(self._last)
@@ -40,13 +53,13 @@ class _Connection:
 @pytest.fixture()
 def wire(client, monkeypatch):
     """The remote's nodes: every address answers through the test client but those in `down`; the calls are kept."""
-    state = {"calls": [], "down": set()}
+    state = {"calls": [], "down": set(), "requests": [], "canned": {}}
 
     def connect(address, port, fingerprint, timeout):
         state["calls"].append((address, fingerprint))
         if address in state["down"]:
             raise peer_https.Unavailable(f"{address} does not answer")
-        return _Connection(client)
+        return _Connection(client, state, address)
 
     monkeypatch.setattr(peer_https, "_connect", connect)
     monkeypatch.setattr(peer_https, "own_fingerprint", lambda: "cd" * 32)
@@ -174,3 +187,92 @@ def test_the_tokens_are_replicated_as_secrets():
     from app.repositories.cfs import tables
 
     assert tables.TABLES["remote_tokens"].get("priv") and not tables.TABLES["remotes"].get("priv")
+
+
+@pytest.fixture()
+def manager(make_user):
+    """The remote's account for the actions, and its token."""
+    make_user("operator", "admin")
+    return create_token("operator", "manage")[1]
+
+
+def _two_nodes(me, viewer):
+    """A remote of two members, as sites.add records it from a cluster (the test backend is not one)."""
+    from app.core import secrets_crypto
+
+    sites._repo().save_remote("site-b", "ana", "2026-10-25T00:00:00+00:00", [
+        {"address": "10.0.0.7", "port": 8000, "fingerprint": PIN, "node": me},
+        {"address": "10.0.0.8", "port": 8000, "fingerprint": "ef" * 32, "node": "n2"},
+    ])  # fmt: skip
+    sites._repo().save_token("site-b", "view", secrets_crypto.encrypt(viewer))
+
+
+def test_an_action_goes_to_the_node_of_the_vm_with_the_manage_token(
+    client, auth_headers, viewer, manager, load, wire, monkeypatch
+):
+    admin = auth_headers("ana")
+    _two_nodes(load, viewer)
+    # No manage token yet: nothing to act with.
+    r = client.post("/sites/site-b/vms/web/start", json={"on": "n2"}, headers=admin)
+    assert r.status_code == 409 and "No manage token" in r.json()["detail"]
+    r = client.put("/sites/remotes/site-b/tokens/manage", json={"token": manager}, headers=admin)
+    assert r.status_code == 200 and r.json()["uses"] == ["manage", "view"]
+    wire["canned"][("POST", "/vms/web/start")] = (200, {"task_id": "t1"})
+    wire["canned"][("POST", "/vms/web/stop?force=true&node=n2")] = (200, {"task_id": "t2"})
+    wire["requests"].clear()
+    # The VM runs on n2: n2's own endpoint first, with no node.
+    assert client.post("/sites/site-b/vms/web/start", json={"on": "n2"}, headers=admin).json() == {"task_id": "t1"}
+    assert wire["requests"][-1][:4] == ("10.0.0.8", "POST", "/vms/web/start", f"Bearer {manager}")
+    # n2 does not answer: the other member, which forwards it there (?node=n2).
+    wire["down"].add("10.0.0.8")
+    assert client.post("/sites/site-b/vms/web/stop", json={"on": "n2"}, headers=admin).json() == {"task_id": "t2"}
+    assert wire["requests"][-1][:3] == ("10.0.0.7", "POST", "/vms/web/stop?force=true&node=n2")
+    assert client.post("/sites/site-b/vms/web/explode", json={}, headers=admin).status_code == 404
+
+
+def test_the_remote_refuses_with_its_own_rights_and_its_answer_is_passed_on(client, auth_headers, viewer, load, wire):
+    from app.core import secrets_crypto
+
+    admin = auth_headers("ana")
+    sites.add("site-b", "10.0.0.7", 8000, PIN, viewer, "ana")
+    # A manage token that is in fact a viewer's: the remote refuses the action itself.
+    sites._repo().save_token("site-b", "manage", secrets_crypto.encrypt(viewer))
+    r = client.post("/sites/site-b/vms/web/start", json={}, headers=admin)
+    assert r.status_code == 403 and "refused the token" in r.json()["detail"]
+    wire["canned"][("POST", "/vms/web/migrate")] = (409, {"detail": "web is locked by a backup"})
+    sites._repo().save_token("site-b", "manage", secrets_crypto.encrypt("x"))
+    wire["requests"].clear()
+    r = client.post("/sites/site-b/vms/web/migrate", json={"target_node": "n2"}, headers=admin)
+    assert r.status_code == 409 and "locked by a backup" in r.json()["detail"]
+    assert json.loads(wire["requests"][-1][4]) == {"target_node": "n2"}
+
+
+def test_an_action_that_reached_the_remote_is_not_sent_again(viewer, load, wire, monkeypatch):
+    from app.core import secrets_crypto
+
+    sites.add("site-b", "10.0.0.7", 8000, PIN, viewer, "ana")
+    sites._repo().delete_remote("site-b")
+    sites._repo().save_remote("site-b", "ana", "2026-10-25T00:00:00+00:00", [
+        {"address": "10.0.0.7", "port": 8000, "fingerprint": PIN, "node": "n1"},
+        {"address": "10.0.0.8", "port": 8000, "fingerprint": PIN, "node": "n2"},
+    ])  # fmt: skip
+    sites._repo().save_token("site-b", "manage", secrets_crypto.encrypt(viewer))
+    wire["canned"][("POST", "/vms/web/restart")] = (500, {"detail": "it broke halfway"})
+    wire["requests"].clear()
+    with pytest.raises(sites.SiteError, match="answered 500") as e:
+        sites.act("site-b", "web", "reboot", on="n1")
+    assert e.value.status == 502 and len(wire["requests"]) == 1
+
+
+def test_tokens_are_checked_before_they_are_kept(client, auth_headers, viewer, load, wire):
+    admin = auth_headers("ana")
+    sites.add("site-b", "10.0.0.7", 8000, PIN, viewer, "ana")
+    r = client.put("/sites/remotes/site-b/tokens/manage", json={"token": "nope"}, headers=admin)
+    assert r.status_code == 403
+    assert client.put("/sites/remotes/site-b/tokens/root", json={"token": viewer}, headers=admin).status_code == 404
+    assert client.delete("/sites/remotes/site-b/tokens/view", headers=admin).status_code == 409
+    client.put("/sites/remotes/site-b/tokens/manage", json={"token": viewer}, headers=admin)
+    assert client.delete("/sites/remotes/site-b/tokens/manage", headers=admin).json()["uses"] == ["view"]
+    with pytest.raises(sites.SiteError, match="refused the token"):
+        sites.add("site-c", "10.0.0.7", 8000, PIN, viewer, "ana", manage_token="nope")
+    assert sites._repo().get_remote("site-c") is None

@@ -1,7 +1,7 @@
 # Several clusters and sites from one view (#656)
 
 Status: **accepted (maintainer, 2026-10-25).** Section 2 holds the maintainer's choices.
-Step 1 merged (PR #717).
+Steps 1 (PR #717) and 2 merged.
 
 ## 1. Why
 
@@ -20,6 +20,8 @@ hosts of every site, but they depend on it: without vCenter there is no HA chang
 | Where the view runs | PDM, a separate installation | vCenter, a separate appliance the hosts depend on | **In every Hyperlite** (chosen as the best for companies): any cluster can be the view of the others, on a page of its own dashboard, with no server to add. Its remotes are in the replicated configuration, so every node of that cluster serves the view: it is never a single point of failure. A company may dedicate a small cluster without VMs to it, which is still a plain Hyperlite |
 | First version | PDM 1.0: state, basic actions, migration between remotes | All of it, through vCenter | **State and basic actions, then migration** between clusters (offline first, then live where the storage allows), as `qm remote-migrate` |
 | Remotes | PDM's remotes, PBS's remotes | (hosts joined to vCenter) | **One list of remote clusters**, each declared once, with a token per use and the least rights for each: the backup copies' remotes (#699) join it once #511 moved the backups' code |
+| Actions (step 2) | PDM: power actions and migration inside a remote; the console and the rest in the remote's own interface | vCenter: everything, the console included, from vCenter | **As PDM** (the best of the two for a view that holds only tokens): start, shutdown, reboot, force stop, reset, and a move to another node of the same remote; the console and the settings in the remote's own dashboard, one click away. A console through the view would need a tunnel between clusters: more code and more to attack for little |
+| The token of the actions | PDM: a token per remote, its rights set on the remote | (vCenter's own accounts) | **A second, optional `manage` token** of another dedicated account, whose role the remote's administrator chooses (Operator, or Administrator to move VMs); without it the view is read-only and shows no action |
 
 ## 3. Remotes
 
@@ -77,7 +79,9 @@ Each one ships with its tests and the docs:
 
 1. **Remotes** (endpoints, pinned fingerprints, members read from the first, tokens by use) and the **Sites page**
    read-only (`GET /sites/summary` and `GET /sites/fingerprints` on every node; the view's own `GET /sites`, `GET /sites/{remote}/...`).
-2. **Actions** on a remote's VMs.
+2. **Actions** on a remote's VMs (`POST /sites/{remote}/vms/{vm}/{action}` and `.../migrate`, with the `manage`
+   token): sent first to the node the VM runs on, else through another member with `?node=`; an action that reached
+   the remote is never sent again to another endpoint.
 3. **The backup copies' remotes** moved into the shared list (after #511's move of the backups).
 4. **Offline migration** between clusters.
 5. **Live migration** between clusters, where both reach the same storage or the disks can be copied while it runs.
