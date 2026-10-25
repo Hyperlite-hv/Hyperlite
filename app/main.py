@@ -368,11 +368,10 @@ def _confirming():
 
 
 def _catch_up():
-    from app.repositories.cfs import inbound, shadow
+    from app.repositories.cfs import shadow
 
     try:
-        shadow.drain()  # this node's own changes go out first, or nothing is applied (inbound.apply)
-        inbound.apply()
+        shadow.catch_up()  # by hyperlite-daemon, which copies both ways
     except Exception as e:  # the daemon does not answer: the change is refused or confirmed below, as the cluster says
         logger.debug("The cluster's changes not applied before the request: %s", e)
 
@@ -544,8 +543,9 @@ def on_startup():
     if not ha_services.separate():  # hyperlite-ha-lrm and hyperlite-ha-crm run them on an installed node
         ha_services.start(None)
     start_vm_crash_watch()
-    start_shadow_copy()
-    start_apply_loop()
+    if os.environ.get(privileged.INPROCESS_ENV) == "1":  # otherwise hyperlite-daemon copies both ways (ops/cfs.py)
+        start_shadow_copy()
+        start_apply_loop()
     start_lead_loop()
     recover_interrupted_k8s_clusters()
     # Cloud-init drives written before they were private (they hold the account and its password's hash).
