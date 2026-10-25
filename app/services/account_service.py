@@ -1,8 +1,6 @@
 """Accounts as the API manages them: the user list, creation, role and password changes, deletion, TOTP enrolment
 and the sign-in record. Password checks, hashing and sessions stay in app/core/security.py."""
 
-from datetime import UTC, datetime
-
 from app.domain.common import AlreadyExists
 from app.repositories import registry
 
@@ -40,10 +38,6 @@ def other_admins(username):
 
 def delete(username):
     _store().delete(username)
-
-
-def record_login(username):
-    _store().record_login(username, datetime.now(UTC).isoformat())
 
 
 def start_totp(username):
