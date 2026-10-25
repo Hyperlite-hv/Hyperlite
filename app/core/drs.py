@@ -20,14 +20,16 @@ settings again, said in a notification. In manual mode, an administrator applies
 """
 
 import logging
+import os
 import threading
 import time
 
 logger = logging.getLogger(__name__)
 
-OBSERVE_S = 30
-EVALUATE_S = 300
-CPU_WINDOW_S = 300
+# The lab shortens them (HYPERLITE_DRS_*_S): 15 minutes of imbalance before a move is too long for a test.
+OBSERVE_S = int(os.environ.get("HYPERLITE_DRS_OBSERVE_S", "30"))
+EVALUATE_S = int(os.environ.get("HYPERLITE_DRS_EVALUATE_S", "300"))
+CPU_WINDOW_S = int(os.environ.get("HYPERLITE_DRS_CPU_WINDOW_S", "300"))
 SUSTAINED = 3
 HOT_PCT = 90.0
 MAX_MOVES = 4
