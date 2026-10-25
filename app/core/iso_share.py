@@ -20,11 +20,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core import cluster, node_health
+from app.core import cluster, node_health, peer_auth
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.safe_paths import safe_child
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, start_thread, update_task_progress
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,8 @@ def cluster_isos():
     nodes = [n for n in nodes if n["name"] not in seen_down]
     if nodes:
         with ThreadPoolExecutor(max_workers=min(8, len(nodes))) as pool:
-            futures = {n["name"]: pool.submit(remote_isos, n) for n in nodes}
+            # Each call shows hyperlite-daemon the request's proof, as a thread of its own starts without it.
+            futures = {n["name"]: pool.submit(peer_auth.carry(remote_isos), n) for n in nodes}
         for name, fut in futures.items():
             try:
                 isos.extend(fut.result())
@@ -369,7 +370,7 @@ def start_copy(name, source_id, target_ids, username, after=None):
             if after is not None:
                 after(ok)
 
-        threading.Thread(target=job, daemon=True).start()
+        start_thread(job, task_id=task_id)
     return tasks
 
 

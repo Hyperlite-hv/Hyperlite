@@ -35,9 +35,12 @@ def init_db():
 
     from app.core import shared_claims
 
-    with open(shared_claims._directory() / "schema.lock", "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    fd = shared_claims._open(shared_claims._directory() / "schema.lock", os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
         _init_db()
+    finally:
+        os.close(fd)
 
 
 def _init_db():

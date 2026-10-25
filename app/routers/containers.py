@@ -46,7 +46,7 @@ from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.security import get_current_user, require_container_privilege, require_role
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, start_thread, update_task_progress
 from app.core.vm_builder import (
     validate_name,
 )
@@ -328,7 +328,7 @@ def stop_container(
     grace = None
     if not force:
         grace = STOP_GRACE_S["application" if application else "system"]
-        threading.Thread(target=_force_stop_later, args=(name, done["run_id"], grace), daemon=True).start()
+        start_thread(_force_stop_later, name, done["run_id"], grace)
     log_action(user["username"], "stop_container", name, "success", "forced" if force else None)
     return {"ok": True, "force_stop_after_s": grace}
 
@@ -506,9 +506,7 @@ def create_container_backup(name: str, user: dict = Depends(require_role("admin"
     claim = _claim_or_409(name, "a backup")
     try:
         task_id = create_task("backup_container", name, username=user["username"])
-        threading.Thread(
-            target=_run_container_backup_job, args=(task_id, user["username"], name, claim), daemon=True
-        ).start()
+        start_thread(_run_container_backup_job, task_id, user["username"], name, claim, task_id=task_id)
     except BaseException:
         claim.release()
         raise
@@ -549,11 +547,7 @@ def _daemon_task(op, user, action, name, snapshot, what, **args):
     claim = _claim_or_409(name, what)
     try:
         task_id = create_task(action, name, username=user["username"])
-        threading.Thread(
-            target=_snapshot_job,
-            args=(task_id, user["username"], action, name, snapshot, claim, op, args),
-            daemon=True,
-        ).start()
+        start_thread(_snapshot_job, task_id, user["username"], action, name, snapshot, claim, op, args, task_id=task_id)
     except BaseException:
         claim.release()
         raise

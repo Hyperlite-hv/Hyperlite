@@ -205,7 +205,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       {item("rename", PencilLine, t("vx.renameMenu"), admin(stopped), rename)}
       {item("clone", CopyPlus, t("vx.cloneMenu"), localOnly(admin(stopped)), clone)}
       {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
-      {item("site-move", Globe, t("smv.menu"), localOnly(admin(stopped)), () => setSiteMove(true))}
+      {item("site-move", Globe, t("smv.menu"), localOnly(admin()), () => setSiteMove(true))}
       {item("template-copy", LayoutTemplate, t("vx.tplCopyMenu"), localOnly(admin(stopped)), copyToTemplate)}
       {item("template", LayoutTemplate, t("vx.tplMenu"), localOnly(admin(stopped)), toTemplate)}
       {item("export", Share, t("vx.exportMenu"), localOnly(admin()), doExport)}

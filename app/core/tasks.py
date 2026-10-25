@@ -9,6 +9,7 @@ actually picks the task up, without a schema change.
 
 """
 
+import contextvars
 import logging
 import threading
 import uuid
@@ -104,7 +105,12 @@ class NotStoppable(Exception):
 
 
 def register_cancel(task_id, abort=None):
-    """This task can be cancelled; `abort` (optional) interrupts what it is doing right now."""
+    """This task can be cancelled; `abort` (optional) interrupts what it is doing right now. It runs with the proof of
+    the work that registered it, whichever thread acts on the cancellation (this process's watch included)."""
+    if abort is not None:
+        from app.core import peer_auth
+
+        abort = peer_auth.carry(abort)
     with _cancel_lock:
         _cancellers[task_id] = abort
     _watch()
@@ -253,6 +259,12 @@ def create_task(type_, target=None, node=None, username=None):
     _store().create(task_id, type_, target, self_node.to_db(node), username, _now(), runner())
     with _cancel_lock:
         _live.add(task_id)
+    if _bind_tasks.get():
+        from app.core import peer_auth
+
+        ticket = _ticket(task_id)
+        if ticket is not None:
+            peer_auth.CREDENTIAL.set(ticket)
     return task_id
 
 
@@ -285,6 +297,47 @@ def finish_task(task_id, status, error_message=None):
     _store().finish(task_id, status, error_message, cancelled_by, _now())
     _store().forget_runner(task_id)
     unregister_cancel(task_id)
+
+
+def start_thread(fn, *args, task_id=None, name=None):
+    """Start `fn(*args)` on a thread that keeps the proof of the request that starts it (a new thread starts with none:
+    peer_auth.CREDENTIAL is a context variable). The work of a task runs long after its request answered, so it shows
+    hyperlite-daemon a ticket bound to that task (peer_auth.bound_ticket), valid while the task runs, rather than the
+    request's session, which expires or is revoked meanwhile. Outside a request (a scheduler, a service, the tests),
+    the thread starts as it is. The only way the API starts a thread that calls hyperlite-daemon
+    (tests/test_threads_keep_the_proof.py)."""
+    from app.core import peer_auth
+
+    target = fn
+    if peer_auth.CREDENTIAL.get() is not None:
+        # Without its task yet (a backup, each VM of a group), each task the thread makes takes the proof then.
+        target = peer_auth.carry(_binding(fn)) if task_id is None else peer_auth.carry(fn, _ticket(task_id))
+    worker = threading.Thread(target=target, args=args, daemon=True, name=name)
+    worker.start()
+    return worker
+
+
+# Set on a thread started by start_thread() before its task exists: each task it creates binds its proof (create_task).
+_bind_tasks = contextvars.ContextVar("hyperlite_bind_tasks", default=False)
+
+
+def _binding(fn):
+    def run(*args, **kwargs):
+        _bind_tasks.set(True)
+        return fn(*args, **kwargs)
+
+    return run
+
+
+def _ticket(task_id):
+    """A ticket bound to `task_id` for the proof this thread holds, or None (it keeps that proof)."""
+    from app.core import peer_auth
+
+    try:
+        return peer_auth.task_ticket_for(task_id)
+    except peer_auth.NoTicket as e:
+        logger.warning("Task %s: no task ticket (%s): its work keeps the proof it had", task_id, e)
+        return None
 
 
 def answer_later(task_id, work, **answer):
@@ -321,5 +374,5 @@ def answer_later(task_id, work, **answer):
 
     with _held_lock:
         _held[task_id] = None
-    threading.Thread(target=body, daemon=True).start()
+    start_thread(body, task_id=task_id)
     return JSONResponse(status_code=202, content={"task_id": task_id, "status": "running", **answer})
