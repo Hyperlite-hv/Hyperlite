@@ -1,6 +1,7 @@
 # Several clusters and sites from one view (#656)
 
 Status: **accepted (maintainer, 2026-10-25).** Section 2 holds the maintainer's choices.
+Step 1 merged (PR #717).
 
 ## 1. Why
 
@@ -27,7 +28,8 @@ A **remote** is another Hyperlite cluster (or a single node), as PDM's remotes a
 - **Several endpoints**: the address of each of its nodes with the SHA-256 of that node's HTTPS certificate, pinned
   (refused before anything is sent when it does not match). The administrator adds one endpoint, compares its
   fingerprint with the one the other dashboard shows (as for the backup remotes, #702), and the view reads the
-  remote's members and their fingerprints from it (`GET /cluster` and each member's published fingerprint): a call
+  remote's members, their addresses and their fingerprints from it (`GET /sites/fingerprints`, which a viewer may read;
+  `GET /cluster` is an administrator's): a call
   goes to the first endpoint that answers, so a remote node that is down hides nothing.
 - **A token per use**, each of a dedicated account on the remote with the least rights, kept encrypted in the cluster's
   secrets (a table under `/priv`): `view` (a global viewer: state only), `manage` (the roles the remote's administrator
@@ -58,7 +60,7 @@ named, never waited for. Nothing of a remote is stored here but its remote's def
 
 ## 5. Scale
 
-A view over a hundred clusters: the summary of each is one call (a new `GET /cluster/summary` on every Hyperlite,
+A view over a hundred clusters: the summary of each is one call (a new `GET /sites/summary` on every Hyperlite,
 counts and capacity in one answer, from what the status channel already holds), so the Sites page is one call per
 remote, in parallel. The lists of one remote are its own (paginated) lists.
 
@@ -74,7 +76,7 @@ remote, in parallel. The lists of one remote are its own (paginated) lists.
 Each one ships with its tests and the docs:
 
 1. **Remotes** (endpoints, pinned fingerprints, members read from the first, tokens by use) and the **Sites page**
-   read-only (`GET /cluster/summary` on every node; the view's own `GET /sites`, `GET /sites/{remote}/...`).
+   read-only (`GET /sites/summary` and `GET /sites/fingerprints` on every node; the view's own `GET /sites`, `GET /sites/{remote}/...`).
 2. **Actions** on a remote's VMs.
 3. **The backup copies' remotes** moved into the shared list (after #511's move of the backups).
 4. **Offline migration** between clusters.
@@ -86,5 +88,5 @@ Each one ships with its tests and the docs:
 |---|---|
 | A slow or cut remote slows the page | Every remote asked in parallel with a timeout; one that does not answer is named, the others shown |
 | A token that can do too much | Tokens by use, each of a dedicated account whose rights the remote's administrator sets; the view never needs an administrator's token |
-| Two clusters of different versions | Every call names API v1; a remote whose version lacks a route (`/cluster/summary` before this step) is read through its older routes |
+| Two clusters of different versions | Every call names API v1; a remote whose version lacks a route (`/sites/summary` before this step) is shown as not answering, with the reason, until it is updated |
 | The view as a target | It holds tokens, not keys: their rights on each remote are its administrator's choice, and every call is in the remote's audit log |
