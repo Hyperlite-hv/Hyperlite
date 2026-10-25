@@ -1097,6 +1097,21 @@
     "title": "ConvertRequest",
     "type": "object"
    },
+   "CpuCheck": {
+    "properties": {
+     "cpu_xml": {
+      "maxLength": 65536,
+      "minLength": 1,
+      "title": "Cpu Xml",
+      "type": "string"
+     }
+    },
+    "required": [
+     "cpu_xml"
+    ],
+    "title": "CpuCheck",
+    "type": "object"
+   },
    "CpuPinning": {
     "properties": {
      "cpuset": {
@@ -1869,6 +1884,20 @@
      }
     },
     "title": "IncomingFinish",
+    "type": "object"
+   },
+   "IncomingLive": {
+    "properties": {
+     "networks": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Networks",
+      "type": "array"
+     }
+    },
+    "title": "IncomingLive",
     "type": "object"
    },
    "InterfaceAttach": {
@@ -3563,6 +3592,12 @@
       ],
       "description": "Bandwidth limit, MiB/s",
       "title": "Limit Mib"
+     },
+     "live": {
+      "default": false,
+      "description": "The VM runs and keeps running: a live migration (docs/design/multi-cluster.md, 9.2)",
+      "title": "Live",
+      "type": "boolean"
      },
      "name": {
       "anyOf": [
@@ -17201,6 +17236,48 @@
     "summary": "Site Incoming"
    }
   },
+  "/api/v1/sites/incoming/cpu-check": {
+   "post": {
+    "description": "Whether this node can run a VM with this <cpu> live: {\"compatible\", \"detail\"}.",
+    "operationId": "site_incoming_cpu_api_v1_sites_incoming_cpu_check_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CpuCheck"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Incoming Cpu"
+   }
+  },
   "/api/v1/sites/incoming/{incoming}": {
    "delete": {
     "description": "The incoming VM cancelled by the cluster that sent it: its volumes removed.",
@@ -17349,6 +17426,102 @@
     "summary": "Site Incoming Finish"
    }
   },
+  "/api/v1/sites/incoming/{incoming}/live": {
+   "post": {
+    "description": "The prepared incoming VM made ready to arrive running, on these networks: {\"sockets\", \"volumes\"}.",
+    "operationId": "site_incoming_live_api_v1_sites_incoming__incoming__live_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incoming",
+      "required": true,
+      "schema": {
+       "title": "Incoming",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IncomingLive"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Incoming Live"
+   }
+  },
+  "/api/v1/sites/incoming/{incoming}/live/define": {
+   "post": {
+    "description": "The VM that arrived running defined here, from what it runs (checked again).",
+    "operationId": "site_incoming_live_define_api_v1_sites_incoming__incoming__live_define_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incoming",
+      "required": true,
+      "schema": {
+       "title": "Incoming",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Site Incoming Live Define"
+   }
+  },
   "/api/v1/sites/outgoing/{vm}": {
    "get": {
     "description": "What the move dialog shows: the stopped VM's disks and cards, and what stays behind; a VM that cannot go (it\nruns, has a snapshot or a device of this host) is refused with why.",
@@ -17361,6 +17534,16 @@
       "schema": {
        "title": "Vm",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "live",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Live",
+       "type": "boolean"
       }
      }
     ],

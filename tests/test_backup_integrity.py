@@ -205,21 +205,9 @@ def test_the_endpoint_verifies_as_a_task_admins_only(client, auth_headers, datab
     backup_id = _insert(database, tmp_path / "b")
     import app.routers.backups as router
 
-    real_thread = router.threading.Thread
-
-    class Inline:  # runs the endpoint's job at once; any other thread (the audit writer...) stays a real one
-        def __init__(self, target=None, args=(), daemon=None, **kw):
-            self.target, self.args, self.real = target, args, None
-            if getattr(target, "__name__", "") != "job":
-                self.real = real_thread(target=target, args=args, daemon=daemon, **kw)
-
-        def start(self):
-            if self.real is not None:
-                self.real.start()
-            else:
-                self.target(*self.args)
-
-    monkeypatch.setattr(router.threading, "Thread", Inline)
+    monkeypatch.setattr(
+        router, "start_thread", lambda fn, *args, task_id=None, name=None: fn(*args)
+    )  # the endpoint's job at once
     r = client.post(f"/backups/{backup_id}/verify", headers=admin)
     assert r.status_code == 202 and r.json()["task_id"]
     assert _row(database, backup_id)["verification"] == "verified"

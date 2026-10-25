@@ -42,6 +42,7 @@ import libvirt
 
 from app.core import backup_groups, backup_integrity, checkpoints, firmware, guest_agent, object_meta, vm_locks
 from app.core.safe_paths import safe_child
+from app.core.tasks import start_thread
 
 logger = logging.getLogger(__name__)
 
@@ -526,7 +527,7 @@ def _run_and_record(job, username):
 
 def start_job(job, username):
     """Run a job now, in the background."""
-    threading.Thread(target=_run_and_record, args=(job, username), daemon=True, name="replication").start()
+    start_thread(_run_and_record, job, username, name="replication")  # its tasks are made on the thread
 
 
 def run_due(now):

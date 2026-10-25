@@ -357,16 +357,15 @@ def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, 
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(domain))
     daemon_lxc(_Conn(domain))  # hyperlite-daemon stops it
     started = []
-    real_thread = containers.threading.Thread
+    real_start = containers.start_thread
 
-    def thread(*a, **kw):
-        # Only the forced stop is held back: containers.threading is the threading module, and another thread started
-        # meanwhile (the audit writer, at the first sign-in of a run) must start as usual.
-        if kw.get("target") is containers._force_stop_later:
-            return type("T", (), {"start": lambda s: started.append(kw["args"])})()
-        return real_thread(*a, **kw)
+    def thread(fn, *args, **kw):
+        # Only the forced stop is held back: another thread started meanwhile starts as usual.
+        if fn is containers._force_stop_later:
+            return started.append(args)
+        return real_start(fn, *args, **kw)
 
-    monkeypatch.setattr(containers.threading, "Thread", thread)
+    monkeypatch.setattr(containers, "start_thread", thread)
     set_container_app("pg", "postgres:16", {"args": ["postgres"]}, "192.168.100.10", "isolated")
     r = client.post("/containers/pg/stop", headers=auth_headers("alice"))
     assert r.status_code == 200 and r.json()["force_stop_after_s"] == containers.STOP_GRACE_S["application"]

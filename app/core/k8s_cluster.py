@@ -32,7 +32,7 @@ from app.core import paths
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.secrets_crypto import SecretUnreadable, decrypt, encrypt
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, start_thread, update_task_progress
 
 
 def _store():
@@ -416,11 +416,9 @@ def start_create(name, workers, vcpu, memory_mb, disk_gb, network, username):
     _store().create_k8s_cluster(
         name, network, server, json.dumps(agents), vcpu, memory_mb, disk_gb, task_id, username, _now()
     )
-    threading.Thread(
-        target=_provision,
-        args=(name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id),
-        daemon=True,
-    ).start()
+    start_thread(
+        _provision, name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id, task_id=task_id
+    )
     return task_id
 
 

@@ -184,7 +184,7 @@ def test_a_running_uefi_vm_is_not_snapshotted_a_stopped_one_is(monkeypatch, daem
     monkeypatch.setattr(vm_snapshots.iscsi, "iscsi_disks_of_domain", lambda d: [])
     monkeypatch.setattr(snapshots, "create_task", lambda *a, **k: "t1")
     monkeypatch.setattr(snapshots, "task_log", lambda *a: None)
-    monkeypatch.setattr(snapshots.threading, "Thread", Mock())
+    monkeypatch.setattr(snapshots, "start_thread", Mock())
     payload = snapshots.SnapshotCreate(name="before-update")
     if refused:
         with pytest.raises(HTTPException) as err:

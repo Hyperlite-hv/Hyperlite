@@ -1,7 +1,7 @@
 # Several clusters and sites from one view (#656)
 
 Status: **accepted (maintainer, 2026-10-25).** Section 2 holds the maintainer's choices.
-Steps 1 (PR #717), 2 (#719) and 4 (#728, #731, #732, #734) merged.
+Steps 1 (PR #717), 2 (#719), 4 (#728, #731, #732, #734) and 5 (#743 and its follow-up) merged; step 3 waits for #511.
 
 ## 1. Why
 
