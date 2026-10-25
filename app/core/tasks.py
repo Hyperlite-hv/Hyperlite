@@ -139,6 +139,22 @@ def request_cancel(task_id, username, force=False):
     return "requested"
 
 
+def abort_here(task_id, username):
+    """request_cancel's part in the process that runs the work, without the record: hyperlite-daemon, asked by the API
+    to stop a job it runs (backup.cancel). False when this process runs nothing for that task."""
+    with _cancel_lock:
+        if task_id not in _cancellers:
+            return False
+        _requested[task_id] = username
+        abort = _cancellers.get(task_id)
+    if abort:
+        try:
+            abort()
+        except Exception:
+            logger.exception("Aborting task %s failed", task_id)
+    return True
+
+
 def close_interrupted_tasks():
     """At start-up: a task still 'running' was run by the previous process, which is gone."""
     return _store().close_interrupted(_now())

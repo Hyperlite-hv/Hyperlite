@@ -309,10 +309,18 @@ def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
 
 
 def console(n, path):
-    """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api())."""
+    """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api()). A
+    handshake that does not come is reported with the node's own account of that moment: the API's and the daemon's
+    journals (the lab's logs are not always at hand)."""
     from websockets.sync.client import connect
 
-    return connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=30, max_size=None)
+    try:
+        return connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=30, max_size=None)
+    except TimeoutError:
+        # Every thread's stack of the API at that moment (faulthandler on SIGUSR1, app/main.py), then the journal.
+        on(n, "sh", "-c", "kill -USR1 $(systemctl show --property=MainPID --value hyperlite); sleep 2")
+        journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 150 --no-pager -o cat")
+        raise AssertionError(f"no WebSocket handshake from node {n} in 30 s; its API:\n{journal[-3500:]}") from None
 
 
 def read_until(ws, text, timeout=30):
@@ -381,6 +389,47 @@ def test_the_consoles_are_opened_by_the_daemon(cluster):
     ok(api(1, "POST", f"/vms/labcon/stop?node={b}&force=true", token=t[1]))
     wait("labcon stopped", lambda: ok(api(1, "GET", f"/vms/labcon?node={b}", token=t[1]))["state"] == "stopped")
     ok(api(1, "DELETE", f"/vms/labcon?node={b}&confirm=true", token=t[1]))
+
+
+def test_a_backup_is_made_verified_restored_and_deleted_by_the_daemon(cluster):
+    """A directory backup of a stopped VM on a member, then its verification, its restore as a new VM and its
+    deletion, each run by hyperlite-daemon (docs/design/privilege-separation.md, the backups domain, part 1a), the
+    files checked on the node."""
+    t = cluster["tokens"][2]
+    form, content_type = multipart("bk.iso", b"\0" * (1 << 20))
+    ok(api(2, "POST", "/isos", form=form, content_type=content_type, token=t))
+    spec = {"name": "labbk", "vcpu": 1, "memory_mb": 256, "disks": [{"size_gb": 1}], "iso": "bk.iso"}
+    finished(2, t, ok(api(2, "POST", "/vms?wait=false", spec, t))["task_id"])
+    if ok(api(2, "GET", "/vms/labbk", token=t))["state"] != "stopped":
+        ok(api(2, "POST", "/vms/labbk/stop?force=true", token=t))
+        wait("labbk stopped", lambda: ok(api(2, "GET", "/vms/labbk", token=t))["state"] == "stopped")
+
+    def backups():
+        return ok(api(2, "GET", "/vms/labbk/backups", token=t))["items"]
+
+    ok(api(2, "POST", "/vms/labbk/backups", {}, t))
+    done = wait("the backup", lambda: [r for r in backups() if r["status"] in ("succeeded", "failed")], timeout=600)
+    row = done[0]
+    assert row["status"] == "succeeded", row
+    path = row["path"]
+    assert path.startswith("/var/lib/hyperlite/") and "/labbk/" in path, path
+    assert "manifest.json" in on(2, "sh", "-c", f"ls {shlex.quote(path)}").split()
+
+    verified = ok(api(2, "POST", f"/backups/{row['id']}/verify", token=t))
+    if verified.get("task_id"):
+        finished(2, t, verified["task_id"])
+    wait("verified", lambda: next(r for r in backups() if r["id"] == row["id"])["verification"] == "verified", 300)
+
+    restored = ok(api(2, "POST", f"/backups/{row['id']}/restore", {"mode": "new", "new_name": "labbk2"}, t))
+    if restored.get("task_id"):
+        finished(2, t, restored["task_id"])
+    wait("labbk2 restored", lambda: api(2, "GET", "/vms/labbk2", token=t)[0] == 200, 600)
+
+    ok(api(2, "DELETE", f"/backups/{row['id']}?confirm=true", token=t))
+    assert on(2, "sh", "-c", f"test -e {shlex.quote(path)} && echo left || echo gone").strip() == "gone"
+    for vm in ("labbk", "labbk2"):
+        ok(api(2, "DELETE", f"/vms/{vm}?confirm=true", token=t))
+    api(2, "DELETE", "/isos/bk.iso?confirm=true", token=t)
 
 
 TERRAFORM_HEAD = """
