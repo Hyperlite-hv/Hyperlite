@@ -45,6 +45,47 @@ def get_task_log(task_id):
 # A long task registers how to stop it (abort a libvirt job, stop between steps...). Cancelling asks it to stop;
 # the task then ends as failed, recorded as cancelled by whom. A task with nobody behind it (its worker died with a
 # service restart) is closed as abandoned instead of staying "running" forever.
+#
+# Several processes run tasks (the API, hyperlite-scheduler, HA's services: docs/design/privilege-separation.md,
+# section 14, 4c). Each task records its runner, "<service>:<pid>:<start time>": a task is abandoned only when that
+# process is gone (a reused pid has another start time). A cancellation for a task another process runs is written
+# for it (task_cancel_requests); its watcher thread acts on it within WATCH_S, as abort_here does.
+
+SERVICE_ENV = "HYPERLITE_SERVICE"  # set by each service's unit; "api" by default
+WATCH_S = 2.0
+
+
+def _start_time(pid):
+    """A process's start time since boot (clock ticks), None when there is no such process."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            # The command name may hold spaces and parentheses: the fields after its last ")" are fixed.
+            return int(f.read().rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+_runner = None
+
+
+def runner():
+    """This process, as a task's runner."""
+    global _runner
+    if _runner is None:
+        import os
+
+        pid = os.getpid()
+        _runner = f"{os.environ.get(SERVICE_ENV) or 'api'}:{pid}:{_start_time(pid)}"
+    return _runner
+
+
+def runner_alive(name):
+    """Whether the process `name` names (runner()) still runs."""
+    try:
+        _service, pid, started = name.rsplit(":", 2)
+        return str(_start_time(int(pid))) == started
+    except (ValueError, AttributeError):
+        return False
 
 
 class TaskCancelled(Exception):
@@ -66,6 +107,39 @@ def register_cancel(task_id, abort=None):
     """This task can be cancelled; `abort` (optional) interrupts what it is doing right now."""
     with _cancel_lock:
         _cancellers[task_id] = abort
+    _watch()
+
+
+_watcher = []
+
+
+def _watch():
+    """Start, once per process, the thread that acts on the cancellations other processes write for its tasks."""
+    with _cancel_lock:
+        if _watcher:
+            return
+        thread = threading.Thread(target=_watch_loop, daemon=True, name="task-cancel-watch")
+        _watcher.append(thread)
+    thread.start()
+
+
+def _watch_loop():
+    import time as _time
+
+    while True:
+        _time.sleep(WATCH_S)
+        with _cancel_lock:
+            mine = list(_cancellers)
+        if not mine:
+            continue
+        try:
+            asked = _store().take_cancel_requests(mine)
+        except Exception:
+            logger.exception("The cancellations of this process's tasks could not be read")
+            continue
+        for task_id, username in asked.items():
+            task_log(task_id, f"Cancellation requested by {username}")
+            abort_here(task_id, username)
 
 
 def unregister_cancel(task_id):
@@ -123,6 +197,12 @@ def request_cancel(task_id, username, force=False):
             _requested[task_id] = username
     if not registered:
         if not live:
+            elsewhere = _store().runner(task_id)
+            if elsewhere and elsewhere != runner() and runner_alive(elsewhere) and not force:
+                # Another process runs it (hyperlite-scheduler, HA's services): its watcher acts on this.
+                _store().ask_cancel(task_id, username, _now())
+                task_log(task_id, f"Cancellation requested by {username}")
+                return "requested"
             _close_by(task_id, username, "no process was running it any more")
             return "abandoned"
         if not force:
@@ -156,8 +236,10 @@ def abort_here(task_id, username):
 
 
 def close_interrupted_tasks():
-    """At start-up: a task still 'running' was run by the previous process, which is gone."""
-    return _store().close_interrupted(_now())
+    """At start-up: the tasks still 'running' whose process is gone (this service's previous one, or another that
+    stopped); those another process still runs are left to it."""
+    gone = [t for t, name in _store().running_with_runners().items() if not name or not runner_alive(name)]
+    return _store().close_interrupted(gone, _now())
 
 
 def create_task(type_, target=None, node=None, username=None):
@@ -168,7 +250,7 @@ def create_task(type_, target=None, node=None, username=None):
     task_id = str(uuid.uuid4())
     # One name per node, whatever the caller had at hand: this node's name for None and "local", a registered node's
     # name otherwise (never the host name libvirt reports, which is neither).
-    _store().create(task_id, type_, target, self_node.to_db(node), username, _now())
+    _store().create(task_id, type_, target, self_node.to_db(node), username, _now(), runner())
     with _cancel_lock:
         _live.add(task_id)
     return task_id
@@ -201,6 +283,7 @@ def finish_task(task_id, status, error_message=None):
         # Keep what the task itself reported (how far it got), after who stopped it.
         error_message = f"Cancelled by {cancelled_by}" + (f": {error_message}" if error_message else "")
     _store().finish(task_id, status, error_message, cancelled_by, _now())
+    _store().forget_runner(task_id)
     unregister_cancel(task_id)
 
 
