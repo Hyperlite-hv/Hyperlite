@@ -226,13 +226,15 @@ done
 [ -f "$N/hyperlite.db.before-v1" ] && chmod 600 "$N/hyperlite.db.before-v1"
 # Root's and the API's group (www-data from 4e, as Proxmox VE's pveproxy; docs/design/privilege-separation.md, section
 # 14.6): the web interface's certificate and key, as /etc/pve/local/pveproxy-ssl.key, and the database the API writes.
-API_GROUP=www-data
-if getent group "$API_GROUP" > /dev/null; then
-    [ -d "$E/local" ] && chgrp "$API_GROUP" "$E/local" && chmod 750 "$E/local"
-    [ -f "$E/local/hyperlite.key" ] && chgrp "$API_GROUP" "$E/local/hyperlite.key" && chmod 640 "$E/local/hyperlite.key"
-    for f in "$N/hyperlite.db" "$N/hyperlite.db-wal" "$N/hyperlite.db-shm"; do
-        [ -f "$f" ] && chgrp "$API_GROUP" "$f" && chmod 660 "$f"
-    done
-fi
+# The mode is set whatever happens to the group (a test run as another user, a system without www-data).
+share() { # share MODE PATH: the API's group, then MODE
+    chgrp www-data "$2" 2> /dev/null || true
+    chmod "$1" "$2"
+}
+[ -d "$E/local" ] && share 750 "$E/local"
+[ -f "$E/local/hyperlite.key" ] && share 640 "$E/local/hyperlite.key"
+for f in "$N/hyperlite.db" "$N/hyperlite.db-wal" "$N/hyperlite.db-shm"; do
+    [ -f "$f" ] && share 660 "$f"
+done
 [ "${#MOVED[@]}" -eq 0 ] && log "nothing to move ($1)"
 exit 0
