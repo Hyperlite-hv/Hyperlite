@@ -69,6 +69,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"console.host_shell", "console.container_shell", "console.container_terminal"} <= named
     assert {"console.terminal", "console.serial", "console.display", "console.close", "console.spice_tls"} <= named
     assert {"vm.add_console", "vm.spice_password"} <= named
+    assert {"job.step", "job.cancel"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
