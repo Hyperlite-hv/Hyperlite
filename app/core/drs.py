@@ -19,6 +19,10 @@ migration of POST /vms/{name}/migrate (app/routers/vms/migration.py, start), wit
 the outcome back. A move keeps its VM for COOLDOWN_S; FAILURES_TO_PAUSE failures in a row pause automatic mode until an
 administrator saves the settings again, said in a notification. In manual mode, an administrator applies a move from
 the page, sent to that member in the administrator's name.
+
+The same placement serves a drain and a new VM (3.6, step 5): a drained member's VMs each go where they keep their
+rules and leave the lowest score, the largest first; a VM created on "auto" goes to the best member that has its
+network and storage pool (app/routers/drs.py).
 """
 
 import logging
@@ -225,23 +229,87 @@ def _rule_fixes(nodes, where, behaviours, now):
     return out
 
 
+# ---- Placement: a drained member's VMs and a new VM (3.6, step 5) ----
+
+
+def place(vm_name, vm, nodes, where):
+    """The member of `nodes` (view()) where `vm` (a load) goes: its memory free there with MEM_MARGIN, every rule kept
+    (else at least the "must" ones), the lowest score once it holds the VM. None when no member can take it."""
+    from app.core import drs_rules
+
+    roomy = [n for n in nodes if _fits(vm, nodes[n])]
+    keeping = [n for n in roomy if _keeps_rules(vm_name, n, where)] or [
+        n for n in roomy if drs_rules.allowed(vm_name, n, where)
+    ]
+    if not keeping:
+        return None
+    return min(keeping, key=lambda n: (_with(nodes, n, vm_name, vm)[n]["score"], n))
+
+
+def _with(nodes, target, vm_name, vm):
+    """`nodes` with `vm` added to `target` (a copy)."""
+    out = dict(nodes)
+    dst = out[target] = {**nodes[target], "vms": {**nodes[target]["vms"], vm_name: vm}}
+    dst["cpu"] += _vm_cpu_points(vm, dst)
+    dst["mem_used_mb"] += _vm_memory(vm)
+    dst["mem"] = 100.0 * dst["mem_used_mb"] / dst["mem_total_mb"]
+    dst["score"] = max(dst["cpu"], dst["mem"])
+    return out
+
+
+def _unavailable():
+    """The members in maintenance, by name: neither a source to even nor a target ("local" is this node's own row)."""
+    from app.core import maintenance, self_node
+
+    return {self_node.name() if m["node"] == maintenance.LOCAL else m["node"] for m in maintenance.list_all()}
+
+
+def spread(source, vm_names):
+    """{vm: member or None} for draining `source` (a node name): each VM where place() puts it, the largest first, the
+    members' loads counting the VMs placed before it."""
+    from app.core import drs_rules, statd
+
+    table = statd.table()
+    nodes = view(table, _unavailable() | {source})
+    loads = ((table.get(source) or {}).get("load") or {}).get("vms") or {}
+    where = drs_rules.placement()
+    out = {}
+    for name in sorted(vm_names, key=lambda n: (-_vm_memory(loads.get(n) or {}), n)):
+        vm = loads.get(name) or {}  # its load not read yet: placed on the scores alone
+        out[name] = target = place(name, vm, nodes, where)
+        if target:
+            nodes = _with(nodes, target, name, vm)
+            where[name] = target
+    return out
+
+
+def initial(vm_name, memory_mb, vcpus):
+    """The members a new VM may go to, best first (3.6): its whole memory counted, no CPU used yet."""
+    from app.core import drs_rules, statd
+
+    nodes = view(statd.table(), _unavailable())
+    where = drs_rules.placement()
+    vm = {"mem_total_mb": float(memory_mb), "vcpus": vcpus, "cpu_pct": 0.0}
+    ranked = []
+    while (best := place(vm_name, vm, nodes, where)) is not None:
+        ranked.append(best)
+        nodes = {n: v for n, v in nodes.items() if n != best}
+    return ranked
+
+
 # ---- The leader's rounds ----
 
 
 def evaluate():
     """One evaluation on the leader: the cluster's state and the recommended moves, kept for the API."""
-    from app.core import cluster_lead, drs_rules, maintenance, statd
+    from app.core import cluster_lead, drs_rules, statd
 
     settings = drs_rules.settings()
     if settings["mode"] == "off" or not cluster_lead.in_cluster():
         with _lock:
             _state.update(unbalanced=0, moves=[], reason="off" if settings["mode"] == "off" else "no cluster")
         return dict(_state)
-    from app.core import self_node
-
-    # In maintenance: neither a source to even nor a target ("local" is this node's own row).
-    unavailable = {self_node.name() if m["node"] == maintenance.LOCAL else m["node"] for m in maintenance.list_all()}
-    nodes = view(statd.table(), unavailable)
+    nodes = view(statd.table(), _unavailable())
     moves = recommend(nodes, settings["threshold"], drs_rules.behaviours())
     threshold = SPREAD.get(settings["threshold"])
     hot = any(n["score"] >= HOT_PCT for n in nodes.values())

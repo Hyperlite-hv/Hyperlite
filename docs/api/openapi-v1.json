@@ -2249,6 +2249,11 @@
    },
    "MaintenanceRequest": {
     "properties": {
+     "spread": {
+      "default": false,
+      "title": "Spread",
+      "type": "boolean"
+     },
      "target_node": {
       "anyOf": [
        {
@@ -10574,6 +10579,94 @@
     ]
    }
   },
+  "/api/v1/drs/placement": {
+   "get": {
+    "description": "The member a new VM goes to when its node is \"auto\" (docs/design/drs.md, 3.6): the one placement prefers among\nthose that have its network and its storage pool. 409 when none can take it.",
+    "operationId": "get_placement_api_v1_drs_placement_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "memory_mb",
+      "required": true,
+      "schema": {
+       "minimum": 1,
+       "title": "Memory Mb",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "vcpus",
+      "required": false,
+      "schema": {
+       "default": 1,
+       "minimum": 1,
+       "title": "Vcpus",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "name",
+      "required": false,
+      "schema": {
+       "default": "",
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "network",
+      "required": false,
+      "schema": {
+       "default": "default",
+       "title": "Network",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "storage_pool",
+      "required": false,
+      "schema": {
+       "default": "default",
+       "title": "Storage Pool",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Placement",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
   "/api/v1/drs/rules": {
    "get": {
     "operationId": "list_rules_api_v1_drs_rules_get",
@@ -15891,6 +15984,16 @@
        ],
        "title": "Target Node"
       }
+     },
+     {
+      "in": "query",
+      "name": "spread",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Spread",
+       "type": "boolean"
+      }
      }
     ],
     "responses": {
@@ -16015,7 +16118,7 @@
     ]
    },
    "post": {
-    "description": "Put a node in maintenance, then live-migrate its running VMs to `target_node`, one after another.",
+    "description": "Put a node in maintenance, then live-migrate its running VMs to `target_node`, or each where load balancing\nplaces it (`spread`), one after another.",
     "operationId": "enter_maintenance_api_v1_nodes__name__maintenance_post",
     "parameters": [
      {
