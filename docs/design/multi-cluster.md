@@ -141,7 +141,9 @@ delete it there: it is never started by Hyperlite.
 
 ### 9.2 Live (step 5)
 
-Status: **proposal** (2026-10-25). The maintainer's choices of the same day: **as Proxmox VE** (`qm remote-migrate
+Status: **accepted (maintainer, 2026-10-25)**, with **A, the filtering relay** ("as vSphere or Proxmox, choose well":
+Proxmox's tunnel carries a small command set of its own, never a whole access to the target; A is that, in front of
+libvirt). The maintainer's choices of the same day: **as Proxmox VE** (`qm remote-migrate
 --online`: the disks mirrored while the VM runs, then its memory, a pause of about a second at the switch), and a VM
 whose CPU the target cannot run is **refused before anything goes, with the offline move offered** (as vSphere's EVC).
 
