@@ -91,7 +91,8 @@ def test_the_copy_loops_run_in_the_daemon_and_in_the_api_only_in_process():
     assert "shadow.start_shadow_copy()" in daemon and "inbound.start_apply_loop()" in daemon
     main = (ROOT / "app" / "main.py").read_text()
     start = main.index("start_shadow_copy()\n", main.index("def on_startup") if "def on_startup" in main else 0)
-    assert "INPROCESS_ENV" in main[start - 200 : start]
+    guard = main.rindex('if os.environ.get(privileged.INPROCESS_ENV) == "1":', 0, start)
+    assert all(line.startswith("        ") for line in main[guard:start].splitlines()[1:] if line.strip())
     # Forced shadow mode and the socket's path come from the node's env file: the daemon loads it as the API does, or
     # its copy loop would take shadow mode for off and empty the outbox.
     assert "EnvironmentFile=-/etc/hyperlite/priv/env" in (ROOT / "installer" / "hyperlite-daemon.service").read_text()

@@ -40,4 +40,12 @@ if __name__ == "__main__":
 
     shadow.start_shadow_copy()
     inbound.start_apply_loop()
+    # What else writes the cluster's tree, which hyperlite-cfs takes from root only (section 14.7): this node's
+    # certificate fingerprint for the members' HTTPS calls, API v1's one rewrite, and the node's lead with Corosync's
+    # configuration and the members' SSH keys following the shared ones (cluster_setup.sync).
+    from app.core import cluster_lead, cluster_v1, peer_https
+
+    peer_https.start()
+    cluster_v1.start()
+    cluster_lead.start_lead_loop(follow_setup=True)
     serve()

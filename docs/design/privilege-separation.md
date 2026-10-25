@@ -793,3 +793,30 @@ So, from this step on:
 - **Administration > Replicated configuration** (`/cfs/shadow*`) asks the daemon too: `cfs.report`, `cfs.seed`,
   `cfs.enable` and `cfs.disable`, for administrators. They start and stop `hyperlite-cfs` and write its tree.
 
+
+### 14.7 4e: hyperlite-cfs takes a change from root only (2026-10-25)
+
+The API reads the replicated configuration (the members' statuses, the tree's entries). For that, the socket of
+`hyperlite-cfs` gets its group: `--socket-mode 0660 --socket-group www-data`.
+
+Reading must not mean writing, though. Every member applies the tree as root, including the permissions (14.3). If
+`www-data` could put `/db/acl/...` there, it would grant itself rights on every member. So `hyperlite-cfs` now refuses
+any change (`PUT`, `DELETE`, `RENAME`, `LOCK`, `UNLOCK`, `NEXT_ID`) from a peer that is neither root nor its own user (a
+test's). `/etc/pve` is the same for `www-data` on Proxmox VE. Each refusal of a client's identity is one line in its log,
+with the uid.
+
+What the API still wrote itself is now done elsewhere:
+
+- **In the daemon** (`app/daemon/__main__.py`):
+  - the certificate fingerprint (`peer_https`);
+  - API v1's rewrite of the tree (`cluster_v1`);
+  - the node's lead, with Corosync's configuration and the members' SSH keys following the shared ones
+    (`cluster_lead.start_lead_loop(follow_setup=True)`).
+
+  The API starts them only when it runs the daemon's operations in process.
+- **Asked of the daemon** through `shadow.writer()`, once the process is not root:
+  - a new row's cluster-wide id: `cfs.next_id`, public, since a counter only goes up;
+  - the rolling update's lock: `cfs.lock` / `cfs.unlock`, for an administrator, and for that lock's name only.
+- **Still in the API, moving with #298's split:**
+  - the cluster's creation, join and leave (`cluster_setup`);
+  - `statd.changed`'s publish (`STAT_PUT`, already root-only in cfs).

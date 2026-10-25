@@ -445,6 +445,40 @@ def _here():
     return running_here() or os.environ.get(INPROCESS_ENV) == "1"
 
 
+class _ThroughTheDaemon:
+    """The few writes to hyperlite-cfs a process that is not root's makes (the API, www-data from 4e), asked of
+    hyperlite-daemon: cfs refuses a change from anyone but root (docs/design/privilege-separation.md, section 14.7), so
+    no row the API wrote there reaches the other members' permissions."""
+
+    def next_id(self):
+        from app.core import privileged
+
+        return privileged.run("cfs.next_id")["id"]
+
+    def lock(self, name, owner, ttl=60):
+        from app.core import privileged
+        from app.core.cfs_client import LOCKED, Locked
+        from app.daemon.registry import DaemonError
+
+        try:
+            privileged.run("cfs.lock", name=name, ttl=ttl)
+        except DaemonError as e:
+            if e.kind == "in_use":
+                raise Locked(LOCKED, e.detail) from None
+            raise
+
+    def unlock(self, name, owner):
+        from app.core import privileged
+
+        privileged.run("cfs.unlock", name=name)
+
+
+def writer():
+    """The client to change hyperlite-cfs with: the daemon's socket for root's services, hyperlite-daemon for the API
+    once it is not root."""
+    return _get_client() if os.geteuid() == 0 or _here() else _ThroughTheDaemon()
+
+
 def catch_up():
     """Before a request changes something (app/main.py): this node's changes out, the cluster's in. Done by the
     daemon, which writes both (app/daemon/ops/cfs.py)."""

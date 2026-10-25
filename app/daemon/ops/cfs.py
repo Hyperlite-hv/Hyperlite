@@ -7,7 +7,7 @@ not be able to write (a row it wrote there would reach every member's permission
 Neither operation takes anything from the caller but outbox ids: each copies what this node's database already holds,
 so anyone may ask (no proof: a sign-in's own changes are confirmed too)."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -95,3 +95,54 @@ def disable(args, ctx):
     except shadow.ShadowError as e:
         raise DaemonError("in_use" if shadow.forced() else "unavailable", str(e)) from None
     return {"active": False}
+
+
+# --- The API's own few writes to the tree (shadow.writer): hyperlite-cfs takes a change from root only ---
+
+
+@operation("cfs.next_id", NoArgs, needs=PUBLIC)
+def next_id(args, ctx):
+    """A fresh cluster-wide id for a new row the API writes (app/repositories/cfs/ids.py): {"id"}. A counter only goes
+    up, and the row is still the API's to write: anyone may ask."""
+    from app.repositories.cfs import ids
+
+    try:
+        return {"id": ids.reserve()}
+    except Exception as e:
+        raise DaemonError("unavailable", f"hyperlite-cfs does not answer: {e}") from None
+
+
+# The cluster-wide locks the API takes itself: the rolling update's, held while it runs.
+API_LOCKS = ("hyperlite-rolling-update",)  # app/core/rolling_update.py, LOCK
+
+
+class LockArgs(Args):
+    name: Literal[API_LOCKS]  # type: ignore[valid-type]
+    ttl: Annotated[int, Field(ge=1, le=3600)] = 60
+
+
+class UnlockArgs(Args):
+    name: Literal[API_LOCKS]  # type: ignore[valid-type]
+
+
+@operation("cfs.lock", LockArgs)
+def lock(args, ctx):
+    """Take or renew `name` for this node: {}. Held by another node: "in_use", naming it."""
+    from app.core import self_node
+    from app.core.cfs_client import Locked
+    from app.repositories.cfs import shadow
+
+    try:
+        shadow._get_client().lock(args.name, self_node.name(), args.ttl)
+    except Locked as e:
+        raise DaemonError("in_use", e.reason) from None
+    return {}
+
+
+@operation("cfs.unlock", UnlockArgs)
+def unlock(args, ctx):
+    from app.core import self_node
+    from app.repositories.cfs import shadow
+
+    shadow._get_client().unlock(args.name, self_node.name())
+    return {}
