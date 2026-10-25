@@ -70,6 +70,9 @@ def cluster(database, monkeypatch):
         if target in world["unreachable"]:
             raise HTTPException(status_code=502, detail="Node unreachable: timed out")
         if world["refuse"]:
+            # libvirtError(msg) reads the thread's last libvirt error first: one an earlier test left (the same xdist
+            # worker) would replace this message, and HA would not see the lock it is about.
+            libvirt.virResetLastError()
             raise libvirt.libvirtError(world["refuse"].pop(0))
         world["started"].append((row["vm_name"], target))
         ha._store().sync_definition(row["vm_name"], row["domain_xml"], "now", node=target)
