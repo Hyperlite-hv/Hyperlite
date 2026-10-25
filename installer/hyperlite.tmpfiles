@@ -17,6 +17,8 @@ d /run/lock/hyperlite                 0770 root     www-data -
 # file the API makes is adm's too.
 d /var/log/hyperlite                  2750 www-data adm      -
 z /var/log/hyperlite/access.log*      0640 www-data adm      -
+# The permission tables (app/core/database.py, ACCESS): written by root's services, read by the API.
+z /etc/hyperlite/access.db            0640 root     www-data -
 # The web interface's certificate and key, as /etc/pve/local/pveproxy-ssl.key.
 z /etc/hyperlite/local                0750 root     www-data -
 z /etc/hyperlite/local/hyperlite.key  0640 root     www-data -

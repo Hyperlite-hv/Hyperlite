@@ -302,6 +302,15 @@ def test_the_services_run_beside_the_api(cluster):
         assert on(1, "systemctl", "is-active", service).strip() == "active", service
 
 
+def test_the_daemon_makes_the_admin_account_at_its_start(cluster):
+    """docs/design/privilege-separation.md, 4e: hyperlite-daemon made the admin account at its first start, with the
+    password postinst wrote (the cluster fixture signed in with it), and the API made none."""
+    for n in NODES:
+        daemon = on(n, "journalctl", "-u", "hyperlite-daemon", "--no-pager", "-o", "cat")
+        assert "Admin account created: the initial password is in" in daemon, n
+        assert "Admin account created" not in on(n, "journalctl", "-u", "hyperlite", "--no-pager", "-o", "cat"), n
+
+
 def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
     status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])
@@ -952,12 +961,13 @@ def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
     began = time.monotonic()
 
     def where(vm):
-        return [
-            n
-            for n in NODES
-            if api(n, "GET", f"/vms/{vm}", token=t[n])[0] == 200
-            and ok(api(n, "GET", f"/vms/{vm}", token=t[n]))["state"] == "active"
-        ]
+        # One read per member: during a move, the member it leaves may answer neither 200 nor 404 for a moment.
+        found = []
+        for n in NODES:
+            status, body = api(n, "GET", f"/vms/{vm}", token=t[n])
+            if status == 200 and body["state"] == "active":
+                found.append(n)
+        return found
 
     def one_moved():
         places = {vm: where(vm) for vm in busy}
@@ -981,11 +991,23 @@ def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
     print(f"[lab] load balancing moved {places} {time.monotonic() - began:.0f} s after the VMs began to spin")
     assert all(len(nodes) == 1 for nodes in places.values()), places  # each runs once
     ok(api(1, "PUT", "/drs/settings", {"mode": "manual", "threshold": 3}, t[1]))
-    for vm, nodes in places.items():  # each through the member it runs on, which names itself no "?node="
-        n = nodes[0]
-        ok(api(n, "POST", f"/vms/{vm}/stop?force=true", token=t[n]))
-        wait(f"{vm} stopped", lambda vm=vm, n=n: ok(api(n, "GET", f"/vms/{vm}", token=t[n]))["state"] == "stopped")
-        ok(api(n, "DELETE", f"/vms/{vm}?confirm=true", token=t[n]))
+
+    def removed(vm):
+        """Stopped, then deleted, through the member it runs on (which names itself no "?node="). A move load
+        balancing started before the switch to manual finishes first: the VM is busy (409) until then, and stopped and
+        deleted where it ends up."""
+        for n in NODES:
+            status, body = api(n, "GET", f"/vms/{vm}", token=t[n])
+            if status != 200:
+                continue
+            if body["state"] != "stopped":
+                api(n, "POST", f"/vms/{vm}/stop?force=true", token=t[n])
+                return False
+            return api(n, "DELETE", f"/vms/{vm}?confirm=true", token=t[n])[0] in (200, 202)
+        return True
+
+    for vm in busy:
+        wait(f"{vm} stopped and deleted", lambda vm=vm: removed(vm), timeout=300, every=5)
 
 
 def _boot_id(n):
