@@ -104,7 +104,18 @@ def publish():
     except (CfsError, OSError) as e:
         logger.debug("Status not sent: %s", e)
         return None
+    _sent[0] = time.monotonic()
     return len(blob)
+
+
+# When this process last sent the node's heartbeat (its summary), or started sending it: the watchdog is fed only
+# while it goes out (app/core/ha_selffence.py), so the leader never takes a node whose VMs still run for lost.
+_sent = [time.monotonic()]
+
+
+def heartbeat_age():
+    """Seconds since this process last sent the node's summary (or started sending)."""
+    return time.monotonic() - _sent[0]
 
 
 def table():
@@ -201,6 +212,7 @@ def _loop(stop):
 
 
 def start():
+    _sent[0] = time.monotonic()  # a grace for the first summary
     stop = threading.Event()
     threading.Thread(target=_loop, args=(stop,), daemon=True, name="statd").start()
     _wake.set()  # a first summary at once

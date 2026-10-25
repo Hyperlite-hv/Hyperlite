@@ -156,6 +156,13 @@ def is_leader():
         return time.monotonic() < _leading_until
 
 
+# hyperlite-ha-crm's own lock (app/ha_services): renewed only while its rounds run, so a CRM that hangs on the leader
+# loses it and another member's takes over, as Proxmox VE's CRM holds the manager lock itself. The API's and the
+# scheduler's lead stays LOCK, the node's.
+HA_LOCK = "hyperlite-ha-lead"
+_lead = {"lock": LOCK, "healthy": None}
+
+
 def renew():
     """Take or renew the lock. The holder is named after the node, so a node that restarts gets its own lock back."""
     global _leading_until
@@ -163,8 +170,16 @@ def renew():
         with _lock:
             _leading_until = 0.0
         return False
+    healthy = _lead["healthy"]
+    if healthy is not None and not healthy():
+        # Its rounds stopped: not renewed, so the lock expires and another member takes the cluster-wide work.
+        with _lock:
+            was, _leading_until = time.monotonic() < _leading_until, 0.0
+        if was:
+            logger.warning("This node's rounds stopped: it no longer runs the cluster-wide tasks")
+        return False
     try:
-        _shadow()._get_client().lock(LOCK, self_node.name(), TTL_S)
+        _shadow()._get_client().lock(_lead["lock"], self_node.name(), TTL_S)
         held = True
     except Locked:
         held = False
@@ -205,7 +220,9 @@ def _loop(follow_setup=True):
         time.sleep(RENEW_S)
 
 
-def start_lead_loop(follow_setup=True):
+def start_lead_loop(follow_setup=True, lock=None, healthy=None):
     """`follow_setup`: the API's. hyperlite-scheduler renews the lead too, under the node's name: the lock is the
-    node's, so each of its services knows whether the node leads, even while another of them is stopped."""
+    node's, so each of its services knows whether the node leads, even while another of them is stopped.
+    hyperlite-ha-crm takes HA_LOCK instead, renewed only while `healthy()` says its rounds run."""
+    _lead.update(lock=lock or LOCK, healthy=healthy)
     threading.Thread(target=_loop, args=(follow_setup,), daemon=True, name="cluster-lead").start()

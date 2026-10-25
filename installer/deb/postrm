@@ -92,7 +92,8 @@ case "$1" in
         clean_code_dir
         # The units postinst copied (not the package's files: dpkg does not remove them).
         rm -f /etc/systemd/system/hyperlite.service /etc/systemd/system/hyperlite-daemon.service \
-            /etc/systemd/system/hyperlite-scheduler.service \
+            /etc/systemd/system/hyperlite-scheduler.service /etc/systemd/system/hyperlite-ha-lrm.service \
+            /etc/systemd/system/hyperlite-ha-crm.service \
             /etc/systemd/system/hyperlite-cfs.service /etc/systemd/system/hyperlite-vlan-bridges.service
         systemctl daemon-reload >/dev/null 2>&1 || true
         ;;
