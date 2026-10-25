@@ -45,6 +45,28 @@ def _repo():
     return registry.backups().sync
 
 
+# A daemon's refusal as the StoreError the routes answer (privileged.STATUS), and back (app/daemon/ops/backup.py).
+_STATUS_OF_KIND = {"not_found": 404, "in_use": 409, "unreachable": 502, "unavailable": 503, "failed": 500}
+KIND_OF_STATUS = {404: "not_found", 409: "in_use", 502: "unreachable", 503: "unavailable"}
+
+
+def _daemon(op, timeout=None, **args):
+    """A store's operation run by hyperlite-daemon, which alone reads a store's key and a remote's token
+    (docs/design/privilege-separation.md, the backups domain, part 2): its result, or StoreError."""
+    from app.core import daemon_client, privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        return privileged.run(op, timeout=timeout or daemon_client.TIMEOUT_S, **args)
+    except DaemonError as e:
+        raise StoreError(e.detail, _STATUS_OF_KIND.get(e.kind, 422)) from None
+
+
+def check(name):
+    """The store `name` exists and this node reaches it, with its key when it is encrypted; StoreError otherwise."""
+    _daemon("store.check", name=name)
+
+
 def _now():
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -53,7 +75,7 @@ def _pool_dir(pool_name):
     """The directory of this node's pool `pool_name`, or StoreError when it is not here, not running, or holds no files."""
     from app.core.storage_pools import pool_path, pool_type
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             pool = conn.storagePoolLookupByName(pool_name)
@@ -152,7 +174,39 @@ def create(
     master_public_key: the public half of a master recovery key (PEM): each backup then carries the store's key
     encrypted with it. copy_of: a new store made as the copy of that store of this cluster (backup_store_sync): its
     chunk size and its key, so chunks are copied as they are. Returns (row, the key's code for a new encrypted store,
-    to be shown once, else None)."""
+    to be shown once, else None). hyperlite-daemon makes the store (store.make); its records are written here."""
+    if not NAME.match(name or ""):
+        raise StoreError("Invalid name: letters, digits, '.', '-' and '_', 63 characters at most")
+    if _repo().get_store(name):
+        raise StoreError(f"A backup store '{name}' already exists", 409)
+    directory = _check_directory(directory or DEFAULT_DIRECTORY)
+    made = _daemon(
+        "store.make",
+        name=name,
+        pool=pool,
+        directory=directory,
+        encrypted=bool(encrypted),
+        master_public_key=master_public_key,
+        key=key,
+        copy_of=copy_of,
+    )
+    if made["sealed_key"]:
+        _repo().save_store_key(name, made["sealed_key"], _now())
+    _repo().save_store(
+        name, pool, directory, made["store_id"], 1 if made["encrypted"] else 0, username, _now(), made["master"]
+    )
+    if copy_of:
+        if not made["alike"]:
+            _repo().delete_store(name)
+            raise StoreError(f"{made['path']} holds a store whose chunks are not named as those of '{copy_of}'")
+        _repo().set_store_copy_of(name, copy_of)
+    return get(name), made["shown"]
+
+
+def make(name, pool, directory, encrypted=False, master_public_key=None, key=None, copy_of=None):
+    """hyperlite-daemon's part of create() (store.make): the store made, or taken over, in the pool's directory, its
+    key sealed with the cluster's secrets. {"path", "store_id", "encrypted", "sealed_key", "shown", "master",
+    "alike"}: the records are the API's to write."""
     from app.core import backup_remotes
 
     remote = backup_remotes.split_source(copy_of)
@@ -165,11 +219,7 @@ def create(
             raise StoreError(e.message, e.status) from None
         remote_config = reader.config
         reader.close()
-    if not NAME.match(name or ""):
-        raise StoreError("Invalid name: letters, digits, '.', '-' and '_', 63 characters at most")
-    if _repo().get_store(name):
-        raise StoreError(f"A backup store '{name}' already exists", 409)
-    directory = _check_directory(directory or DEFAULT_DIRECTORY)
+    directory = _check_directory(directory)
     master = None
     if master_public_key:
         try:
@@ -205,21 +255,25 @@ def create(
         raise StoreError(f"{path} cannot be read as a store: {e}") from None
     if master and not store.encrypted:
         raise StoreError("A master recovery key is for an encrypted store")
+    sealed = None
     if store.encrypted and secret is not None:
         from app.core import secrets_crypto
 
-        _repo().save_store_key(name, secrets_crypto.encrypt(backup_store.key_code(secret)), _now())
-    _repo().save_store(name, pool, directory, store.id, 1 if store.encrypted else 0, username, _now(), master)
-    if source is not None or remote_config is not None:
-        if source is not None:
-            alike = store.same_chunks_as(open_store(copy_of, raw=True))
-        else:
-            alike = _alike(store.config, remote_config)
-        if not alike:
-            _repo().delete_store(name)
-            raise StoreError(f"{path} holds a store whose chunks are not named as those of '{copy_of}'")
-        _repo().set_store_copy_of(name, copy_of)
-    return get(name), shown
+        sealed = secrets_crypto.encrypt(backup_store.key_code(secret))
+    alike = True
+    if source is not None:
+        alike = store.same_chunks_as(open_store(copy_of, raw=True))
+    elif remote_config is not None:
+        alike = _alike(store.config, remote_config)
+    return {
+        "path": str(path),
+        "store_id": store.id,
+        "encrypted": bool(store.encrypted),
+        "sealed_key": sealed,
+        "shown": shown,
+        "master": master,
+        "alike": alike,
+    }
 
 
 def _alike(config, other):
@@ -232,19 +286,26 @@ def _alike(config, other):
 
 def unlock(name, code, username="system"):
     """Give an encrypted copy its key, the day its backups are to be restored here: the copy kept none until then
-    (Antho, 2026-10-24). The key's fingerprint must be the store's."""
-    from app.core import secrets_crypto
-
+    (Antho, 2026-10-24). The key's fingerprint must be the store's. hyperlite-daemon checks and seals it
+    (store.unlock); the sealed key is recorded here."""
     row = get(name)
     if not row["encrypted"]:
         raise StoreError(f"The store '{name}' is not encrypted: it needs no key")
+    _repo().save_store_key(name, _daemon("store.unlock", name=name, code=code or "")["sealed_key"], _now())
+    return get(name)
+
+
+def seal_key(name, code):
+    """hyperlite-daemon's part of unlock(): the key checked against the store, sealed with the cluster's secrets."""
+    from app.core import secrets_crypto
+
+    row = get(name)
     try:
         key = backup_store.key_from_code(code or "")
         backup_store.Store(path_of(row), key)
     except backup_store.StoreError as e:
         raise StoreError(e.message) from None
-    _repo().save_store_key(name, secrets_crypto.encrypt(backup_store.key_code(key)), _now())
-    return get(name)
+    return secrets_crypto.encrypt(backup_store.key_code(key))
 
 
 def manifest_extra(name):
@@ -278,7 +339,13 @@ def remove(name):
 
 
 def describe(row):
-    """A store's row with what this node sees of it: reachable, space, backups."""
+    """A store's row with what this node sees of it: reachable, space, backups, read by hyperlite-daemon
+    (store.describe: an encrypted store opens with its key)."""
+    return _daemon("store.describe", name=row["name"])
+
+
+def describe_here(row):
+    """describe()'s work, hyperlite-daemon's."""
     out = {k: row[k] for k in ("name", "pool", "directory", "store_id", "created_by", "created_at")}
     out["encrypted"] = bool(row["encrypted"])
     out["master_key"] = bool(row.get("master_public_key"))
@@ -346,8 +413,17 @@ def _cluster_lock(lock_name):
             client.unlock(lock_name, owner)
 
 
+# A garbage collection reads every index of the store: generous, a large store takes hours.
+GC_TIMEOUT_S = 24 * 3600
+
+
 def collect_garbage(name):
-    """Free the chunks no backup of the store uses any more. Returns what it did."""
+    """Free the chunks no backup of the store uses any more, by hyperlite-daemon (store.gc). Returns what it did."""
+    return _daemon("store.gc", timeout=GC_TIMEOUT_S, name=name)
+
+
+def collect_garbage_here(name):
+    """collect_garbage()'s work, hyperlite-daemon's."""
     from app.core import self_node
 
     store = open_store(name)
@@ -378,7 +454,7 @@ def collect_due():
             if name in _collecting:
                 continue
         try:
-            store = open_store(name)
+            store = open_store(name, raw=True)  # when it was last collected: no key needed
         except StoreError:
             continue  # its pool is not on this node
         done = last_gc(store)

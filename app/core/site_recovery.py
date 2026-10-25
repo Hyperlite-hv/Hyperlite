@@ -192,7 +192,8 @@ def _store_row(root):
             "over, with its key when it is encrypted), then scan it again"
         )
     try:
-        return row, backup_stores.open_store(row["name"])
+        # Its backups' manifests, read as they are: the restore opens the store with its key, in hyperlite-daemon.
+        return row, backup_stores.open_store(row["name"], raw=True)
     except backup_stores.StoreError as e:
         raise RecoveryError(e.message) from None
 

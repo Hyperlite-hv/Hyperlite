@@ -308,19 +308,53 @@ def test_a_vm_is_made_on_a_member_and_migrated_to_another(cluster):
     ok(api(1, "DELETE", f"/vms/labvm?node={c}&confirm=true", token=t[1]))
 
 
+# A handshake slower than this has the API's threads dumped while it waits (faulthandler on SIGUSR1, app/main.py);
+# one slower than HANDSHAKE_S fails the test with what they were doing.
+HANDSHAKE_DUMP_S = 10
+HANDSHAKE_S = 90
+
+
+def _busy_threads(dump):
+    """The threads of a faulthandler dump that were doing something: not a loop waiting for its next turn."""
+    blocks, current = [], []
+    for line in dump.splitlines():
+        if line.startswith(("Thread 0x", "Current thread")) and current:
+            blocks.append(current)
+            current = []
+        current.append(line)
+    if current:
+        blocks.append(current)
+    idle = ('threading.py", line 363 in wait', "in _worker", "in select", "in _wait_for_tstate_lock")
+    return "\n".join("\n".join(b) for b in blocks if not any(i in "".join(b[1:3]) for i in idle))
+
+
 def console(n, path):
     """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api()). A
-    handshake that does not come is reported with the node's own account of that moment: the API's and the daemon's
-    journals (the lab's logs are not always at hand)."""
+    slow handshake is measured, and the API's threads are dumped while it waits; one that does not come fails with
+    what they were doing (the lab's logs are not always at hand)."""
+    import threading
+
     from websockets.sync.client import connect
 
+    dump = "kill -USR1 $(systemctl show --property=MainPID --value hyperlite)"
+    timer = threading.Timer(HANDSHAKE_DUMP_S, lambda: on(n, "sh", "-c", dump))
+    began = time.monotonic()
+    timer.start()
     try:
-        return connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=30, max_size=None)
+        ws = connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=HANDSHAKE_S, max_size=None)
     except TimeoutError:
-        # Every thread's stack of the API at that moment (faulthandler on SIGUSR1, app/main.py), then the journal.
-        on(n, "sh", "-c", "kill -USR1 $(systemctl show --property=MainPID --value hyperlite); sleep 2")
-        journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 150 --no-pager -o cat")
-        raise AssertionError(f"no WebSocket handshake from node {n} in 30 s; its API:\n{journal[-3500:]}") from None
+        journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 400 --no-pager -o cat")
+        raise AssertionError(
+            f"no WebSocket handshake from node {n} in {HANDSHAKE_S} s; its API's busy threads at "
+            f"{HANDSHAKE_DUMP_S} s:\n{_busy_threads(journal)[-3500:]}"
+        ) from None
+    finally:
+        timer.cancel()
+    took = time.monotonic() - began
+    if took > HANDSHAKE_DUMP_S:
+        journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 400 --no-pager -o cat")
+        print(f"[lab] WebSocket handshake from node {n} took {took:.0f} s; busy threads:\n{_busy_threads(journal)}")
+    return ws
 
 
 def read_until(ws, text, timeout=30):
