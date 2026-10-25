@@ -19,6 +19,7 @@ def _job(fn, *args, **kwargs):
     """A whole job's failure, its sentence for the task; a directory the daemon does not accept, refused."""
     import libvirt
 
+    from app.core.backup_store_vm import BackupFailed
     from app.core.error_messages import describe_exception
     from app.core.tasks import TaskCancelled
 
@@ -26,7 +27,7 @@ def _job(fn, *args, **kwargs):
         return fn(*args, **kwargs)
     except ValueError as e:
         raise DaemonError("refused", str(e)) from None
-    except TaskCancelled as e:
+    except (TaskCancelled, BackupFailed) as e:
         raise DaemonError("failed", str(e)) from None
     except libvirt.libvirtError as e:
         raise DaemonError("failed", describe_exception(e)) from e
@@ -203,3 +204,161 @@ def replication_point(args, ctx):
         )
     except replication.ReplicationError as e:
         raise DaemonError("failed", str(e)) from None
+
+
+# --- Part 2: the backup stores ---
+
+STORE_NAME = 63
+
+
+def _store_job(fn, *args, **kwargs):
+    """A store's refusal (StoreError, SyncError, RemoteError: a message and a status) as the daemon's kind."""
+    from app.core import backup_remotes, backup_store_sync, backup_stores
+
+    try:
+        return _job(fn, *args, **kwargs)
+    except (backup_stores.StoreError, backup_store_sync.SyncError, backup_remotes.RemoteError) as e:
+        raise DaemonError(backup_stores.KIND_OF_STATUS.get(e.status, "refused"), e.message) from None
+
+
+class StoreArgs(Args):
+    name: str = Field(min_length=1, max_length=STORE_NAME)
+
+
+@operation("store.check", StoreArgs)
+def store_check(args, ctx):
+    """The store exists and this node reaches it, with its key when it is encrypted."""
+    from app.core import backup_stores
+
+    _store_job(backup_stores.open_store, args.name)
+
+
+@operation("store.describe", StoreArgs)
+def store_describe(args, ctx):
+    """What this node sees of a store: reachable, space, backups, its last garbage collection."""
+    from app.core import backup_stores
+
+    return _store_job(lambda: backup_stores.describe_here(backup_stores.get(args.name)))
+
+
+@operation("store.gc", StoreArgs)
+def store_gc(args, ctx):
+    """The chunks no backup of the store uses any more, freed: what it did."""
+    from app.core import backup_stores
+
+    return _store_job(backup_stores.collect_garbage_here, args.name)
+
+
+class MakeArgs(Args):
+    name: str = Field(min_length=1, max_length=STORE_NAME)
+    pool: str = Field(min_length=1, max_length=64)
+    directory: str = Field(min_length=1, max_length=63)
+    encrypted: bool = False
+    master_public_key: str | None = Field(default=None, max_length=8192)
+    key: str | None = Field(default=None, max_length=512)
+    copy_of: str | None = Field(default=None, max_length=2 * STORE_NAME + 1)
+
+
+@operation("store.make", MakeArgs)
+def store_make(args, ctx):
+    """A store made, or taken over, in a directory of a pool of this node, its key sealed with the cluster's
+    secrets (backup_stores.make): the API writes the records."""
+    from app.core import backup_stores
+
+    return _store_job(
+        backup_stores.make,
+        args.name,
+        args.pool,
+        args.directory,
+        encrypted=args.encrypted,
+        master_public_key=args.master_public_key,
+        key=args.key,
+        copy_of=args.copy_of,
+    )
+
+
+class UnlockArgs(StoreArgs):
+    code: str = Field(max_length=512)
+
+
+@operation("store.unlock", UnlockArgs)
+def store_unlock(args, ctx):
+    """An encrypted copy's key, checked against the store and sealed: {"sealed_key"}, the API records it."""
+    from app.core import backup_stores
+
+    return {"sealed_key": _store_job(backup_stores.seal_key, args.name, args.code)}
+
+
+class StoreBackupArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    store: str = Field(min_length=1, max_length=STORE_NAME)
+    task_id: str = Field(min_length=1, max_length=TASK_ID)
+
+
+# One call that waits: a first backup into a store reads every disk.
+@operation("store.backup", StoreBackupArgs)
+def store_backup(args, ctx):
+    """A VM of this node backed up into a store, only the chunks it lacks written: {"path", "size", "mode"}."""
+    from app.core import backups
+
+    with _owned(args.task_id):
+        return _store_job(backups.copy_into_store, args.vm, args.store, args.task_id)
+
+
+class ImportArgs(Args):
+    path: str = Field(min_length=1, max_length=PATH)
+    created_at: str = Field(min_length=1, max_length=64)
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    # A store keeps a VM's backups under its UUID, a directory's name: a UUID, never a path.
+    vm_uuid: str = Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    store: str = Field(min_length=1, max_length=STORE_NAME)
+    task_id: str = Field(min_length=1, max_length=TASK_ID)
+
+
+@operation("store.import", ImportArgs)
+def store_import(args, ctx):
+    """A directory backup (a directory backups.backup_dir accepts) copied into a store: {"path", "size"}."""
+    from app.core import backups
+
+    return _store_job(backups.import_here, args.path, args.created_at, args.vm, args.vm_uuid, args.store, args.task_id)
+
+
+class SyncArgs(Args):
+    job_id: int = Field(ge=1)
+
+
+# One call that waits: a copy job copies whole stores.
+@operation("store.sync", SyncArgs)
+def store_sync(args, ctx):
+    """A copy job run (backup_store_sync.run_job), the job read from the records by its id: what it did."""
+    from app.core import backup_store_sync
+
+    return _store_job(backup_store_sync.run_job_by_id, args.job_id)
+
+
+class RemoteAddArgs(Args):
+    address: str = Field(min_length=1, max_length=254)
+    port: int = Field(ge=1, le=65535)
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    token: str = Field(min_length=1, max_length=4096)
+
+
+@operation("remote.add", RemoteAddArgs)
+def remote_add(args, ctx):
+    """Another cluster checked (its certificate, its token accepted) and its token sealed with its address and
+    certificate: {"sealed"}, the API records it, and the daemon only ever sends the token there."""
+    from app.core import backup_remotes
+
+    return {"sealed": _store_job(backup_remotes.check_and_seal, args.address, args.port, args.fingerprint, args.token)}
+
+
+class RemoteArgs(Args):
+    name: str = Field(min_length=1, max_length=STORE_NAME)
+
+
+@operation("remote.stores", RemoteArgs)
+def remote_stores(args, ctx):
+    """The stores another cluster's token may read: {"stores"}."""
+    from app.core import backup_remotes
+
+    return {"stores": _store_job(backup_remotes.stores_here, args.name)}

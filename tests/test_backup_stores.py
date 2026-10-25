@@ -212,7 +212,7 @@ def test_files_are_not_browsed_in_a_store_backup_yet(database, pools):
         file_restore.backup_disks(backup_id)
 
 
-def test_a_store_backup_records_its_directory_and_size(database, pools, monkeypatch):
+def test_a_store_backup_records_its_directory_and_size(database, pools, monkeypatch, daemon_libvirt):
     """_run_store_backup without libvirt: the VM and its copy into the store simulated."""
     from app.core import backup_store_vm
 
@@ -234,6 +234,7 @@ def test_a_store_backup_records_its_directory_and_size(database, pools, monkeypa
             pass
 
     monkeypatch.setattr(backups, "open_conn", lambda **_k: Conn())
+    daemon_libvirt(Conn())  # the copy into the store is hyperlite-daemon's (store.backup)
     monkeypatch.setattr(
         backup_store_vm,
         "backup_vm",

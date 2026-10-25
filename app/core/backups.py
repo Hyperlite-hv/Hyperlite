@@ -582,20 +582,61 @@ def _retention_after(vm_name, username):
 def _run_store_backup(vm_name, store_name, job_id, username):
     """A backup into a backup store (docs/design/backup-store.md): every disk type, running or stopped, only the
     chunks the store lacks written. Its task and its row exist from the start, so a store that cannot be reached is a
-    failed task, audited and notified, as any failed backup."""
-    from app.core import backup_store_vm, backup_stores
+    failed task, audited and notified, as any failed backup. hyperlite-daemon writes the store (store.backup)."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
 
     task_id = create_task("backup_vm", vm_name, node=None, username=username)
-    conn = open_conn()
-    backup_id = None
+    conn = open_conn(readonly=True)
     try:
         try:
-            domain = conn.lookupByName(vm_name)
+            mode = "live" if conn.lookupByName(vm_name).isActive() else "cold"
         except libvirt.libvirtError:
             finish_task(task_id, "failed", f"VM '{vm_name}' not found")
             raise RuntimeError(f"VM '{vm_name}' not found") from None
+    finally:
+        conn.close()
+    backup_id = _store().create(vm_name, job_id, "", mode, _now().isoformat(), task_id, store=store_name)
+    register_cancel(task_id, lambda: _cancel_in_daemon(task_id, username))
+    try:
+        try:
+            done = privileged.run(
+                "store.backup", user=username, timeout=JOB_TIMEOUT_S, vm=vm_name, store=store_name, task_id=task_id
+            )
+        except DaemonError as e:
+            raise RuntimeError(e.detail) from None
+        _store().set_path(backup_id, done["path"])
+        _store().mark_done(backup_id, done["size"], None)
+        finish_task(task_id, "succeeded")
+        kind = "live" if done["mode"] == "live" else "offline"
+        log_action(
+            username,
+            "backup_vm",
+            vm_name,
+            "success",
+            f"{kind}, {done['size'] / 1024**3:.1f} GiB of disk into the store {store_name}",
+        )
+    except Exception as e:
+        msg = str(e)
+        _store().mark_failed(backup_id, msg)
+        finish_task(task_id, "failed", msg)
+        log_action(username, "backup_vm", vm_name, "failed", msg)
+        raise
+    _retention_after(vm_name, username)
+    return backup_id
+
+
+def copy_into_store(vm_name, store_name, task_id):
+    """hyperlite-daemon's part of a backup into a store (store.backup): every disk read, only the chunks the store
+    lacks written, the VM's settings among its files. {"path", "size", "mode"}."""
+    from app.core import backup_store_vm, backup_stores, libvirt_utils
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            domain = conn.lookupByName(vm_name)
+        except libvirt.libvirtError:
+            raise RuntimeError(f"VM '{vm_name}' not found") from None
         mode = "live" if domain.isActive() else "cold"
-        backup_id = _store().create(vm_name, job_id, "", mode, _now().isoformat(), task_id, store=store_name)
         try:
             store = backup_stores.open_store(store_name)
             with tempfile.TemporaryDirectory() as tmp:
@@ -609,29 +650,12 @@ def _run_store_backup(vm_name, store_name, job_id, username):
                 files=files,
                 manifest_extra=backup_stores.manifest_extra(store_name),
             )
-            _store().set_path(backup_id, str(directory))
-            manifest = json.loads((directory / "manifest.json").read_text())
-            total_size = sum(d["size"] for d in manifest["disks"].values())
-            _store().mark_done(backup_id, total_size, None)
-            finish_task(task_id, "succeeded")
-            kind = "live" if mode == "live" else "offline"
-            log_action(
-                username,
-                "backup_vm",
-                vm_name,
-                "success",
-                f"{kind}, {total_size / 1024**3:.1f} GiB of disk into the store {store_name}",
-            )
-        except Exception as e:
-            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            _store().mark_failed(backup_id, msg)
-            finish_task(task_id, "failed", msg)
-            log_action(username, "backup_vm", vm_name, "failed", msg)
-            raise
-        _retention_after(vm_name, username)
-        return backup_id
-    finally:
-        conn.close()
+        except backup_stores.StoreError as e:
+            raise RuntimeError(e.message) from None
+        except libvirt.libvirtError as e:
+            raise RuntimeError(describe_exception(e)) from e
+    manifest = json.loads((directory / "manifest.json").read_text())
+    return {"path": str(directory), "size": sum(d["size"] for d in manifest["disks"].values()), "mode": mode}
 
 
 def remove_backup_files(path):
@@ -1275,8 +1299,10 @@ def start_backup_scheduler():
 
 def import_into_store(backup_id, store_name, username="system", task_id=None):
     """Copy a backup of today's format into a backup store (docs/design/backup-store.md, step 4): a new entry of the
-    catalogue, the backup itself left as it is (removing it stays a choice of its own). Returns the new entry's id."""
-    from app.core import backup_store_vm, backup_stores
+    catalogue, the backup itself left as it is (removing it stays a choice of its own). Returns the new entry's id.
+    hyperlite-daemon reads the backup and writes the store (store.import)."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
 
     row = _store().get(backup_id)
     if not row:
@@ -1290,20 +1316,26 @@ def import_into_store(backup_id, store_name, username="system", task_id=None):
         task_id = create_task("import_backup_store", row["vm_name"], node=None, username=username)
     with backup_use.reading(backup_id, "an import into a backup store"):
         try:
-            store = backup_stores.open_store(store_name)
-            vm_uuid = _vm_uuid(row["vm_name"])
-            directory = backup_store_vm.import_directory_backup(
-                row["path"], row["created_at"], row["vm_name"], store, vm_uuid,
-                progress=lambda pct: update_task_progress(task_id, pct),
-            )  # fmt: skip
-            manifest = json.loads((directory / "manifest.json").read_text())
-            size = sum(d["size"] for d in manifest["disks"].values())
-            existing = _store().find_by_path(str(directory))
+            try:
+                done = privileged.run(
+                    "store.import",
+                    user=username,
+                    timeout=JOB_TIMEOUT_S,
+                    path=row["path"] or "",
+                    created_at=row["created_at"],
+                    vm=row["vm_name"],
+                    vm_uuid=_vm_uuid(row["vm_name"]),
+                    store=store_name,
+                    task_id=task_id,
+                )
+            except DaemonError as e:
+                raise RuntimeError(e.detail) from None
+            existing = _store().find_by_path(done["path"])
             new_id = existing["id"] if existing else _store().create(
-                row["vm_name"], row["job_id"], str(directory), row["mode"], row["created_at"], task_id, store=store_name
+                row["vm_name"], row["job_id"], done["path"], row["mode"], row["created_at"], task_id, store=store_name
             )  # fmt: skip
             if not existing:
-                _store().mark_done(new_id, size, None)
+                _store().mark_done(new_id, done["size"], None)
         except Exception as e:
             msg = getattr(e, "message", None) or str(e)
             if own_task:
@@ -1318,11 +1350,28 @@ def import_into_store(backup_id, store_name, username="system", task_id=None):
     return new_id
 
 
+def import_here(path, created_at, vm_name, vm_uuid, store_name, task_id):
+    """hyperlite-daemon's part of import_into_store (store.import): a directory backup backup_dir accepts, copied
+    into the store. {"path", "size"}."""
+    from app.core import backup_store_vm, backup_stores
+
+    backup_dir(path)
+    try:
+        store = backup_stores.open_store(store_name)
+    except backup_stores.StoreError as e:
+        raise RuntimeError(e.message) from None
+    directory = backup_store_vm.import_directory_backup(
+        path, created_at, vm_name, store, vm_uuid, progress=lambda pct: update_task_progress(task_id, pct)
+    )
+    manifest = json.loads((directory / "manifest.json").read_text())
+    return {"path": str(directory), "size": sum(d["size"] for d in manifest["disks"].values())}
+
+
 def _vm_uuid(vm_name):
     """The VM's UUID when it is defined here, else one derived from its name: a store keeps a VM's backups together
     by its UUID."""
     try:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             return conn.lookupByName(vm_name).UUIDString()
         finally:
