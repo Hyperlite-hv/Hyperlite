@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core import bridge_vlan, libvirt_utils, network_firewall
+from app.daemon.needs import ANYONE
 from app.daemon.registry import Args, DaemonError, NoArgs, operation
 
 NAME = 64  # a libvirt network's or VM's name, only ever looked up
@@ -294,7 +295,7 @@ def delete(args, ctx):
         net.undefine()
 
 
-@operation("network.ensure_isolated", NoArgs)
+@operation("network.ensure_isolated", NoArgs, needs=ANYONE)
 @_libvirt
 def ensure_isolated(args, ctx):
     """The isolated network Hyperlite relies on (libvirt_utils.ensure_isolated_network), defined and started."""

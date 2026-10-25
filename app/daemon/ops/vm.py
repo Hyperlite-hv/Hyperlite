@@ -10,6 +10,7 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator
 
 from app.core.vm_create import VMCreate
+from app.daemon.needs import by_rule, on_vm, on_vms
 from app.daemon.ops.network import FirewallConfig
 from app.daemon.registry import Args, DaemonError, operation
 
@@ -52,7 +53,7 @@ class PowerArgs(Args):
     node: str | None = NODE
 
 
-@operation("vm.power", PowerArgs)
+@operation("vm.power", PowerArgs, needs=on_vm("vm.power"))
 @_libvirt
 def power(args, ctx):
     """start; shutdown and reboot through the guest agent when it is there, else ACPI (guest_agent); stop pulls the
@@ -85,7 +86,7 @@ class AutostartArgs(Args):
     node: str | None = NODE
 
 
-@operation("vm.autostart", AutostartArgs)
+@operation("vm.autostart", AutostartArgs, needs=on_vm("vm.options"))
 @_libvirt
 def autostart(args, ctx):
     """libvirt's own autostart flag; Hyperlite's start at boot turns it off for the VMs it starts (app/core/vm_boot.py)."""
@@ -100,7 +101,7 @@ class PreStopArgs(Args):
     node: str | None = NODE
 
 
-@operation("vm.pre_stop", PreStopArgs)
+@operation("vm.pre_stop", PreStopArgs, needs=on_vm("vm.power"))
 @_libvirt
 def pre_stop(args, ctx):
     """The VM's pre-stop hook script, before a shutdown or a stop (libvirt has no hook there): a script of the root
@@ -151,7 +152,7 @@ class AgentArgs(Args):
     node: str | None = NODE
 
 
-@operation("vm.agent_ipv4", AgentArgs)
+@operation("vm.agent_ipv4", AgentArgs, needs=on_vms("vm.view"))
 @_libvirt
 def agent_ipv4(args, ctx):
     """{uuid: address or None} of the running VMs named, from their guest agents, waiting at most `wait_s` for them
@@ -211,7 +212,7 @@ class ResourcesArgs(Args):
     memory_mb: int | None = Field(None, ge=1, le=MAX_MEMORY_MB)
 
 
-@operation("vm.set_resources", ResourcesArgs)
+@operation("vm.set_resources", ResourcesArgs, needs=on_vm("vm.resize"))
 @_definition
 def set_resources(args, conn, domain):
     """Processors and memory of a stopped VM (the routes check the host's limits first, app/core/vm_limits.py)."""
@@ -236,7 +237,7 @@ class LimitsArgs(Args):
     mem_hard_limit_mb: int | None = Field(None, ge=64, le=MAX_MEMORY_MB)
 
 
-@operation("vm.set_limits", LimitsArgs)
+@operation("vm.set_limits", LimitsArgs, needs=on_vm("vm.resize"))
 @_definition
 def set_limits(args, conn, domain):
     """CPU shares and cap, and a hard memory cap, through libvirt's cgroup parameters; live too on a running VM."""
@@ -262,7 +263,7 @@ class PinningArgs(Args):
     strict: bool = False
 
 
-@operation("vm.set_cpu_pinning", PinningArgs)
+@operation("vm.set_cpu_pinning", PinningArgs, needs=on_vm("vm.resize"))
 @_definition
 def set_cpu_pinning(args, conn, domain):
     """The host CPUs (and NUMA cell) the VM runs on, checked against this host's topology (cpu_pinning.plan),
@@ -294,7 +295,7 @@ class DiskOptionsArgs(Args):
     mbps: int | None = Field(None, ge=0)
 
 
-@operation("vm.set_disk_options", DiskOptionsArgs)
+@operation("vm.set_disk_options", DiskOptionsArgs, needs=on_vm("vm.hardware"))
 @_definition
 def set_disk_options(args, conn, domain):
     """A disk's cache, discard, I/O mode, I/O thread and throughput limits (vm_hardware_opts, which checks them)."""
@@ -309,7 +310,7 @@ class BootOrderArgs(Args):
     position: list[str] = Field(min_length=1, max_length=32)
 
 
-@operation("vm.set_boot_order", BootOrderArgs)
+@operation("vm.set_boot_order", BootOrderArgs, needs=on_vm("vm.hardware"))
 @_definition
 def set_boot_order(args, conn, domain):
     from app.core import vm_hardware_opts as opts
@@ -325,7 +326,7 @@ class BalloonArgs(Args):
     minimum_mb: int | None = Field(None, ge=256, le=MAX_MEMORY_MB)
 
 
-@operation("vm.set_balloon", BalloonArgs)
+@operation("vm.set_balloon", BalloonArgs, needs=on_vm("vm.resize"))
 @_definition
 def set_balloon(args, conn, domain):
     from app.core import vm_hardware_opts as opts
@@ -338,7 +339,7 @@ class MachineArgs(Args):
     machine: str = Field(min_length=1, max_length=64)
 
 
-@operation("vm.set_machine", MachineArgs)
+@operation("vm.set_machine", MachineArgs, needs=on_vm("vm.hardware"))
 @_definition
 def set_machine(args, conn, domain):
     """A newer version of the VM's machine family only, on a stopped VM (vm_hardware_opts.set_machine)."""
@@ -361,7 +362,7 @@ class AttachDiskArgs(Args):
     target: str = Field(pattern=TARGET)
 
 
-@operation("vm.attach_disk", AttachDiskArgs)
+@operation("vm.attach_disk", AttachDiskArgs, needs=on_vm("vm.hardware"))
 @_definition
 def attach_disk(args, conn, domain):
     """A volume of a pool, found here, attached with the format it really has, once it names no other file to read."""
@@ -375,7 +376,7 @@ class DiskTargetArgs(Args):
     target: str = Field(pattern=TARGET)
 
 
-@operation("vm.detach_disk", DiskTargetArgs)
+@operation("vm.detach_disk", DiskTargetArgs, needs=on_vm("vm.hardware"))
 @_definition
 def detach_disk(args, conn, domain):
     from app.core import vm_devices
@@ -394,7 +395,7 @@ class SetInterfaceArgs(InterfaceArgs):
     mac: str | None = Field(None, max_length=32)
 
 
-@operation("vm.set_interface", SetInterfaceArgs)
+@operation("vm.set_interface", SetInterfaceArgs, needs=on_vm("vm.hardware"))
 @_definition
 def set_interface(args, conn, domain):
     """An interface moved to another network in place, keeping its MAC address, with its VLANs."""
@@ -403,7 +404,7 @@ def set_interface(args, conn, domain):
     vm_devices.set_interface(conn, domain, args.mac, args.network, args.vlan_tag, args.vlan_trunks)
 
 
-@operation("vm.attach_interface", InterfaceArgs)
+@operation("vm.attach_interface", InterfaceArgs, needs=on_vm("vm.hardware"))
 @_definition
 def attach_interface(args, conn, domain):
     from app.core import vm_devices
@@ -416,7 +417,7 @@ class DetachInterfaceArgs(Args):
     mac: str = Field(pattern=MAC)
 
 
-@operation("vm.detach_interface", DetachInterfaceArgs)
+@operation("vm.detach_interface", DetachInterfaceArgs, needs=on_vm("vm.hardware"))
 @_definition
 def detach_interface(args, conn, domain):
     """Never the VM's last interface."""
@@ -460,7 +461,7 @@ class CdromArgs(Args):
     target: Literal["hda", "hdb", "hdc", "hdd"] | None = None
 
 
-@operation("vm.set_cdrom", CdromArgs)
+@operation("vm.set_cdrom", CdromArgs, needs=on_vm("vm.hardware"))
 @_definition
 def set_cdrom(args, conn, domain):
     """An ISO of this node's library, named, put in a CD-ROM drive (never a path from the API)."""
@@ -474,7 +475,7 @@ class EjectArgs(Args):
     target: Literal["hda", "hdb", "hdc", "hdd"] | None = None
 
 
-@operation("vm.eject_cdrom", EjectArgs)
+@operation("vm.eject_cdrom", EjectArgs, needs=on_vm("vm.hardware"))
 @_definition
 def eject_cdrom(args, conn, domain):
     from app.core import vm_devices
@@ -490,7 +491,7 @@ class VmFirewallArgs(Args):
     config: FirewallConfig
 
 
-@operation("vm.set_firewall", VmFirewallArgs)
+@operation("vm.set_firewall", VmFirewallArgs, needs=on_vm("vm.hardware"))
 @_definition
 def set_firewall(args, conn, domain):
     """The VM's nwfilter, built from checked rules, referenced on every interface (app/core/vm_firewall.py)."""
@@ -555,7 +556,7 @@ class CloudInitArgs(Args):
     custom: dict
 
 
-@operation("vm.cloudinit_write", CloudInitArgs)
+@operation("vm.cloudinit_write", CloudInitArgs, needs=on_vm("vm.options"))
 @_definition
 def cloudinit_write(args, conn, domain):
     """The VM's cloud-init drive written again from checked fields (cloudinit_edit: the account, its keys, the
@@ -591,6 +592,15 @@ def cloudinit_write(args, conn, domain):
 # --- Part 3a: a VM made on this node (app/core/vm_create.py) ---
 
 
+def _may_create(user, args):
+    """As POST /vms checks it: vm.allocate on its resource pool, storage.allocate on its disks' storage pool,
+    network.assign on its network (app/core/permissions.py)."""
+    from app.core import permissions
+
+    spec = args.spec
+    return permissions.allocation_refusal(user, spec.resource_pool, [spec.storage_pool or "default"], [spec.network])
+
+
 class CreateArgs(Args):
     spec: VMCreate  # the API's own model of POST /vms, checked again here
     # Images another node is copying here: they pass the existence check of a check_only call.
@@ -605,7 +615,7 @@ class CreateArgs(Args):
         return VMCreate.model_validate(spec, extra="forbid") if isinstance(spec, dict) else spec
 
 
-@operation("vm.create", CreateArgs)
+@operation("vm.create", CreateArgs, needs=by_rule(_may_create))
 @_libvirt
 def create(args, ctx):
     """Every check of the VM's specification run here, then its disks, its cloud-init drive, its DHCP reservation and
@@ -627,7 +637,7 @@ class DeleteArgs(Args):
     node: str | None = NODE
 
 
-@operation("vm.delete", DeleteArgs)
+@operation("vm.delete", DeleteArgs, needs=on_vm("vm.allocate"))
 @_libvirt
 def delete(args, ctx):
     """The stopped VM, its disks but those another VM uses or reads through or that no storage pool holds, the drives
@@ -650,7 +660,7 @@ class CloneArgs(Args):
     check_only: bool = False
 
 
-@operation("vm.clone", CloneArgs)
+@operation("vm.clone", CloneArgs, needs=on_vm("vm.clone"))
 @_libvirt
 def clone(args, ctx):
     """Every disk of the stopped VM copied into the images directory, under a new name, UUID, NVRAM and MAC addresses
@@ -792,7 +802,7 @@ class SnapshotListArgs(Args):
     vm: str = Field(min_length=1, max_length=VM_NAME)
 
 
-@operation("vm.snapshot_create", SnapshotCreateArgs)
+@operation("vm.snapshot_create", SnapshotCreateArgs, needs=on_vm("vm.snapshot"))
 @_libvirt
 @_snapshots
 def snapshot_create(args, ctx):
@@ -804,7 +814,7 @@ def snapshot_create(args, ctx):
         return vm_snapshots.create(conn, args.vm, args.name, args.description, check_only=args.check_only)
 
 
-@operation("vm.snapshot_restore", SnapshotRestoreArgs)
+@operation("vm.snapshot_restore", SnapshotRestoreArgs, needs=on_vm("vm.snapshot"))
 @_libvirt
 @_snapshots
 def snapshot_restore(args, ctx):
@@ -815,7 +825,7 @@ def snapshot_restore(args, ctx):
         return vm_snapshots.restore(conn, args.vm, args.name, check_only=args.check_only)
 
 
-@operation("vm.snapshot_delete", SnapshotArgs)
+@operation("vm.snapshot_delete", SnapshotArgs, needs=on_vm("vm.snapshot"))
 @_libvirt
 @_snapshots
 def snapshot_delete(args, ctx):
@@ -825,7 +835,7 @@ def snapshot_delete(args, ctx):
         vm_snapshots.delete(conn, args.vm, args.name)
 
 
-@operation("vm.lvm_snapshots", SnapshotListArgs)
+@operation("vm.lvm_snapshots", SnapshotListArgs, needs=on_vm("vm.view"))
 @_libvirt
 @_snapshots
 def lvm_snapshots(args, ctx):
