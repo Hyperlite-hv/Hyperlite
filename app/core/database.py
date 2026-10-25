@@ -93,6 +93,22 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_cree_le ON tasks(created_at)")
+        # The process that runs a task (app/core/tasks.py: "<service>:<pid>:<start time>"), and a cancellation asked of
+        # a task another process runs: the API, hyperlite-scheduler and HA's services each run tasks. This node's
+        # state only, never replicated.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_runners (
+                task_id TEXT PRIMARY KEY,
+                runner TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_cancel_requests (
+                task_id TEXT PRIMARY KEY,
+                username TEXT,
+                at TEXT NOT NULL
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS metrics_samples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
