@@ -23,6 +23,8 @@ TABLES = (
     "acl",
     "pools",
     "pool_members",
+    "sso_config",
+    "ldap_config",
 )
 WRITES = re.compile(r"\b(?:INSERT(?: OR \w+)? INTO|UPDATE|DELETE FROM|REPLACE INTO)\s+(\w+)")
 STORES = (
@@ -49,7 +51,7 @@ def test_every_write_of_the_permissions_is_the_daemons():
             assert hasattr(fn, "daemon_op"), f"{store.__name__}.{name} writes {sorted(written)} outside the daemon"
         if hasattr(fn, "daemon_op"):
             marked.add(fn.daemon_op)
-    assert len(marked) == 42
+    assert len(marked) == 44
     assert marked <= set(OPERATIONS), sorted(marked - set(OPERATIONS))
     # A method of the API's own state (the sign-in's challenges, its failure counters) is not the daemon's.
     assert not hasattr(identity.SqliteIdentityStore.store_challenge, "daemon_op")
@@ -173,3 +175,25 @@ def test_a_renamed_vm_keeps_its_pools_and_acls(database, make_user, monkeypatch)
     with pytest.raises(renaming.LabelTaken):
         store.create_group("dev") and renaming.rename_label("group", group, "dev")
     assert renaming.rename_label("group", group, "ops2") == "ops"
+
+
+def test_who_signs_in_through_an_idp_or_a_directory_is_the_daemons_to_write(database, monkeypatch, tmp_path):
+    """The SSO and LDAP settings decide who signs in and which groups are administrators: written, and their secret
+    sealed, by the daemon only (its keys), never by the API."""
+    from app.core import secrets_crypto
+    from app.repositories import registry
+
+    store = registry.identity().sync
+    store.save_sso_config({"enabled": 1, "client_secret": "s3cret", "admin_groups": "ops"})
+    sealed = store.sso_config()["client_secret"]
+    assert sealed != "s3cret" and secrets_crypto.decrypt(sealed) == "s3cret"
+    store.save_ldap_config({"bind_password": "pw", "admin_groups": "cn=admins,dc=x"})
+    assert secrets_crypto.decrypt(store.ldap_config()["bind_password"]) == "pw"
+    with pytest.raises(DaemonError) as e:
+        privileged.run("access.sso_config", fields={"admin_groups; DROP TABLE users": "x"})
+    assert e.value.kind == "invalid_arguments"  # a column outside the table's own list
+    monkeypatch.delenv(privileged.INPROCESS_ENV)
+    monkeypatch.setenv("HYPERLITE_DAEMON_SOCKET", str(tmp_path / "none.sock"))
+    with pytest.raises(DaemonError):
+        store.save_sso_config({"admin_groups": "everyone"})
+    assert store.sso_config()["admin_groups"] == "ops"
