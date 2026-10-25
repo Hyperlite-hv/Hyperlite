@@ -270,23 +270,28 @@ def test_the_permissions_are_written_by_the_daemon(cluster):
     ok(api(1, "DELETE", f"/groups/{group}", token=t))
 
 
-def test_the_scheduler_runs_beside_the_api(cluster):
-    """hyperlite-scheduler (app/scheduler) on every member: running, started by the package with the API, and the API
-    told to start no scheduler of its own (docs/design/privilege-separation.md, section 14, 4c)."""
+SERVICES = ("hyperlite-scheduler", "hyperlite-ha-lrm", "hyperlite-ha-crm")
+
+
+def test_the_services_run_beside_the_api(cluster):
+    """hyperlite-scheduler (app/scheduler) and HA's two services (app/ha_services) on every member: running, started
+    by the package with the API, and the API told to start none of their loops (docs/design/privilege-separation.md,
+    section 14, 4c)."""
     for n in NODES:
-        assert on(n, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active", n
-        assert "hyperlite-scheduler started" in on(
-            n, "journalctl", "-u", "hyperlite-scheduler", "--no-pager", "-o", "cat"
-        )
+        for service in SERVICES:
+            assert on(n, "systemctl", "is-active", service).strip() == "active", (n, service)
+            journal = on(n, "journalctl", "-u", service, "--no-pager", "-o", "cat")
+            assert f"{service} started" in journal, (n, service)
         env = on(n, "systemctl", "show", "hyperlite", "--property=Environment", "--value")
-        assert "HYPERLITE_SCHEDULER_SERVICE=1" in env, n
-    # A restart of the API restarts the scheduler with it (PartOf=): both always run the same version.
-    before = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
+        assert "HYPERLITE_SCHEDULER_SERVICE=1" in env and "HYPERLITE_HA_SERVICE=1" in env, n
+    # A restart of the API restarts them with it (PartOf=): all always run the same version.
+    before = {s: on(1, "systemctl", "show", s, "--property=MainPID", "--value").strip() for s in SERVICES}
     on(1, "systemctl", "restart", "hyperlite")
     wait("node 1's API back", lambda: signed_in(1, PASSWORD), timeout=120)
-    after = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
-    assert after not in ("", "0", before)
-    assert on(1, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active"
+    for service in SERVICES:
+        after = on(1, "systemctl", "show", service, "--property=MainPID", "--value").strip()
+        assert after not in ("", "0", before[service]), service
+        assert on(1, "systemctl", "is-active", service).strip() == "active", service
 
 
 def test_a_node_that_is_no_member_is_refused(cluster):
