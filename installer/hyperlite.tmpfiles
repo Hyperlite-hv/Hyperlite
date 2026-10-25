@@ -1,0 +1,22 @@
+# Hyperlite's directories and the API's group (docs/design/privilege-separation.md, section 14.6), installed as
+# /etc/tmpfiles.d/hyperlite.conf by the package. hyperlite.service runs as www-data from 4e, as Proxmox VE's pveproxy:
+# root's services make what it reads and writes, with that group; what holds root's secrets keeps root's alone.
+#
+# /var/lib/hyperlite: the API's group writes the database's -wal and -shm there; traversable by QEMU (libvirt-qemu
+# reaches the ISO images under template/iso) but not listable by anyone else.
+d /var/lib/hyperlite                  0771 root     www-data -
+d /var/lib/hyperlite/tmp              0770 root     www-data -
+d /var/lib/hyperlite/spool            0770 root     www-data -
+d /var/lib/hyperlite/spool-staging    0700 root     root     -
+z /var/lib/hyperlite/hyperlite.db     0660 root     www-data -
+z /var/lib/hyperlite/hyperlite.db-wal 0660 root     www-data -
+z /var/lib/hyperlite/hyperlite.db-shm 0660 root     www-data -
+# The claims every service takes on a VM or a container (app/core/shared_claims.py).
+d /run/lock/hyperlite                 0770 root     www-data -
+# The access log (app/core/access_log.py): written by the API, read by the adm group as /var/log's own; setgid, so a
+# file the API makes is adm's too.
+d /var/log/hyperlite                  2750 www-data adm      -
+z /var/log/hyperlite/access.log*      0640 www-data adm      -
+# The web interface's certificate and key, as /etc/pve/local/pveproxy-ssl.key.
+z /etc/hyperlite/local                0750 root     www-data -
+z /etc/hyperlite/local/hyperlite.key  0640 root     www-data -

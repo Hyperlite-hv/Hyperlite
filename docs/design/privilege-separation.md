@@ -766,3 +766,25 @@ written in place, never asked of the daemon again.
 
 What 4d holds before 4e: a route's mistake (a check forgotten) is caught by the daemon for every request that carries
 its caller's proof. What it does not hold yet: the API, still root, may call without a proof; 4e takes that away.
+
+### 14.6 4e: the files the API reads and writes, given its group (2026-10-25)
+
+multi-cluster ran the lab with `hyperlite.service` under `User=www-data` (#298) and listed every refusal. What the API
+needs of root's files goes to the group `www-data`, as on Proxmox VE (`/etc/pve/local/pveproxy-ssl.key` is
+`root:www-data 0640`); root's secrets stay root's alone (`/etc/hyperlite/priv`, the update archives, `spool-staging`).
+
+| What | Mode | Who sets it |
+|---|---|---|
+| `/var/lib/hyperlite` | `0771 root:www-data`: the database's `-wal`/`-shm` are made there; QEMU still traverses it to the ISO images | `installer/hyperlite.tmpfiles` |
+| the database, `-wal`, `-shm` | `0660 root:www-data`; SQLite gives the journal files the database's owner, group and mode when root makes them | `database._init_db`, `migrate_layout.sh`, tmpfiles |
+| `/var/lib/hyperlite/tmp`, `spool` | `0770 root:www-data` (uploads) | tmpfiles |
+| `/var/lib/hyperlite/spool-staging` | `0700 root`; cleaned by the daemon at its start, no longer by the API | tmpfiles, `disk_library.clean_staging` |
+| `/run/lock/hyperlite` and its claim files | `0770` / `0660 root:www-data`; root opens only a regular file there, never a link | tmpfiles, `shared_claims` |
+| `/run/hyperlite/nodes` (tunnels to the members' read-only libvirt) | `2750 root:www-data`: setgid, so the sockets ssh makes are the group's | `node_tunnel` |
+| `/etc/hyperlite/local`, `hyperlite.key` | `0750` / `0640 root:www-data` (the API serves HTTPS with it) | `ensure-tls-cert.sh`, `migrate_layout.sh`, `tls_certs`, tmpfiles |
+| `/var/log/hyperlite`, `access.log*` | `2750` / `0640 www-data:adm`: written by the API, read by `adm` | `access_log`, tmpfiles |
+
+The unit runs its `ExecStartPre` steps as root whatever its user (`+`). The package installs the tmpfiles as
+`/etc/tmpfiles.d/hyperlite.conf` and applies it at once. All of this holds while the API is still root: `User=www-data`
+comes last, once the API no longer does root's work itself (#298: the cluster's creation, read-write libvirt, root's SSH
+keys, the writes to hyperlite-cfs).

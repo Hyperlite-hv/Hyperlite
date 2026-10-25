@@ -219,13 +219,20 @@ if [ "$1" = back ]; then
         empty_dir "$d" && rmdir -- "$d"
     done
 fi
-# Root's only, whichever way the files went, as /etc/pve/priv and Proxmox VE's config.db: the secrets, the database
-# (every account's password hash), the archives and copies that hold them.
-for d in "$E/priv" "$E/priv/ssh" "$E/local" "$N/update-backups" "$N/config-copy-staging" "$N/legacy-data"; do
+# Root's only, whichever way the files went, as /etc/pve/priv: the secrets, the archives and copies that hold them.
+for d in "$E/priv" "$E/priv/ssh" "$N/update-backups" "$N/config-copy-staging" "$N/legacy-data"; do
     [ -d "$d" ] && chmod 700 "$d"
 done
-for f in "$N/hyperlite.db" "$N/hyperlite.db-wal" "$N/hyperlite.db-shm" "$N/hyperlite.db.before-v1"; do
-    [ -f "$f" ] && chmod 600 "$f"
-done
+[ -f "$N/hyperlite.db.before-v1" ] && chmod 600 "$N/hyperlite.db.before-v1"
+# Root's and the API's group (www-data from 4e, as Proxmox VE's pveproxy; docs/design/privilege-separation.md, section
+# 14.6): the web interface's certificate and key, as /etc/pve/local/pveproxy-ssl.key, and the database the API writes.
+API_GROUP=www-data
+if getent group "$API_GROUP" > /dev/null; then
+    [ -d "$E/local" ] && chgrp "$API_GROUP" "$E/local" && chmod 750 "$E/local"
+    [ -f "$E/local/hyperlite.key" ] && chgrp "$API_GROUP" "$E/local/hyperlite.key" && chmod 640 "$E/local/hyperlite.key"
+    for f in "$N/hyperlite.db" "$N/hyperlite.db-wal" "$N/hyperlite.db-shm"; do
+        [ -f "$f" ] && chgrp "$API_GROUP" "$f" && chmod 660 "$f"
+    done
+fi
 [ "${#MOVED[@]}" -eq 0 ] && log "nothing to move ($1)"
 exit 0

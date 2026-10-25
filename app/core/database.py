@@ -44,11 +44,16 @@ def init_db():
 
 
 def _init_db():
-    # Root only, as Proxmox VEs config.db: it holds every accounts password hash. Made so before SQLite creates it
-    # with the default mode; its -wal and -shm files take the same.
+    # Root's and the API's group (app/core/api_group.py), read and written by both: made so before SQLite creates it
+    # with the default mode. SQLite gives its -wal and -shm files the same owner, group and mode when root makes them,
+    # so the API still opens the database after a root service did first.
+    from app.core import api_group
+
     with contextlib.suppress(OSError):
-        os.close(os.open(DB_PATH, os.O_RDWR | os.O_CREAT, 0o600))
-        os.chmod(DB_PATH, 0o600)
+        os.close(os.open(DB_PATH, os.O_RDWR | os.O_CREAT, 0o660))
+        for path in (DB_PATH, Path(f"{DB_PATH}-wal"), Path(f"{DB_PATH}-shm")):
+            if path.exists():
+                api_group.share(path, 0o660)
     with get_conn() as conn:
         # API v1: the old French names renamed first, before any statement below uses the new ones (app/core/schema_v1.py).
         from app.core import schema_v1
