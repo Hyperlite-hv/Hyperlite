@@ -218,16 +218,16 @@ def test_power_is_scheduled_outside_the_service(host, monkeypatch):
         hs.schedule_power("reboot")
 
 
-def test_stop_guests_reports_what_did_not_stop(monkeypatch):
+def test_stop_guests_reports_what_did_not_stop(monkeypatch, daemon_libvirt):
+    """The shutdowns are hyperlite-daemon's (vm.power); the API only watches the guests go."""
+    from app.core import guest_agent
+
     class Dom:
         def __init__(self, stays):
             self.stays, self.asked = stays, False
 
-        def shutdown(self):
-            self.asked = True
-
         def isActive(self):
-            return self.stays
+            return not self.asked or self.stays
 
     doms = {"web": Dom(False), "db": Dom(True)}
 
@@ -240,8 +240,14 @@ def test_stop_guests_reports_what_did_not_stop(monkeypatch):
 
     import app.core.libvirt_utils as lu
 
-    monkeypatch.setattr(lu, "open_conn", lambda node=None, **_k: Conn())
+    def readonly(node=None, readonly=False):
+        assert readonly, "the API only watches: the shutdown is the daemon's"
+        return Conn()
+
+    monkeypatch.setattr(lu, "open_conn", readonly)
     monkeypatch.setattr(lu, "open_lxc_conn", lambda: Conn())
+    daemon_libvirt(Conn())
+    monkeypatch.setattr(guest_agent, "shutdown", lambda dom: setattr(dom, "asked", True) or "acpi")
     lines = []
     left = hs.stop_guests([("vm", "web"), ("vm", "db")], lines.append, timeout_s=0.02, poll_s=0.01)
     assert left == ["db"] and doms["web"].asked and doms["db"].asked

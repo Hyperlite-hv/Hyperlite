@@ -603,7 +603,7 @@ def list_volumes(pool_name: str, user: dict = Depends(get_current_user)):
 
 
 def _volumes(pool_name):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         if zfs_storage.pool_exists(pool_name):
             in_use = get_disk_paths_in_use(conn)
@@ -688,7 +688,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(ge
         return {"name": payload.name, "path": path, "capacity_gb": float(payload.size_gb)}
 
     # Read here first, so the answers stay as they were; hyperlite-daemon checks it all again.
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             pool = _read_pool(conn, pool_name)
@@ -722,7 +722,7 @@ def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(ge
 @router.delete("/{pool_name}/volumes/{volume_name}")
 def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user: dict = Depends(require_role("admin"))):
     if zfs_storage.pool_exists(pool_name):
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             in_use = get_disk_paths_in_use(conn)
         finally:
@@ -749,7 +749,7 @@ def delete_volume(pool_name: str, volume_name: str, confirm: bool = False, user:
         return {"message": f"Volume '{volume_name}' deleted"}
 
     # Read here first, so the answers stay as they were; hyperlite-daemon checks it all again.
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             pool = _read_pool(conn, pool_name)
