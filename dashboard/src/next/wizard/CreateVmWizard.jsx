@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createVM, fetchClusterIsos, fetchHostFirmware, fetchIsoTemplates, fetchVmDisks, fetchVolumes } from "../../api/client";
+import { createVM, fetchPlacement, fetchClusterIsos, fetchHostFirmware, fetchIsoTemplates, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { isWindowsInstall, guestProfile, diskController, vmFirmware } from "../../utils/osFamily";
@@ -24,9 +24,16 @@ const DEFAULTS = { vcpu: 2, memory_mb: 2048, disk_gb: 20 };
 // A stopped network is only offered, never preselected: a VM created on it would not start.
 const defaultNetwork = (networks) => (networks.find((n) => n.active !== false) || networks[0])?.name;
 
+// Not a node id (a node name starts with a letter or a digit): the member load balancing places the VM on
+// (docs/design/drs.md 3.6), the default node in a cluster.
+const AUTO = "__auto__";
+const inCluster = (nodes) => nodes.some((n) => n.member);
+const defaultNode = (nodes) => (inCluster(nodes) ? AUTO
+  : (nodes.find((n) => !n.maintenance && n.state === "online") || nodes.find((n) => !n.maintenance) || nodes[0])?.id || "");
+
 function initialForm(nodes, networks, d = DEFAULTS) {
   return {
-    node: (nodes.find((n) => !n.maintenance && n.state === "online") || nodes.find((n) => !n.maintenance) || nodes[0])?.id || "", iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", firmware: "auto", importDisk: null,
+    node: defaultNode(nodes), iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", firmware: "auto", importDisk: null,
     name: "", vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }],
     username: "", password: "", network: defaultNetwork(networks) || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
   };
@@ -115,7 +122,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   // The inventory may arrive after the dialog is created: fill the node and network as soon as they exist.
   useEffect(() => {
     setForm((f) => {
-      const node = f.node || nodes[0]?.id || "";
+      const node = f.node || defaultNode(nodes);
       const network = networks.some((n) => n.name === f.network) ? f.network : defaultNetwork(networks) || f.network;
       return node === f.node && network === f.network ? f : { ...f, node, network };
     });
@@ -154,10 +161,12 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
       ...(needsAccount && !/^[a-zA-Z_][a-zA-Z0-9_-]{0,31}$/.test(form.username) ? { username: "wz.e.user" } : {}),
       ...(needsAccount && form.password.length < 4 ? { password: "wz.e.password" } : {}),
     },
-    // Creation always runs on this host for now (see wz.nodeWarn), so this host in maintenance refuses it whatever
-    // tile is picked: say so here rather than after the eight steps.
-    placement: !form.node ? { node: "wz.e.node" } : nodes.find((n) => n.id === form.node)?.maintenance || nodes.find((n) => n.id === "local")?.maintenance ? { node: "wz.e.nodeMaint" }
-      : nodes.find((n) => n.id === form.node)?.state === "online" ? {} : { node: "wz.e.nodeOffline" },
+    // The creation runs on the chosen node (?node= sends it there): a node in maintenance refuses it, and a node
+    // registered over SSH only (no Hyperlite on it) cannot be asked. Said here rather than after the eight steps.
+    placement: form.node === AUTO ? (nodes.some((n) => (n.member || n.id === "local") && n.state === "online" && !n.maintenance) ? {} : { node: "wz.e.noAuto" })
+      : !form.node ? { node: "wz.e.node" } : nodes.find((n) => n.id === form.node)?.maintenance ? { node: "wz.e.nodeMaint" }
+      : nodes.find((n) => n.id === form.node)?.state !== "online" ? { node: "wz.e.nodeOffline" }
+      : form.node !== "local" && !nodes.find((n) => n.id === form.node)?.member ? { node: "wz.e.notMember" } : {},
     compute: { ...(!int(form.vcpu, vMin, vMax) ? { vcpu: "wz.e.vcpu" } : {}), ...(!int(form.memory_mb, mMin, mMax) ? { memory_mb: "wz.e.memory" } : {}) },
     storage: iscsiErrors || Object.fromEntries(form.disks.map((d, i) => [`disk${i}`, importMode && i === 0 ? "" : int(d.size_gb, 1, dMax) ? "" : "wz.e.diskSize"]).filter(([, v]) => v)),
     network: networks.some((n) => n.name === form.network) ? {} : { network: "wz.e.network" },
@@ -188,11 +197,21 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     const firstBad = STEPS.findIndex((id) => !valid(id));
     if (firstBad !== -1) { setAttempted(true); setStep(firstBad); return; }
     setBusy(true); setError(null);
+    let node = form.node;
+    if (node === AUTO) {
+      try {
+        const placed = await fetchPlacement({ name: form.name, memoryMb: Number(form.memory_mb), vcpus: Number(form.vcpu), network: form.network, storagePool: form.storagePool });
+        node = placed.local ? "local" : placed.node;
+      } catch (e) { setError(errorMessage(e)); setBusy(false); return; }
+    }
+    // The images' nodes as the node that creates the VM names them: this host by its name, and that node "local".
+    const localName = nodes.find((n) => n.id === "local")?.name;
+    const seen = (n) => (node === "local" || !n ? n : n === "local" ? localName : n === node ? "local" : n);
     const payload = {
       name: form.name, vcpu: Number(form.vcpu), memory_mb: Number(form.memory_mb), disks: form.disks.map((d) => (iscsiPool ? { size_gb: lunGb(d.lun), lun: d.lun } : { size_gb: Number(d.size_gb) })), network: form.network,
       username: form.username, password: form.password, iso: form.iso || null,
       drivers_iso: form.iso && !importMode ? form.driversIso || null : null,
-      iso_node: form.iso ? form.isoNode : null, drivers_iso_node: form.iso && !importMode && form.driversIso ? form.driversIsoNode : null, guest_os: form.guestOs, disk_controller: form.diskController, firmware: vmFirmware(form, fwSupport),
+      iso_node: form.iso ? seen(form.isoNode) : null, drivers_iso_node: form.iso && !importMode && form.driversIso ? seen(form.driversIsoNode) : null, guest_os: form.guestOs, disk_controller: form.diskController, firmware: vmFirmware(form, fwSupport),
       import_disk: importMode && form.importDisk !== "__pending__" ? form.importDisk : null, storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? Number(form.autoCleanupDays) : null,
       erase_luns: Boolean(iscsiPool && form.eraseLuns),
@@ -201,15 +220,20 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     if (copied) {
       // The server copies the image(s) here, then creates the VM: both run as its own tasks, even if this page closes.
       try {
-        await createVM(payload);
+        await createVM(payload, node);
         pushToast({ kind: "success", title: t("wz.copyThenCreate"), message: t("wz.copyThenCreateMsg", { name: form.name }) });
         await loadAll(); onClose(); reset();
       } catch (e) { setError(errorMessage(e)); }
       finally { setBusy(false); }
       return;
     }
-    const taskId = addTask({ type: "create_vm", target: form.name, node: form.node });
-    try { await createVM(payload); completeTask(taskId, "succeeded"); await loadAll(); onClose(); reset(); }
+    const taskId = addTask({ type: "create_vm", target: form.name, node });
+    try {
+      await createVM(payload, node);
+      completeTask(taskId, "succeeded");
+      if (form.node === AUTO) pushToast({ kind: "success", title: t("wz.placed", { name: form.name, node: nodes.find((n) => n.id === node)?.name || node }) });
+      await loadAll(); onClose(); reset();
+    }
     catch (e) { completeTask(taskId, "failed", errorMessage(e)); setError(errorMessage(e)); }
     finally { setBusy(false); }
   }
@@ -219,7 +243,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
   const radio = (checked, on, title, sub, name, extra = null, disabled = false) => (
     <label key={`${name}-${title}`} className={`nx-tile nx-tile--radio${checked ? " is-on" : ""}`} aria-disabled={disabled || undefined} style={disabled ? { opacity: 0.55 } : undefined}><input type="radio" className="nx-tile-input" name={name} checked={checked} onChange={on} disabled={disabled} /><b>{title}</b>{sub && <small>{sub}</small>}{extra}</label>
   );
-  const nodeName = nodes.find((n) => n.id === form.node)?.name || form.node;
+  const nodeName = form.node === AUTO ? t("wz.auto") : nodes.find((n) => n.id === form.node)?.name || form.node;
   // What the guest will see as its first, second... disk; the libvirt name (sda) follows in grey for administrators.
   const diskLabel = (i) => (i === 0 ? t("wz.diskSystem") : t("wz.diskN", { n: i + 1 }));
 
@@ -313,7 +337,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
             <div className="nx-form">
               <fieldset className="nx-fieldset">
                 <legend>{t("ns.node")}</legend>
-                <div className="nx-tiles">{nodes.map((n) => {
+                <div className="nx-tiles">{inCluster(nodes) && radio(form.node === AUTO, () => patch({ node: AUTO }), t("wz.auto"), t("wz.autoSub"), "node")}{nodes.map((n) => {
                   const ram = n.memoire_totale_mo ? (n.used_memory_mb / n.memoire_totale_mo) * 100 : null;
                   const offline = n.state !== "online";
                   return radio(form.node === n.id, () => patch({ node: n.id }), n.name,
@@ -321,7 +345,6 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                     "node", ram != null && !n.maintenance && !offline ? <span className="nx-track nx-track--wide" style={{ marginTop: "var(--space-2)" }} aria-hidden="true"><span data-tone={ram >= 90 ? "danger" : ram >= 80 ? "warning" : "info"} style={{ width: `${Math.round(ram)}%` }} /></span> : null, Boolean(n.maintenance) || offline);
                 })}</div>
                 {show("placement", "node")}
-                {form.node && form.node !== "local" && <p className="nx-notice nx-notice--warning" role="note">{t("wz.nodeWarn")}</p>}
               </fieldset>
               {selectable.length > 0 && (
                 <label>{t("stor.pool")}

@@ -103,6 +103,13 @@ The drain (maintenance) stops sending every VM to one target: each VM goes where
 When a VM is created or started with no node named ("auto"), the same placement chooses its node (initial placement).
 In a cluster, "auto" is the default node of the creation form; a node can still be chosen.
 
+As built (step 5): the drain's dialog offers "each where load balancing places it" (`spread`, the default when two
+members can take VMs); the plan shows each VM's member, the largest VMs placed first, every rule kept (a "should"
+rule gives way only when no member keeps it). "Auto" asks `GET /drs/placement`, which ranks the members the same way,
+the new VM's whole memory counted, and keeps the first one that has its network and storage pool; the creation is then
+sent to that member (`?node=`). A rolling update still drains each node to the one updated before it, so that no VM
+lands on a node about to be updated.
+
 ### 3.7 Safety
 
 - Only the leader evaluates and moves, only with the quorum; nothing during a rolling update or while HA recovers a
