@@ -7,7 +7,7 @@ set -e
 
 case "$1" in
     remove|deconfigure)
-        systemctl disable --now hyperlite.service hyperlite-daemon.service hyperlite-cfs.service >/dev/null 2>&1 || true
+        systemctl disable --now hyperlite-scheduler.service hyperlite.service hyperlite-daemon.service hyperlite-cfs.service >/dev/null 2>&1 || true
         # The bridges stay as they are: the unit only sets them again at boot.
         systemctl disable hyperlite-vlan-bridges.service >/dev/null 2>&1 || true
         ;;
