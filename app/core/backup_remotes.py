@@ -124,19 +124,39 @@ def get(name):
     return row
 
 
+def _seal(address, port, fingerprint, token):
+    """The token sealed with where it may be sent: hyperlite-daemon sends it only to the address and the certificate
+    it was given with, whatever the API's records say later (the records are the API's to write)."""
+    from app.core import secrets_crypto
+
+    return secrets_crypto.encrypt(
+        json.dumps({"token": token, "address": address, "port": int(port), "fingerprint": fingerprint})
+    )
+
+
 def _client(row):
+    """hyperlite-daemon's connection to a remote: the address, port and certificate sealed with its token. A remote
+    recorded before they were sealed with it keeps its record's (its token is sealed alone)."""
     from app.core import secrets_crypto
 
     try:
-        token = secrets_crypto.decrypt(row["token_encrypted"])
+        opened = secrets_crypto.decrypt(row["token_encrypted"])
     except secrets_crypto.SecretUnreadable:
         raise RemoteError(f"The token of the remote '{row['name']}' cannot be read on this node", 409) from None
-    return _Client(row["address"], row["port"], row["fingerprint"], token)
+    try:
+        sealed = json.loads(opened)
+    except ValueError:
+        sealed = None
+    if isinstance(sealed, dict) and {"token", "address", "port", "fingerprint"} <= set(sealed):
+        return _Client(sealed["address"], sealed["port"], sealed["fingerprint"], sealed["token"])
+    return _Client(row["address"], row["port"], row["fingerprint"], opened)
 
 
 def save(name, address, port, fingerprint, token, username):
-    """Record a remote once its certificate matches `fingerprint` and its token is accepted."""
-    from app.core import secrets_crypto
+    """Record a remote once its certificate matches `fingerprint` and its token is accepted: hyperlite-daemon checks
+    them and seals the token with its address (remote.add); the record is written here."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
 
     if not NAME.match(name or ""):
         raise RemoteError("Invalid name: letters, digits, '.', '-' and '_', 63 characters at most")
@@ -148,14 +168,27 @@ def save(name, address, port, fingerprint, token, username):
         raise RemoteError("The fingerprint is the SHA-256 of the remote's certificate: 64 hexadecimal digits")
     if not token or len(token) > 4096:
         raise RemoteError("Give the API token of the remote's dedicated account")
+    try:
+        sealed = privileged.run(
+            "remote.add", user=username, address=address, port=port, fingerprint=fingerprint, token=token
+        )["sealed"]
+    except DaemonError as e:
+        raise RemoteError(e.detail, {"refused": 422, "invalid_arguments": 422}.get(e.kind, 502)) from None
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    _repo().save_remote(name, address, port, fingerprint, sealed, username, now)
+    return describe(get(name))
+
+
+def check_and_seal(address, port, fingerprint, token):
+    """hyperlite-daemon's part of save(): the remote answers with that certificate and accepts that token; the token
+    sealed with them."""
+    address, port = _check_address(address, port)
     client = _Client(address, port, fingerprint, token)
     try:
         client.json("/backup-stores")
     finally:
         client.close()
-    now = datetime.now(UTC).isoformat(timespec="seconds")
-    _repo().save_remote(name, address, port, fingerprint, secrets_crypto.encrypt(token), username, now)
-    return describe(get(name))
+    return _seal(address, port, fingerprint, token)
 
 
 def describe(row):
@@ -163,7 +196,19 @@ def describe(row):
 
 
 def stores(name):
-    """The names of the remote's stores (those its token may read are marked when it can tell)."""
+    """The names of the remote's stores (those its token may read are marked when it can tell), read by
+    hyperlite-daemon (remote.stores), which alone opens the token."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        return privileged.run("remote.stores", name=name)["stores"]
+    except DaemonError as e:
+        raise RemoteError(e.detail, {"not_found": 404, "in_use": 409}.get(e.kind, 502)) from None
+
+
+def stores_here(name):
+    """stores()'s work, hyperlite-daemon's."""
     client = _client(get(name))
     try:
         listed = client.json("/backup-stores")

@@ -33,7 +33,7 @@ def test_a_damaged_or_store_backup_is_not_imported(database, pools, tmp_path):
     backup_stores.create("main", "nas")
     broken = tmp_path / "web" / "20261024T020000Z"
     broken.mkdir(parents=True)
-    with pytest.raises(backup_store_vm.BackupFailed, match="integrity check"):
+    with pytest.raises(RuntimeError, match="integrity check"):  # the daemon's refusal, its reason kept
         backups.import_into_store(_row(broken), "main", "ana")
     with pytest.raises(RuntimeError, match="already in a backup store"):
         backups.import_into_store(_row(broken, store="main"), "main", "ana")
