@@ -24,6 +24,7 @@ def test_the_rule_is_added_once_beside_the_administrators_lines(tmp_path):
     text = local.read_text()
     assert text.startswith("  /srv/isos/** r,\n")
     assert text.count("/run/hyperlite/backup/*.sock rw,") == 1
+    assert text.count("/run/hyperlite/migration/*/*.sock rw,") == 1  # a live migration between clusters' sockets
     assert _run(tmp_path).stdout == ""  # nothing to change
     assert local.read_text() == text
 
@@ -35,6 +36,8 @@ def test_an_older_rule_between_the_markers_is_replaced(tmp_path):
     _run(tmp_path)
     text = local.read_text()
     assert "/old/path" not in text and "  /mine r,\n" in text and text.count("# BEGIN hyperlite backup store") == 1
+    # An installation that had the backups' rule only gets the migration's too, at its next upgrade.
+    assert "/run/hyperlite/migration/*/*.sock rw," in text
 
 
 def test_nothing_is_done_without_apparmor(tmp_path):
