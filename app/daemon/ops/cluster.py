@@ -204,7 +204,8 @@ class IsoCopyArgs(Args):
 
 
 # One call that waits: an image copied between two nodes, through this one when neither is it.
-@operation("iso.copy", IsoCopyArgs, needs=own_task())
+# Its own copy task, for that image: what a VM created from another node's image starts (iso_share.start_copy).
+@operation("iso.copy", IsoCopyArgs, needs=own_task(types=("copy_iso",), target_arg="name"))
 def iso_copy(args, ctx):
     """An image copied from one node's library to another's (one of them may be this node), over SSH with the
     cluster's key, its progress written into the task (iso_share._copy)."""

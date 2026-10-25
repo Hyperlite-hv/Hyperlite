@@ -29,28 +29,41 @@ def test_a_vm_manager_backs_up_into_a_store_and_stops_their_own_backup(people):
     assert _refusal("store.check", "vic", name="main") is None  # whether it exists and answers
     mine = tasks.create_task("backup_vm", "web", username="oli")
     assert _refusal("backup.cancel", "oli", task_id=mine) is None
-    assert "started this task" in _refusal("backup.cancel", "vic", task_id=mine)
+    assert "runs this task" in _refusal("backup.cancel", "vic", task_id=mine)
 
 
-def test_the_retention_after_a_managers_backup_deletes_that_vms_backups_only(people):
+def _backup(db, vm, path):
+    db.execute(
+        "INSERT INTO backups (vm_name, path, mode, status, created_at) VALUES (?, ?, 'cold', 'succeeded', 'now')",
+        (vm, path),
+    )
+
+
+def test_the_retention_in_a_managers_backup_task_deletes_that_vms_backups_only(people):
     with people.get_conn() as db:
-        db.execute(
-            "INSERT INTO backups (vm_name, path, mode, status, created_at) VALUES ('web', '/b/web/1', 'cold', 'succeeded', 'now')"
-        )
-        db.execute(
-            "INSERT INTO backups (vm_name, path, mode, status, created_at) VALUES ('db', '/b/db/1', 'cold', 'succeeded', 'now')"
-        )
+        _backup(db, "web", "/b/web/1")
+        _backup(db, "db", "/b/db/1")
         db.commit()
-    assert _refusal("backup.delete", "oli", path="/b/web/1") is None
-    assert "vm.snapshot" in _refusal("backup.delete", "oli", path="/b/db/1")
-    assert _refusal("backup.delete", "oli", path="/b/unknown") is not None
+    task = tasks.create_task("backup_vm", "web", username="oli")
+    assert _refusal("backup.delete", "oli", path="/b/web/1", task_id=task) is None
+    assert "outside one of their tasks" in _refusal("backup.delete", "oli", path="/b/web/1")  # by hand: an admin's
+    assert "not db" in _refusal("backup.delete", "oli", path="/b/db/1", task_id=task)  # another VM's backup
+    assert _refusal("backup.delete", "oli", path="/b/unknown", task_id=task) is not None
+    other = tasks.create_task("restore_backup", "web", username="oli")
+    assert "does not do this" in _refusal("backup.delete", "oli", path="/b/web/1", task_id=other)
+    assert _refusal("backup.delete", "vic", path="/b/web/1", task_id=task) is not None  # another account's task
+    tasks.finish_task(task, "succeeded")  # its retention runs just after: still its own, for END_MARGIN_S
+    assert _refusal("backup.delete", "oli", path="/b/web/1", task_id=task) is None
 
 
-def test_a_vm_created_from_another_nodes_image_copies_it_for_its_own_task(people):
+def test_a_vm_created_from_another_nodes_image_copies_that_image_for_its_copy_task(people):
     copy = tasks.create_task("copy_iso", "debian.iso", username="oli")
     args = {"name": "debian.iso", "source": "n2", "target": None, "task_id": copy, "total": 1}
     assert _refusal("iso.copy", "oli", **args) is None
     assert _refusal("iso.copy", "vic", **args) is not None
+    assert "not other.iso" in _refusal("iso.copy", "oli", **{**args, "name": "other.iso"})
+    backup = tasks.create_task("backup_vm", "web", username="oli")
+    assert "does not do this" in _refusal("iso.copy", "oli", **{**args, "task_id": backup})
 
 
 def test_a_cluster_wide_list_over_ssh_is_any_accounts(people):

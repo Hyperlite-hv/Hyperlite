@@ -76,18 +76,33 @@ def by_rule(rule):
     return Need("rule", rule=rule)
 
 
-def own_task(arg="task_id"):
-    """The task named in `arg` is the caller's own: the account that started it stops it, and the work a route runs for
-    it (a VM's creation copying its image) goes on in that account's name. An administrator always may."""
+def task_refusal(user, task_id, types=None, target=None):
+    """Why `task_id` is not a task `user` runs now (or ended within peer_auth.END_MARGIN_S: its last calls), of one of
+    `types` and about `target` when given; None when it is."""
+    from app.core import peer_auth, tasks
+
+    if not task_id:
+        return "Only an administrator may do this outside one of their tasks"
+    try:
+        peer_auth._refuse_unless_running(task_id, user["username"])
+    except PermissionError as e:
+        return f"Only the account that runs this task, or an administrator, may do this ({e})"
+    row = tasks._store().get(task_id)
+    if types is not None and row["type"] not in types:
+        return f"A task of type {row['type']} does not do this"
+    if target is not None and row["target"] != target:
+        return f"This task is about {row['target']}, not {target}"
+    return None
+
+
+def own_task(arg="task_id", types=None, target_arg=None):
+    """The task named in `arg` is one the caller runs now: the account that started it stops it, and the work a route
+    runs for it goes on in that account's name. `types` and `target_arg` tie it to the work it is for (an image copied
+    for its own copy task). An administrator always may."""
 
     def rule(user, args):
-        from app.core import tasks
-
-        task_id = getattr(args, arg, None)
-        row = tasks._store().get(task_id) if task_id else None
-        if row is not None and row.get("username") == user["username"]:
-            return None
-        return "Only the account that started this task, or an administrator, may do this"
+        target = getattr(args, target_arg) if target_arg else None
+        return task_refusal(user, getattr(args, arg, None), types, target)
 
     return by_rule(rule)
 

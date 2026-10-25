@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.daemon.needs import ANYONE, by_rule, on_backup_store, on_vm, own_task
+from app.daemon.needs import ANYONE, by_rule, on_backup_store, on_vm, own_task, task_refusal
 from app.daemon.registry import Args, DaemonError, Handover, operation
 
 VM_NAME = 64
@@ -120,21 +120,28 @@ def restore(args, ctx):
 
 class DeleteArgs(Args):
     path: str = Field(min_length=1, max_length=PATH)
+    task_id: str | None = Field(None, min_length=1, max_length=TASK_ID)  # the backup's task, for its retention
 
 
-def _backup_of_a_vm_backed_up(user, args):
-    """A backup deleted by its VM's retention after a backup that account ran (vm.snapshot on that VM): the
-    routes that delete a backup by hand are an administrator's."""
+def _retention_in_its_backups_task(user, args):
+    """Deleting a backup is an administrator's (the routes that do it by hand; Proxmox VE asks Datastore.Allocate on the
+    storage), but for the retention a backup runs in its own task: that task's account, still running it, for that
+    backup's VM, with vm.snapshot on it."""
     from app.core import permissions
     from app.repositories import registry
 
     row = registry.backups().sync.find_by_path(args.path)
-    if row is not None and permissions.has_privilege(user, row["vm_name"], "vm.snapshot"):
-        return None
-    return "Insufficient rights on this backup's VM (required privilege: vm.snapshot)"
+    if row is None:
+        return "Only an administrator deletes a backup"
+    refusal = task_refusal(user, args.task_id, types=("backup_vm",), target=row["vm_name"])
+    if refusal:
+        return refusal
+    if not permissions.has_privilege(user, row["vm_name"], "vm.snapshot"):
+        return "Insufficient rights on this backup's VM (required privilege: vm.snapshot)"
+    return None
 
 
-@operation("backup.delete", DeleteArgs, needs=by_rule(_backup_of_a_vm_backed_up))
+@operation("backup.delete", DeleteArgs, needs=by_rule(_retention_in_its_backups_task))
 def delete(args, ctx):
     """A backup's files: its directory when it holds a backup's files only (backups.delete_backup_files), or its
     index in a store."""
