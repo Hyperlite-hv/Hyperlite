@@ -29,6 +29,21 @@ def get_conn():
 
 
 def init_db():
+    """The schema made or brought up to date. Each service that opens the database runs it at its start (the API,
+    hyperlite-scheduler): one at a time, so two never add the same column at once."""
+    import fcntl
+
+    from app.core import shared_claims
+
+    fd = shared_claims._open(shared_claims._directory() / "schema.lock", os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        _init_db()
+    finally:
+        os.close(fd)
+
+
+def _init_db():
     # Root only, as Proxmox VEs config.db: it holds every accounts password hash. Made so before SQLite creates it
     # with the default mode; its -wal and -shm files take the same.
     with contextlib.suppress(OSError):

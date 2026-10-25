@@ -44,6 +44,14 @@ pytestmark = pytest.mark.skipif(
 _insecure = ssl.create_default_context()
 _insecure.check_hostname = False
 _insecure.verify_mode = ssl.CERT_NONE
+# The consoles' WebSockets: websockets' sync client reads its socket in a thread while the test's thread writes to it.
+# In TLS 1.3 the server's session tickets arrive after the handshake, and one OpenSSL connection read and written by
+# two threads at once stalled the client before its HTTP request (the node's socket: handshake done, nothing more
+# received) or failed with "[SSL] internal error". TLS 1.2 sends nothing after the handshake.
+_insecure_ws = ssl.create_default_context()
+_insecure_ws.check_hostname = False
+_insecure_ws.verify_mode = ssl.CERT_NONE
+_insecure_ws.maximum_version = ssl.TLSVersion.TLSv1_2
 
 
 def ip(n):
@@ -270,6 +278,25 @@ def test_the_permissions_are_written_by_the_daemon(cluster):
     ok(api(1, "DELETE", f"/groups/{group}", token=t))
 
 
+def test_the_scheduler_runs_beside_the_api(cluster):
+    """hyperlite-scheduler (app/scheduler) on every member: running, started by the package with the API, and the API
+    told to start no scheduler of its own (docs/design/privilege-separation.md, section 14, 4c)."""
+    for n in NODES:
+        assert on(n, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active", n
+        assert "hyperlite-scheduler started" in on(
+            n, "journalctl", "-u", "hyperlite-scheduler", "--no-pager", "-o", "cat"
+        )
+        env = on(n, "systemctl", "show", "hyperlite", "--property=Environment", "--value")
+        assert "HYPERLITE_SCHEDULER_SERVICE=1" in env, n
+    # A restart of the API restarts the scheduler with it (PartOf=): both always run the same version.
+    before = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
+    on(1, "systemctl", "restart", "hyperlite")
+    wait("node 1's API back", lambda: signed_in(1, PASSWORD), timeout=120)
+    after = on(1, "systemctl", "show", "hyperlite-scheduler", "--property=MainPID", "--value").strip()
+    assert after not in ("", "0", before)
+    assert on(1, "systemctl", "is-active", "hyperlite-scheduler").strip() == "active"
+
+
 def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
     status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])
@@ -382,7 +409,7 @@ def console(n, path):
     began = time.monotonic()
     timer.start()
     try:
-        ws = connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=HANDSHAKE_S, max_size=None)
+        ws = connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure_ws, open_timeout=HANDSHAKE_S, max_size=None)
     except TimeoutError:
         journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 400 --no-pager -o cat")
         sockets = on(n, "sh", "-c", "journalctl -t lab-sockets -n 60 --no-pager -o cat")
