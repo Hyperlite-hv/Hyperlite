@@ -1,0 +1,1 @@
+- The work a request starts in the background (a backup, a migration, a clone, a disk move, an ISO copy, a host upgrade...) keeps that user's proof for hyperlite-daemon until it ends: a task ticket bound to its task, for any account, valid while the task runs, instead of a session that could expire or be revoked meanwhile.

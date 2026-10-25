@@ -1,7 +1,6 @@
 import contextlib
 import logging
 import subprocess
-import threading
 import time
 import xml.etree.ElementTree as ET
 
@@ -20,7 +19,7 @@ from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.security import require_vm_privilege
-from app.core.tasks import create_task
+from app.core.tasks import create_task, start_thread
 from app.core.vm_meta import (
     touch_vm_activity,
 )
@@ -254,7 +253,7 @@ def stop_vm(
         if not force:
             if force_after:
                 detail = f"{detail}, forced after {force_after} s if still running"
-            threading.Thread(target=_watch_stop, args=(name, node, user["username"], force_after), daemon=True).start()
+            start_thread(_watch_stop, name, node, user["username"], force_after)
         log_action(user["username"], action_name, name, "success", detail, task_id=task_id)
         return _domain_summary(domain)
     finally:

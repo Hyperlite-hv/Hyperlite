@@ -1,8 +1,6 @@
 """The directory a backup is written in: backups run as root, so a manual backup checks it like a schedule does (it
 took any directory, /etc included), and only an administrator may choose one other than the default."""
 
-import types
-
 import pytest
 
 from app.core import permissions
@@ -18,14 +16,7 @@ def started(database, monkeypatch):
     monkeypatch.setattr(backups, "check_space_for", lambda *a: None)  # never this host's libvirt
     monkeypatch.setattr(backups, "run_backup", lambda name, target, **k: runs.append(target))
 
-    class _Thread:
-        def __init__(self, target, daemon):
-            self.target = target
-
-        def start(self):
-            self.target()
-
-    monkeypatch.setattr(backups, "threading", types.SimpleNamespace(Thread=_Thread))
+    monkeypatch.setattr(backups, "start_thread", lambda fn, *args, task_id=None, name=None: fn(*args))
     permissions.create_acl("user", "bob", "manager", "vm", "web")
     return runs
 

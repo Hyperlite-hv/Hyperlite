@@ -12,7 +12,7 @@ The claim is taken synchronously by the endpoint, so the refusal reaches the
 caller, and released by the background thread when the work ends:
 
     claim = vm_locks.claim(name, "Restore")      # raises VmBusy
-    threading.Thread(target=job, args=(claim,)).start()
+    tasks.start_thread(job, claim)               # keeps the request's proof (app/core/tasks.py)
     ...
     def job(claim):
         with claim:                              # released on exit, whatever happens
