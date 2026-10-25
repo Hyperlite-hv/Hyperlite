@@ -70,6 +70,8 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
     assert {"console.terminal", "console.serial", "console.display", "console.close", "console.spice_tls"} <= named
     assert {"vm.add_console", "vm.spice_password"} <= named
     assert {"job.step", "job.cancel"} <= named
+    assert {"backup.run", "backup.verify", "backup.restore", "backup.delete", "backup.cancel"} <= named
+    assert {"vm.export", "vm.export_delete"} <= named
     assert named <= set(OPERATIONS), sorted(named - set(OPERATIONS))
 
 
