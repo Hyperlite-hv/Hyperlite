@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from app.daemon.needs import ADMIN, ANYONE, by_rule, on_vm, own
 from app.daemon.registry import Args, DaemonError, operation
 
 Name = Annotated[str, Field(min_length=1, max_length=256)]  # an account, a group, a pool, a VM
@@ -51,8 +52,34 @@ def _write(kind, method, args):
     return {"result": result, "outbox": sorted(request.ids)}
 
 
-def _register(op, kind, method, model):
-    @operation(f"access.{op}", model)
+# --- What a person needs for each (section 14, 4d): an administrator, unless the account acts on itself ---
+
+
+def _own_password(user, args):
+    """A new password for the account itself; a role is an administrator's to change."""
+    if args.role is not None:
+        return "Only an administrator changes a role"
+    return None if args.username == user["username"] else "Only the account itself or an administrator may do this"
+
+
+def _may_allocate_in_pool(user, args):
+    """A VM put in a resource pool by the account that made it there (vm.allocate on that pool)."""
+    from app.core import permissions
+
+    if permissions.has_scoped_privilege(user, "pool", args.pool_id, "vm.allocate"):
+        return None
+    return f"Insufficient rights on pool {args.pool_id} (required privilege: vm.allocate)"
+
+
+def _own_token_label(user, args):
+    """An API token renamed by its owner; any other label is an administrator's."""
+    if args.kind == "api_token" and args.owner == user["username"]:
+        return None
+    return "Only an administrator may do this"
+
+
+def _register(op, kind, method, model, needs):
+    @operation(f"access.{op}", model, needs=needs)
     def run(args, ctx):
         return _write(kind, method, args)
 
@@ -128,22 +155,22 @@ class SessionRevoke(Args):
     now: Seconds
 
 
-_register("user_create", "accounts", "create", UserCreate)
-_register("user_update", "accounts", "update", UserUpdate)
-_register("user_ldap", "accounts", "set_ldap", UserLdap)
-_register("user_delete", "accounts", "delete", User)
-_register("user_login", "accounts", "record_login", UserLogin)
-_register("user_must_change", "accounts", "flag_must_change", User)
-_register("totp_secret", "accounts", "set_totp_secret", TotpSecret)
-_register("totp_enable", "accounts", "enable_totp", User)
-_register("totp_disable", "accounts", "disable_totp", User)
-_register("totp_step", "accounts", "claim_totp_step", TotpStep)
-_register("totp_reseal", "accounts", "replace_totp_secret", TotpSecret)
-_register("token_create", "accounts", "create_token", TokenCreate)
-_register("token_revoke", "accounts", "revoke_token", TokenRevoke)
-_register("token_revoke_all", "accounts", "revoke_all_tokens", User)
-_register("token_used", "accounts", "touch_token", TokenUsed)
-_register("session_revoke", "accounts", "revoke_session", SessionRevoke)
+_register("user_create", "accounts", "create", UserCreate, needs=ADMIN)
+_register("user_update", "accounts", "update", UserUpdate, needs=by_rule(_own_password))
+_register("user_ldap", "accounts", "set_ldap", UserLdap, needs=ADMIN)
+_register("user_delete", "accounts", "delete", User, needs=ADMIN)
+_register("user_login", "accounts", "record_login", UserLogin, needs=ANYONE)
+_register("user_must_change", "accounts", "flag_must_change", User, needs=ADMIN)
+_register("totp_secret", "accounts", "set_totp_secret", TotpSecret, needs=own())
+_register("totp_enable", "accounts", "enable_totp", User, needs=own())
+_register("totp_disable", "accounts", "disable_totp", User, needs=own())
+_register("totp_step", "accounts", "claim_totp_step", TotpStep, needs=own())
+_register("totp_reseal", "accounts", "replace_totp_secret", TotpSecret, needs=ADMIN)
+_register("token_create", "accounts", "create_token", TokenCreate, needs=own())
+_register("token_revoke", "accounts", "revoke_token", TokenRevoke, needs=own())
+_register("token_revoke_all", "accounts", "revoke_all_tokens", User, needs=own())
+_register("token_used", "accounts", "touch_token", TokenUsed, needs=ANYONE)
+_register("session_revoke", "accounts", "revoke_session", SessionRevoke, needs=ANYONE)
 
 
 # --- Security keys and the accounts of a directory or an IdP ---
@@ -182,12 +209,12 @@ class ProvisionLdap(Args):
     role: Role
 
 
-_register("key_delete", "identity", "delete_key", KeyDelete)
-_register("key_delete_all", "identity", "delete_all_keys", User)
-_register("key_add", "identity", "add_credential", KeyAdd)
-_register("key_used", "identity", "record_key_use", KeyUsed)
-_register("provision_sso", "identity", "provision_sso_user", ProvisionSso)
-_register("provision_ldap", "identity", "provision_ldap_user", ProvisionLdap)
+_register("key_delete", "identity", "delete_key", KeyDelete, needs=own())
+_register("key_delete_all", "identity", "delete_all_keys", User, needs=own())
+_register("key_add", "identity", "add_credential", KeyAdd, needs=own())
+_register("key_used", "identity", "record_key_use", KeyUsed, needs=ANYONE)
+_register("provision_sso", "identity", "provision_sso_user", ProvisionSso, needs=ADMIN)
+_register("provision_ldap", "identity", "provision_ldap_user", ProvisionLdap, needs=ADMIN)
 
 
 # --- Roles, groups, resource pools, ACLs ---
@@ -261,23 +288,23 @@ class AclId(Args):
     acl_id: Id
 
 
-_register("role_create", "access", "create_custom_role", RoleCreate)
-_register("role_privileges", "access", "set_custom_role_privileges", RolePrivileges)
-_register("role_delete", "access", "delete_custom_role", RoleDelete)
-_register("group_create", "access", "create_group", GroupCreate)
-_register("group_delete", "access", "delete_group", GroupId)
-_register("group_member_add", "access", "add_group_member", GroupMember)
-_register("group_member_remove", "access", "remove_group_member", GroupMember)
-_register("pool_create", "access", "create_pool", PoolCreate)
-_register("pool_description", "access", "set_pool_description", PoolDescription)
-_register("pool_delete", "access", "delete_pool", PoolId)
-_register("pool_member_add", "access", "add_pool_member", PoolMember)
-_register("pool_member_remove", "access", "remove_pool_member", PoolMember)
-_register("pool_member_rename", "access", "rename_pool_member", PoolMemberRename)
-_register("pool_vm_forget", "access", "remove_vm_from_all_pools", Vm)
-_register("acl_create", "access", "create_acl", AclCreate)
-_register("acl_delete", "access", "delete_acl", AclId)
-_register("acl_vm_forget", "access", "delete_acl_for_vm", Vm)
+_register("role_create", "access", "create_custom_role", RoleCreate, needs=ADMIN)
+_register("role_privileges", "access", "set_custom_role_privileges", RolePrivileges, needs=ADMIN)
+_register("role_delete", "access", "delete_custom_role", RoleDelete, needs=ADMIN)
+_register("group_create", "access", "create_group", GroupCreate, needs=ADMIN)
+_register("group_delete", "access", "delete_group", GroupId, needs=ADMIN)
+_register("group_member_add", "access", "add_group_member", GroupMember, needs=ADMIN)
+_register("group_member_remove", "access", "remove_group_member", GroupMember, needs=ADMIN)
+_register("pool_create", "access", "create_pool", PoolCreate, needs=ADMIN)
+_register("pool_description", "access", "set_pool_description", PoolDescription, needs=ADMIN)
+_register("pool_delete", "access", "delete_pool", PoolId, needs=ADMIN)
+_register("pool_member_add", "access", "add_pool_member", PoolMember, needs=by_rule(_may_allocate_in_pool))
+_register("pool_member_remove", "access", "remove_pool_member", PoolMember, needs=ADMIN)
+_register("pool_member_rename", "access", "rename_pool_member", PoolMemberRename, needs=ADMIN)
+_register("pool_vm_forget", "access", "remove_vm_from_all_pools", Vm, needs=on_vm("vm.allocate", "vm_name"))
+_register("acl_create", "access", "create_acl", AclCreate, needs=ADMIN)
+_register("acl_delete", "access", "delete_acl", AclId, needs=ADMIN)
+_register("acl_vm_forget", "access", "delete_acl_for_vm", Vm, needs=on_vm("vm.allocate", "vm_name"))
 
 
 class Moved(Args):
@@ -292,15 +319,15 @@ class RenameLabel(Args):
     owner: Name | None = None
 
 
-_register("vm_moved", "access", "move_vm", Moved)
-_register("container_moved", "access", "move_container", Moved)
-_register("rename_label", "access", "rename_label", RenameLabel)
+_register("vm_moved", "access", "move_vm", Moved, needs=ADMIN)
+_register("container_moved", "access", "move_container", Moved, needs=ADMIN)
+_register("rename_label", "access", "rename_label", RenameLabel, needs=by_rule(_own_token_label))
 
 
 # --- What needs the node's secrets: the second factor's ---
 
 
-@operation("access.totp_start", User)
+@operation("access.totp_start", User, needs=own())
 def totp_start(args, ctx):
     """A new second factor's secret, made and sealed here, stored not yet enabled: {"secret"}, answered once for the
     QR code the account scans."""
@@ -316,7 +343,7 @@ class TotpCheck(Args):
     code: Annotated[str, Field(max_length=64)]
 
 
-@operation("access.totp_check", TotpCheck)
+@operation("access.totp_check", TotpCheck, needs=own())
 def totp_check(args, ctx):
     """Whether `code` is the account's current one, read and opened here; each code is accepted once: {"valid"}."""
     from app.core import twofa

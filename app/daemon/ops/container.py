@@ -7,6 +7,7 @@ import functools
 
 from pydantic import Field, field_validator
 
+from app.daemon.needs import on_container
 from app.daemon.registry import Args, DaemonError, operation
 
 NAME = 64
@@ -36,7 +37,7 @@ class ContainerArgs(Args):
     container: str = Field(min_length=1, max_length=NAME)
 
 
-@operation("container.start", ContainerArgs)
+@operation("container.start", ContainerArgs, needs=on_container("container.power"))
 @_container
 def start(args, ctx):
     from app.core import container_ops, libvirt_utils
@@ -53,7 +54,7 @@ class StopArgs(ContainerArgs):
     run_id: int | None = Field(default=None, ge=0)
 
 
-@operation("container.stop", StopArgs)
+@operation("container.stop", StopArgs, needs=on_container("container.power"))
 @_container
 def stop(args, ctx):
     from app.core import container_ops, libvirt_utils
@@ -169,7 +170,7 @@ class SnapshotRestoreArgs(SnapshotArgs):
     check_only: bool = False
 
 
-@operation("container.snapshot_list", ContainerArgs)
+@operation("container.snapshot_list", ContainerArgs, needs=on_container("container.view"))
 @_container
 def snapshot_list(args, ctx):
     """The snapshots are root's (0700): listed here."""
@@ -213,7 +214,7 @@ class LogArgs(ContainerArgs):
     lines: int = Field(default=300, ge=1, le=5000)
 
 
-@operation("container.log", LogArgs)
+@operation("container.log", LogArgs, needs=on_container("container.console"))
 @_container
 def log(args, ctx):
     from app.core import container_ops, libvirt_utils

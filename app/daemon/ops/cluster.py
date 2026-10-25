@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
+from app.daemon.needs import ANYONE
 from app.daemon.registry import Args, DaemonError, operation
 
 NODE_NAME = 63
@@ -95,7 +96,7 @@ def rename_trust(args, ctx):
     cluster.rename_reverse_trust(args.node, args.new_name)
 
 
-@operation("node.tunnel", NodeArgs)
+@operation("node.tunnel", NodeArgs, needs=ANYONE)
 def tunnel(args, ctx):
     """The tunnel to a registered node's read-only libvirt, opened when it is not (app/core/node_tunnel.py), for the
     API's reads of that node: {"socket"}."""
@@ -115,7 +116,7 @@ class HookscriptsArgs(NodeArgs):
     vm: str | None = Field(default=None, min_length=1, max_length=64)
 
 
-@operation("node.hookscripts", HookscriptsArgs)
+@operation("node.hookscripts", HookscriptsArgs, needs=ANYONE)
 def hookscripts(args, ctx):
     """A node's library of hook scripts and, `vm`, that VM's last runs there: read over SSH with the cluster's key
     (app/core/hookscript.py). {"library", "runs"}."""
@@ -133,7 +134,7 @@ def hookscripts(args, ctx):
         raise DaemonError("unreachable", f"The node's hook scripts could not be read: {e}") from e
 
 
-@operation("node.capabilities", NodeArgs)
+@operation("node.capabilities", NodeArgs, needs=ANYONE)
 def capabilities(args, ctx):
     """A registered node's capability profile (host_capabilities.get_remote_capabilities): its libvirt opened, and a
     fixed probe run over SSH, with the cluster's key."""
@@ -158,7 +159,7 @@ class IsoNodeArgs(NodeArgs):
     name: str = Field(min_length=1, max_length=ISO_NAME)
 
 
-@operation("iso.list", NodeArgs)
+@operation("iso.list", NodeArgs, needs=ANYONE)
 def iso_list(args, ctx):
     """Another node's ISO library, read there over SSH (iso_share): {"isos"}; not_found when it has none."""
     from app.core import iso_share
@@ -171,7 +172,7 @@ def iso_list(args, ctx):
         raise DaemonError("unreachable", str(e)) from e
 
 
-@operation("iso.size", IsoNodeArgs)
+@operation("iso.size", IsoNodeArgs, needs=ANYONE)
 def iso_size(args, ctx):
     """An image's size in another node's library, None when it is not there: {"size"}."""
     from app.core import iso_share
@@ -237,7 +238,7 @@ def config_copy(args, ctx):
     return config_copy.send(args.nodes)
 
 
-@operation("node.facts", NodeArgs)
+@operation("node.facts", NodeArgs, needs=ANYONE)
 def facts(args, ctx):
     """A registered node's boot id and host name, read over SSH (rolling_update.read_facts)."""
     from app.core import rolling_update
@@ -288,7 +289,7 @@ class ProbeArgs(NodeArgs):
     probe: Literal["stats", "hardware"]
 
 
-@operation("node.probe", ProbeArgs)
+@operation("node.probe", ProbeArgs, needs=ANYONE)
 def probe(args, ctx):
     """One of Hyperlite's fixed read-only scripts run on a registered node over SSH (host_stats): {"output"}, None
     when the node did not answer."""
