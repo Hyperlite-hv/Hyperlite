@@ -41,9 +41,10 @@ class Move(BaseModel):
 
 def _state():
     """The leader's state; on another member, what would move now, read from the same statuses."""
-    from app.core import cluster_lead, statd
+    from app import ha_services
+    from app.core import statd
 
-    if cluster_lead.is_leader():
+    if ha_services.crm_leads():  # this node's HA decisions: its CRM's lead (app/ha_services)
         return {**drs.state(), "leading": True}
     nodes = drs.view(statd.table())
     moves = drs.recommend(nodes, drs_rules.settings()["threshold"], drs_rules.behaviours())

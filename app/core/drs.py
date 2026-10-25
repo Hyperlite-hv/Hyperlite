@@ -571,15 +571,26 @@ def _evaluate_loop():
             _publish()
         except Exception:  # the thread must survive anything
             logger.exception("Load balancing round failed")
+        _round[0] = time.monotonic()
         time.sleep(OBSERVE_S)
+
+
+_round = [time.monotonic()]  # when the evaluation's last round ended (app/ha_services.crm_healthy)
+
+
+def round_age():
+    return time.monotonic() - _round[0]
 
 
 def _publish():
     from app import ha_services
-    from app.core import service_state
+    from app.core import cluster_lead, service_state
 
     if ha_services.separate():
-        service_state.publish(PUBLISHED, state())
+        # "crm_leading": whether this node's CRM leads, for the API's pages (ha_services.crm_leads).
+        service_state.publish(
+            PUBLISHED, {**state(), "crm_leading": cluster_lead.is_leader(), "published_at": time.time()}
+        )
 
 
 def _take_requests(resumed):

@@ -26,7 +26,8 @@ def main(argv=None):
     if role == ha.LRM:
         statd.start()  # the node's heartbeat, with the watchdog's feeding
     else:
-        cluster_lead.start_lead_loop(follow_setup=False)  # the recovery and the evaluation act on the leader only
+        # The recovery and the evaluation act on the leader only: its own lock, lost if its rounds stop.
+        cluster_lead.start_lead_loop(follow_setup=False, lock=cluster_lead.HA_LOCK, healthy=ha.crm_healthy)
     ha.start(role)
     logging.getLogger(__name__).info("hyperlite-%s started", role)
     stop = threading.Event()
