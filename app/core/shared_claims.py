@@ -22,6 +22,7 @@ import time
 from urllib.parse import quote
 
 from app.core import paths
+from app.core.safe_paths import safe_child
 
 # How long a claim retries a lock it could not take before it is refused: a reader checking whether a name left by a
 # killed process is stale holds the lock for an instant, as does a holder between emptying its file and letting go.
@@ -54,10 +55,10 @@ def _directory():
 def _file(key):
     kind, node, name = key
     readable = f"{kind}@{quote(node, safe='')}@{quote(name, safe='')}.lock"
-    if len(readable) <= _NAME_LIMIT:
-        return _directory() / readable
-    digest = hashlib.sha256(node.encode() + b"\0" + name.encode()).hexdigest()
-    return _directory() / f"{kind}@sha256-{digest}.lock"
+    if len(readable) > _NAME_LIMIT:
+        readable = f"{kind}@sha256-{hashlib.sha256(node.encode() + b'\0' + name.encode()).hexdigest()}.lock"
+    # Quoted, the names hold no "/": safe_child is the last line of defence all the same.
+    return safe_child(_directory(), readable)
 
 
 def _open(path, flags):

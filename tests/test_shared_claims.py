@@ -108,7 +108,7 @@ def test_a_link_in_the_lock_directory_is_never_followed(tmp_path, monkeypatch):
     target = tmp_path / "shadow"
     target.write_text("root:x:0:0")
     (locks / "vm@local@web.lock").symlink_to(target)
-    with pytest.raises(OSError):
+    with pytest.raises((OSError, ValueError)):
         vm_locks.claim("web", "a backup")
     assert target.read_text() == "root:x:0:0"
 
