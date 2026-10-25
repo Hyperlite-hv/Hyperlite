@@ -64,7 +64,7 @@ test("the page shows the members and the moves, applies one, and saves the setti
   // A rule: two DNS servers apart, must.
   await main.getByRole("button", { name: "Add a rule" }).click();
   const drawer = page.getByRole("dialog", { name: "New rule" });
-  await drawer.getByLabel("Name").fill("dns");
+  await drawer.getByLabel("Name", { exact: true }).fill("dns");
   await drawer.getByLabel("A VM's name").fill("dns1");
   await drawer.getByRole("button", { name: "Add", exact: true }).click();
   await drawer.getByLabel("A VM's name").fill("dns2");
