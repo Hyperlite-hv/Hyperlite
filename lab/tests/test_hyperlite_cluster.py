@@ -195,6 +195,9 @@ def cluster(lab):
     # Each joining node restarted on the cluster's configuration: sign in again where the session ended.
     for n in NODES:
         tokens[n] = wait(f"node {n} after joining", lambda n=n: signed_in(n, PASSWORD), timeout=120, every=1)
+    # Load balancing is automatic by default: kept manual here, so that it moves no VM another test watches. Its own
+    # test turns it back on.
+    ok(api(1, "PUT", "/drs/settings", {"mode": "manual", "threshold": 3}, tokens[1]))
     return {"tokens": tokens, "names": names}
 
 
@@ -328,6 +331,12 @@ def _busy_threads(dump):
     return "\n".join("\n".join(b) for b in blocks if not any(i in "".join(b[1:3]) for i in idle))
 
 
+def _loop_tasks(journal):
+    """The last list of the event loop's tasks app/main.py logged (SIGUSR2)."""
+    at = journal.rfind("event loop: ")
+    return journal[at:] if at >= 0 else "(not logged)"
+
+
 def console(n, path):
     """A WebSocket to node n's API, as the dashboard opens a console (its certificate not checked, as for api()). A
     slow handshake is measured, and the API's threads are dumped while it waits; one that does not come fails with
@@ -336,7 +345,12 @@ def console(n, path):
 
     from websockets.sync.client import connect
 
-    dump = "kill -USR1 $(systemctl show --property=MainPID --value hyperlite)"
+    # The threads (SIGUSR1), the event loop's tasks (SIGUSR2), and the port's sockets: a connection waiting in the
+    # listening socket's queue was never accepted; one established with unread bytes was never read.
+    dump = (
+        "pid=$(systemctl show --property=MainPID --value hyperlite); kill -USR1 $pid; kill -USR2 $pid; "
+        "ss -tnoi state all '( sport = :8000 )' | logger -t lab-sockets"
+    )
     timer = threading.Timer(HANDSHAKE_DUMP_S, lambda: on(n, "sh", "-c", dump))
     began = time.monotonic()
     timer.start()
@@ -344,9 +358,11 @@ def console(n, path):
         ws = connect(f"wss://{ip(n)}:8000/api/v1{path}", ssl=_insecure, open_timeout=HANDSHAKE_S, max_size=None)
     except TimeoutError:
         journal = on(n, "sh", "-c", "journalctl -u hyperlite -n 400 --no-pager -o cat")
+        sockets = on(n, "sh", "-c", "journalctl -t lab-sockets -n 60 --no-pager -o cat")
         raise AssertionError(
-            f"no WebSocket handshake from node {n} in {HANDSHAKE_S} s; its API's busy threads at "
-            f"{HANDSHAKE_DUMP_S} s:\n{_busy_threads(journal)[-3500:]}"
+            f"no WebSocket handshake from node {n} in {HANDSHAKE_S} s; its sockets at {HANDSHAKE_DUMP_S} s:\n"
+            f"{sockets[-1500:]}\nits event loop's tasks:\n{_loop_tasks(journal)[-3000:]}\nits busy threads:\n"
+            f"{_busy_threads(journal)[-2000:]}"
         ) from None
     finally:
         timer.cancel()
@@ -763,8 +779,8 @@ def test_a_hung_ha_vm_is_reset_by_its_node(cluster):
 
 def test_a_container_lives_and_goes_on_a_member(cluster):
     """A system container's whole life on a real node, its filesystem written by hyperlite-daemon: made from the
-    local base, stopped, snapshotted, changed, restored, renamed, cloned and deleted, its files where the definition
-    says (docs/design/privilege-separation.md, the containers domain)."""
+    local base, stopped, snapshotted, changed, restored, archived and restored from its archive, renamed, cloned and
+    deleted, its files where the definition says (docs/design/privilege-separation.md, the containers domain)."""
     t = cluster["tokens"][2]
     if "lxc" not in on(2, "sh", "-c", "virsh -c lxc:///system uri 2>/dev/null || true"):
         pytest.skip("no LXC driver on the lab's nodes")
@@ -789,11 +805,118 @@ def test_a_container_lives_and_goes_on_a_member(cluster):
     restored = ok(api(2, "POST", "/containers/labct/snapshots/clean/restore", token=t))
     finished(2, t, restored["task_id"])
     assert "changed" not in on(2, "cat", f"{root}/labct/etc/motd")
+    # Its archive, made, restored as another container and deleted by hyperlite-daemon (the backups domain, part 4).
+    archived = ok(api(2, "POST", "/containers/labct/backups", token=t))
+    finished(2, t, archived["task_id"])
+    archive = next(
+        b for b in ok(api(2, "GET", "/containers/backups", token=t))["items"] if b["container_name"] == "labct"
+    )
+    assert archive["status"] == "succeeded" and on(2, "test", "-s", archive["path"]) == ""
+    status, answer = api(
+        2, "POST", f"/containers/backups/{archive['id']}/restore", {"new_name": "labct4"}, t, timeout=900
+    )
+    assert status == 201, answer
+    assert on(2, "test", "-d", f"{root}/labct4/etc") == ""
+    ok(api(2, "DELETE", f"/containers/backups/{archive['id']}?confirm=true", token=t))
+    assert on(2, "sh", "-c", f"test -e {archive['path']} && echo left || echo gone").strip() == "gone"
     ok(api(2, "POST", "/containers/labct/rename", {"new_name": "labct2"}, t))
     assert on(2, "cat", f"{root}/labct2/etc/hostname").strip() == "labct2"
     status, answer = api(2, "POST", "/containers/labct2/clone", {"new_name": "labct3"}, t, timeout=900)
     assert status == 201, answer
-    for name in ("labct2", "labct3"):
+    for name in ("labct2", "labct3", "labct4"):
         ok(api(2, "DELETE", f"/containers/{name}?confirm=true", token=t))
         assert on(2, "sh", "-c", f"test -e {root}/{name} && echo left || echo gone").strip() == "gone"
     assert ok(api(2, "GET", "/containers", token=t))["items"] == []
+
+
+def test_load_balancing_moves_a_busy_vm_off_its_member(cluster):
+    """#334 step 4 (docs/design/drs.md): two VMs that spin their vCPU on node 1 push it above 90 % of its CPU; load
+    balancing, automatic, live-migrates one of them to another member, and each still runs once."""
+    t = cluster["tokens"]
+    if not nested(1):
+        pytest.skip("no nested virtualization on this host: the VMs of the lab cannot run a VM of their own")
+    if not any(p["name"] == "hapool" for p in ok(api(1, "GET", "/storage", token=t[1]))["items"]):
+        pytest.skip("the NFS pool of the HA test is not there")
+    # A lab's minutes instead of production's quarter of an hour (app/core/drs.py), on every member.
+    conf = (
+        "[Service]\nEnvironment=HYPERLITE_DRS_EVALUATE_S=20 HYPERLITE_DRS_OBSERVE_S=5 HYPERLITE_DRS_CPU_WINDOW_S=40\n"
+    )
+    for n in NODES:
+        on(
+            n,
+            "sh",
+            "-c",
+            f"mkdir -p /etc/systemd/system/hyperlite.service.d && printf '{conf}' > /etc/systemd/system/hyperlite.service.d/lab-drs.conf && systemctl daemon-reload",
+        )
+    for n in NODES:
+        before = main_pid(n)
+        on(n, "systemctl", "restart", "hyperlite")
+        wait(f"node {n} restarted", lambda n=n, b=before: main_pid(n) not in (b, "0"), timeout=60, every=1)
+    for n in NODES:
+        t[n] = wait(f"node {n} after its restart", lambda n=n: signed_in(n, PASSWORD), timeout=120, every=2)
+    image = Path(os.environ.get("HYPERLITE_LAB_CACHE") or "/var/cache/hyperlite-lab") / "debian.qcow2"
+    key = DIR / "id_ed25519"
+    subprocess.run(
+        ["scp", "-q", "-i", str(key), "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+         "-o", "LogLevel=ERROR", str(image), f"debian@{ip(1)}:/tmp/base.qcow2"],
+        check=True, timeout=600,
+    )  # fmt: skip
+    on(
+        1,
+        "sh",
+        "-c",
+        "mkdir -p /var/lib/libvirt/images/base && mv /tmp/base.qcow2 /var/lib/libvirt/images/base/debian-12-generic-amd64.qcow2",
+    )
+    busy = ("busy1", "busy2")
+    for vm in busy:
+        spec = {"name": vm, "vcpu": 1, "memory_mb": 384, "disks": [{"size_gb": 4}], "storage_pool": "hapool",
+                "username": "debian", "password": "Lab-guest-" + secrets.token_hex(4)}  # fmt: skip
+        finished(1, t[1], ok(api(1, "POST", "/vms?wait=false", spec, t[1]))["task_id"])
+        if ok(api(1, "GET", f"/vms/{vm}", token=t[1]))["state"] != "active":
+            ok(api(1, "POST", f"/vms/{vm}/start", token=t[1]))
+    for vm in busy:
+        wait(f"{vm}'s guest agent", lambda vm=vm: _agent_answers(1, vm), timeout=900, every=15)
+    spin = {
+        "execute": "guest-exec",
+        "arguments": {"path": "/bin/sh", "arg": ["-c", "nohup sh -c 'while :; do :; done' >/dev/null 2>&1 &"]},
+    }
+    for vm in busy:
+        on(1, "virsh", "qemu-agent-command", vm, json.dumps(spin))
+    ok(api(1, "PUT", "/drs/settings", {"mode": "automatic", "threshold": 3}, t[1]))
+    began = time.monotonic()
+
+    def where(vm):
+        return [
+            n
+            for n in NODES
+            if api(n, "GET", f"/vms/{vm}", token=t[n])[0] == 200
+            and ok(api(n, "GET", f"/vms/{vm}", token=t[n]))["state"] == "active"
+        ]
+
+    def one_moved():
+        places = {vm: where(vm) for vm in busy}
+        moved = [vm for vm, nodes in places.items() if nodes and nodes != [1]]
+        return moved and places
+
+    try:
+        places = wait("a busy VM moved off node 1", one_moved, timeout=600, every=10)
+    except AssertionError:
+        for n in NODES:
+            print(f"[lab] node {n}: {api(n, 'GET', '/drs', token=t[n])[1]}")
+            print(
+                on(
+                    n,
+                    "sh",
+                    "-c",
+                    "journalctl -u hyperlite --no-pager | grep -E 'Load balancing|drs|Traceback' | tail -15",
+                )
+            )
+        raise
+    print(f"[lab] load balancing moved {places} {time.monotonic() - began:.0f} s after the VMs began to spin")
+    assert all(len(nodes) == 1 for nodes in places.values()), places  # each runs once
+    ok(api(1, "PUT", "/drs/settings", {"mode": "manual", "threshold": 3}, t[1]))
+    for vm, nodes in places.items():  # each through the member it runs on, which names itself no "?node="
+        n = nodes[0]
+        ok(api(n, "POST", f"/vms/{vm}/stop?force=true", token=t[n]))
+        wait(f"{vm} stopped", lambda vm=vm, n=n: ok(api(n, "GET", f"/vms/{vm}", token=t[n]))["state"] == "stopped")
+        ok(api(n, "DELETE", f"/vms/{vm}?confirm=true", token=t[n]))

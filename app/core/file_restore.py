@@ -75,7 +75,8 @@ def status():
     }
 
 
-def backup_disks(backup_id):
+def backup_row(backup_id):
+    """The API's part: the backup's record, checked (finished, a directory backup)."""
     from app.repositories import registry
 
     row = registry.backups().sync.get(backup_id)
@@ -85,7 +86,18 @@ def backup_disks(backup_id):
         raise RestoreError("Only a finished backup can be browsed")
     if row.get("store"):
         raise RestoreError("Files cannot be browsed in a backup kept in a backup store yet: restore its VM instead")
-    root = Path(row["path"])
+    return row
+
+
+def backup_disks_at(path):
+    """hyperlite-daemon's part: the disk images of the backup at `path`, a directory backups.backup_dir accepts, each
+    checked (libguestfs would read whatever file an image names)."""
+    from app.core import backups
+
+    try:
+        root = backups.backup_dir(path)
+    except ValueError as e:
+        raise RestoreError(str(e)) from None
     manifest = backup_integrity.read_manifest(root)
     if manifest:
         names = [f["name"] for f in manifest.get("files", []) if f.get("role") == "disk"]
@@ -96,10 +108,10 @@ def backup_disks(backup_id):
         raise RestoreError("This backup has no disk image left to browse")
     for disk in disks:
         try:
-            disk_images.check(disk, within=root.parent)  # libguestfs would read whatever file it names
+            disk_images.check(disk, within=root.parent)
         except disk_images.UnsafeImage as e:
             raise RestoreError(str(e)) from None
-    return row["vm_name"], [str(d) for d in disks]
+    return [str(d) for d in disks]
 
 
 class Session:
@@ -185,16 +197,18 @@ def _reap():
                 logger.exception("Closing an idle file-restore session failed")
 
 
-def is_open(backup_id):
-    """Whether a live file-restore session reads this backup (it must not be deleted under it)."""
+def is_open_here(backup_id):
+    """Whether a live file-restore session of this process reads this backup: hyperlite-daemon's."""
     with _lock:
         return any(s.backup_id == backup_id and s.proc.poll() is None for s in _sessions.values())
 
 
-def open_session(backup_id, username):
+def open_here(backup_id, path, username):
+    """hyperlite-daemon's part of open_session (restore.open): a session on the backup at `path`, or the one this user
+    already has on it."""
     if interpreter() is None:
         raise RestoreError(status()["reason"])
-    vm_name, disks = backup_disks(backup_id)
+    disks = backup_disks_at(path)
     with _lock:
         for s in _sessions.values():
             if s.backup_id == backup_id and s.username == username and s.proc.poll() is None:
@@ -208,13 +222,13 @@ def open_session(backup_id, username):
             t = threading.Thread(target=_reap, name="file-restore-reaper", daemon=True)
             t.start()
             _reaper.append(t)
-    session = Session(backup_id, vm_name, disks, username)
+    session = Session(backup_id, None, disks, username)
     with _lock:
         _sessions[session.id] = session
     return session
 
 
-def get_session(session_id, username):
+def session_here(session_id, username):
     with _lock:
         s = _sessions.get(session_id)
     if s is None or s.username != username:
@@ -222,17 +236,97 @@ def get_session(session_id, username):
     return s
 
 
-def close_session(session_id, username):
-    s = get_session(session_id, username)
+def close_here(session_id, username):
+    s = session_here(session_id, username)
     with _lock:
         _sessions.pop(session_id, None)
     s.close()
 
 
-def export(session, device, path):
-    """Copy a file, or a folder as a .tar.gz, out of the backup into a temporary file. Returns (temp path, name)."""
+def export_here(session, device, path):
+    """A file, or a folder as a .tar.gz, copied out of the backup: (an open descriptor of the copy, its name). The
+    copy is unlinked once opened: it lives as long as the descriptor the API reads it from."""
     fd, dest = tempfile.mkstemp(prefix="export-", dir=session.workdir)
     os.close(fd)
-    res = session.request({"op": "export", "device": device, "path": path, "dest": dest})
+    try:
+        res = session.request({"op": "export", "device": device, "path": path, "dest": dest})
+        opened = os.open(dest, os.O_RDONLY)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(dest)
     base = PurePosixPath(path).name or "root"  # guest paths are POSIX, NTFS included, as libguestfs shows them
-    return dest, f"{base}.tar.gz" if res["kind"] == "dir" else base
+    return opened, f"{base}.tar.gz" if res["kind"] == "dir" else base
+
+
+# --- The API's side: hyperlite-daemon holds the sessions (restore.*), the API their records ---
+
+
+class Opened:
+    """A session as the API knows it."""
+
+    def __init__(self, session_id, backup_id, vm_name, filesystems, username):
+        self.id, self.backup_id, self.vm_name, self.filesystems = session_id, backup_id, vm_name, filesystems
+        self.username = username
+
+
+_opened = {}  # session id -> Opened, for the API's audit entries
+
+
+def _daemon(op, username, fds=False, **args):
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        run = privileged.run_fds if fds else privileged.run
+        return run(op, user=username, timeout=START_TIMEOUT_S + 30, username=username, **args)
+    except DaemonError as e:
+        raise RestoreError(e.detail) from None
+
+
+def open_session(backup_id, username):
+    row = backup_row(backup_id)
+    found = _daemon("restore.open", username, backup_id=backup_id, path=row["path"] or "")
+    opened = Opened(found["session"], backup_id, row["vm_name"], found["filesystems"], username)
+    _opened[opened.id] = opened
+    return opened
+
+
+def get_session(session_id, username):
+    opened = _opened.get(session_id)
+    if opened is None or opened.username != username:
+        raise RestoreError("This browsing session does not exist or has ended: open the backup again")
+    return opened
+
+
+def list_dir(session_id, username, device, path):
+    return _daemon("restore.ls", username, session=session_id, device=device, path=path)
+
+
+def export(session_id, username, device, path):
+    """(an open descriptor of the file, or of the folder as a .tar.gz, its name): the caller closes it."""
+    result, fds = _daemon("restore.export", username, fds=True, session=session_id, device=device, path=path)
+    if not fds:
+        raise RestoreError("The file could not be read out of the backup")
+    from app.core import daemon_client
+
+    daemon_client.close_fds(fds[1:])
+    return fds[0], result["name"]
+
+
+def close_session(session_id, username):
+    _opened.pop(session_id, None)
+    _daemon("restore.close", username, session=session_id)
+
+
+def is_open(backup_id):
+    """Whether a live file-restore session reads this backup (it must not be deleted under it), as hyperlite-daemon
+    holds them."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        return privileged.run("restore.busy", backup_id=backup_id)["open"]
+    except DaemonError as e:
+        # The sessions are the daemon's: one it cannot answer for holds none (they end with it).
+        logger.warning("Whether backup %s is being browsed could not be asked: %s", backup_id, e.detail)
+        return False

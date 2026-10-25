@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core import (
     cluster_view,
+    drs,
     error_codes,
     ha_monitor,
     ha_recovery,
@@ -70,6 +71,7 @@ from app.routers.cluster_setup import router as cluster_setup_router
 from app.routers.cluster_update import router as cluster_update_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.drs import router as drs_router
 from app.routers.file_restore import router as file_restore_router
 from app.routers.groups import router as groups_router
 from app.routers.ha import router as ha_router
@@ -113,10 +115,29 @@ if not _app_log.handlers:
     _app_log.propagate = False
 
 
+def _log_tasks():
+    import asyncio
+    import io
+
+    out = io.StringIO()
+    tasks = asyncio.all_tasks()
+    for task in tasks:
+        task.print_stack(limit=12, file=out)
+    logger.warning("event loop: %d task(s)\n%s", len(tasks), out.getvalue())
+
+
 @asynccontextmanager
 async def lifespan(_app):
     # SIGUSR1 writes every thread's stack to the journal: what a stalled event loop is doing, on a live node.
     faulthandler.register(signal.SIGUSR1, all_threads=True)
+    # SIGUSR2 logs the event loop's own tasks and where each waits: a request stuck in a coroutine (a lock, a queue)
+    # leaves every thread idle, and only this shows it.
+    import asyncio
+
+    try:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGUSR2, _log_tasks)
+    except (ValueError, RuntimeError) as e:  # a loop outside the main thread: the test client's
+        logger.info("SIGUSR2 does not log the event loop's tasks here: %s", e)
     on_startup()
     from app.core import spice_proxy
 
@@ -197,6 +218,7 @@ _API_ROUTERS = (
     vm_disks_router,
     vm_export_router,
     ha_router,
+    drs_router,
     notifications_router,
     workstation_router,
     kubernetes_router,
@@ -543,6 +565,7 @@ def on_startup():
     ha_selffence.start_selffence()
     ha_recovery.start()  # acts on the leader only, with the quorum
     ha_monitor.start()  # each node, its own HA VMs whose monitoring is on
+    drs.start()  # load balancing: acts on the leader only, with the quorum (docs/design/drs.md)
     start_vm_crash_watch()
     start_replication_scheduler()
     start_auto_cleanup_scheduler()

@@ -232,6 +232,19 @@
     "title": "Balloon",
     "type": "object"
    },
+   "Behaviour": {
+    "properties": {
+     "behaviour": {
+      "title": "Behaviour",
+      "type": "string"
+     }
+    },
+    "required": [
+     "behaviour"
+    ],
+    "title": "Behaviour",
+    "type": "object"
+   },
    "Body_cli_start_api_v1_auth_cli_start_post": {
     "properties": {
      "client_version": {
@@ -2236,6 +2249,11 @@
    },
    "MaintenanceRequest": {
     "properties": {
+     "spread": {
+      "default": false,
+      "title": "Spread",
+      "type": "boolean"
+     },
      "target_node": {
       "anyOf": [
        {
@@ -2469,6 +2487,34 @@
      "enabled"
     ],
     "title": "MonitoringRequest",
+    "type": "object"
+   },
+   "Move": {
+    "properties": {
+     "reason": {
+      "default": "applied by an administrator",
+      "title": "Reason",
+      "type": "string"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     },
+     "target": {
+      "title": "Target",
+      "type": "string"
+     },
+     "vm": {
+      "title": "Vm",
+      "type": "string"
+     }
+    },
+    "required": [
+     "vm",
+     "source",
+     "target"
+    ],
+    "title": "Move",
     "type": "object"
    },
    "NetworkCreate": {
@@ -3179,6 +3225,50 @@
     "title": "RollingRequest",
     "type": "object"
    },
+   "Rule": {
+    "properties": {
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "nodes": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Nodes",
+      "type": "array"
+     },
+     "strength": {
+      "default": "should",
+      "title": "Strength",
+      "type": "string"
+     },
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "kind"
+    ],
+    "title": "Rule",
+    "type": "object"
+   },
    "RunRequest": {
     "properties": {
      "dry_run": {
@@ -3338,6 +3428,26 @@
      "time"
     ],
     "title": "ScheduleRequest",
+    "type": "object"
+   },
+   "Settings": {
+    "properties": {
+     "mode": {
+      "title": "Mode",
+      "type": "string"
+     },
+     "threshold": {
+      "maximum": 5.0,
+      "minimum": 1.0,
+      "title": "Threshold",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "mode",
+     "threshold"
+    ],
+    "title": "Settings",
     "type": "object"
    },
    "SiteAction": {
@@ -10400,6 +10510,385 @@
     ]
    }
   },
+  "/api/v1/drs": {
+   "get": {
+    "operationId": "get_drs_api_v1_drs_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Drs",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/apply": {
+   "post": {
+    "description": "A recommended move carried out by an administrator, through the live migration (its checks, its lock).",
+    "operationId": "apply_move_api_v1_drs_apply_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Move"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Apply Move",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/placement": {
+   "get": {
+    "description": "The member a new VM goes to when its node is \"auto\" (docs/design/drs.md, 3.6): the one placement prefers among\nthose that have its network and its storage pool. 409 when none can take it.",
+    "operationId": "get_placement_api_v1_drs_placement_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "memory_mb",
+      "required": true,
+      "schema": {
+       "minimum": 1,
+       "title": "Memory Mb",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "vcpus",
+      "required": false,
+      "schema": {
+       "default": 1,
+       "minimum": 1,
+       "title": "Vcpus",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "name",
+      "required": false,
+      "schema": {
+       "default": "",
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "network",
+      "required": false,
+      "schema": {
+       "default": "default",
+       "title": "Network",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "storage_pool",
+      "required": false,
+      "schema": {
+       "default": "default",
+       "title": "Storage Pool",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Placement",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/rules": {
+   "get": {
+    "operationId": "list_rules_api_v1_drs_rules_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Rules",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/rules/{name}": {
+   "delete": {
+    "operationId": "delete_rule_api_v1_drs_rules__name__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Rule",
+    "tags": [
+     "drs"
+    ]
+   },
+   "put": {
+    "operationId": "put_rule_api_v1_drs_rules__name__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Rule"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Rule",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/settings": {
+   "put": {
+    "operationId": "put_settings_api_v1_drs_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Settings"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Settings",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
+  "/api/v1/drs/vms/{vm_name}": {
+   "put": {
+    "description": "A VM left to the cluster's mode (\"default\"), kept in manual while the cluster is automatic (\"manual\"), or never\nmoved by load balancing (\"excluded\").",
+    "operationId": "put_behaviour_api_v1_drs_vms__vm_name__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "vm_name",
+      "required": true,
+      "schema": {
+       "title": "Vm Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Behaviour"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Behaviour",
+    "tags": [
+     "drs"
+    ]
+   }
+  },
   "/api/v1/file-restore/status": {
    "get": {
     "operationId": "restore_status_api_v1_file_restore_status_get",
@@ -15495,6 +15984,16 @@
        ],
        "title": "Target Node"
       }
+     },
+     {
+      "in": "query",
+      "name": "spread",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Spread",
+       "type": "boolean"
+      }
      }
     ],
     "responses": {
@@ -15619,7 +16118,7 @@
     ]
    },
    "post": {
-    "description": "Put a node in maintenance, then live-migrate its running VMs to `target_node`, one after another.",
+    "description": "Put a node in maintenance, then live-migrate its running VMs to `target_node`, or each where load balancing\nplaces it (`spread`), one after another.",
     "operationId": "enter_maintenance_api_v1_nodes__name__maintenance_post",
     "parameters": [
      {

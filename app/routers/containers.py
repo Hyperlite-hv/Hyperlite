@@ -7,12 +7,10 @@ ACLs as VMs (app/core/permissions.py)."""
 import contextlib
 import logging
 import secrets
-import subprocess
 import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
-from pathlib import Path
 
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
@@ -20,7 +18,6 @@ from pydantic import BaseModel, Field
 
 from app.core import (
     container_config,
-    container_create,
     container_shell,
     container_snapshots,
     image_env,
@@ -32,12 +29,6 @@ from app.core import (
     renaming,
 )
 from app.core.audit import log_action
-from app.core.container_builder import (
-    backup_container_rootfs,
-    build_container_xml,
-    delete_container_rootfs,
-    restore_container_rootfs,
-)
 from app.core.container_create import ContainerCreate
 from app.core.container_meta import (
     delete_container_app,
@@ -54,7 +45,6 @@ from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import open_lxc_conn, open_lxc_conn_if_any
 from app.core.listing import listing
-from app.core.network_alloc import generate_mac, release_static_ip
 from app.core.security import get_current_user, require_container_privilege, require_role
 from app.core.tasks import create_task, finish_task, update_task_progress
 from app.core.vm_builder import (
@@ -471,26 +461,32 @@ def _run_container_backup_job(task_id, username, container_name, claim):
 
 
 def _container_backup(task_id, username, container_name):
-    now = datetime.now(UTC)
-    CONTAINER_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{container_name}-{now.strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
-    dest_path = CONTAINER_BACKUP_DIR / filename
+    """The task and the record are the API's; hyperlite-daemon archives the filesystem its definition names
+    (container.archive)."""
     store = backup_service.container_store()
-    backup_id = store.create_container_backup(container_name, str(dest_path), now.isoformat(), task_id)
+    backup_id = store.create_container_backup(container_name, "", datetime.now(UTC).isoformat(), task_id)
     try:
         with _container_backup_lock:
             update_task_progress(task_id, 10)
-            backup_container_rootfs(container_name, dest_path)
+            try:
+                done = privileged.run(
+                    "container.archive", user=username, timeout=ARCHIVE_TIMEOUT_S, container=container_name
+                )
+            except DaemonError as e:
+                raise RuntimeError(e.detail) from None
             update_task_progress(task_id, 90)
-        size = dest_path.stat().st_size
-        store.container_backup_done(backup_id, size)
+        store.set_container_backup_path(backup_id, done["path"])
+        store.container_backup_done(backup_id, done["size"])
         finish_task(task_id, "succeeded")
         log_action(username, "backup_container", container_name, "success")
     except Exception as e:
-        dest_path.unlink(missing_ok=True)
         store.container_backup_failed(backup_id, str(e)[:500])
         finish_task(task_id, "failed", str(e)[:500])
         log_action(username, "backup_container", container_name, "failed", str(e)[:500])
+
+
+# An archive of a large filesystem takes a while.
+ARCHIVE_TIMEOUT_S = 6 * 3600
 
 
 @router.post("/{name}/backups", status_code=202)
@@ -637,52 +633,27 @@ def restore_container_backup(
     if name_error:
         raise HTTPException(status_code=422, detail=name_error)
 
+    # hyperlite-daemon unpacks the archive and defines the container (container.archive_restore).
+    done = privileged.ask(
+        "container.archive_restore",
+        user,
+        "restore_container_backup",
+        target_name,
+        failed="{}",
+        path=row["path"] or "",
+        container=target_name,
+        original=row["container_name"],
+    )
+    app = get_container_app(row["container_name"])
+    ssh_user = get_container_ssh_user(row["container_name"])
+    if ssh_user:
+        set_container_ssh_user(target_name, ssh_user)
+    if app:
+        set_container_app(target_name, app["image"], app["spec"], done["ip"], done["network"])
+    log_action(user["username"], "restore_container_backup", target_name, "success", f"from backup #{backup_id}")
     conn = open_lxc_conn()
     try:
-        try:
-            conn.lookupByName(target_name)
-            raise HTTPException(
-                status_code=409,
-                detail=f"A container '{target_name}' already exists: delete it first or choose another name",
-            )
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in restore_container_backup()", exc_info=True)
-
-        try:
-            rootfs = restore_container_rootfs(Path(row["path"]), target_name, original_name=row["container_name"])
-        except (subprocess.CalledProcessError, ValueError) as e:
-            msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
-            raise HTTPException(status_code=500, detail=f"Restore failed: {msg}") from e
-
-        # KNOWN LIMITATION: the original vcpu/memory are not kept in the archive (unlike
-        # cloning, which reads them straight from the still defined source domain), so
-        # they fall back to the default values, adjustable afterwards like for any
-        # container.
-        app = get_container_app(row["container_name"])
-        mac = ip = None
-        try:
-            if app:
-                # The original network, not "default": that one may not even be started on this host.
-                network = app["network"] or "default"
-                xml, mac, ip = container_create.app_definition(conn, target_name, rootfs, app["spec"], network, 1, 512)
-            else:
-                mac = generate_mac(conn)
-                xml = build_container_xml(target_name, 1, 512, rootfs, network="default", mac=mac)
-            domain = conn.defineXML(xml)
-        except (ValueError, libvirt.libvirtError) as e:
-            if app and ip:
-                release_static_ip(conn, network, mac)
-            delete_container_rootfs(target_name)
-            detail = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            raise HTTPException(status_code=500, detail=f"Failed to define the restored container: {detail}") from e
-
-        ssh_user = get_container_ssh_user(row["container_name"])
-        if ssh_user:
-            set_container_ssh_user(target_name, ssh_user)
-        if app:
-            set_container_app(target_name, app["image"], app["spec"], ip, network)
-        log_action(user["username"], "restore_container_backup", target_name, "success", f"from backup #{backup_id}")
-        return _summary(domain)
+        return _summary(conn.lookupByName(target_name))
     finally:
         conn.close()
 

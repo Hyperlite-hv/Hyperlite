@@ -12,28 +12,49 @@ not moved in the last COOLDOWN_S, and the target has its memory free with MEM_MA
 rule broken, no "should" rule broken by the move). A move is kept only if it lowers the spread by a quarter of the
 threshold at least; among equal gains, the VM with the least memory first.
 
-This module recommends; applying them (automatic mode) is step 4.
+In automatic mode (the default, section 8) the leader applies them (3.5, 3.7, step 4): at most MAX_RUNNING migrations
+at a time in the cluster and one per member, never a VM in manual or excluded. Each move is written in drs_requests and
+carried out by the member the VM runs on, the only one that reads the VM's full configuration, through the live
+migration of POST /vms/{name}/migrate (app/routers/vms/migration.py, start), with its checks and its lock; it writes
+the outcome back. A move keeps its VM for COOLDOWN_S; FAILURES_TO_PAUSE failures in a row pause automatic mode until an
+administrator saves the settings again, said in a notification. In manual mode, an administrator applies a move from
+the page, sent to that member in the administrator's name.
+
+The same placement serves a drain and a new VM (3.6, step 5): a drained member's VMs each go where they keep their
+rules and leave the lowest score, the largest first; a VM created on "auto" goes to the best member that has its
+network and storage pool (app/routers/drs.py).
 """
 
 import logging
+import os
 import threading
 import time
+import urllib.parse
+import uuid
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-OBSERVE_S = 30
-EVALUATE_S = 300
-CPU_WINDOW_S = 300
+# The lab shortens them (HYPERLITE_DRS_*_S): 15 minutes of imbalance before a move is too long for a test.
+OBSERVE_S = int(os.environ.get("HYPERLITE_DRS_OBSERVE_S", "30"))
+EVALUATE_S = int(os.environ.get("HYPERLITE_DRS_EVALUATE_S", "300"))
+CPU_WINDOW_S = int(os.environ.get("HYPERLITE_DRS_CPU_WINDOW_S", "300"))
 SUSTAINED = 3
 HOT_PCT = 90.0
 MAX_MOVES = 4
 MEM_MARGIN = 1.10
 COOLDOWN_S = 3600
 SPREAD = {1: None, 2: 40.0, 3: 25.0, 4: 15.0, 5: 10.0}  # the threshold's levels, in points of score
+MAX_RUNNING = 2
+FAILURES_TO_PAUSE = 2
+PICKUP_S = 300  # a requested move its member has not started by then fails (that member down)
+KEEP_FINISHED_S = 86400
 
 _lock = threading.Lock()
 _cpu = {}  # node -> [(monotonic, cpu %)] over CPU_WINDOW_S
-_state = {"unbalanced": 0, "at": None, "spread": None, "moves": [], "nodes": {}, "reason": None}
+_state = {"unbalanced": 0, "at": None, "spread": None, "moves": [], "nodes": {}, "reason": None, "paused": None}
+_running = {}  # request id (drs_requests) -> the move it asks for, while its member carries it out
+_failures = [0]  # migrations failed in a row
 _moved = {}  # vm -> monotonic time of its last move by load balancing
 
 
@@ -208,23 +229,87 @@ def _rule_fixes(nodes, where, behaviours, now):
     return out
 
 
+# ---- Placement: a drained member's VMs and a new VM (3.6, step 5) ----
+
+
+def place(vm_name, vm, nodes, where):
+    """The member of `nodes` (view()) where `vm` (a load) goes: its memory free there with MEM_MARGIN, every rule kept
+    (else at least the "must" ones), the lowest score once it holds the VM. None when no member can take it."""
+    from app.core import drs_rules
+
+    roomy = [n for n in nodes if _fits(vm, nodes[n])]
+    keeping = [n for n in roomy if _keeps_rules(vm_name, n, where)] or [
+        n for n in roomy if drs_rules.allowed(vm_name, n, where)
+    ]
+    if not keeping:
+        return None
+    return min(keeping, key=lambda n: (_with(nodes, n, vm_name, vm)[n]["score"], n))
+
+
+def _with(nodes, target, vm_name, vm):
+    """`nodes` with `vm` added to `target` (a copy)."""
+    out = dict(nodes)
+    dst = out[target] = {**nodes[target], "vms": {**nodes[target]["vms"], vm_name: vm}}
+    dst["cpu"] += _vm_cpu_points(vm, dst)
+    dst["mem_used_mb"] += _vm_memory(vm)
+    dst["mem"] = 100.0 * dst["mem_used_mb"] / dst["mem_total_mb"]
+    dst["score"] = max(dst["cpu"], dst["mem"])
+    return out
+
+
+def _unavailable():
+    """The members in maintenance, by name: neither a source to even nor a target ("local" is this node's own row)."""
+    from app.core import maintenance, self_node
+
+    return {self_node.name() if m["node"] == maintenance.LOCAL else m["node"] for m in maintenance.list_all()}
+
+
+def spread(source, vm_names):
+    """{vm: member or None} for draining `source` (a node name): each VM where place() puts it, the largest first, the
+    members' loads counting the VMs placed before it."""
+    from app.core import drs_rules, statd
+
+    table = statd.table()
+    nodes = view(table, _unavailable() | {source})
+    loads = ((table.get(source) or {}).get("load") or {}).get("vms") or {}
+    where = drs_rules.placement()
+    out = {}
+    for name in sorted(vm_names, key=lambda n: (-_vm_memory(loads.get(n) or {}), n)):
+        vm = loads.get(name) or {}  # its load not read yet: placed on the scores alone
+        out[name] = target = place(name, vm, nodes, where)
+        if target:
+            nodes = _with(nodes, target, name, vm)
+            where[name] = target
+    return out
+
+
+def initial(vm_name, memory_mb, vcpus):
+    """The members a new VM may go to, best first (3.6): its whole memory counted, no CPU used yet."""
+    from app.core import drs_rules, statd
+
+    nodes = view(statd.table(), _unavailable())
+    where = drs_rules.placement()
+    vm = {"mem_total_mb": float(memory_mb), "vcpus": vcpus, "cpu_pct": 0.0}
+    ranked = []
+    while (best := place(vm_name, vm, nodes, where)) is not None:
+        ranked.append(best)
+        nodes = {n: v for n, v in nodes.items() if n != best}
+    return ranked
+
+
 # ---- The leader's rounds ----
 
 
 def evaluate():
     """One evaluation on the leader: the cluster's state and the recommended moves, kept for the API."""
-    from app.core import cluster_lead, drs_rules, maintenance, statd
+    from app.core import cluster_lead, drs_rules, statd
 
     settings = drs_rules.settings()
     if settings["mode"] == "off" or not cluster_lead.in_cluster():
         with _lock:
             _state.update(unbalanced=0, moves=[], reason="off" if settings["mode"] == "off" else "no cluster")
         return dict(_state)
-    from app.core import self_node
-
-    # In maintenance: neither a source to even nor a target ("local" is this node's own row).
-    unavailable = {self_node.name() if m["node"] == maintenance.LOCAL else m["node"] for m in maintenance.list_all()}
-    nodes = view(statd.table(), unavailable)
+    nodes = view(statd.table(), _unavailable())
     moves = recommend(nodes, settings["threshold"], drs_rules.behaviours())
     threshold = SPREAD.get(settings["threshold"])
     hot = any(n["score"] >= HOT_PCT for n in nodes.values())
@@ -243,12 +328,180 @@ def evaluate():
             moves=moves if sustained else rule_moves,  # a burst is no imbalance; a broken rule is always a reason
             reason=None,
         )
-        return dict(_state)
+    if settings["mode"] == "automatic":
+        _automatic(list(_state["moves"]), drs_rules.behaviours())
+    return state()
 
 
 def state():
     with _lock:
-        return {**_state, "moves": list(_state["moves"])}
+        return {**_state, "moves": list(_state["moves"]), "running": list(_running.values())}
+
+
+# ---- Applying the moves ----
+
+
+def _notify(title, message, result="failed"):
+    from app.core.notifications import notify
+
+    notify("drs", title, message, result=result)
+
+
+def apply(move, username):
+    """An administrator's move (manual mode, the page's "Apply"): started by the member the VM runs on, through the
+    live migration of POST /vms/{name}/migrate (its checks, the VM's lock, the task), in that administrator's name.
+    {"task_id", "status"}, or an HTTPException with the migration's refusal."""
+    from fastapi import HTTPException
+
+    from app.core import cluster_view, self_node
+    from app.core.audit import log_action
+    from app.routers.vms import migration
+
+    with _lock:
+        _moved[move["vm"]] = time.monotonic()  # tried once: not again for COOLDOWN_S, whatever comes of it
+    if self_node.is_self(move["source"]):
+        result = migration.start(move["vm"], None, move["target"], username)
+    else:
+        # Only the member the VM runs on reads its full configuration (the checks need it): the request goes there.
+        from app.core import rolling_update
+
+        try:
+            member = cluster_view.peer(move["source"])
+        except LookupError:
+            raise HTTPException(status_code=404, detail=f"{move['source']} is not a member of this cluster") from None
+        path = f"/vms/{urllib.parse.quote(move['vm'], safe='')}/migrate"
+        try:
+            status, result = rolling_update.peer_api(member, username, "POST", path, {"target_node": move["target"]})
+        except rolling_update.PeerUnreachable as e:
+            raise HTTPException(status_code=502, detail=f"{move['source']} does not answer: {e}") from None
+        if status != 202:
+            status, body = cluster_view.answer(status, result, move["source"])
+            raise HTTPException(status_code=status, detail=body.get("detail") if isinstance(body, dict) else body)
+    log_action(username, "drs_move", move["vm"], "success", f"{move['source']} -> {move['target']}: {move['reason']}")
+    return result
+
+
+def _request(move):
+    """Automatic mode: the move written for the member the VM runs on, which carries it out (_carry_out)."""
+    from app.core import drs_rules
+
+    request_id = uuid.uuid4().hex
+    now = datetime.now(UTC).isoformat()
+    drs_rules._store().add_request(
+        {
+            "id": request_id,
+            "vm_name": move["vm"],
+            "source": move["source"],
+            "target": move["target"],
+            "reason": move["reason"],
+            "requested_by": "drs",
+            "requested_at": now,
+        }
+    )
+    with _lock:
+        _moved[move["vm"]] = time.monotonic()
+        _running[request_id] = {**move, "at": time.monotonic()}
+
+
+def _settle():
+    """The requested moves that finished: a success resets the failures, a failure counts. A request no member picked
+    up within PICKUP_S (its member down) fails."""
+    from app.core import drs_rules
+
+    with _lock:
+        running = dict(_running)
+    for request_id, move in running.items():
+        row = drs_rules._store().request(request_id)
+        state = row["state"] if row else "failed"
+        if state == "pending" and time.monotonic() - move["at"] >= PICKUP_S:
+            state = "failed"
+            drs_rules._store().update_request(
+                request_id, "failed", datetime.now(UTC).isoformat(), detail=f"{move['source']} did not pick it up"
+            )
+        if state in ("pending", "started"):
+            continue
+        with _lock:
+            _running.pop(request_id, None)
+            if state == "succeeded":
+                _failures[0] = 0
+                continue
+            _failures[0] += 1
+            paused = _failures[0] >= FAILURES_TO_PAUSE and _state["paused"] is None
+            if paused:
+                _state["paused"] = f"{_failures[0]} migrations failed in a row (the last: {move['vm']})"
+        logger.warning(
+            "Load balancing: moving %s to %s failed (%s)", move["vm"], move["target"], (row or {}).get("detail")
+        )
+        if paused:
+            _notify("Load balancing paused", f"{_state['paused']}: save the settings again to resume")
+
+
+def _automatic(moves, behaviours):
+    _settle()
+    with _lock:
+        if _state["paused"]:
+            return
+        busy = {n for m in _running.values() for n in (m["source"], m["target"])}
+        room = MAX_RUNNING - len(_running)
+    for move in moves:
+        if room <= 0:
+            break
+        if behaviours.get(move["vm"]) == "manual" or busy & {move["source"], move["target"]}:
+            continue
+        _request(move)
+        busy |= {move["source"], move["target"]}
+        room -= 1
+
+
+def _carry_out():
+    """On every member: the requested moves of the VMs it runs, started through the live migration in load
+    balancing's name, and their outcome written back for the leader."""
+    from fastapi import HTTPException
+
+    from app.core import drs_rules, self_node
+    from app.core.audit import log_action
+    from app.core.tasks import task_status
+    from app.routers.vms import migration
+
+    store = drs_rules._store()
+    for row in store.requests(source=self_node.name()):
+        now = datetime.now(UTC).isoformat()
+        vm, detail = row["vm_name"], f"{row['source']} -> {row['target']}: {row['reason']}"
+        if row["state"] == "started":
+            status = task_status(row["task_id"]) if row["task_id"] else "failed"
+            if status in ("succeeded", "failed"):
+                store.update_request(row["id"], status, now)
+            elif status is None:  # its task is gone (a restart): the migration's outcome is unknown
+                store.update_request(row["id"], "failed", now, detail="its task was lost")
+            continue
+        if row["state"] != "pending":
+            continue
+        try:
+            result = migration.start(vm, None, row["target"], row["requested_by"])
+        except HTTPException as e:  # refused by the migration's checks
+            store.update_request(row["id"], "failed", now, detail=str(e.detail))
+            log_action(row["requested_by"], "drs_move", vm, "failed", f"{detail} ({e.detail})")
+            continue
+        except Exception as e:
+            logger.exception("Load balancing: moving %s failed", vm)
+            store.update_request(row["id"], "failed", now, detail=str(e))
+            continue
+        store.update_request(row["id"], "started", now, task_id=result["task_id"])
+        log_action(row["requested_by"], "drs_move", vm, "success", detail)
+        _notify(f"Load balancing: {vm} moved to {row['target']}", detail, result="success")
+
+
+def resume():
+    """An administrator saved the settings: automatic mode resumes after a pause."""
+    with _lock:
+        _state["paused"] = None
+        _failures[0] = 0
+
+
+def _forget_finished():
+    from app.core import drs_rules
+
+    drs_rules._store().delete_requests_before((datetime.now(UTC) - timedelta(seconds=KEEP_FINISHED_S)).isoformat())
 
 
 def _loop():
@@ -257,11 +510,14 @@ def _loop():
     last = 0.0
     while True:
         try:
-            if cluster_lead.in_cluster() and cluster_lead.is_leader() and not cluster_lead.read_only_reason():
-                observe()
-                if time.monotonic() - last >= EVALUATE_S:
-                    evaluate()
-                    last = time.monotonic()
+            if cluster_lead.in_cluster() and not cluster_lead.read_only_reason():
+                _carry_out()
+                if cluster_lead.is_leader():
+                    observe()
+                    if time.monotonic() - last >= EVALUATE_S:
+                        evaluate()
+                        _forget_finished()
+                        last = time.monotonic()
         except Exception:  # the thread must survive anything
             logger.exception("Load balancing round failed")
         time.sleep(OBSERVE_S)
