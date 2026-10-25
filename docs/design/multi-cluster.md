@@ -83,8 +83,84 @@ Each one ships with its tests and the docs:
    token): sent first to the node the VM runs on, else through another member with `?node=`; an action that reached
    the remote is never sent again to another endpoint.
 3. **The backup copies' remotes** moved into the shared list (after #511's move of the backups).
-4. **Offline migration** between clusters.
-5. **Live migration** between clusters, where both reach the same storage or the disks can be copied while it runs.
+4. **Offline migration** between clusters (section 9.1).
+5. **Live migration** between clusters (section 9.2).
+
+## 9. Migration between clusters (steps 4 and 5)
+
+Status: **proposal** (2026-10-25). The choices below are the maintainer's, from the questions asked the same day; no
+code before this section is accepted.
+
+| Question | Proxmox | vSphere | Hyperlite |
+|---|---|---|---|
+| How the disks go | `qm remote-migrate`: the source streams them to the target through a tunnel over the target's API, with its token | Cross vCenter vMotion: host to host, the vCenters agreeing | **A direct stream** from the source cluster to the target node, over pinned HTTPS with the target's `manage` token: the same path the live migration (step 5) will use, and nothing of the backups' (#511) is needed |
+| The VM left at the source | Kept, locked, unless `--delete` | Gone: a moved VM exists in one place | **Deleted** once the target has the VM and its disks checked: never two copies that could start with the same MAC address |
+| Storage and network on arrival | `--target-storage`, `--target-bridge` mappings, per migration | Chosen in the wizard, per migration | **Per migration**: for each disk a pool of the target, for each card a network of the target, the same name chosen first when it exists; nothing saved |
+
+### 9.1 The flow (offline, step 4)
+
+The view is the source cluster; the target is one of its remotes, with a `manage` token of an account that holds the
+Administrator role there (a migration creates a VM and its volumes, as `qm remote-migrate` needs `VM.Allocate` and
+`Datastore.AllocateSpace`).
+
+1. **The dialog** (the VM's page, *Move to another cluster*): the remote, its node (online ones), the name there (the
+   same by default), each disk's pool (with its free space) and each card's network, *start it there afterwards*, and
+   an optional bandwidth limit in MiB/s (`--bwlimit`).
+2. **The source's checks**, answered at once: the VM is stopped (the dialog offers to shut it down first); it has no
+   snapshot (refused, with how many: qcow2 internal snapshots are not carried in v1, and a VM is never moved with
+   part of its history missing); no device of this host (PCI or USB passthrough, an iSCSI LUN of this site); not
+   locked. What does not follow the VM is listed before the move: its HA protection, its backup schedule and its
+   replication jobs here are removed with it; its backups stay in this cluster's stores (they restore here); an ISO in
+   its CD-ROM is detached.
+3. **The target prepares** (`POST /sites/incoming` on the chosen node, the `manage` token): the source sends the VM
+   **in Hyperlite's own terms, never its libvirt XML** (CPU, memory, firmware and machine, the disks' sizes and
+   formats, the cards' MAC addresses and models, the devices from the same allowlist as VM creation, tags and notes).
+   The target validates it as it validates a VM it creates (a remote's XML could name any file of the target host),
+   checks the name is free in the whole cluster, the pools have room, the networks exist, the CPU model is
+   compatible (the same diagnostic as a migration inside a cluster) and its own version, creates the empty volumes
+   (a hyperlite-daemon operation) and answers an incoming id. An incoming that sees no data for an hour is removed.
+4. **The disks**, one after the other (`PUT /sites/incoming/{id}/disks/{n}` on that node, streamed): the source reads
+   only what is allocated (the disk's allocation map, as the backups do), and sends frames of up to 4 MiB, each with
+   its offset and length, compressed with zstd; the target checks every frame falls inside the disk it declared and
+   writes it into the new volume; the stream ends with the SHA-256 of the whole disk (holes as zeros), which the
+   target compares with its own. Progress is in a task at both ends. Both ends read and write the disks through
+   hyperlite-daemon (a `qemu-nbd` export under `/run/hyperlite/migration/`, read-only at the source, writable at the
+   target, opened and closed by the daemon: from #511's step 4 the API cannot open a disk itself).
+5. **The target finishes** (`POST /sites/incoming/{id}/finish`): it defines the VM on that node with its new volumes,
+   the mapped networks, the same MAC addresses and UUID, its tags and notes, and starts it if asked. It answers once
+   the VM is defined.
+6. **The source deletes** the VM, its disks and what was listed in point 2, and writes the move in its journal (the
+   target writes it in its own).
+
+**Failures.** Before point 5 answers: the source cancels the incoming (`DELETE /sites/incoming/{id}`: the target
+removes its volumes), and the VM at the source is unlocked, untouched. After it answered but before point 6 is done:
+the VM exists on both, the one at the source stays stopped and locked "moved to <remote>", and an alert says to
+delete it there: it is never started by Hyperlite.
+
+### 9.2 Live (step 5)
+
+The same incoming and the same stream for the disks, while the VM runs: a first copy of every disk, then of the
+blocks written since (a dirty bitmap per disk, as the incremental backups), until what is left is small; then libvirt
+moves the memory and the device state through the same pinned connection (Proxmox's tunnel), the disks' last blocks
+included, and the VM continues on the target. Its own section is written when step 4 is merged.
+
+### 9.3 hyperlite-daemon
+
+New operations, coordinated with #511 on #298 before any code: at the source, `migration.export` (a read-only export
+of a stopped VM's disk, and its allocation map); at the target, `migration.prepare` (the empty volumes in the chosen
+pools), `migration.import` (a writable export of one of them), `migration.define` (the VM from the checked
+specification) and `migration.abort` (the volumes of an incoming removed). Each one takes fixed arguments, checked
+again by the daemon.
+
+### 9.4 Its risks
+
+| Risk | Mitigation |
+|---|---|
+| A remote sends a VM that reaches the target host's files | The VM comes as a specification checked as a new VM, never as libvirt XML; every disk is a new volume of a pool the target chose |
+| A stream that writes elsewhere or forever | Every frame inside the size declared at point 3; the stream ends with the SHA-256 the target checks; an idle incoming is removed after an hour |
+| A cut link in the middle | Nothing at the source changes before the target answered point 5; the incoming is cancelled, or removed after an hour |
+| The VM in two places | The source's copy stays stopped and locked until it is deleted; the target's is the only one Hyperlite starts |
+| A slow WAN | Only allocated blocks, compressed; a bandwidth limit per migration; progress at both ends |
 
 ## 8. Risks
 
