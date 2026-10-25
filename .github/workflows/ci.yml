@@ -397,6 +397,9 @@ jobs:
         run: |
           sudo bash scripts/ensure-backup-apparmor.sh
           sudo env HYPERLITE_TEST_LIBVIRT=1 venv/bin/python -m pytest -q -p no:cacheprovider tests/test_backup_store_qemu.py
+      - name: A migration between clusters on real disks
+        if: matrix.shard == 1
+        run: sudo env HYPERLITE_TEST_LIBVIRT=1 venv/bin/python -m pytest -q -p no:cacheprovider tests/test_site_transfer_qemu.py
       # The first VM created downloads the base cloud image (a few hundred MB): the spec that happened to create it
       # waited past its 60 s hook timeout. Fetched once here, through the backend's own function.
       - name: Fetch the base cloud image
