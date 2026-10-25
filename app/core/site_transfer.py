@@ -356,7 +356,9 @@ def define(conn, incoming, networks, start=False, wait_s=120):
         except libvirt.libvirtError:
             raise TransferError("not_found", f"No network '{name}' on this node") from None
     try:
-        xml = site_spec.to_domain(state["spec"], [(d["path"], d["kind"]) for d in state["disks"]], networks)
+        xml = site_spec.to_domain(
+            state["spec"], [(d["path"], d["kind"], d["format"]) for d in state["disks"]], networks
+        )
     except site_spec.SpecError as e:
         raise TransferError("refused", str(e)) from None
     try:
