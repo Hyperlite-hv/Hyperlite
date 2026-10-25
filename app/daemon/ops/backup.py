@@ -165,3 +165,41 @@ def export_delete(args, ctx):
     from app.core import vm_export
 
     return {"deleted": _job(vm_export.delete_export, args.name)}
+
+
+# --- Part 1b: the replication's points ---
+
+
+class PointArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    target: str = Field(max_length=PATH)
+    # The chain's state as the API recorded it: names make_point checks, never paths.
+    previous_target: str | None = Field(default=None, max_length=PATH)
+    previous: str | None = Field(default=None, max_length=32)
+    checkpoint: str | None = Field(default=None, max_length=64)
+    chain: str | None = Field(default=None, max_length=32)
+    points: int = Field(0, ge=0, le=100000)
+    disks_mtime: float | None = None
+
+
+# One call that waits: a full point copies the whole VM.
+@operation("replication.point", PointArgs)
+def replication_point(args, ctx):
+    """The next replication point of a VM of this node under the other site's directory (replication.make_point):
+    {"kind", and the chain's new state}, the API records it."""
+    from app.core import replication
+
+    try:
+        return _job(
+            replication.make_point,
+            args.vm,
+            args.target,
+            args.previous_target,
+            args.previous,
+            args.checkpoint,
+            args.chain,
+            args.points,
+            args.disks_mtime,
+        )
+    except replication.ReplicationError as e:
+        raise DaemonError("failed", str(e)) from None
