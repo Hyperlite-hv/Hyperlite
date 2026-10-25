@@ -115,4 +115,6 @@ def test_every_operation_says_what_it_needs_or_is_an_administrators():
         need = NEEDS.get(op, needs.ADMIN)
         assert isinstance(need, needs.Need), op
     public = sorted(op for op, need in NEEDS.items() if need.kind == "public")
-    assert all(op.startswith("auth.") or op == "system.ping" for op in public), public
+    # The sign-in, the daemon's ping, and a joining node let in by a member: it has no account there, the ticket it
+    # carries (checked and spent in cluster_setup.accept_member) stands for the administrator who copied it.
+    assert all(op.startswith("auth.") or op in ("system.ping", "cluster.setup_accept_member") for op in public), public

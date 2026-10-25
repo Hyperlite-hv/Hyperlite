@@ -640,7 +640,11 @@ def _write_env_keys(keys):
 def _restart_service():
     from app.routers.update import _spawn_outside_service
 
-    _spawn_outside_service("hyperlite-cluster-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
+    # The daemon too: it runs this join (privilege separation, 4e), and loads the env file's keys, which the join just
+    # replaced with the cluster's, only at its start.
+    _spawn_outside_service(
+        "hyperlite-cluster-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite-daemon hyperlite"]
+    )
 
 
 def _saved(path):
