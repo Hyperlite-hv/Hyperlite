@@ -87,7 +87,10 @@ jobs:
         run: meson setup build-cfs cfs --buildtype=release && ninja -C build-cfs hyperlite-cfs
       - name: Tests
         # One worker per core of the runner (pytest-xdist): the suite took five minutes on one.
-        run: HYPERLITE_CFS_BIN=build-cfs/hyperlite-cfs python -m pytest -q -n 4
+        run: |
+          HYPERLITE_CFS_BIN=build-cfs/hyperlite-cfs python -m pytest -q -n 4 -rfE 2>&1 | tee pytest.out; rc=${PIPESTATUS[0]}
+          grep -E "^(FAILED|ERROR)|^E  |worker .* crashed|Error" pytest.out | head -80 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $rc
       - name: Dependency audit
         run: pip install pip-audit==2.10.1 && pip-audit -r requirements.txt
 
