@@ -19,7 +19,7 @@ from app.daemon.registry import DaemonError
 class Need:
     """`kind`: "admin", "anyone" (any proven account), "public" (no proof: the sign-in itself), "own" (the account
     named in `arg`, or an administrator), a privilege on the object named in `arg` ("vm", "container", "storage",
-    "network"), "vms" (that privilege on each VM of the list `arg`), or "rule" (`rule(user, args)` says why not)."""
+    "network", "backup_store"), "vms" (that privilege on each VM of the list `arg`), or "rule" (`rule(user, args)` says why not)."""
 
     kind: str
     privilege: str | None = None
@@ -80,6 +80,10 @@ def on_vm(privilege, arg="vm"):
     return Need("vm", privilege, arg)
 
 
+def on_backup_store(privilege, arg="name"):
+    return Need("backup_store", privilege, arg)
+
+
 def on_container(privilege, arg="container"):
     return Need("container", privilege, arg)
 
@@ -101,25 +105,16 @@ def check(op, need, ctx, args):
     for a service of this node."""
     if need.kind == "public":
         return None
-    from app.daemon.registry import proven
+    from app.daemon.registry import proven_account
 
     if ctx.proof:
-        who = proven(ctx.proof)
-        if who is None:
-            raise DaemonError("forbidden", "The credential of this request proves no account")
-        user = _account(who)
+        user = proven_account(ctx.proof)
         if user is None:
-            raise DaemonError("forbidden", f"No account '{who}'")
+            raise DaemonError("forbidden", "The credential of this request proves no account")
         refusal = need.refusal(user, args)
         if refusal:
             raise DaemonError("forbidden", refusal)
-        return who
+        return user["username"]
     if ctx.peer_pid == os.getpid() or ctx.peer_uid == 0:
         return None
     raise DaemonError("forbidden", f"{op} needs the proof of the account that asks")
-
-
-def _account(username):
-    from app.repositories import registry
-
-    return registry.accounts().sync.get(username)
