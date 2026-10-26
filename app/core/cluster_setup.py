@@ -96,6 +96,17 @@ def _run(args, timeout=60):
     return done.returncode == 0
 
 
+def _running_version():
+    """The config_version Corosync runs (its cmap's totem.config_version): None when it does not answer."""
+    try:
+        out = subprocess.run(
+            ["corosync-cmapctl", "-g", "totem.config_version"], capture_output=True, text=True, timeout=10, check=True
+        )
+        return int(out.stdout.rsplit("=", 1)[1])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
 def _local_addresses():
     """The IP addresses configured on this host."""
     try:
@@ -872,6 +883,16 @@ def sync():
         _write(COROSYNC_CONF, render(conf), 0o644)
         _run(["corosync-cfgtool", "-R"])
         changed = True
+    else:
+        # A file written but not running, when a reload did not take. Seen in the lab: a node whose file listed a new
+        # member while its Corosync had no link to it, which the others took into the ring. That member never joined,
+        # and the others lost the token every few seconds.
+        running, written = _running_version(), _local_version()
+        if running is not None and running < written:
+            logger.warning(
+                "Corosync runs version %s of its configuration, %s is written: reloading it", running, written
+            )
+            _run(["corosync-cfgtool", "-R"])
     me = self_node.name()
     client = _client()
     own = f"{SSH_DIR}/{shadow.component(me)}"
