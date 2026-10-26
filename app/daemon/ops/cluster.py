@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from app.daemon.needs import ANYONE, own_task
+from app.daemon.needs import ANYONE, PUBLIC, own_task
 from app.daemon.registry import Args, DaemonError, operation
 
 NODE_NAME = 63
@@ -319,3 +319,111 @@ def statd_publish(args, ctx):
         return {"sent": None}
     _statd_last[0] = now
     return {"sent": statd.publish()}
+
+
+# ---- Forming the cluster (app/core/cluster_setup.py): Corosync's files and services, hyperlite-cfs's mode, the
+# cluster's keys and the shared configuration, all root's (docs/design/privilege-separation.md, section 14, 4e). The
+# daemon runs each step as the API ran it; the routes keep their answers. ----
+
+
+def _setup(fn, *args):
+    """A cluster_setup step: its refusals (ClusterError) "refused", a forged or spent ticket "forbidden", hyperlite-cfs
+    or a file not answering "unavailable", as the routes answered them (409, 403, 503)."""
+    from app.core import cluster_setup
+    from app.core.cfs_client import CfsError
+
+    try:
+        return fn(*args)
+    except cluster_setup.ClusterError as e:
+        raise DaemonError("refused", str(e)) from e
+    except PermissionError as e:
+        raise DaemonError("forbidden", str(e)) from e
+    except (CfsError, OSError) as e:
+        raise DaemonError("unavailable", str(e) or type(e).__name__) from e
+
+
+class CreateClusterArgs(Args):
+    name: str = Field(min_length=1, max_length=15)
+    address: str = Field(min_length=1, max_length=64)
+
+
+@operation("cluster.setup_create", CreateClusterArgs)
+def setup_create(args, ctx):
+    """This node, the first member of a new cluster (cluster_setup.create): the cluster's state."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.create, args.name, args.address, ctx.user or "system")
+
+
+@operation("cluster.setup_join_information")
+def setup_join_information(args, ctx):
+    """What an administrator copies into a new node (a new ticket each time): {"information", "cluster", "expire"}."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.join_information)
+
+
+class JoinClusterArgs(Args):
+    information: str = Field(min_length=1, max_length=2000)
+    address: str = Field(min_length=1, max_length=64)
+    confirmation: str = Field(max_length=15)
+
+
+@operation("cluster.setup_join", JoinClusterArgs)
+def setup_join(args, ctx):
+    """This node joins the cluster the information names (cluster_setup.join): it is put back as it was on a failure,
+    and restarts on the cluster's configuration on a success. One call that waits (JOIN_WAIT_S)."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.join, args.information, args.address, args.confirmation, ctx.user or "system")
+
+
+class AcceptMemberArgs(Args):
+    ticket: str = Field(max_length=100)
+    name: str = Field(max_length=NODE_NAME)
+    address: str = Field(max_length=64)
+    ssh_key: str = Field(max_length=200)
+    fingerprint: str | None = Field(None, max_length=64)
+    auth_keys: dict | None = None
+
+
+@operation("cluster.setup_accept_member", AcceptMemberArgs, needs=PUBLIC)
+def setup_accept_member(args, ctx):
+    """A joining node let in (cluster_setup.accept_member). It has no account here: the ticket it carries stands for the
+    administrator who copied the join information, and is checked and spent there."""
+    from app.core import cluster_setup
+
+    return _setup(
+        cluster_setup.accept_member,
+        args.ticket,
+        args.name,
+        args.address,
+        args.ssh_key,
+        args.fingerprint,
+        args.auth_keys,
+    )
+
+
+class PrimaryArgs(Args):
+    name: str | None = Field(None, max_length=NODE_NAME)
+
+
+@operation("cluster.setup_primary", PrimaryArgs)
+def setup_primary(args, ctx):
+    """The member that counts twice in the quorum, or none (cluster_setup.set_primary)."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.set_primary, args.name, ctx.user or "system")
+
+
+class RemoveMemberArgs(Args):
+    name: str = Field(min_length=1, max_length=NODE_NAME)
+    confirmation: str = Field(max_length=NODE_NAME)
+
+
+@operation("cluster.setup_remove_member", RemoveMemberArgs)
+def setup_remove_member(args, ctx):
+    """A member taken out of the cluster (cluster_setup.remove_member)."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.remove_member, args.name, args.confirmation, ctx.user or "system")
