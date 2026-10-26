@@ -43,6 +43,10 @@ os.environ["HYPERLITE_DAEMON_INPROCESS"] = "1"
 
 import pytest
 
+from app.core import paths
+
+paths.make_libraries()  # hyperlite-daemon's at its start, which no test runs
+
 
 @pytest.fixture()
 def database(tmp_path, monkeypatch):
