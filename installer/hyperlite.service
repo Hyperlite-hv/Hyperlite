@@ -9,13 +9,18 @@ Requires=libvirtd.service
 
 [Service]
 Type=simple
+# Not root, as Proxmox VE's pveproxy (docs/design/privilege-separation.md, 4e): what changes the node is
+# hyperlite-daemon's, which checks the proof of the account each request carries. The API reads libvirt through its
+# read-only socket and writes only what its group was given (installer/hyperlite.tmpfiles).
+User=www-data
+Group=www-data
 WorkingDirectory=/usr/lib/hyperlite
 # The node's keys, root only (app/core/paths.py). Optional for systemd only because it is read again for each command:
 # at the first start of 1.1 they are still in /root/hyperlite/.env until the first ExecStartPre moves them; the
 # second refuses to start without them.
 EnvironmentFile=-/etc/hyperlite/priv/env
 Environment=PYTHONUNBUFFERED=1
-Environment=HOME=/root
+Environment=HOME=/var/lib/hyperlite
 # The schedulers are hyperlite-scheduler's (installer/hyperlite-scheduler.service): the API starts none of them.
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
 # HA's loops and the watchdog are hyperlite-ha-lrm's and hyperlite-ha-crm's: the API starts none of them.
@@ -35,7 +40,9 @@ Environment=TMPDIR=/var/lib/hyperlite/tmp
 # "+": as root, whatever user the service runs as (www-data from 4e): they move, check and make root's files.
 ExecStartPre=+/bin/bash /usr/lib/hyperlite/scripts/migrate_layout.sh forward
 ExecStartPre=+/usr/bin/test -s /etc/hyperlite/priv/env
-ExecStartPre=+/bin/mkdir -p /var/lib/hyperlite/tmp
+# The directories and modes the API's group needs, laid out again: the package does it, this makes it whatever changed
+# since.
+ExecStartPre=+/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/hyperlite.conf
 ExecStartPre=+/usr/lib/hyperlite/scripts/ensure-tls-cert.sh
 ExecStartPre=+/usr/lib/hyperlite/scripts/write-motd.sh
 ExecStart=/usr/lib/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /etc/hyperlite/local/hyperlite.key --ssl-certfile /etc/hyperlite/local/hyperlite.crt --timeout-graceful-shutdown 5
