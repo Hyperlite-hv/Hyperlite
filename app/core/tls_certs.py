@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import ExtensionOID, NameOID
 
-from app.core import paths
+from app.core import api_group, paths
 
 TLS_DIR = Path(os.environ.get("HYPERLITE_TLS_DIR") or paths.TLS_DIR)
 SELF_SIGNED_SCRIPT = paths.CODE / "scripts" / "ensure-tls-cert.sh"
@@ -144,13 +144,15 @@ def install(cert_bytes, key_bytes, source):
     """Put a checked pair in place, keeping the current one as `.previous`."""
     _check_loads(cert_bytes, key_bytes)
     TLS_DIR.mkdir(parents=True, exist_ok=True)
-    os.chmod(TLS_DIR, 0o700)
+    # The API serves HTTPS with them (as pveproxy-ssl.key, root:www-data 0640); a key replaced stays root's alone.
+    api_group.share(TLS_DIR, 0o750)
     crt, key = _paths()
     if crt.exists() and key.exists():
         shutil.copy2(crt, crt.with_name("hyperlite.crt.previous"))
         shutil.copy2(key, key.with_name("hyperlite.key.previous"))
         os.chmod(key.with_name("hyperlite.key.previous"), 0o600)
-    _write(key, key_bytes, 0o600)
+    _write(key, key_bytes, 0o640)
+    api_group.share(key, 0o640)
     _write(crt, cert_bytes, 0o644)
     (TLS_DIR / SOURCE_FILE).write_text(source + "\n")
 
