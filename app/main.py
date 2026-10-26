@@ -525,7 +525,10 @@ def on_startup():
     db_health.start()  # PRAGMA quick_check now and once a day: a damaged file is said, not only logged by the loops
     from app.core import statd
 
-    statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
+    if (
+        not ha_services.separate()
+    ):  # hyperlite-ha-lrm sends it on an installed node; the API asks at once (statd.changed)
+        statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
     # Before anything starts new tasks: the ones still "running" whose process is gone (app/core/tasks.py).
     close_interrupted_tasks()
     # This node updated itself as the last step of a rolling update: now that it runs, out of maintenance.
