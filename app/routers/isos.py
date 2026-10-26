@@ -25,7 +25,6 @@ ISO_NAME_RE = disk_library.ISO_NAME_RE
 
 # This node's library, written by hyperlite-daemon (app/core/disk_library.py); the VM routes read it under this name.
 ISOS_DIR = disk_library.ISOS
-ISOS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _iso_in_use(conn, iso_path: str) -> bool:

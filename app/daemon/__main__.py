@@ -33,6 +33,9 @@ if __name__ == "__main__":
     from app.core import peer_auth
 
     _accounts_at_start()
+    from app.core import paths
+
+    paths.make_libraries()
     peer_auth.start_publishing()  # this node's public keys, for the other members (app/core/peer_auth.py)
     from app.core import disk_library
 

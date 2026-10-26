@@ -31,7 +31,6 @@ from app.core.tasks import create_task, finish_task, update_task_progress
 EXPORTS_DIR = paths.EXPORTS
 # What an export is named (`<vm>--<time>.qcow2`, export_copy): the only files vm.export_delete removes.
 EXPORT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}--\d{8}T\d{6}Z\.qcow2")
-EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def list_exports():
