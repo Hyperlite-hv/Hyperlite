@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from app.daemon.needs import ANYONE
+from app.daemon.needs import ANYONE, own_task
 from app.daemon.registry import Args, DaemonError, operation
 
 NODE_NAME = 63
@@ -204,7 +204,8 @@ class IsoCopyArgs(Args):
 
 
 # One call that waits: an image copied between two nodes, through this one when neither is it.
-@operation("iso.copy", IsoCopyArgs)
+# Its own copy task, for that image: what a VM created from another node's image starts (iso_share.start_copy).
+@operation("iso.copy", IsoCopyArgs, needs=own_task(types=("copy_iso",), target_arg="name"))
 def iso_copy(args, ctx):
     """An image copied from one node's library to another's (one of them may be this node), over SSH with the
     cluster's key, its progress written into the task (iso_share._copy)."""
@@ -271,7 +272,8 @@ class PeerCallArgs(NodeArgs):
         return request
 
 
-@operation("node.peer_call", PeerCallArgs)
+# Any proven account: the request it carries holds that account's own ticket, which the member checks again.
+@operation("node.peer_call", PeerCallArgs, needs=ANYONE)
 def peer_call(args, ctx):
     """_peer_api's fallback when HTTPS cannot be used: the fixed script run on the member over SSH with the cluster's
     key (rolling_update.call_over_ssh). {"status", "body"}."""

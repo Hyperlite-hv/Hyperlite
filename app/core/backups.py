@@ -545,7 +545,7 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
         finish_task(task_id, "failed", msg)
         log_action(username, "backup_vm", vm_name, "failed", msg)
         raise
-    _retention_after(vm_name, username)
+    _retention_after(vm_name, username, task_id)
     return backup_id
 
 
@@ -565,7 +565,7 @@ def _cancel_in_daemon(task_id, username):
         logger.warning("The copy of %s was not stopped: %s", task_id, e.detail)
 
 
-def _retention_after(vm_name, username):
+def _retention_after(vm_name, username, task_id=None):
     """Retention is applied after each backup, in the same place for manual and scheduled backups, and on ALL the
     backups of this VM (not only those of the same job_id): a retention configured for a VM caps the total number of
     its backups. It does nothing when no backup_jobs row exists for this VM (no policy, no limit). An error in it is
@@ -573,7 +573,7 @@ def _retention_after(vm_name, username):
     try:
         job_row = _store().get_schedule(vm_name)
         if job_row:
-            _apply_retention(vm_name, backup_retention.policy_of(job_row))
+            _apply_retention(vm_name, backup_retention.policy_of(job_row), task_id)
     except Exception as e:
         logger.exception("Retention of %s's backups failed", vm_name)
         log_action(username, "backup_retention", vm_name, "failed", str(e)[:300])
@@ -622,7 +622,7 @@ def _run_store_backup(vm_name, store_name, job_id, username):
         finish_task(task_id, "failed", msg)
         log_action(username, "backup_vm", vm_name, "failed", msg)
         raise
-    _retention_after(vm_name, username)
+    _retention_after(vm_name, username, task_id)
     return backup_id
 
 
@@ -658,7 +658,7 @@ def copy_into_store(vm_name, store_name, task_id):
     return {"path": str(directory), "size": sum(d["size"] for d in manifest["disks"].values()), "mode": mode}
 
 
-def remove_backup_files(path):
+def remove_backup_files(path, task_id=None):
     """Delete a backup's files through hyperlite-daemon (backup.delete): its own directory (and its VM's, once empty),
     or its index and manifest in a store, whose chunks go at the store's next garbage collection. RuntimeError when
     the daemon refused (a directory that is not a backup's, or that holds other files)."""
@@ -668,7 +668,7 @@ def remove_backup_files(path):
     if not path:
         return
     try:
-        privileged.run("backup.delete", path=str(path))
+        privileged.run("backup.delete", path=str(path), **({"task_id": task_id} if task_id else {}))
     except DaemonError as e:
         raise RuntimeError(e.detail) from None
 
@@ -1187,9 +1187,10 @@ def _verify_due_backup():
         _backup_lock.release()
 
 
-def _apply_retention(vm_name, policy):
+def _apply_retention(vm_name, policy, task_id=None):
     """Per VM, not per job_id (see the comment in run_backup): the policy (app/core/backup_retention.py) applies
-    to ALL the finished backups of the VM, whether they come from a schedule or from a manual trigger."""
+    to ALL the finished backups of the VM, whether they come from a schedule or from a manual trigger. `task_id`: the
+    backup's own task, which lets its account delete what the retention removes (backup.delete's needs)."""
     rows = _store().finished_of(vm_name)
 
     def kept(selection):
@@ -1211,7 +1212,7 @@ def _apply_retention(vm_name, policy):
             if backup_use.holder(row["id"]):
                 continue  # being restored or read: the next run of the schedule removes it
             try:
-                remove_backup_files(row["path"])
+                remove_backup_files(row["path"], task_id=task_id)
             except RuntimeError as e:
                 # Its files are not only a backup's: kept with its record, the others still go.
                 logger.warning("Retention kept backup #%s of %s: %s", row["id"], vm_name, e)
