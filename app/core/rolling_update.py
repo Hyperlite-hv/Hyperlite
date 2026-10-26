@@ -262,16 +262,9 @@ def node_plan(node, username, local_check=None, target=None):
         out["vms_to_migrate"], out["vms_blocked"] = [], []  # updated in place: its VMs keep running there
         return out
     try:
-        from app.core.libvirt_utils import open_conn
+        from app.core import privileged
 
-        conn = open_conn(maintenance.conn_key(label))
-        dst = open_conn(maintenance.conn_key(target)) if target else None
-        try:
-            vms = maintenance.plan(conn, dst, target)
-        finally:
-            conn.close()
-            if dst:
-                dst.close()
+        vms = privileged.run("node.vm_plan", timeout=120, source=label, target=target)
         out["vms_to_migrate"] = vms["migratable"]
         out["vms_blocked"] = vms["not_migratable"]
     except Exception as e:  # libvirt unreachable: the node cannot be emptied

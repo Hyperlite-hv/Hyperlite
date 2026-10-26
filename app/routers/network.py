@@ -620,7 +620,7 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
     if new == name:
         raise HTTPException(status_code=422, detail="The new name is the current one")
     conn = open_conn(readonly=True)
-    lxc = open_lxc_conn_if_any()
+    lxc = open_lxc_conn_if_any(readonly=True)
     try:
         _lookup(conn, name)
         try:

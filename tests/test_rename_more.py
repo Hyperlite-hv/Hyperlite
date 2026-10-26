@@ -268,10 +268,10 @@ def nets(database, monkeypatch, daemon_libvirt):
     qemu, lxc = _NetHost(), _NetHost()
     qemu.nets["lab"] = _Net(qemu, "<network><name>lab</name><bridge name='virbr7'/><ip address='10.9.0.1'/></network>")
     monkeypatch.setattr(network, "open_conn", lambda node=None, **_k: qemu)
-    monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda: lxc)
+    monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda readonly=False: lxc)
     # hyperlite-daemon renames the network with connections of its own, in this process in the tests.
     daemon_libvirt(qemu)
-    monkeypatch.setattr(libvirt_utils, "open_lxc_conn_if_any", lambda: lxc)
+    monkeypatch.setattr(libvirt_utils, "open_lxc_conn_if_any", lambda readonly=False: lxc)
     monkeypatch.setattr(network, "_network_summary", lambda net: {"name": net.name()})
     monkeypatch.setattr(network, "remove_network_firewall", lambda name, user=None: None)
     applied = []

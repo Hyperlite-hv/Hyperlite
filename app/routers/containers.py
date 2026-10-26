@@ -105,7 +105,7 @@ def _summary(domain):
 
 @router.get("")
 def list_containers(user: dict = Depends(get_current_user)):
-    conn = open_lxc_conn_if_any()
+    conn = open_lxc_conn_if_any(readonly=True)
     if conn is None:
         return listing([])  # no LXC driver on this node: no containers, as libvirt_utils.open_lxc_conn_if_any says
     try:
@@ -139,7 +139,7 @@ async def list_container_backups(user: dict = Depends(get_current_user)):
 
 @router.get("/{name}")
 def get_container(name: str, user: dict = Depends(require_container_privilege("container.view"))):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -173,7 +173,7 @@ class ContainerUpdate(BaseModel):
 def update_container(name: str, payload: ContainerUpdate, user: dict = Depends(require_role("admin"))):
     # Written by hyperlite-daemon (app/core/container_ops.py), the DNS servers into the container's own files.
     changed = _daemon("container.update", user, "update_container", name, **payload.model_dump())
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         domain = _lookup(conn, name)
         log_action(user["username"], "update_container", name, "success", "; ".join(changed["changes"]))
@@ -242,7 +242,7 @@ def create_container(payload: ContainerCreate, user: dict = Depends(require_role
         raise HTTPException(status_code=500, detail=f"Container defined but its process did not start: {msg}")
     detail = f"application {payload.image}" if made["app"] else None
     log_action(user["username"], "create_container", payload.name, "success", detail, task_id=task_id)
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         return _summary(_lookup(conn, payload.name))
     finally:
@@ -271,7 +271,7 @@ def _lookup(conn, name):
 
 @router.post("/{name}/start")
 def start_container(name: str, user: dict = Depends(require_container_privilege("container.power"))):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         domain = _lookup(conn, name)
         with _claim_or_409(name, "a start"):
@@ -293,7 +293,7 @@ def _force_stop_later(name, run_id, grace_s):
     run_id (the domain's ID, the pid of its libvirt controller) tells the run that was asked to stop from a new one
     started meanwhile, which hyperlite-daemon leaves alone."""
     deadline = time.monotonic() + grace_s
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         while time.monotonic() < deadline:
             time.sleep(1)
@@ -318,7 +318,7 @@ def _force_stop_later(name, run_id, grace_s):
 def stop_container(
     name: str, force: bool = False, user: dict = Depends(require_container_privilege("container.power"))
 ):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         _lookup(conn, name)
     finally:
@@ -372,7 +372,7 @@ def rename_container(name: str, payload: RenameContainerRequest, user: dict = De
 
 def _rename_container(name, payload, user):
     new = payload.new_name
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         _lookup(conn, name)
     finally:
@@ -380,7 +380,7 @@ def _rename_container(name, payload, user):
     _daemon("container.rename", user, "rename_container", name, new_name=new)
     renaming.container_records(name, new)
     log_action(user["username"], "rename_container", name, "success", f"-> {new}")
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         return _summary(_lookup(conn, new))
     finally:
@@ -407,7 +407,7 @@ def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depe
 
 def _clone_container(name, payload, user):
     # Copied by hyperlite-daemon (app/core/container_create.py) in its source's directory; the records follow here.
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         _lookup(conn, name)
     finally:
@@ -435,7 +435,7 @@ def _clone_container(name, payload, user):
     if app:
         set_container_app(payload.new_name, app["image"], app["spec"], made["ip"], made["network"])
     log_action(user["username"], "clone_container", name, "success", f"-> {payload.new_name}", task_id=task_id)
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         return _summary(_lookup(conn, payload.new_name))
     finally:
@@ -491,7 +491,7 @@ ARCHIVE_TIMEOUT_S = 6 * 3600
 
 @router.post("/{name}/backups", status_code=202)
 def create_container_backup(name: str, user: dict = Depends(require_role("admin"))):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -645,7 +645,7 @@ def restore_container_backup(
     if app:
         set_container_app(target_name, app["image"], app["spec"], done["ip"], done["network"])
     log_action(user["username"], "restore_container_backup", target_name, "success", f"from backup #{backup_id}")
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         return _summary(conn.lookupByName(target_name))
     finally:
@@ -681,7 +681,7 @@ SSH_FAILED = 255
 # app/core/container_shell.py). Opening it is root on the host (GHSA-527j-fwg2-7646).
 @router.post("/{name}/terminal-ticket")
 def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin"))):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -753,7 +753,7 @@ SHELL_TICKETS = {}
 
 @router.post("/{name}/shell-ticket")
 def create_shell_ticket(name: str, user: dict = Depends(require_role("admin"))):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)

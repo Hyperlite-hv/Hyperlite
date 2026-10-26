@@ -189,7 +189,7 @@ def api(place, monkeypatch, daemon_libvirt, daemon_lxc):
     monkeypatch.setattr(Domain, "home", place)
     monkeypatch.setattr(container_ops, "CONTAINERS_DIR", place)
     domains = {"web": Domain("web")}
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: Conn(domains))
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: Conn(domains))
     daemon_lxc(Conn(domains))  # hyperlite-daemon starts, renames and deletes the containers
     daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
     monkeypatch.setattr(containers, "_summary", lambda domain: {"name": domain.name()})

@@ -4,12 +4,11 @@ app/core/cluster.py."""
 import logging
 import threading
 
-import libvirt
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import cluster, cluster_compat, cluster_view, maintenance, privileged, renaming, self_node, vm_locks
+from app.core import cluster, cluster_view, maintenance, privileged, renaming, self_node, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import (
     check_address,
@@ -18,7 +17,6 @@ from app.core.cluster import (
 )
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import remote_capabilities
-from app.core.libvirt_utils import open_conn
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role
 from app.core.tasks import (
@@ -42,6 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 NAME_RE = cluster.NODE_NAME_RE
+PLAN_TIMEOUT_S = 120  # every VM's checks against another node, over SSH
 
 # A host driven over SSH from this node, with no Hyperlite of its own (one controller, nodes over SSH), is deprecated:
 # a node joins a cluster of equal nodes instead, as on Proxmox VE, with no controller to lose. Its routes keep working
@@ -207,12 +206,11 @@ async def get_node_summary(name: str, user: dict = Depends(get_current_user)):
 
 
 def _compat_with_local(name):
-    local, remote = open_conn(None), open_conn(name, readonly=True)
+    """cluster_compat's report from this node to `name`, made by hyperlite-daemon, which reads both nodes' libvirt."""
     try:
-        return cluster_compat.report(cluster_compat.check_pair(local, remote))
-    finally:
-        local.close()
-        remote.close()
+        return privileged.run("node.compatibility", timeout=PLAN_TIMEOUT_S, node=name)
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
 
 
 @router.get("/{name}/compatibility")
@@ -333,52 +331,12 @@ def _checked_pair(name, target_node, spread=False):
 
 
 def _plan(source, target, spread=False):
-    """The drain plan, or a 502 when a node cannot be reached."""
+    """The drain plan (maintenance.plan), made by hyperlite-daemon: it reads each VM's migratable definition, which
+    libvirt's read-only socket refuses. The HTTPException of its refusal otherwise, a node it cannot reach 502."""
     try:
-        src_conn = open_conn(maintenance.conn_key(source))
-    except libvirt.libvirtError as e:
-        raise HTTPException(status_code=502, detail=f"Node '{source}' unreachable: {describe_exception(e)}") from e
-    if spread:
-        try:
-            return _spread_plan(source, src_conn)
-        finally:
-            src_conn.close()
-    dst_conn = None
-    try:
-        if target is not None:
-            try:
-                dst_conn = open_conn(maintenance.conn_key(target))
-            except libvirt.libvirtError as e:
-                raise HTTPException(
-                    status_code=502, detail=f"Node '{target}' unreachable: {describe_exception(e)}"
-                ) from e
-        return maintenance.plan(src_conn, dst_conn, target)
-    finally:
-        src_conn.close()
-        if dst_conn:
-            dst_conn.close()
-
-
-def _spread_plan(source, src_conn):
-    """The drain plan when each running VM goes where load balancing places it, with "targets": {vm: label}."""
-    from app.core import drs, self_node
-
-    me = self_node.name()
-    running = [d.name() for d in src_conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE)]
-    placed = drs.spread(me if source == maintenance.LOCAL else source, running)
-    targets = {vm: (maintenance.LOCAL if n == me else n) if n else None for vm, n in placed.items()}
-    conns = {}
-    try:
-        for label in {t for t in targets.values() if t}:
-            try:
-                conns[label] = open_conn(maintenance.conn_key(label))
-            except libvirt.libvirtError:
-                conns[label] = None  # its VMs stay, said why
-        return maintenance.spread_plan(src_conn, targets, conns)
-    finally:
-        for conn in conns.values():
-            if conn:
-                conn.close()
+        return privileged.run("node.vm_plan", timeout=PLAN_TIMEOUT_S, source=source, target=target, spread=spread)
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
 
 
 @router.get("/maintenance")

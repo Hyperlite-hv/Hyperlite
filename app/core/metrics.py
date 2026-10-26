@@ -406,7 +406,7 @@ def _collect_tick():
             "host", "mem_pct", round(load["mem_used_mb"] / load["mem_total_mb"] * 100, 1), ALERT_THRESHOLDS["mem_pct"]
         )
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     vm_loads = {}
     try:
         for domain in conn.listAllDomains():

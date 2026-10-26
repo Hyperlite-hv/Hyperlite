@@ -354,7 +354,7 @@ def test_an_application_container_is_stopped_with_sigterm(client, auth_headers, 
     from app.routers import containers
 
     domain = _Domain("pg", active=True)
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(domain))
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: _Conn(domain))
     daemon_lxc(_Conn(domain))  # hyperlite-daemon stops it
     started = []
     real_start = containers.start_thread
@@ -379,7 +379,7 @@ def test_the_forced_stop_leaves_a_container_restarted_meanwhile(monkeypatch, dat
     domain = _Domain("pg", active=True)
     destroyed = []
     domain.destroy = lambda: destroyed.append(True)
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(domain))
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: _Conn(domain))
     daemon_lxc(_Conn(domain))  # hyperlite-daemon stops it by force, checking the run again
     monkeypatch.setattr(containers.time, "sleep", lambda s: None)
     containers._force_stop_later("pg", 1111, 0.01)  # another run: ID 4242
@@ -409,7 +409,7 @@ def test_a_container_rename_moves_its_filesystem(
     domain.autostart = lambda: 1
     domain.undefine = lambda: None
     conn = _Conn(domain)
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: conn)
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: conn)
     daemon_lxc(conn)
     monkeypatch.setattr(containers, "_summary", lambda d: {"name": d.name()})
     autostart = []
@@ -428,7 +428,7 @@ def test_a_running_container_is_not_renamed(client, auth_headers, monkeypatch, d
     from app.routers import containers
 
     daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(_Domain("web", active=True)))
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: _Conn(_Domain("web", active=True)))
     daemon_lxc(_Conn(_Domain("web", active=True)))
     r = client.post("/containers/web/rename", json={"new_name": "shop"}, headers=auth_headers("alice"))
     assert r.status_code == 409
@@ -470,7 +470,7 @@ def test_the_shell_enters_the_container_init(tmp_path):
 def test_the_container_shell_is_for_administrators(client, auth_headers, monkeypatch):
     from app.routers import containers
 
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(_Domain("web", active=True)))
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: _Conn(_Domain("web", active=True)))
     r = client.post("/containers/web/shell-ticket", headers=auth_headers("olga", role="viewer"))
     assert r.status_code == 403
 
@@ -503,7 +503,7 @@ def test_starting_a_running_or_stopping_a_stopped_container_is_a_conflict(
     from app.routers import containers
 
     running, stopped = _Domain("web", active=True), _Domain("db", active=False)
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: _Conn(running, stopped))
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: _Conn(running, stopped))
     daemon_lxc(_Conn(running, stopped))  # hyperlite-daemon checks the state again
     admin = auth_headers("alice")
     r = client.post("/containers/web/start", headers=admin)
