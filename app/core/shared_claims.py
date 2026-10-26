@@ -12,6 +12,7 @@ They are a few bytes each, and /run is emptied at boot.
 This process's own claims are also kept in memory: they answer without reading a file."""
 
 import contextlib
+import errno
 import fcntl
 import hashlib
 import json
@@ -21,7 +22,7 @@ import threading
 import time
 from urllib.parse import quote
 
-from app.core import paths
+from app.core import api_group, paths
 from app.core.safe_paths import safe_child
 
 # How long a claim retries a lock it could not take before it is refused: a reader checking whether a name left by a
@@ -45,7 +46,9 @@ def _directory():
     writable by every account, and a file planted there for root to empty would be any file of the system."""
     directory = paths.LOCKS
     with contextlib.suppress(FileExistsError):
-        directory.mkdir(mode=0o750, parents=True)
+        directory.mkdir(mode=0o770, parents=True)
+        # Root's services and the API take claims there (installer/hyperlite.tmpfiles makes it so at boot).
+        api_group.share(directory, 0o770)
     st = os.lstat(directory)
     if not stat.S_ISDIR(st.st_mode) or st.st_uid not in (0, os.geteuid()) or st.st_mode & stat.S_IWOTH:
         raise RuntimeError(f"{directory} is not a directory of root's or this service's alone: no claim is taken there")
@@ -62,8 +65,19 @@ def _file(key):
 
 
 def _open(path, flags):
-    # O_NOFOLLOW: nobody else writes in the directory, but a link found there is never followed all the same.
-    return os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC, 0o640)
+    """O_NOFOLLOW, and a regular file only: the API's group writes in the directory too, and root never follows a link
+    or opens a FIFO or a device found there. A file made here is root's and the API's group's (0660)."""
+    fd = os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o660)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
+        if flags & os.O_CREAT and st.st_mode & 0o777 != 0o660 and st.st_uid == os.geteuid():
+            api_group.share_fd(fd, 0o660)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def _read(fd):

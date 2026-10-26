@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from app.daemon.needs import ANYONE
+from app.daemon.needs import ANYONE, own_task
 from app.daemon.registry import Args, DaemonError, operation
 
 NODE_NAME = 63
@@ -204,7 +204,8 @@ class IsoCopyArgs(Args):
 
 
 # One call that waits: an image copied between two nodes, through this one when neither is it.
-@operation("iso.copy", IsoCopyArgs)
+# Its own copy task, for that image: what a VM created from another node's image starts (iso_share.start_copy).
+@operation("iso.copy", IsoCopyArgs, needs=own_task(types=("copy_iso",), target_arg="name"))
 def iso_copy(args, ctx):
     """An image copied from one node's library to another's (one of them may be this node), over SSH with the
     cluster's key, its progress written into the task (iso_share._copy)."""
@@ -271,7 +272,8 @@ class PeerCallArgs(NodeArgs):
         return request
 
 
-@operation("node.peer_call", PeerCallArgs)
+# Any proven account: the request it carries holds that account's own ticket, which the member checks again.
+@operation("node.peer_call", PeerCallArgs, needs=ANYONE)
 def peer_call(args, ctx):
     """_peer_api's fallback when HTTPS cannot be used: the fixed script run on the member over SSH with the cluster's
     key (rolling_update.call_over_ssh). {"status", "body"}."""
@@ -296,3 +298,24 @@ def probe(args, ctx):
     from app.core import host_stats
 
     return {"output": host_stats.run_script_on(host_stats._probes()[args.probe], _registered(args.node))}
+
+
+# ---- The cluster's status (app/core/statd.py): this node's summary sent at once, for an API that is not root ----
+
+STATD_MIN_S = 1.0  # at most one summary a second, however many accounts ask
+_statd_last = [0.0]
+
+
+@operation("statd.publish", needs=ANYONE)
+def statd_publish(args, ctx):
+    """This node's summary sent now (hyperlite-cfs takes it from root only), after a change any account made through
+    the API: {"sent": bytes or None}. Asked again within STATD_MIN_S, nothing is sent: the one just sent is current."""
+    import time
+
+    from app.core import statd
+
+    now = time.monotonic()
+    if now - _statd_last[0] < STATD_MIN_S:
+        return {"sent": None}
+    _statd_last[0] = now
+    return {"sent": statd.publish()}

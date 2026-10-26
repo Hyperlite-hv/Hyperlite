@@ -65,7 +65,7 @@ def test_every_nodes_status_reaches_every_node(nodes):
     try:
         nodes[0].stat_put(b"old")
     except CfsError as e:
-        # The VM lab (lab/vm.sh) reaches the daemons through an SSH forward as `debian`: publishing is root only.
+        # A lab that reaches the daemons as a user that is not root: publishing is root only.
         assert e.status == FORBIDDEN
         pytest.skip("this lab reaches the daemons as a user that is not root, and only root publishes a status")
     for i, c in enumerate(nodes):
