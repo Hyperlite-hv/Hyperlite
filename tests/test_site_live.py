@@ -7,6 +7,7 @@ import shutil
 import socket
 import stat
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -173,3 +174,32 @@ def test_the_daemon_refuses_arguments_out_of_bounds(op, args):
     with pytest.raises(DaemonError) as e:
         privileged.run(op, user="ana", **args)
     assert e.value.kind == "invalid_arguments"
+
+
+def test_the_tunnels_channels_are_opened_with_the_administrators_proof(client, auth_headers, monkeypatch):
+    """The API, www-data from 4e, shows the daemon the token the source's node sent for every call, the channels the
+    tunnel opens on a thread of its own included: without it the daemon refuses them."""
+    from app.core import site_tunnel
+
+    token = auth_headers("root")["Authorization"].split()[1]
+    asked, ours, opened = [], [], threading.Event()
+
+    def call(op, args=None, user=None, timeout=None):
+        asked.append((op, privileged.daemon_client._proof()))
+        if op != "transfer.live_connect":
+            return {}, []
+        mine, theirs = socket.socketpair()
+        ours.append(mine)
+        opened.set()
+        return None, [theirs.detach()]
+
+    monkeypatch.delenv(privileged.INPROCESS_ENV)
+    monkeypatch.setattr(privileged.daemon_client, "call_fds", call)
+    path = f"/api/v1/sites/incoming/{INCOMING}/tunnel"
+    with client.websocket_connect(path, headers={"Authorization": f"Bearer {token}"}) as ws:
+        ws.send_bytes(site_tunnel.frame(site_tunnel.OPEN, 1, bytes([site_tunnel.KINDS.index("memory")])))
+        assert opened.wait(10)
+        ours[0].sendall(b"pages")
+        assert site_tunnel.parse(ws.receive_bytes()) == (site_tunnel.DATA, 1, b"pages")
+    assert asked == [("transfer.live_expect", token), ("transfer.live_connect", token)]
+    ours[0].close()
