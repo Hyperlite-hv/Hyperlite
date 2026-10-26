@@ -8,6 +8,7 @@
 #define CFS_SERVER_H
 
 #include <signal.h>
+#include <sys/types.h>
 
 #include "node.h"
 
@@ -21,7 +22,7 @@ typedef struct {
 
 /* Serve until *stop becomes non-zero (set by a signal handler) or a source fails. Returns 0, or -1 when the socket
  * cannot be set up or a source failed. */
-int cfs_serve(cfs_node *node, const char *socket_path, unsigned mode, const cfs_source *sources, size_t nsources,
+int cfs_serve(cfs_node *node, const char *socket_path, unsigned mode, gid_t group, const cfs_source *sources, size_t nsources,
               volatile sig_atomic_t *stop);
 
 #endif

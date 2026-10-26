@@ -39,4 +39,19 @@ if __name__ == "__main__":
     # What a stop left being stored (app/core/disk_library.py): root's staging directory, which the API cannot read.
     if removed := disk_library.clean_staging():
         logging.getLogger(__name__).info("Removed %d upload(s) a stop left being stored", removed)
+
+    # The copy between SQLite and hyperlite-cfs, both ways: root's, as the permissions' file and the cluster's tree are
+    # (app/daemon/ops/cfs.py).
+    from app.repositories.cfs import inbound, shadow
+
+    shadow.start_shadow_copy()
+    inbound.start_apply_loop()
+    # What else writes the cluster's tree, which hyperlite-cfs takes from root only (section 14.7): this node's
+    # certificate fingerprint for the members' HTTPS calls, API v1's one rewrite, and the node's lead with Corosync's
+    # configuration and the members' SSH keys following the shared ones (cluster_setup.sync).
+    from app.core import cluster_lead, cluster_v1, peer_https
+
+    peer_https.start()
+    cluster_v1.start()
+    cluster_lead.start_lead_loop(follow_setup=True)
     serve()
