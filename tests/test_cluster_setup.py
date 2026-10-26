@@ -697,3 +697,41 @@ def test_a_joining_node_waits_longer_for_its_links_than_a_new_cluster(host, monk
     monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 300)
     cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
     assert waits == [300] and cluster_setup.JOIN_WAIT_S > cluster_setup.WAIT_S
+
+
+def test_each_member_says_which_configuration_its_file_holds(host):
+    _create(host)
+    cluster_setup.sync()
+    assert host.files[f"{cluster_setup.WRITTEN_DIR}/hv-test"] == str(cluster_setup._local_version()).encode()
+
+
+def test_a_new_member_is_reloaded_in_once_every_member_wrote_it(host, monkeypatch):
+    """The lab's node-3 failure: the reload reaches every member at once, each from its own file, and a member that
+    still held the older one left the new node out while this one took it into the ring."""
+    _create(host)
+    _, decoded = _information(host)
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    _, decoded = _information(host)
+    written = f"{cluster_setup.WRITTEN_DIR}/pve-b"
+    seen = []
+
+    def member_follows(seconds):  # pve-b's lead loop writes the new configuration while this node waits
+        seen.append(list(host.commands))
+        host.files[written] = b"3"
+
+    monkeypatch.setattr(cluster_setup.time, "sleep", member_follows)
+    host.commands.clear()
+    cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
+    assert seen == [[]]  # waited once, before any reload
+    assert host.commands == ["corosync-cfgtool -R"]
+
+
+def test_a_member_that_does_not_write_it_is_waited_for_a_while_only(host, monkeypatch, caplog):
+    _create(host)
+    _, decoded = _information(host)
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    _, decoded = _information(host)
+    monkeypatch.setattr(cluster_setup, "WRITTEN_WAIT_S", 0)
+    host.commands.clear()
+    cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
+    assert host.commands == ["corosync-cfgtool -R"] and "pve-b did not write version 3" in caplog.text
