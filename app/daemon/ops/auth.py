@@ -135,6 +135,24 @@ def sso(args, ctx):
     return sign_in.sso(**args.model_dump())
 
 
+@operation("auth.sso_start", Args, needs=PUBLIC)
+def sso_start(args, ctx):
+    """An SSO sign-in's redirection to the identity provider: built here, where the client secret is opened."""
+    return sign_in.sso_start()
+
+
+class SsoCallbackArgs(Args):
+    state: str = Field(max_length=512)
+    binding: str | None = Field(None, max_length=512)
+    code: str = Field(max_length=4096)
+
+
+@operation("auth.sso_callback", SsoCallbackArgs, needs=PUBLIC)
+def sso_callback(args, ctx):
+    """The identity provider's callback: checked, the account made or updated, a handoff code for the dashboard."""
+    return sign_in.sso_callback(**args.model_dump())
+
+
 @operation("auth.change_password", ChangePasswordArgs, needs=PUBLIC)
 def change_password(args, ctx):
     return _checked([_token(args.token)], lambda: sign_in.change_password(**args.model_dump()))

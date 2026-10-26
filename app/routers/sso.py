@@ -12,7 +12,6 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from jwt import PyJWTError
 from pydantic import BaseModel
 
 from app.core import sign_in, sso
@@ -20,7 +19,6 @@ from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.security import require_role
 from app.daemon.registry import DaemonError
-from app.services import account_service
 
 logger = logging.getLogger(__name__)
 
@@ -140,27 +138,24 @@ def test_sso(user: dict = Depends(require_role("admin"))):
     }
 
 
+def _ask(op, **args):
+    """sign_in's `op`, done by hyperlite-daemon: the client secret is opened, and the account written, there."""
+    try:
+        return sign_in.ask(op, **args)
+    except DaemonError as e:
+        logger.error("SSO sign-in (%s) unavailable: %s", op, e.detail)
+        return None
+
+
 @pages.get("/login")
 def sso_login(request: Request):
-    config = sso.get_config()
-    if not config or not config["enabled"]:
-        raise HTTPException(status_code=400, detail="SSO is not enabled")
-    if config.get("client_secret_unreadable"):
-        raise HTTPException(
-            status_code=503,
-            detail="The stored SSO client secret cannot be decrypted (the encryption key changed): enter it again",
-        )
-    if not (config["issuer"] and config["client_id"] and config["client_secret"] and config["redirect_uri"]):
-        raise HTTPException(status_code=400, detail="Incomplete SSO configuration")
-    try:
-        doc = sso.discover(config["issuer"])
-    except Exception as e:
-        # Asked without any session: the error's own words (an internal address, TLS details) go to the log only.
-        logger.warning("SSO discovery of %s failed: %s", config["issuer"], e)
-        raise HTTPException(status_code=502, detail="The identity provider cannot be reached") from None
-    state, nonce, binding = sso.create_state()
-    response = RedirectResponse(sso.build_authorize_url(config, doc, state, nonce))
-    _set_cookie(response, request, BINDING_COOKIE, binding, sso.STATE_TTL_S)
+    answer = _ask("sso_start")
+    if answer is None:
+        raise HTTPException(status_code=503, detail="Signing in is unavailable: hyperlite-daemon does not answer")
+    if answer["result"] != "redirect":
+        raise HTTPException(status_code=answer["status"], detail=answer["detail"])
+    response = RedirectResponse(answer["url"])
+    _set_cookie(response, request, BINDING_COOKIE, answer["binding"], sso.STATE_TTL_S)
     return response
 
 
@@ -177,49 +172,17 @@ def sso_callback(
         return _redirect_error(error_description or error)
     if not code or not state:
         return _redirect_error("Incomplete response from the IdP")
-
-    nonce = sso.consume_state(state, request.cookies.get(BINDING_COOKIE))
-    if nonce is None:
-        # Expired, replayed, or started from another browser (a callback link someone sent).
-        log_action("system", "login", "auth", "failed", "SSO: unknown, expired or foreign sign-in state")
-        return _redirect_error("Login session expired, try again")
-
-    config = sso.get_config()
-    if not config or not config["enabled"]:
-        return _redirect_error("SSO is disabled")
-
-    try:
-        doc = sso.discover(config["issuer"])
-        tokens = sso.exchange_code(config, doc, code)
-        id_token = tokens["id_token"]
-        claims = sso.validate_id_token(config, doc, id_token, nonce)
-    except (PyJWTError, KeyError) as e:
-        log_action("system", "login", "auth", "failed", f"SSO: invalid identity token ({e})")
-        return _redirect_error("Invalid identity token")
-    except Exception as e:
-        log_action("system", "login", "auth", "failed", f"SSO: IdP unreachable or invalid response ({e})")
-        return _redirect_error("Unable to contact the IdP")
-
-    username = sso.resolve_username(claims)
-    if not username:
-        return _redirect_error("The IdP provided no usable identifier")
-    role = sso.resolve_role(config, claims)
-
-    try:
-        db_user = sso.provision_user(username, role, subject=claims.get("sub"))
-    except sso.LocalAccountConflict:
-        log_action(username, "login", "auth", "failed", "SSO: this name already matches a local account")
-        return _redirect_error("This username already matches a local account")
-    except sso.SubjectConflict:
-        log_action(username, "login", "auth", "failed", "SSO: this name belongs to another identity of the provider")
-        return _redirect_error("This username belongs to another identity: ask an administrator")
-
-    log_action(db_user["username"], "login", "auth", "success", "SSO identity validated")
+    answer = _ask("sso_callback", state=state, binding=request.cookies.get(BINDING_COOKIE), code=code)
+    if answer is None:
+        return _redirect_error("Signing in is unavailable: hyperlite-daemon does not answer")
+    if answer["result"] != "handoff":
+        if answer.get("log"):
+            log_action(answer.get("log_user") or "system", "login", "auth", "failed", answer["log"])
+        return _redirect_error(answer["detail"])
+    log_action(answer["username"], "login", "auth", "success", "SSO identity validated")
     response = RedirectResponse("/?sso=1")
     response.delete_cookie(BINDING_COOKIE, path=COOKIE_PATH)
-    _set_cookie(
-        response, request, HANDOFF_COOKIE, sso.create_handoff(db_user["username"]), sso.HANDOFF_TTL_S, HANDOFF_PATH
-    )
+    _set_cookie(response, request, HANDOFF_COOKIE, answer["handoff"], sso.HANDOFF_TTL_S, HANDOFF_PATH)
     return response
 
 
@@ -249,7 +212,6 @@ def sso_exchange(request: Request):
         body = {"require_2fa": True, "preauth_token": answer["preauth_token"], "methods": answer["methods"]}
         log_action(username, "login", "auth", "success", "SSO validated, second factor required")
     else:
-        account_service.record_login(username)
         log_action(username, "login", "auth", "success", "SSO login")
         body = {
             "access_token": answer["token"],
