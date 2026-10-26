@@ -237,7 +237,7 @@ def run_job(job, username="scheduler"):
             _store().set_group(backup_id, job["id"])
             own = _store().get_schedule(vm)
             if not own:
-                _apply_retention(vm, policy)
+                _apply_retention(vm, policy, _backup_task(backup_id))
             results[vm] = "ok"
     finally:
         with _running_lock:
@@ -269,3 +269,10 @@ def run_due(now):
             _next_run(job["frequency"], job["time"], now).isoformat(),
             shared_next=row["next_shared"] if own else None,
         )
+
+
+def _backup_task(backup_id):
+    """The task a backup ran in: its retention is applied in that task's name (backup.delete's needs)."""
+    from app.repositories import registry
+
+    return (registry.backups().sync.get(backup_id) or {}).get("task_id")
