@@ -21,6 +21,7 @@ import shutil
 import ssl
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -160,6 +161,25 @@ def lab():
         subprocess.run(["bash", str(LAB), "down", str(DIR)], check=False)
 
 
+JOIN_LOOK_S = 120
+# Each node's view of the ring: its links to the others, the nodelist it runs, knet's MTU, and its last link events.
+COROSYNC_SEEN = (
+    "corosync-cfgtool -s 2>&1 | tail -n +2; corosync-cfgtool -n 2>&1 | grep -E 'nodeid|link|connected'; "
+    "grep -E 'config_version|nodeid|ring0_addr' /etc/corosync/corosync.conf | tr -s ' ' | paste -sd' '; "
+    "corosync-cmapctl -m stats 2>/dev/null | grep -iE 'mtu' | sort -u | head -8; "
+    "journalctl -u corosync --no-pager -o short-monotonic | grep -iE 'link|host: [0-9]|reload|mtu' | tail -n 12"
+)
+
+
+def _corosync_seen(seen):
+    time.sleep(JOIN_LOOK_S)
+    for m in NODES:
+        try:
+            seen[m] = on(m, "sh", "-c", COROSYNC_SEEN)
+        except subprocess.SubprocessError as e:
+            seen[m] = f"not read: {e}"
+
+
 @pytest.fixture(scope="module")
 def cluster(lab):
     """The three nodes in one cluster, formed as an administrator does: the first creates it, the others join with the
@@ -186,11 +206,19 @@ def cluster(lab):
         info = ok(api(1, "POST", "/cluster/adhesion", token=tokens[1]))["information"]
         body = {"information": info, "address": ip(n), "confirmation": CLUSTER}
         before = main_pid(n)
+        # What Corosync says on every node while the join waits, for a join that fails: node 3 then rolls back and
+        # the evidence goes with it (#298: node 3's ring never merged with the others' in about half of the runs).
+        seen = {}
+        looking = threading.Thread(target=_corosync_seen, args=(seen,), daemon=True)
+        looking.start()
         status, answer = api(
             n, "POST", "/cluster/join", body, tokens[n], timeout=420
         )  # the join waits up to 300 s (JOIN_WAIT_S)
+        if status != 200:
+            looking.join(timeout=60)
         assert status == 200, (
-            f"node {n} could not join: {status} {answer}; cluster: {api(1, 'GET', '/cluster', token=tokens[1])}"
+            f"node {n} could not join: {status} {answer}; cluster: {api(1, 'GET', '/cluster', token=tokens[1])}\n"
+            + "\n".join(f"--- node {m}, {JOIN_LOOK_S} s into the join:\n{text}" for m, text in sorted(seen.items()))
         )
         # The answer comes first, the restart on the cluster's configuration a few seconds later: a call made in
         # between reaches the process about to stop.
