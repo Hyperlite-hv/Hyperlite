@@ -58,6 +58,16 @@ UPDATE_BACKUPS = VAR / "update-backups"
 PREVIOUS = VAR / "previous"  # the package of the version an update replaced, for a rollback
 UPDATE = VAR / "update"  # the update watchdog's copy and its log, out of every directory a version may move
 
+# The node's libraries, written by hyperlite-daemon and read by the API, which as www-data may not make them: made at
+# the daemon's start (make_libraries), before the API's.
+LIBRARIES = (ISOS, TEMPLATES, EXPORTS, IMPORTED_DISKS)
+
+
+def make_libraries():
+    for directory in LIBRARIES:
+        directory.mkdir(parents=True, exist_ok=True)
+
+
 # Where versions up to 1.0 kept what a database or the cluster's configuration may still name: a backup's directory, a
 # backup job's (each schedule stored the default directory in full). Those rows are left as they are, since nodes still
 # on 1.0 read them during a rolling update; this version reads them at the new place.

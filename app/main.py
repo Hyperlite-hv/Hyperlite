@@ -543,8 +543,9 @@ def on_startup():
     if os.environ.get(privileged.INPROCESS_ENV) == "1":
         # hyperlite-daemon's otherwise (app/daemon/__main__.py): what writes the cluster's tree, which hyperlite-cfs
         # takes from root only.
-        from app.core import cluster_v1, peer_https
+        from app.core import cluster_v1, paths, peer_https
 
+        paths.make_libraries()
         peer_https.start()
         cluster_v1.start()
         start_shadow_copy()
