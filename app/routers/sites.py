@@ -353,7 +353,7 @@ def site_incoming_live_define(incoming: str, user: dict = Depends(require_role("
 async def site_incoming_tunnel(websocket: WebSocket, incoming: str):
     """The tunnel of a live migration (app/core/site_tunnel.py): an administrator's token, in the Authorization header
     the source's node sends; the `libvirt` channel through the relay (app/core/site_relay.py)."""
-    from app.core import security, site_relay, site_tunnel
+    from app.core import peer_auth, security, site_relay, site_tunnel
 
     header = websocket.headers.get("authorization", "")
     try:
@@ -374,6 +374,9 @@ async def site_incoming_tunnel(websocket: WebSocket, incoming: str):
         return
     await websocket.accept()
 
+    # Each channel is opened on an executor's thread, which starts without the request's context: the token carried
+    # along is the proof the daemon asks of www-data.
+    @peer_auth.carry
     def connect(kind):
         _, fds = privileged.run_fds("transfer.live_connect", user=user["username"], incoming=incoming, kind=kind)
         return site_tunnel.socket_from_fd(fds[0])
