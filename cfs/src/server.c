@@ -59,7 +59,7 @@ static int set_nonblocking(int fd)
     return flags < 0 ? -1 : fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-static int listen_on(const char *path, unsigned mode)
+static int listen_on(const char *path, unsigned mode, gid_t group)
 {
     struct sockaddr_un addr = {.sun_family = AF_UNIX};
     if (strlen(path) >= sizeof(addr.sun_path)) {
@@ -77,7 +77,9 @@ static int listen_on(const char *path, unsigned mode)
     mode_t old = umask(0777);
     int rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
     umask(old);
-    if (rc < 0 || chmod(path, mode) < 0 || listen(fd, 64) < 0) {
+    /* The group first, then the mode: the socket is never open to a group it was not meant for. */
+    if (rc < 0 || (group != (gid_t)-1 && chown(path, (uid_t)-1, group) < 0) || chmod(path, mode) < 0 ||
+        listen(fd, 64) < 0) {
         fprintf(stderr, "hyperlite-cfs: cannot listen on %s: %s\n", path, strerror(errno));
         close(fd);
         return -1;
@@ -216,12 +218,12 @@ static void accept_clients(int lfd, server *srv)
     }
 }
 
-int cfs_serve(cfs_node *node, const char *socket_path, unsigned mode, const cfs_source *sources, size_t nsources,
-              volatile sig_atomic_t *stop)
+int cfs_serve(cfs_node *node, const char *socket_path, unsigned mode, gid_t group, const cfs_source *sources,
+              size_t nsources, volatile sig_atomic_t *stop)
 {
     if (nsources > MAX_SOURCES)
         return -1;
-    int lfd = listen_on(socket_path, mode);
+    int lfd = listen_on(socket_path, mode, group);
     if (lfd < 0)
         return -1;
     static server srv; /* large: kept off the stack */

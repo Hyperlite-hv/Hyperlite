@@ -18,6 +18,7 @@ change without quorum.
 
 import contextlib
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -88,9 +89,14 @@ def offset(client):
 
 
 def reserve():
-    """A fresh cluster-wide id, or 0 outside a cluster."""
+    """A fresh cluster-wide id, or 0 outside a cluster. A process that is not root's (the API, www-data from 4e) asks
+    hyperlite-daemon for it: hyperlite-cfs takes a change from root only."""
     if not _in_cluster():
         return 0
+    from app.repositories.cfs import shadow
+
+    if os.geteuid() != 0 and not shadow._here():
+        return shadow.writer().next_id()
     client = _client()
     return client.next_id() + offset(client)
 

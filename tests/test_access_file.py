@@ -25,11 +25,11 @@ def as_one_file(database):
     database.access_path().unlink()
 
 
-def test_the_permission_tables_are_in_their_own_root_only_file(database):
+def test_the_permission_tables_are_in_their_own_file_written_by_root(database):
     access = database.access_path()
     assert set(database.ACCESS_TABLES) <= tables(access)
     assert not set(database.ACCESS_TABLES) & tables(database.DB_PATH)
-    assert oct(access.stat().st_mode & 0o777) == "0o600"
+    assert oct(access.stat().st_mode & 0o777) == "0o640"  # root writes it, the API's group reads it (section 14.6)
 
 
 def test_a_node_from_before_moves_them_once_with_their_ids_and_counters(database):

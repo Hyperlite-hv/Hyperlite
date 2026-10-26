@@ -17,7 +17,9 @@ CNF="$TLS_DIR/openssl-hyperlite.cnf"
 [ -f "$KEY" ] && [ -f "$CRT" ] && exit 0
 
 mkdir -p "$TLS_DIR"
-chmod 700 "$TLS_DIR"
+# Read by the API, which serves HTTPS with them (www-data from 4e), as /etc/pve/local/pveproxy-ssl.key.
+chgrp www-data "$TLS_DIR" 2>/dev/null || true
+chmod 750 "$TLS_DIR"
 
 HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
 # First non-loopback IPv4 found: enough for a convenience self-signed certificate
@@ -61,5 +63,6 @@ openssl req -x509 -nodes -newkey rsa:2048 \
     -keyout "$KEY" -out "$CRT" -days 3650 \
     -config "$CNF" -extensions v3_req >/dev/null 2>&1
 
-chmod 600 "$KEY"
+chgrp www-data "$KEY" 2>/dev/null || true
+chmod 640 "$KEY"
 chmod 644 "$CRT"
