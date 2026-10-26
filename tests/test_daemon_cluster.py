@@ -102,11 +102,11 @@ def test_the_api_reads_another_node_through_the_daemons_tunnel(registered, monke
 
     from app.core import libvirt_utils, node_tunnel
 
-    opened = []
+    opened, conn = [], type("Conn", (), {})()
     monkeypatch.setattr(node_tunnel, "ensure", lambda node: opened.append(node["name"]) or "/run/hyperlite/n2.sock")
-    monkeypatch.setattr(libvirt, "openReadOnly", lambda uri: opened.append(uri) or "conn")
+    monkeypatch.setattr(libvirt, "openReadOnly", lambda uri: opened.append(uri) or conn)
     monkeypatch.setattr(libvirt, "open", lambda uri: pytest.fail("a connection that may write"))
-    assert libvirt_utils.open_conn("n2", readonly=True) == "conn"
+    assert libvirt_utils.open_conn("n2", readonly=True) is conn
     assert opened == ["n2", "qemu+unix:///system?socket=" + str(node_tunnel.socket_path("n2"))]
 
 

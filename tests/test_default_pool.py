@@ -9,7 +9,7 @@ from app.core import libvirt_utils
 
 class Pool:
     def __init__(self):
-        self.started = False
+        self.started = self.autostarted = False
 
     def build(self):
         pass
@@ -20,8 +20,11 @@ class Pool:
     def create(self):
         self.started = True
 
+    def autostart(self):
+        return self.autostarted
+
     def setAutostart(self, on):
-        pass
+        self.autostarted = bool(on)
 
 
 class Volume:

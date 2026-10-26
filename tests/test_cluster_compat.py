@@ -29,6 +29,9 @@ class FakePool:
     def isActive(self):
         return True
 
+    def autostart(self):
+        return True
+
     def setAutostart(self, on):
         pass
 
