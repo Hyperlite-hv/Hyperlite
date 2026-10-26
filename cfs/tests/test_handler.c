@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "check.h"
 
@@ -64,19 +65,31 @@ int main(void)
     }
     ctx.quorate = true;
 
-    CHECK_EQ(put("/cluster/settings.json", "{}", 1000), CFS_OK);
-    CHECK_EQ(get("/cluster/settings.json", 1000, NULL, 0), CFS_OK);
+    /* Only root (and the daemon's own user, a test's) changes anything; another user reads: the API through the
+     * socket's group. */
+    uid_t other = geteuid() == 1000 ? 1001 : 1000;
+    CHECK_EQ(put("/cluster/settings.json", "{}", other), CFS_FORBIDDEN);
+    CHECK_EQ(put("/cluster/settings.json", "{}", 0), CFS_OK);
+    CHECK_EQ(get("/cluster/settings.json", other, NULL, 0), CFS_OK);
+    CHECK_EQ(put("/cluster/settings.json", "{}", geteuid()), CFS_OK);
+    {
+        cfs_writer w, a;
+        cfs_reader r;
+        start(&w, CFS_OP_NEXT_ID); /* a counter only root moves */
+        CHECK_EQ(call(&w, other, &a, &r), CFS_FORBIDDEN);
+        cfs_writer_free(&a);
+    }
 
     /* priv/ is root's only, for reads and writes alike. */
-    CHECK_EQ(put("/priv/authkey", "secret", 1000), CFS_FORBIDDEN);
+    CHECK_EQ(put("/priv/authkey", "secret", other), CFS_FORBIDDEN);
     CHECK_EQ(put("/priv/authkey", "secret", 0), CFS_OK);
-    CHECK_EQ(get("/priv/authkey", 1000, reason, sizeof(reason)), CFS_FORBIDDEN);
+    CHECK_EQ(get("/priv/authkey", other, reason, sizeof(reason)), CFS_FORBIDDEN);
     CHECK(strstr(reason, "root only") != NULL);
     CHECK_EQ(get("/priv/authkey", 0, NULL, 0), CFS_OK);
-    CHECK_EQ(put("/nodes/pve1/priv/key", "k", 1000), CFS_FORBIDDEN);
+    CHECK_EQ(put("/nodes/pve1/priv/key", "k", other), CFS_FORBIDDEN);
 
     /* Paths are checked before the store sees them. */
-    CHECK_EQ(put("/a/../priv/authkey", "x", 1000), CFS_INVALID);
+    CHECK_EQ(put("/a/../priv/authkey", "x", 0), CFS_INVALID);
     CHECK_EQ(get("relative", 0, reason, sizeof(reason)), CFS_INVALID);
     CHECK(strcmp(reason, "invalid path") == 0);
 
