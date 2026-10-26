@@ -1,6 +1,8 @@
 """The cluster's status (phase E, app/core/statd.py): every node's VMs read from what each node sent, not asked on each
 request; a member without a status asked as before; stale and silent nodes named."""
 
+import threading
+import time
 import types
 
 import pytest
@@ -62,10 +64,69 @@ def test_this_nodes_summary_is_sent_compressed(cfs, monkeypatch):
     assert size == len(cfs.put[0]) and size < 3000  # 333 summaries of a name: a few KB once compressed
 
 
-def test_a_change_made_through_hyperlite_sends_the_status_soon():
+def test_a_change_made_through_hyperlite_sends_the_status_soon(monkeypatch):
+    monkeypatch.setattr(statd, "_loop_runs", [True])  # this process runs the periodic loop: the change wakes it
     statd._wake.clear()
     inventory_cache.invalidate()
     assert statd._wake.is_set()
+
+
+def _changes_without_the_loop(monkeypatch, euid):
+    """Three changes in a row in a process without the periodic loop (the API on an installed node): what went out."""
+    from app.core import privileged
+
+    for thread in threading.enumerate():  # a summary an earlier test asked for goes first, outside this one
+        if thread.name == "statd-changed":
+            thread.join(5)
+    sent = []
+    monkeypatch.setattr(statd, "_loop_runs", [False])
+    monkeypatch.setattr(statd, "_pending", [False])
+    monkeypatch.setattr(statd, "DEBOUNCE_S", 0.05)
+    monkeypatch.setattr(statd, "_in_cluster", lambda: True)
+    monkeypatch.setattr(statd, "publish", lambda: sent.append(("here", None)))
+    monkeypatch.setattr(statd.os, "geteuid", lambda: euid)
+
+    def run(op, **kwargs):
+        from app.core import peer_auth
+
+        sent.append((op, peer_auth.CREDENTIAL.get()))
+
+    monkeypatch.setattr(privileged, "run", run)
+    from app.core import peer_auth
+
+    token = peer_auth.CREDENTIAL.set("the request's proof")
+    try:
+        for _ in range(3):
+            statd.changed()
+    finally:
+        peer_auth.CREDENTIAL.reset(token)
+    deadline = time.monotonic() + 5
+    while not sent and time.monotonic() < deadline:
+        time.sleep(0.02)
+    time.sleep(0.2)  # nothing more comes
+    return sent
+
+
+def test_as_root_the_api_sends_one_summary_for_changes_in_a_row(monkeypatch):
+    assert _changes_without_the_loop(monkeypatch, 0) == [("here", None)]
+
+
+def test_an_api_that_is_not_root_asks_the_daemon_with_the_requests_proof(monkeypatch):
+    """hyperlite-cfs takes STAT_PUT from root only: an API as www-data asks hyperlite-daemon, once, on a thread that
+    keeps the proof of the request that made the change (tasks.start_thread)."""
+    assert _changes_without_the_loop(monkeypatch, 33) == [("statd.publish", "the request's proof")]
+
+
+def test_the_daemon_sends_at_most_one_summary_a_second(monkeypatch):
+    import app.daemon.ops  # noqa: F401  (registers the operations)
+    from app.daemon.ops import cluster as ops
+
+    calls = []
+    monkeypatch.setattr(statd, "publish", lambda: calls.append(1) or 123)
+    monkeypatch.setattr(ops, "_statd_last", [0.0])
+    assert ops.statd_publish(None, None) == {"sent": 123}
+    assert ops.statd_publish(None, None) == {"sent": None}  # asked again at once: the one just sent is current
+    assert calls == [1]
 
 
 @pytest.fixture()
