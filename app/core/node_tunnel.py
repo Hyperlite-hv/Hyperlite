@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 
-from app.core import paths
+from app.core import api_group, paths
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,8 @@ def ensure(node):
         if running is not None and running.poll() is None:
             running.terminate()
         DIR.mkdir(mode=0o750, parents=True, exist_ok=True)
+        # setgid, the API's group: every socket ssh makes there is that group's, for the API's read-only libvirt.
+        api_group.share(DIR, 0o2750)
         path.unlink(missing_ok=True)
         cluster.ensure_known_host(node)
         process = subprocess.Popen(

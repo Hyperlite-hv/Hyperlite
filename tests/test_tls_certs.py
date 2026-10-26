@@ -69,7 +69,7 @@ def test_import_installs_the_pair_keeps_the_previous_and_restarts(client, auth_h
     )
     assert body["issuer"] == "CN=Test CA" and 88 <= body["days_left"] <= 90
     assert restarts == [True]
-    assert (tls_dir / "hyperlite.key").stat().st_mode & 0o777 == 0o600
+    assert (tls_dir / "hyperlite.key").stat().st_mode & 0o777 == 0o640  # root's and the API's group, as pveproxy's
     assert (tls_dir / "hyperlite.crt").read_text().count("BEGIN CERTIFICATE") == 2
 
     r = client.post("/host/certificate/previous", headers=admin)

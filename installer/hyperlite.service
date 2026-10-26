@@ -32,11 +32,12 @@ Environment=TMPDIR=/var/lib/hyperlite/tmp
 # The files of an installation up to 1.0 (/root/hyperlite) move where Proxmox VE keeps its own, with nothing running
 # on them; all or nothing: a failure puts back what moved and the start fails, which the update watchdog turns into
 # a return to the previous version (docs/design/privilege-separation.md, section 9).
-ExecStartPre=/bin/bash /usr/lib/hyperlite/scripts/migrate_layout.sh forward
-ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
-ExecStartPre=/bin/mkdir -p /var/lib/hyperlite/tmp
-ExecStartPre=/usr/lib/hyperlite/scripts/ensure-tls-cert.sh
-ExecStartPre=/usr/lib/hyperlite/scripts/write-motd.sh
+# "+": as root, whatever user the service runs as (www-data from 4e): they move, check and make root's files.
+ExecStartPre=+/bin/bash /usr/lib/hyperlite/scripts/migrate_layout.sh forward
+ExecStartPre=+/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStartPre=+/bin/mkdir -p /var/lib/hyperlite/tmp
+ExecStartPre=+/usr/lib/hyperlite/scripts/ensure-tls-cert.sh
+ExecStartPre=+/usr/lib/hyperlite/scripts/write-motd.sh
 ExecStart=/usr/lib/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /etc/hyperlite/local/hyperlite.key --ssl-certfile /etc/hyperlite/local/hyperlite.crt --timeout-graceful-shutdown 5
 # A dashboard keeps connections open (terminals, polling): without a bound on the graceful shutdown a restart
 # waited up to 30 s for them, longer than the update watchdog allowed, and a good update was rolled back.

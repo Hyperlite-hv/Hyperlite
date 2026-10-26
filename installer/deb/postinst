@@ -106,6 +106,9 @@ cp "$CODE/installer/hyperlite-scheduler.service" /etc/systemd/system/hyperlite-s
 cp "$CODE/installer/hyperlite-ha-lrm.service" /etc/systemd/system/hyperlite-ha-lrm.service
 cp "$CODE/installer/hyperlite-ha-crm.service" /etc/systemd/system/hyperlite-ha-crm.service
 cp "$CODE/installer/hyperlite-vlan-bridges.service" /etc/systemd/system/hyperlite-vlan-bridges.service
+# The directories and modes the API's group needs (installer/hyperlite.tmpfiles), at every boot and now.
+cp "$CODE/installer/hyperlite.tmpfiles" /etc/tmpfiles.d/hyperlite.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/hyperlite.conf || log "WARNING: systemd-tmpfiles failed for hyperlite.conf"
 systemctl daemon-reload
 # Runs at boot only when a bridge was made VLAN-aware from the dashboard (its list exists): nothing to start now.
 systemctl enable hyperlite-vlan-bridges.service
