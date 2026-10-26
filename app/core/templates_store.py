@@ -8,7 +8,6 @@ from app.core import firmware, paths
 from app.core.safe_paths import safe_child
 
 TEMPLATES_DIR = paths.TEMPLATES
-TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _meta_path(name):
