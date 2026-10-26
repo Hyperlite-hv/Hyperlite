@@ -99,3 +99,13 @@ def test_the_package_lays_the_directories_out_for_the_apis_group():
     unit = (ROOT / "installer" / "hyperlite.service").read_text()
     pre = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
     assert pre and all(line.startswith("ExecStartPre=+") for line in pre)  # root's work, whatever the service's user
+
+
+def test_the_api_runs_as_www_data():
+    """4e's last step: hyperlite.service as www-data, as Proxmox VE's pveproxy; root's work stays in its ExecStartPre
+    ("+") and in hyperlite-daemon."""
+    unit = (ROOT / "installer" / "hyperlite.service").read_text()
+    service = dict(line.split("=", 1) for line in unit.splitlines() if line.startswith(("User=", "Group=")))
+    assert service == {"User": "www-data", "Group": "www-data"}
+    assert "Environment=HOME=/root" not in unit
+    assert "ExecStartPre=+/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/hyperlite.conf" in unit
