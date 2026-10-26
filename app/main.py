@@ -368,11 +368,10 @@ def _confirming():
 
 
 def _catch_up():
-    from app.repositories.cfs import inbound, shadow
+    from app.repositories.cfs import shadow
 
     try:
-        shadow.drain()  # this node's own changes go out first, or nothing is applied (inbound.apply)
-        inbound.apply()
+        shadow.catch_up()  # by hyperlite-daemon, which copies both ways
     except Exception as e:  # the daemon does not answer: the change is refused or confirmed below, as the cluster says
         logger.debug("The cluster's changes not applied before the request: %s", e)
 
@@ -521,18 +520,12 @@ def on_startup():
     from app.core import access_log
 
     access_log.start()  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
-    from app.core import peer_https
-
-    peer_https.start()  # this node's certificate fingerprint, for the other members' HTTPS calls
     from app.core import db_health
 
     db_health.start()  # PRAGMA quick_check now and once a day: a damaged file is said, not only logged by the loops
     from app.core import statd
 
     statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
-    from app.core import cluster_v1
-
-    cluster_v1.start()  # the replicated configuration rewritten once every member runs 1.0 (docs/design/api-v1.md)
     # Before anything starts new tasks: the ones still "running" whose process is gone (app/core/tasks.py).
     close_interrupted_tasks()
     # This node updated itself as the last step of a rolling update: now that it runs, out of maintenance.
@@ -544,9 +537,16 @@ def on_startup():
     if not ha_services.separate():  # hyperlite-ha-lrm and hyperlite-ha-crm run them on an installed node
         ha_services.start(None)
     start_vm_crash_watch()
-    start_shadow_copy()
-    start_apply_loop()
-    start_lead_loop()
+    if os.environ.get(privileged.INPROCESS_ENV) == "1":
+        # hyperlite-daemon's otherwise (app/daemon/__main__.py): what writes the cluster's tree, which hyperlite-cfs
+        # takes from root only.
+        from app.core import cluster_v1, peer_https
+
+        peer_https.start()
+        cluster_v1.start()
+        start_shadow_copy()
+        start_apply_loop()
+        start_lead_loop()
     recover_interrupted_k8s_clusters()
     # Cloud-init drives written before they were private (they hold the account and its password's hash).
     threading.Thread(target=protect_existing_drives, daemon=True, name="protect-cloudinit-drives").start()

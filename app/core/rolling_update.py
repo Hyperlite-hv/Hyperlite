@@ -335,7 +335,7 @@ class _LockKeeper:
     def _client(self):
         from app.repositories.cfs import shadow
 
-        return shadow._get_client()
+        return shadow.writer()  # hyperlite-daemon's, once the API is not root
 
     def __enter__(self):
         from app.core.cfs_client import Locked
