@@ -319,3 +319,81 @@ def statd_publish(args, ctx):
         return {"sent": None}
     _statd_last[0] = now
     return {"sent": statd.publish()}
+
+
+# ---- The migration's checks (point 11 of #298): they read a VM's migratable definition, which implies libvirt's secure
+# flag that a read-only connection refuses, and another member's libvirt, opened with the cluster's key ----
+
+
+class MigrationCheckArgs(Args):
+    vm: str = Field(min_length=1, max_length=64)
+    node: str | None = Field(None, min_length=1, max_length=NODE_NAME)  # the VM's node; None, this one
+    target: str = Field(min_length=1, max_length=NODE_NAME)  # a member's name, or maintenance.LOCAL
+
+
+@operation("vm.migration_check", MigrationCheckArgs)
+def migration_check(args, ctx):
+    """cluster_compat's report on migrating the VM `vm` from `node` to `target`."""
+    import libvirt
+
+    from app.core import cluster_compat, libvirt_utils
+
+    with libvirt_utils.node_conn(args.node) as src:
+        try:
+            domain = src.lookupByName(args.vm)
+        except libvirt.libvirtError:
+            raise DaemonError("not_found", f"VM '{args.vm}' not found") from None
+        with libvirt_utils.node_conn(args.target) as dst:
+            return cluster_compat.report(cluster_compat.check_vm_migration(src, dst, domain))
+
+
+@operation("node.compatibility", NodeArgs)
+def compatibility(args, ctx):
+    """cluster_compat's report from this node (the source) to the registered node `node`."""
+    from app.core import cluster_compat, libvirt_utils
+
+    _registered(args.node)
+    with libvirt_utils.node_conn() as local, libvirt_utils.node_conn(args.node) as remote:
+        return cluster_compat.report(cluster_compat.check_pair(local, remote))
+
+
+class VmPlanArgs(Args):
+    source: str = Field(min_length=1, max_length=NODE_NAME)  # a member's name, or maintenance.LOCAL
+    target: str | None = Field(None, min_length=1, max_length=NODE_NAME)
+    spread: bool = False
+
+
+@operation("node.vm_plan", VmPlanArgs)
+def vm_plan(args, ctx):
+    """Which running VMs of `source` can be live-migrated, and why the others cannot (maintenance.plan): to `target`,
+    to no node when it is None, or with `spread` each where load balancing places it."""
+    from app.core import libvirt_utils, maintenance
+
+    with libvirt_utils.node_conn(args.source) as src:
+        if args.spread:
+            return _spread_plan(args.source, src)
+        if args.target is None:
+            return maintenance.plan(src, None, None)
+        with libvirt_utils.node_conn(args.target) as dst:
+            return maintenance.plan(src, dst, args.target)
+
+
+def _spread_plan(source, src):
+    import contextlib
+
+    import libvirt
+
+    from app.core import drs, libvirt_utils, maintenance, self_node
+
+    me = self_node.name()
+    running = [d.name() for d in src.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE)]
+    placed = drs.spread(me if source == maintenance.LOCAL else source, running)
+    targets = {vm: (maintenance.LOCAL if n == me else n) if n else None for vm, n in placed.items()}
+    conns = {}
+    with contextlib.ExitStack() as opened:
+        for label in {t for t in targets.values() if t}:
+            try:
+                conns[label] = opened.enter_context(libvirt_utils.node_conn(label))
+            except DaemonError:
+                conns[label] = None  # its VMs stay, said why
+        return maintenance.spread_plan(src, targets, conns)

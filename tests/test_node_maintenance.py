@@ -99,10 +99,10 @@ def _add_node(database, name):
 
 
 @pytest.fixture()
-def cluster(client, auth_headers, database, monkeypatch, compat):
+def cluster(client, auth_headers, database, monkeypatch, compat, daemon_libvirt):
     _add_node(database, "n2")
-    conns = {None: source_conn(), "n2": FakeConn(FakeDomain("twin", active=False))}
-    monkeypatch.setattr(nodes, "open_conn", lambda key=None, **_k: conns[key])
+    # The plan is hyperlite-daemon's (node.vm_plan): it opens both nodes' libvirt.
+    daemon_libvirt(source_conn(), nodes={"n2": FakeConn(FakeDomain("twin", active=False))})
     # The drain runs in the test's own thread, so its outcome can be checked right away.
     monkeypatch.setattr(nodes, "_run_in_background", lambda target, *args: target(*args))
     migrated = []
@@ -214,12 +214,11 @@ def test_a_second_drain_of_the_same_node_is_refused_and_a_finished_one_frees_it(
     assert "local" not in nodes._draining
 
 
-def test_a_spread_drain_sends_each_vm_where_load_balancing_places_it(cluster, monkeypatch):
+def test_a_spread_drain_sends_each_vm_where_load_balancing_places_it(cluster, monkeypatch, daemon_libvirt):
     from app.core import drs
 
     _add_node(cluster["db"], "n3")
-    cluster_conns = {None: source_conn(), "n2": FakeConn(), "n3": FakeConn()}
-    monkeypatch.setattr(nodes, "open_conn", lambda key=None, **_k: cluster_conns[key])
+    daemon_libvirt(source_conn(), nodes={"n2": FakeConn(), "n3": FakeConn()})
     asked = []
 
     def spread(source, names):
