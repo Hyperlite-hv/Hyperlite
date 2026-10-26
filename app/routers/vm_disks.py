@@ -29,7 +29,6 @@ router = APIRouter(prefix="/vm-disks", tags=["vm-disks"])
 
 # This node's disks to import, written by hyperlite-daemon (app/core/disk_library.py); VM creation reads them here.
 IMPORTED_DISKS_DIR = disk_library.IMPORTS
-IMPORTED_DISKS_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EXTENSIONS = disk_library.IMPORT_EXTENSIONS
 

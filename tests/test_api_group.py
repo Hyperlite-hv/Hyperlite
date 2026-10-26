@@ -99,3 +99,33 @@ def test_the_package_lays_the_directories_out_for_the_apis_group():
     unit = (ROOT / "installer" / "hyperlite.service").read_text()
     pre = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
     assert pre and all(line.startswith("ExecStartPre=+") for line in pre)  # root's work, whatever the service's user
+
+
+def test_the_api_runs_as_www_data():
+    """4e's last step: hyperlite.service as www-data, as Proxmox VE's pveproxy; root's work stays in its ExecStartPre
+    ("+") and in hyperlite-daemon."""
+    unit = (ROOT / "installer" / "hyperlite.service").read_text()
+    service = dict(line.split("=", 1) for line in unit.splitlines() if line.startswith(("User=", "Group=")))
+    assert service == {"User": "www-data", "Group": "www-data"}
+    assert "Environment=HOME=/root" not in unit
+    assert "ExecStartPre=+/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/hyperlite.conf" in unit
+
+
+def test_the_api_makes_no_directory_when_it_is_imported():
+    """www-data may not make the node's libraries (the lab: /var/lib/hyperlite/dump/export at the API's first start):
+    hyperlite-daemon makes them at its start, before the API's (paths.make_libraries)."""
+    import ast
+
+    found = []
+    for path in sorted((ROOT / "app").rglob("*.py")):
+        if "daemon" in path.parts:
+            continue
+        for node in ast.parse(path.read_text()).body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for call in (n for n in ast.walk(node) if isinstance(n, ast.Call)):
+                if ast.unparse(call.func).split(".")[-1] in ("mkdir", "makedirs", "chmod", "chown", "touch"):
+                    found.append(f"{path.relative_to(ROOT)}:{call.lineno}")
+    assert found == []
+    daemon = (ROOT / "app" / "daemon" / "__main__.py").read_text()
+    assert "paths.make_libraries()" in daemon
