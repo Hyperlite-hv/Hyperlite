@@ -12,6 +12,45 @@ from app.core import libvirt_utils
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class _Pool:
+    def __init__(self, conn, active=True, autostart=True):
+        self.conn, self.active, self.on = conn, active, autostart
+
+    def isActive(self):
+        return self.active
+
+    def autostart(self):
+        return self.on
+
+    def build(self):
+        self.conn.wrote.append("build")
+
+    def create(self):
+        self.conn.wrote.append("create")
+        self.active = True
+
+    def setAutostart(self, on):
+        self.conn.wrote.append("setAutostart")
+        self.on = on
+
+
+class _Conn:
+    """A libvirt connection with or without the 'default' pool: what was written through it."""
+
+    def __init__(self, pool=None):
+        self.pool, self.wrote = pool, []
+
+    def storagePoolLookupByName(self, name):
+        if self.pool is None:
+            raise libvirt_utils.libvirt.libvirtError("Storage pool not found")
+        return self.pool
+
+    def storagePoolDefineXML(self, xml):
+        self.wrote.append("define")
+        self.pool = _Pool(self, active=False, autostart=False)
+        return self.pool
+
+
 class _Libvirt:
     """Records which of libvirt's sockets each connection opened."""
 
@@ -22,7 +61,7 @@ class _Libvirt:
 
     def _open(self, how, uri):
         self.opened.append((how, uri))
-        return object()
+        return _Conn()
 
 
 def test_this_nodes_libvirt_is_opened_read_only_when_asked(monkeypatch):
@@ -102,3 +141,42 @@ def test_the_routes_read_libvirt_through_its_read_only_socket(folder):
         _Opens(rel, found).visit(ast.parse(path.read_text(), rel))
     assert sorted(found - set(ALLOWED)) == [], "open it with readonly=True, or go through a daemon operation"
     assert sorted(set(ALLOWED) - found) == [], "an entry of ALLOWED opens read-only now: remove it"
+
+
+def test_the_default_pool_already_there_is_read_and_never_written_again():
+    conn = _Conn()
+    conn.pool = _Pool(conn)
+    assert libvirt_utils.lookup_pool(conn, "default") is conn.pool
+    assert conn.wrote == []  # its autostart was set again at every lookup, a write the read-only socket refuses
+    conn.pool.on = False
+    libvirt_utils.ensure_default_pool(conn)
+    assert conn.wrote == ["setAutostart"]
+
+
+@pytest.mark.parametrize("node", [None, "hv2"])
+def test_through_a_read_only_connection_the_daemon_makes_the_default_pool(monkeypatch, node):
+    from app.core import node_tunnel, privileged
+
+    seen = _Libvirt(monkeypatch)
+    monkeypatch.setattr(libvirt_utils, "_through_tunnel", lambda name: seen._open("ro", node_tunnel.uri(name)))
+    monkeypatch.setattr("app.core.cluster.get_node", lambda name: {"name": name})
+    monkeypatch.setattr("app.core.node_health.check", lambda row: None)
+    conn = libvirt_utils.open_conn(node, readonly=True)
+    asked = []
+
+    def daemon(op, **args):
+        asked.append((op, args))
+        conn.pool = _Pool(conn)
+
+    monkeypatch.setattr(privileged, "run", daemon)
+    assert libvirt_utils.lookup_pool(conn, "default") is conn.pool
+    assert asked == [("storage.ensure_default_pool", {"node": node})] and conn.wrote == []
+    asked.clear()
+    libvirt_utils.lookup_pool(conn, "default")  # there now: read only
+    assert asked == []
+
+
+def test_a_read_write_connection_still_makes_the_default_pool_itself():
+    conn = _Conn()  # the daemon's own (libvirt_utils.local_conn)
+    libvirt_utils.ensure_default_pool(conn)
+    assert conn.wrote == ["define", "build", "create", "setAutostart"]
