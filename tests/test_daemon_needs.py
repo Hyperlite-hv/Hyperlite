@@ -115,6 +115,9 @@ def test_every_operation_says_what_it_needs_or_is_an_administrators():
         need = NEEDS.get(op, needs.ADMIN)
         assert isinstance(need, needs.Need), op
     public = sorted(op for op, need in NEEDS.items() if need.kind == "public")
-    # The sign-in, the daemon's ping, and a joining node let in by a member: it has no account there, the ticket it
-    # carries (checked and spent in cluster_setup.accept_member) stands for the administrator who copied it.
-    assert all(op.startswith("auth.") or op in ("system.ping", "cluster.setup_accept_member") for op in public), public
+    # The copy to and from hyperlite-cfs copies only what the node holds (app/daemon/ops/cfs.py).
+    copies = {"system.ping", "cfs.catch_up", "cfs.confirm", "cfs.next_id"}
+    # A joining node let in by a member: it has no account there, the ticket it carries (checked and spent in
+    # cluster_setup.accept_member) stands for the administrator who copied it.
+    tickets = {"cluster.setup_accept_member"}
+    assert all(op.startswith("auth.") or op in copies | tickets for op in public), public

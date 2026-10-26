@@ -140,7 +140,7 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     reach "$dir" "$i"
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get update -q
     on "$dir" "$i" env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-        corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables
+        corosync libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev meson ninja-build gcc pkg-config libsqlite3-dev libssl-dev nftables socat
     tar -C "$REPO" -cz cfs | on "$dir" "$i" sh -c 'rm -rf /opt/cfs && mkdir -p /opt && tar -C /opt -xz'
     # Warnings stay warnings here: a newer compiler than the CI's must not stop the lab (the CI keeps -Werror).
     on "$dir" "$i" sh -c 'meson setup -Dwerror=false /opt/cfs/build /opt/cfs && ninja -C /opt/cfs/build'
@@ -148,9 +148,15 @@ provision() { # provision DIR N: build hyperlite-cfs from this checkout and star
     on "$dir" "$i" systemctl restart corosync
     on "$dir" "$i" mkdir -p /var/lib/hyperlite-cfs /run/hyperlite-cfs
     start_cfs "$dir" "$i"
+    # hyperlite-cfs takes a change from root only: the test's SSH forward (as `debian`) reaches it through a relay that
+    # runs as root on the node. The relay connects to the socket anew for every connection, through restarts of cfs.
+    on "$dir" "$i" systemd-run --unit hyperlite-cfs-relay socat \
+        UNIX-LISTEN:/run/hyperlite-cfs-relay.sock,fork,mode=0666,unlink-early UNIX-CONNECT:/run/hyperlite-cfs/socket \
+        > /dev/null
+    for _ in $(seq 1 30); do on "$dir" "$i" test -S /run/hyperlite-cfs-relay.sock && break || sleep 1; done
     ssh -i "$(key_of "$dir")" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
         -o ExitOnForwardFailure=yes -o StreamLocalBindUnlink=yes -o ServerAliveInterval=5 -f -N \
-        -L "$dir/n$i/cfs.sock:/run/hyperlite-cfs/socket" "debian@$(ip_of "$i")"
+        -L "$dir/n$i/cfs.sock:/run/hyperlite-cfs-relay.sock" "debian@$(ip_of "$i")"
     chmod 0666 "$dir/n$i/cfs.sock"
 }
 
@@ -175,9 +181,9 @@ start_cfs() { # start_cfs DIR N: hyperlite-cfs as a transient unit, and wait for
     local dir=$1 i=$2
     # A unit killed earlier stays loaded as failed, and systemd-run refuses its name until it is reset.
     on "$dir" "$i" systemctl reset-failed hyperlite-cfs > /dev/null 2>&1 || true
-    # The socket is opened to every local user, since the test reaches it through an SSH forward as `debian`.
+    # The test reaches the socket through a relay running as root (provision): only root changes anything.
     on "$dir" "$i" systemd-run --unit hyperlite-cfs /opt/cfs/build/hyperlite-cfs --cluster \
-        --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0666 > /dev/null
+        --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0600 > /dev/null
     for _ in $(seq 1 60); do on "$dir" "$i" test -S /run/hyperlite-cfs/socket && break || sleep 1; done
 }
 

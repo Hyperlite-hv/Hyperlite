@@ -133,7 +133,7 @@ def test_run_backs_up_each_vm_and_applies_the_job_policy_unless_the_vm_has_its_o
         return cur.lastrowid
 
     monkeypatch.setattr(backups, "run_backup", fake_backup)
-    monkeypatch.setattr(backups, "_apply_retention", lambda vm, policy: retained.append((vm, policy)))
+    monkeypatch.setattr(backups, "_apply_retention", lambda vm, policy, task_id=None: retained.append((vm, policy)))
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO backup_jobs (vm_name, frequency, time, target_dir, retention_count, active, next_run) VALUES ('d', 'daily', '01:00', '/srv', 3, 1, '2099-01-01')"

@@ -78,20 +78,29 @@ def spool_file():
 
 
 def clean_spool(now=None):
-    """Remove the uploads left in the spool for more than a day (an upload the service did not finish), and what a
-    stop left being stored."""
+    """Remove the uploads left in the spool for more than a day (an upload the service did not finish): the API's, at
+    its start."""
+    return _clean(SPOOL, SPOOL_MAX_AGE_S, now)
+
+
+def clean_staging(now=None):
+    """Remove what a stop left being stored: hyperlite-daemon's, at its start, as the staging directory is root's
+    alone (the API, www-data from 4e, cannot even list it)."""
+    return _clean(STAGING, 0, now)
+
+
+def _clean(directory_, max_age, now):
     now = time.time() if now is None else now
     removed = 0
-    for directory_, max_age in ((SPOOL, SPOOL_MAX_AGE_S), (STAGING, 0)):
-        if not directory_.is_dir():
+    if not directory_.is_dir():
+        return 0
+    for entry in directory_.iterdir():
+        try:
+            if not entry.is_dir() and now - entry.lstat().st_mtime >= max_age:
+                entry.unlink()
+                removed += 1
+        except OSError:
             continue
-        for entry in directory_.iterdir():
-            try:
-                if not entry.is_dir() and now - entry.lstat().st_mtime >= max_age:
-                    entry.unlink()
-                    removed += 1
-            except OSError:
-                continue
     return removed
 
 

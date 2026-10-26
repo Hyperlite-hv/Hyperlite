@@ -1,6 +1,7 @@
 """scripts/migrate_layout.sh: the move between /root/hyperlite and the layout modelled on Proxmox VE, in both
 directions, all or nothing (docs/design/privilege-separation.md, section 9)."""
 
+import grp
 import os
 import subprocess
 from pathlib import Path
@@ -51,6 +52,14 @@ def old_layout(tmp_path):
     return tmp_path
 
 
+def _has_group(name):
+    try:
+        grp.getgrnam(name)
+    except KeyError:
+        return False
+    return True
+
+
 def test_forward_puts_every_item_where_proxmox_would_and_keeps_its_content(old_layout):
     r = run(old_layout, "forward")
     assert r.returncode == 0, r.stdout + r.stderr
@@ -59,10 +68,16 @@ def test_forward_puts_every_item_where_proxmox_would_and_keeps_its_content(old_l
         assert (old_layout / new).read_text() == old
     assert not (old_layout / "root/hyperlite/data").exists()
     assert not (old_layout / "var/lib/hyperlite/legacy-data/casper-cache").exists()  # dropped, not carried along
-    for d in ("etc/hyperlite/priv", "etc/hyperlite/priv/ssh", "etc/hyperlite/local"):
+    for d in ("etc/hyperlite/priv", "etc/hyperlite/priv/ssh"):
         assert (old_layout / d).stat().st_mode & 0o777 == 0o700, d
     assert (old_layout / "root/hyperlite/app/main.py").is_file()
-    assert (old_layout / "var/lib/hyperlite/hyperlite.db").stat().st_mode & 0o777 == 0o600
+    # The certificate's directory and the database: root's and the API's group (www-data from 4e), as Proxmox VE's
+    # /etc/pve/local and pveproxy's own files.
+    api_group = grp.getgrnam("www-data").gr_gid if os.geteuid() == 0 and _has_group("www-data") else None
+    for path, mode in (("etc/hyperlite/local", 0o750), ("var/lib/hyperlite/hyperlite.db", 0o660)):
+        st = (old_layout / path).stat()
+        assert st.st_mode & 0o777 == mode, path
+        assert api_group is None or st.st_gid == api_group, path
 
 
 def test_it_is_idempotent_and_goes_back(old_layout):
