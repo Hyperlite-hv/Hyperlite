@@ -77,6 +77,7 @@ def host(database, tmp_path, monkeypatch):
     monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 2)
     monkeypatch.setattr(cluster_setup, "_run", run)
     monkeypatch.setattr(cluster_setup, "_local_addresses", lambda: {ADDRESS, "192.0.2.11"})
+    monkeypatch.setattr(cluster_setup, "_running_version", lambda: None)
     restarts = []
     monkeypatch.setattr(cluster_setup, "_restart_service", lambda: restarts.append(1))
     monkeypatch.setattr(shadow, "BINARY", str(tmp_path / "hyperlite-cfs"))
@@ -320,6 +321,21 @@ def test_each_node_follows_the_shared_configuration(host):
     keys = (host.tmp / "authorized_keys").read_text()
     assert "KEEP admin" in keys and "OLD" not in keys and ("B" * 68) in keys
     assert not cluster_setup.sync()  # nothing newer
+
+
+def test_a_configuration_written_but_not_running_is_reloaded_again(host, monkeypatch):
+    _create(host)
+    cluster_setup.sync()
+    written = cluster_setup._local_version()
+    running = [written - 1]
+    monkeypatch.setattr(cluster_setup, "_running_version", lambda: running[0])
+    host.commands.clear()
+    assert not cluster_setup.sync()
+    assert host.commands == ["corosync-cfgtool -R"]  # its earlier reload did not take: Corosync lacks a member
+    running[0] = written
+    host.commands.clear()
+    cluster_setup.sync()
+    assert host.commands == []  # running what is written: nothing to do
 
 
 def test_removing_a_member(host):
