@@ -115,4 +115,6 @@ def test_every_operation_says_what_it_needs_or_is_an_administrators():
         need = NEEDS.get(op, needs.ADMIN)
         assert isinstance(need, needs.Need), op
     public = sorted(op for op, need in NEEDS.items() if need.kind == "public")
-    assert all(op.startswith("auth.") or op == "system.ping" for op in public), public
+    # The copy to and from hyperlite-cfs copies only what the node holds (app/daemon/ops/cfs.py).
+    copies = {"system.ping", "cfs.catch_up", "cfs.confirm", "cfs.next_id"}
+    assert all(op.startswith("auth.") or op in copies for op in public), public
