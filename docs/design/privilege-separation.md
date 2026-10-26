@@ -918,3 +918,22 @@ Two kinds of call fail on that socket, so they move into hyperlite-daemon:
     and the rolling update.
 
 No route opens a read-write connection any more; `tests/test_api_libvirt_readonly.py` scans them.
+
+- **Then moved with #298's split:**
+  - the cluster's creation, join and leave (`cluster_setup`): 14.9;
+  - `statd.changed`'s publish (`STAT_PUT`, already root-only in cfs): `statd.publish`, asked by an API that is not root.
+
+### 14.9 4e: creating, joining and leaving a cluster done by the daemon (2026-10-26)
+
+`cluster_setup` writes what is root's: Corosync's key (0400) and configuration, hyperlite-cfs's mode, root's
+`authorized_keys`, and the cluster's keys in `/etc/hyperlite/priv/env` (0600). It also enables and restarts Corosync and
+hyperlite-cfs. As on Proxmox VE, where `pvecm` runs as root, the routes now ask hyperlite-daemon:
+
+- `cluster.create`, `cluster.join_information`, `cluster.join`, `cluster.set_primary` and `cluster.remove_member`, for
+  an administrator;
+- `cluster.accept_member`, public: the joining node has no session on this member, and its one-time ticket stands for
+  the administrator who copied the join information. `cluster_setup` checks the ticket in the daemon, as before.
+
+A `ClusterError` is the daemon's refusal (409, its sentence for the administrator). hyperlite-cfs not answering is
+`unavailable` (503), and a ticket that is not valid is `forbidden` (403). The cluster's state (`GET /cluster`) stays a
+read in the API: the shared configuration and the quorum come from the cfs socket, which www-data may read (14.7).
