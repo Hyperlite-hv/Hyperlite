@@ -166,6 +166,8 @@ JOIN_LOOK_S = 120
 COROSYNC_SEEN = (
     "corosync-cfgtool -s 2>&1 | tail -n +2; corosync-cfgtool -n 2>&1 | grep -E 'nodeid|link|connected'; "
     "grep -E 'config_version|nodeid|ring0_addr' /etc/corosync/corosync.conf | tr -s ' ' | paste -sd' '; "
+    "corosync-cmapctl -g totem.config_version 2>&1; corosync-cmapctl -b nodelist.node 2>&1 | paste -sd' '; "
+    "journalctl -u corosync --no-pager -o short-monotonic | grep -E 'CFG|[Rr]eload|Configuring link' | tail -n 8; "
     "corosync-cmapctl -m stats 2>/dev/null | grep -iE 'mtu' | sort -u | head -8; "
     "journalctl -u corosync --no-pager -o short-monotonic | grep -iE 'link|host: [0-9]|reload|mtu' | tail -n 12"
 )
