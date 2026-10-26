@@ -4,12 +4,15 @@ node reaches the others with, root's known_hosts and the reverse trust a node is
 registered node, whose address the daemon reads from the node registry, or the address of a node being checked
 before it is registered."""
 
+import logging
 from typing import Literal
 
 from pydantic import Field, field_validator
 
-from app.daemon.needs import ANYONE, own_task
+from app.daemon.needs import ANYONE, PUBLIC, own_task
 from app.daemon.registry import Args, DaemonError, operation
+
+logger = logging.getLogger(__name__)
 
 NODE_NAME = 63
 
@@ -397,3 +400,111 @@ def _spread_plan(source, src):
             except DaemonError:
                 conns[label] = None  # its VMs stay, said why
         return maintenance.spread_plan(src, targets, conns)
+
+
+# ---- Creating and joining a cluster (app/core/cluster_setup.py, item 1 of #298): Corosync's key and configuration,
+# its services, root's authorized_keys and the cluster's keys in the node's env file are root's ----
+
+
+def _setup(fn, *args, ticket=False):
+    """`fn(*args)`, its ClusterError a refusal for the administrator and hyperlite-cfs not answering said so. With
+    `ticket`, a join information that is not valid is forbidden."""
+    from app.core import cluster_setup
+    from app.core.cfs_client import CfsError
+
+    try:
+        return fn(*args)
+    except cluster_setup.ClusterError as e:
+        raise DaemonError("refused", str(e)) from None
+    except PermissionError as e:
+        if not ticket:
+            raise
+        raise DaemonError("forbidden", str(e)) from None
+    except (CfsError, OSError) as e:
+        logger.warning("%s failed: %s", fn.__name__, e)
+        raise DaemonError("unavailable", "hyperlite-cfs does not answer: see journalctl -u hyperlite-cfs") from None
+
+
+class CreateArgs(Args):
+    name: str = Field(min_length=1, max_length=15)
+    address: str = Field(min_length=1, max_length=64)
+
+
+@operation("cluster.create", CreateArgs)
+def create(args, ctx):
+    """This node, the first member of a new cluster."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.create, args.name, args.address, ctx.user or "?")
+
+
+@operation("cluster.join_information", Args)
+def join_information(args, ctx):
+    """A new ticket, with the cluster's address and certificate: the previous one stops working."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.join_information)
+
+
+class JoinArgs(Args):
+    information: str = Field(min_length=1, max_length=2000)
+    address: str = Field(min_length=1, max_length=64)
+    confirmation: str = Field(max_length=15)
+
+
+@operation("cluster.join", JoinArgs)
+def join(args, ctx):
+    """This node, a member of the cluster the join information comes from: its own configuration replaced."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.join, args.information, args.address, args.confirmation, ctx.user or "?")
+
+
+class MemberArgs(Args):
+    ticket: str = Field(max_length=100)
+    name: str = Field(max_length=NODE_NAME)
+    address: str = Field(max_length=64)
+    ssh_key: str = Field(max_length=200)
+    fingerprint: str | None = Field(None, max_length=64)
+    auth_keys: dict | None = None
+
+
+@operation("cluster.accept_member", MemberArgs, needs=PUBLIC)
+def accept_member(args, ctx):
+    """A joining node let in: public, as its one-time ticket stands for the administrator who copied it (checked
+    here, by cluster_setup)."""
+    from app.core import cluster_setup
+
+    return _setup(
+        cluster_setup.accept_member,
+        args.ticket,
+        args.name,
+        args.address,
+        args.ssh_key,
+        args.fingerprint,
+        args.auth_keys,
+        ticket=True,
+    )
+
+
+class PrimaryArgs(Args):
+    name: str | None = Field(None, max_length=NODE_NAME)  # None: no primary node, one vote each
+
+
+@operation("cluster.set_primary", PrimaryArgs)
+def set_primary(args, ctx):
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.set_primary, args.name, ctx.user or "?")
+
+
+class RemoveMemberArgs(Args):
+    name: str = Field(min_length=1, max_length=NODE_NAME)
+    confirmation: str = Field(max_length=NODE_NAME)
+
+
+@operation("cluster.remove_member", RemoveMemberArgs)
+def remove_member(args, ctx):
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.remove_member, args.name, args.confirmation, ctx.user or "?")

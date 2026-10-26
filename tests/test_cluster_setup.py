@@ -681,3 +681,46 @@ def test_a_joining_node_waits_longer_for_its_links_than_a_new_cluster(host, monk
     monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 300)
     cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
     assert waits == [300] and cluster_setup.JOIN_WAIT_S > cluster_setup.WAIT_S
+
+
+def test_the_api_as_www_data_asks_the_daemon(host, client, auth_headers, monkeypatch):
+    """Item 1 of #298: Corosync's key and configuration, its services and root's authorized_keys are root's, so the
+    API, www-data from 4e, asks hyperlite-daemon to create, let in, join and remove."""
+    import app.daemon.ops  # noqa: F401  (registers the operations)
+    from app.core import privileged
+    from app.daemon.registry import Context, DaemonError, dispatch
+
+    admin = auth_headers("alice")  # signed in first, as the API does today
+    asked = []
+
+    def call(op, args=None, user=None, timeout=None):
+        asked.append(op)
+        answer = dispatch(
+            {"op": op, "args": args or {}}, Context(user, None, 1, 33, proof=privileged.daemon_client._proof())
+        )
+        if not answer.get("ok"):
+            raise DaemonError(answer["error"], answer.get("detail"))
+        return answer["result"], []
+
+    monkeypatch.delenv(privileged.INPROCESS_ENV)
+    monkeypatch.setattr(privileged.daemon_client, "call_fds", call)
+    r = client.post("/cluster/create", json={"name": "prod", "address": "192.0.2.99"}, headers=admin)
+    assert r.status_code == 409 and "not an address of this node" in r.json()["detail"]
+    r = client.post("/cluster/create", json={"name": "prod", "address": ADDRESS}, headers=admin)
+    assert r.status_code == 200 and r.json()["name"] == "prod"
+    info = client.post("/cluster/adhesion", headers=admin).json()
+    ticket = json.loads(base64.urlsafe_b64decode(info["information"] + "=="))["ticket"]
+    bad = {"ticket": "x" * 43, "name": "pve-b", "address": "192.0.2.12", "ssh_key": KEY_B}
+    assert client.post("/cluster/members", json=bad).status_code == 403  # public: the ticket is the proof
+    assert client.post("/cluster/members", json={**bad, "ticket": ticket}).status_code == 200
+    r = client.post("/cluster/members/pve-b/remove", json={"confirmation": "pve-b"}, headers=admin)
+    assert r.status_code == 200, r.text
+    setup = {"cluster.create", "cluster.join_information", "cluster.accept_member", "cluster.remove_member"}
+    assert [op for op in asked if op in setup] == [
+        "cluster.create",
+        "cluster.create",
+        "cluster.join_information",
+        "cluster.accept_member",
+        "cluster.accept_member",
+        "cluster.remove_member",
+    ]
