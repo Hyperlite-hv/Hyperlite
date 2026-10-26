@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+import weakref
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -12,6 +13,10 @@ logger = logging.getLogger(__name__)
 LIBVIRT_URI = "qemu:///system"
 LXC_URI = "lxc:///system"
 
+
+# The read-only connections open_conn gave, each with its node (None: this one): what would write through one asks
+# hyperlite-daemon instead, before libvirt refuses it ("operation forbidden", said in the API's journal).
+_read_only = weakref.WeakKeyDictionary()
 
 NO_LXC = "This node has no LXC driver (libvirt-daemon-driver-lxc), so it runs no containers"
 
@@ -71,7 +76,9 @@ def open_conn(node_name=None, readonly=False):
             raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
         node_health.check(node)
         if readonly:
-            return _through_tunnel(node_name)
+            conn = _through_tunnel(node_name)
+            _read_only[conn] = node_name
+            return conn
         uri = libvirt_uri_from_here(node)
     else:
         uri = LIBVIRT_URI
@@ -86,6 +93,8 @@ def open_conn(node_name=None, readonly=False):
         raise HTTPException(status_code=502, detail=f"Node unreachable: {describe_exception(e)}") from e
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt connection")
+    if readonly and uri == LIBVIRT_URI:
+        _read_only[conn] = None
     return conn
 
 
@@ -193,7 +202,10 @@ def get_vm_uptime_s(vm_name):
 
 
 def ensure_default_pool(conn):
-    """Create and start the 'default' storage pool if it does not exist yet."""
+    """Create and start the 'default' storage pool if it does not exist yet. Writes nothing for a pool already there,
+    started and autostarted; through a read-only connection (the API's), hyperlite-daemon makes or starts it."""
+    if conn in _read_only:
+        return _default_pool_from_the_daemon(conn)
     try:
         pool = conn.storagePoolLookupByName("default")
     except libvirt.libvirtError:
@@ -209,8 +221,26 @@ def ensure_default_pool(conn):
         pool.build()
     if not pool.isActive():
         pool.create()
-    pool.setAutostart(True)
+    if not pool.autostart():
+        pool.setAutostart(True)
     return pool
+
+
+def _default_pool_from_the_daemon(conn):
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        pool = conn.storagePoolLookupByName("default")
+        if pool.isActive() and pool.autostart():
+            return pool
+    except libvirt.libvirtError:
+        pass  # not defined yet: the daemon defines it
+    try:
+        privileged.run("storage.ensure_default_pool", node=_read_only[conn])
+    except DaemonError as e:
+        raise libvirt.libvirtError(f"The 'default' storage pool could not be made: {e.detail or e.kind}") from e
+    return conn.storagePoolLookupByName("default")
 
 
 def lookup_pool(conn, name):
