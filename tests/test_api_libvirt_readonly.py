@@ -101,15 +101,9 @@ def test_a_daemon_that_refuses_the_autostart_leaves_the_protection_to_be_recorde
     assert "autostart not turned off: no" in caplog.text
 
 
-# Routes that still open a connection that may write, each with why. The migration's compatibility check reads the
-# migratable (secure) definition, which a read-only connection refuses: it moves into a daemon operation with point 11
-# of #298, and these go with it.
-ALLOWED = {
-    ("app/routers/vms/migration.py", "_source_conn"): "the compatibility check, point 11",
-    ("app/routers/nodes.py", "_compat_with_local"): "the compatibility check, point 11",
-    ("app/routers/nodes.py", "_plan"): "the drain plan's compatibility check, point 11",
-    ("app/routers/nodes.py", "_spread_plan"): "the drain plan's compatibility check, point 11",
-}
+# Routes that still open a connection that may write, each with why. None since the migration's compatibility check,
+# which reads the migratable (secure) definition, moved into hyperlite-daemon (point 11 of #298).
+ALLOWED = {}
 OPENERS = ("open_conn", "open_lxc_conn", "open_lxc_conn_if_any")
 
 
@@ -180,3 +174,105 @@ def test_a_read_write_connection_still_makes_the_default_pool_itself():
     conn = _Conn()  # the daemon's own (libvirt_utils.local_conn)
     libvirt_utils.ensure_default_pool(conn)
     assert conn.wrote == ["define", "build", "create", "setAutostart"]
+
+
+class _Domain:
+    def name(self):
+        return "web"
+
+    def isActive(self):
+        return True
+
+    def XMLDesc(self, flags=0):
+        return "<domain><name>web</name><devices/></domain>"
+
+
+class _Host:
+    def __init__(self, *vms):
+        self.vms = vms
+
+    def lookupByName(self, name):
+        if name not in self.vms:
+            raise libvirt_utils.libvirt.libvirtError("no domain")
+        return _Domain()
+
+    def listAllDomains(self, flags=0):
+        return [_Domain() for _ in self.vms]
+
+
+def _www_data(monkeypatch, daemon_libvirt):
+    """The API as www-data, once its accounts signed in: the daemon's operations go to its socket, stood in for here
+    (from uid 33, with the request's proof), and the daemon opens both nodes' libvirt."""
+    import app.daemon.ops  # noqa: F401  (registers the operations)
+    from app.core import cluster_compat, privileged
+    from app.daemon.registry import Context, DaemonError, dispatch
+
+    asked = []
+
+    def call(op, args=None, user=None, timeout=None):
+        asked.append(op)
+        proof = privileged.daemon_client._proof()
+        answer = dispatch({"op": op, "args": args or {}}, Context(user, None, 1, 33, proof=proof))
+        if not answer.get("ok"):
+            raise DaemonError(answer["error"], answer.get("detail"))
+        return answer["result"], []
+
+    daemon_libvirt(_Host("web"), nodes={"n2": _Host()})
+    monkeypatch.setattr(cluster_compat, "check_vm_migration", lambda src, dst, domain: [])
+    monkeypatch.setattr(cluster_compat, "check_pair", lambda src, dst: [])
+    monkeypatch.delenv(privileged.INPROCESS_ENV)
+    monkeypatch.setattr(privileged.daemon_client, "call_fds", call)
+    return asked
+
+
+def _node(database, name):
+    with database.get_conn() as db:
+        db.execute(
+            "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, status, added_at) "
+            "VALUES (?, ?, 'root', 22, 'online', '2026-01-01T00:00:00+00:00')",
+            (name, f"{name}.example"),
+        )
+        db.commit()
+
+
+def test_the_migrations_checks_are_the_daemons(client, auth_headers, database, monkeypatch, daemon_libvirt):
+    """They read the VM's migratable definition, which the read-only socket refuses (point 11 of #298)."""
+    _node(database, "n2")
+    admin, viewer = auth_headers("root"), auth_headers("vic", role="viewer")
+    from_www_data = _www_data(monkeypatch, daemon_libvirt)
+    r = client.get("/vms/web/migration-check", params={"target_node": "n2"}, headers=admin)
+    assert r.status_code == 200 and r.json()["checks"] == [], r.text
+    assert client.get("/vms/ghost/migration-check", params={"target_node": "n2"}, headers=admin).status_code == 404
+    assert client.get("/nodes/n2/compatibility", headers=admin).status_code == 200
+    plan = client.get("/nodes/local/drain-plan", params={"target_node": "n2"}, headers=admin)
+    assert plan.status_code == 200 and plan.json()["migratable"] == ["web"], plan.text
+    assert from_www_data == ["vm.migration_check", "vm.migration_check", "node.compatibility", "node.vm_plan"]
+    from_www_data.clear()
+    assert client.get("/vms/web/migration-check", params={"target_node": "n2"}, headers=viewer).status_code == 403
+    assert from_www_data == []  # the route's own check first; the daemon's needs the same (ADMIN)
+
+
+@pytest.mark.parametrize("op", ["vm.migration_check", "node.compatibility", "node.vm_plan"])
+def test_the_daemon_runs_them_for_an_administrator_only(op, auth_headers):
+    import app.daemon.ops  # noqa: F401  (registers the operations)
+    from app.daemon.registry import Context, dispatch
+
+    token = auth_headers("vic", role="viewer")["Authorization"].split()[1]
+    args = {"vm.migration_check": {"vm": "web", "target": "n2"}, "node.vm_plan": {"source": "local"}}
+    answer = dispatch({"op": op, "args": args.get(op, {"node": "n2"})}, Context(None, None, 1, 33, proof=token))
+    assert answer["error"] == "forbidden"
+
+
+def test_the_rolling_updates_plan_of_a_nodes_vms_is_the_daemons(database, auth_headers, monkeypatch, daemon_libvirt):
+    from app.core import peer_auth, rolling_update
+
+    _node(database, "n2")
+    token = auth_headers("root")["Authorization"].split()[1]
+    from_www_data = _www_data(monkeypatch, daemon_libvirt)
+    proof = peer_auth.CREDENTIAL.set(token)
+    try:
+        out = rolling_update.node_plan(None, "root", lambda: ({"verifiable": True, "system": {}}, "stable"), "n2")
+    finally:
+        peer_auth.CREDENTIAL.reset(proof)
+    assert out["vms_to_migrate"] == ["web"] and out["reachable"], out
+    assert "node.vm_plan" in from_www_data

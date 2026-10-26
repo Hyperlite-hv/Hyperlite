@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 from app.core import (
     checkpoints,
-    cluster_compat,
     ha,
     iscsi,
     maintenance,
@@ -27,6 +26,9 @@ from app.daemon.registry import DaemonError
 from app.routers.vms._shared import router
 
 logger = logging.getLogger(__name__)
+
+
+COMPAT_TIMEOUT_S = 120  # both nodes' capabilities and the VM's definition, one of them over SSH
 
 
 class MigrateRequest(BaseModel):
@@ -132,19 +134,23 @@ def migration_check(name: str, target_node: str, node: str | None = None, user: 
     app/core/cluster_compat.py."""
     if _norm_node(target_node) == _norm_node(node):
         raise HTTPException(status_code=422, detail="The destination node must be different from the source node")
-    src_conn = _source_conn(_norm_node(node))
+    return _compatibility(name, node, target_node, user["username"])
+
+
+def _compatibility(name, node, target, username):
+    """cluster_compat's report, made by hyperlite-daemon: it reads the VM's migratable definition, which libvirt's
+    read-only socket refuses, and the other member's libvirt with the cluster's key."""
     try:
-        try:
-            domain = src_conn.lookupByName(name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-        dst_conn = open_conn(_norm_node(target_node), readonly=True)
-        try:
-            return cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dst_conn, domain))
-        finally:
-            dst_conn.close()
-    finally:
-        src_conn.close()
+        return privileged.run(
+            "vm.migration_check",
+            user=username,
+            timeout=COMPAT_TIMEOUT_S,
+            vm=name,
+            node=_norm_node(node),
+            target=_norm_node(target) or maintenance.LOCAL,
+        )
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
 
 
 @router.post("/{name}/migrate", status_code=202)
@@ -171,14 +177,6 @@ def _keep_drs_rules(name, target):
         raise HTTPException(status_code=409, detail=str(e)) from None
 
 
-def _source_conn(node):
-    """The migrating VM's node: cluster_compat reads its migratable definition (VIR_DOMAIN_XML_MIGRATABLE implies the
-    secure flag), which a read-only connection refuses, so this node's own is read-write for now. That check moves
-    into a hyperlite-daemon operation with point 11 of #298 (docs/design/privilege-separation.md, 4e); another node's
-    stays read-only, through the tunnel."""
-    return open_conn(node) if node is None else open_conn(node, readonly=True)
-
-
 def start(name, source, target, username, skip_checks=False):
     """A live migration of the VM `name` from `source` (None: this node) to `target`, as POST /vms/{name}/migrate
     starts it: its checks (an HTTPException with the route's status when one refuses), the VM's lock, the task, then
@@ -198,7 +196,7 @@ def start(name, source, target, username, skip_checks=False):
     # best-effort failure at the time), the migration fails with a clear SSH error on
     # the task side rather than being refused a priori here.
 
-    src_conn = _source_conn(node)
+    src_conn = open_conn(node, readonly=True)
     try:
         try:
             domain = src_conn.lookupByName(name)
@@ -219,7 +217,7 @@ def start(name, source, target, username, skip_checks=False):
         # treatment).
         dest_conn = open_conn(_norm_node(target), readonly=True)
         try:
-            compat = cluster_compat.report(cluster_compat.check_vm_migration(src_conn, dest_conn, domain))
+            compat = _compatibility(name, node, target, username)
             if compat["summary"]["blocking"] and not skip_checks:
                 blocages = [c["message"] for c in compat["checks"] if c["status"] == "blocking"]
                 raise HTTPException(
