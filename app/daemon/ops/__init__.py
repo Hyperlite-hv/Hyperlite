@@ -4,6 +4,7 @@ from app.daemon.ops import (  # noqa: F401
     access,
     auth,
     backup,
+    cfs,
     cluster,
     console,
     container,

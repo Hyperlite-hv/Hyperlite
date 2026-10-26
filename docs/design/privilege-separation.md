@@ -799,3 +799,74 @@ sessions, groups, roles, resource pools, ACLs and the SSO and LDAP settings.
 The file is root's only (0600) for now. When the API's unit changes user, it gets `www-data`'s group read (0640), as
 `/etc/pve` is readable by `www-data` on Proxmox VE: the API checks a password or a token itself, so the hashes stay
 readable to it, as before.
+
+### 14.4 4e: the copy to and from hyperlite-cfs done by the daemon (2026-10-25)
+
+Two loops copy between SQLite and the cluster's tree: changes go out from the outbox (`shadow.py`), and the other
+members' changes come in (`inbound.py`). Both are root's work:
+
+- the copy in writes every replicated table, and the permission tables are in root's file (14.3);
+- the copy out writes the tree. A row that `www-data` could put there would reach every member's permissions.
+
+So, from this step on:
+
+- **The loops run in `hyperlite-daemon`** (`app/daemon/__main__.py`). The API starts them only when it runs the daemon's
+  operations in process (the test suite, the e2e backend). The daemon's unit loads the node's env file, as the API's
+  does. Without it, the daemon would not know that `HYPERLITE_CFS_SHADOW` forces shadow mode on, would take shadow mode
+  for off, and would empty the outbox.
+- **A request asks the daemon** (`app/daemon/ops/cfs.py`):
+  - `cfs.catch_up` before its writes;
+  - `cfs.confirm` with its outbox ids before its answer.
+
+  Only one process copies, in the order SQLite made the changes, under one lock.
+
+  Both operations are `public`: each copies only what the node already holds, and a sign-in's own changes have no proof
+  yet. `Changed` comes back as the paths whose other version the cluster kept (the API's 409). `NotConfirmed` comes back
+  as `unavailable` with its sentence (503).
+- **Administration > Replicated configuration** (`/cfs/shadow*`) asks the daemon too: `cfs.report`, `cfs.seed`,
+  `cfs.enable` and `cfs.disable`, for administrators. They start and stop `hyperlite-cfs` and write its tree.
+
+### 14.5 4e: signing in is the daemon's from start to end (2026-10-25)
+
+Before a session exists, a request carries no proof. From 4e the API runs as `www-data`, and the daemon refuses a call
+from it that has no proof (14, 4d). So anything a sign-in writes has to be written by the daemon's sign-in operations
+themselves. On Proxmox VE, pveproxy likewise hands the ticket request to pvedaemon, which writes `user.cfg`.
+
+- **The last sign-in** is recorded by `sign_in._signed_in`, inside `auth.password`, `auth.totp`, `auth.webauthn` and
+  `auth.sso`, when a session is signed. A password change's fresh token is not a sign-in. The API's own `record_login`
+  calls are gone.
+- **SSO's start and callback** are `auth.sso_start` and `auth.sso_callback`. Both need the client secret, which only the
+  daemon opens.
+  - The callback checks the state bound to the browser, exchanges the code, validates the identity token, makes or
+    updates the account (`provision_sso_user`) and leaves the one-time handoff code.
+  - The API keeps the browser's side: the redirects, the cookies and the audit log.
+  - Without the daemon, nobody signs in (503), as with a password.
+- What a sign-in writes in the main file stays the API's: the failure counters and locks, the SSO state and handoff
+  rows, the audit log.
+
+### 14.7 4e: hyperlite-cfs takes a change from root only (2026-10-25)
+
+The API reads the replicated configuration (the members' statuses, the tree's entries). For that, the socket of
+`hyperlite-cfs` gets its group: `--socket-mode 0660 --socket-group www-data`.
+
+Reading must not mean writing, though. Every member applies the tree as root, including the permissions (14.3). If
+`www-data` could put `/db/acl/...` there, it would grant itself rights on every member. So `hyperlite-cfs` now refuses
+any change (`PUT`, `DELETE`, `RENAME`, `LOCK`, `UNLOCK`, `NEXT_ID`) from a peer that is neither root nor its own user (a
+test's). `/etc/pve` is the same for `www-data` on Proxmox VE. Each refusal of a client's identity is one line in its log,
+with the uid.
+
+What the API still wrote itself is now done elsewhere:
+
+- **In the daemon** (`app/daemon/__main__.py`):
+  - the certificate fingerprint (`peer_https`);
+  - API v1's rewrite of the tree (`cluster_v1`);
+  - the node's lead, with Corosync's configuration and the members' SSH keys following the shared ones
+    (`cluster_lead.start_lead_loop(follow_setup=True)`).
+
+  The API starts them only when it runs the daemon's operations in process.
+- **Asked of the daemon** through `shadow.writer()`, once the process is not root:
+  - a new row's cluster-wide id: `cfs.next_id`, public, since a counter only goes up;
+  - the rolling update's lock: `cfs.lock` / `cfs.unlock`, for an administrator, and for that lock's name only.
+- **Still in the API, moving with #298's split:**
+  - the cluster's creation, join and leave (`cluster_setup`);
+  - `statd.changed`'s publish (`STAT_PUT`, already root-only in cfs).
