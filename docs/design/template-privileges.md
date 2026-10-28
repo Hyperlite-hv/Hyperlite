@@ -68,7 +68,9 @@ renaming and deleting go together (the account that builds images). Proxmox VE d
 4. On real nodes: a non-administrator token with that role makes a VM in its pool, converts it into a template,
    deploys it, renames and deletes it; and is refused each step outside its pool.
 
-## 4. Questions
+## 4. Decisions (Antho, 2026-10-28)
 
-1. Two privileges (deploy / manage), or four as vSphere (deploy / make / rename / delete)?
-2. Should the predefined Manager role get `template.deploy`?
+1. **Two privileges**, `template.deploy` and `template.manage`, as Proxmox VE's `VM.Clone` and `VM.Allocate`; not
+   vSphere's four.
+2. **The Manager role does not get `template.deploy`**: deploying a template creates a VM, which is given on purpose,
+   by a custom role (Proxmox VE's PVEVMUser has no `VM.Clone` either).
