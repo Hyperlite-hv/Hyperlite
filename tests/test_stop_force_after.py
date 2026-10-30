@@ -17,6 +17,9 @@ class _Domain:
     def destroy(self):
         self.destroyed = True
 
+    def name(self):
+        return "web"
+
 
 class _Conn:
     def __init__(self, domain):
@@ -30,14 +33,15 @@ class _Conn:
 
 
 @pytest.fixture()
-def run(database, monkeypatch):
+def run(database, monkeypatch, daemon_libvirt):
     clock = {"t": 0.0}
     monkeypatch.setattr(lifecycle.time, "monotonic", lambda: clock["t"])
     monkeypatch.setattr(lifecycle.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
     monkeypatch.setattr(guest_agent, "shutdown", lambda d: setattr(d, "requests", d.requests + 1) or "acpi")
 
     def go(domain, seconds=60):
-        monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(domain))
+        monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: _Conn(domain))
+        daemon_libvirt(_Conn(domain))  # hyperlite-daemon asks again and forces, in this process in the tests
         domain.requests = 1  # the request the endpoint sent
         lifecycle._watch_stop("web", None, "alice", seconds)
         return domain
@@ -60,17 +64,19 @@ def test_the_delay_is_bounded(client, auth_headers):
     assert r.status_code == 422
 
 
-def test_a_plain_stop_asks_again_and_never_forces(run, monkeypatch):
+def test_a_plain_stop_asks_again_and_never_forces(run, monkeypatch, daemon_libvirt):
     d = _Domain(stops_after_requests=99)
-    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(d))
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: _Conn(d))
+    daemon_libvirt(_Conn(d))
     d.requests = 1
     lifecycle._watch_stop("web", None, "alice")
     assert d.requests == 3 and not d.destroyed  # asked again at 30 s and 90 s
 
 
-def test_a_plain_stop_lost_once_stops_on_the_next_request(run, monkeypatch):
+def test_a_plain_stop_lost_once_stops_on_the_next_request(run, monkeypatch, daemon_libvirt):
     d = _Domain(stops_after_requests=2)
-    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: _Conn(d))
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: _Conn(d))
+    daemon_libvirt(_Conn(d))
     d.requests = 1
     lifecycle._watch_stop("web", None, "alice")
     assert d.requests == 2 and not d.destroyed

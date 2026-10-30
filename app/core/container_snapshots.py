@@ -18,10 +18,11 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core.container_builder import container_rootfs_path
+from app.core import shared_claims
 from app.core.safe_paths import safe_child
 
 SNAPSHOTS = ".snapshots"
+KIND = "container"
 RSYNC = ["rsync", "-aHAXS", "--numeric-ids"]
 # A full copy needs room for the container's whole file system; this much more is kept free on the host.
 MARGIN_BYTES = 512 * 1024 * 1024
@@ -36,22 +37,21 @@ class ContainerBusy(SnapshotError):
         super().__init__(f"Container '{name}' is busy: {running} is in progress. Try again when it has finished.")
 
 
-_lock = threading.Lock()
-_busy = {}  # container name -> what runs on it
-
-
 class Claim:
     """One operation at a time on a container's files, released once (release() or leaving a `with` block). Taken by
-    the endpoint, so the refusal reaches the caller; released by the thread that does the work."""
+    the endpoint, so the refusal reaches the caller; released by the thread that does the work. Shared with the other
+    processes that work on containers (app/core/shared_claims.py)."""
 
-    def __init__(self, name):
-        self.name, self._released = name, False
+    def __init__(self, key):
+        self._key, self._released = key, False
+        self._lock = threading.Lock()
 
     def release(self):
-        with _lock:
-            if not self._released:
-                self._released = True
-                _busy.pop(self.name, None)
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        shared_claims.release(self._key)
 
     def __enter__(self):
         return self
@@ -63,25 +63,25 @@ class Claim:
 
 def claim(name, what):
     """Raises ContainerBusy when another operation runs on the container."""
-    with _lock:
-        if name in _busy:
-            raise ContainerBusy(name, _busy[name])
-        _busy[name] = what
-    return Claim(name)
+    try:
+        return Claim(shared_claims.take(KIND, "local", name, what))
+    except shared_claims.Busy as e:
+        raise ContainerBusy(name, e.running) from None
 
 
 def busy(name):
     """What runs on the container's files, or None."""
-    with _lock:
-        return _busy.get(name)
+    return shared_claims.holder(KIND, "local", name)
 
 
-def _snapshots_dir(name):
-    return safe_child(safe_child(container_rootfs_path(name).parent, SNAPSHOTS), name)
+def _snapshots_dir(rootfs):
+    """`rootfs`: the container's filesystem, as hyperlite-daemon found it in its definition (app/core/container_ops.py)."""
+    rootfs = Path(rootfs)
+    return safe_child(safe_child(rootfs.parent, SNAPSHOTS), rootfs.name)
 
 
-def _snapshot_dir(name, snapshot):
-    return safe_child(_snapshots_dir(name), snapshot)
+def _snapshot_dir(rootfs, snapshot):
+    return safe_child(_snapshots_dir(rootfs), snapshot)
 
 
 def _read(path):
@@ -94,17 +94,17 @@ def _read(path):
     return meta if meta.get("name") == path.name and (path / "rootfs").is_dir() else None
 
 
-def list_snapshots(name):
+def list_snapshots(rootfs):
     """The container's complete snapshots, oldest first: name, description, created_at."""
-    directory = _snapshots_dir(name)
+    directory = _snapshots_dir(rootfs)
     if not directory.is_dir():
         return []
     found = [meta for entry in directory.iterdir() if entry.is_dir() and (meta := _read(entry))]
     return sorted(found, key=lambda m: (m["created_at"], m["name"]))
 
 
-def exists(name, snapshot):
-    return _read(_snapshot_dir(name, snapshot)) is not None
+def exists(rootfs, snapshot):
+    return _read(_snapshot_dir(rootfs, snapshot)) is not None
 
 
 def _disk_usage(path):
@@ -135,16 +135,16 @@ def _rsync(*args):
         raise SnapshotError(f"rsync failed ({r.returncode}): {(r.stderr or r.stdout).strip()[-500:]}")
 
 
-def create(name, snapshot, description=None):
+def create(rootfs, snapshot, description=None):
     """Snapshot of the stopped container (the caller checks it is stopped and holds its claim)."""
-    rootfs = container_rootfs_path(name)
+    rootfs = Path(rootfs)
     if not rootfs.is_dir():
-        raise SnapshotError(f"Filesystem of container '{name}' not found")
-    final = _snapshot_dir(name, snapshot)
+        raise SnapshotError(f"Filesystem of container '{rootfs.name}' not found")
+    final = _snapshot_dir(rootfs, snapshot)
     if os.path.lexists(final):
         raise SnapshotError(f"A snapshot '{snapshot}' already exists for this container")
-    previous = list_snapshots(name)
-    directory = _snapshots_dir(name)
+    previous = list_snapshots(rootfs)
+    directory = _snapshots_dir(rootfs)
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(directory.parent, 0o700)
     if not previous:
@@ -153,7 +153,9 @@ def create(name, snapshot, description=None):
     shutil.rmtree(partial, ignore_errors=True)  # left by a service stopped in the middle of one
     try:
         partial.mkdir(mode=0o700)
-        link = ["--checksum", f"--link-dest={_snapshot_dir(name, previous[-1]['name']) / 'rootfs'}"] if previous else []
+        link = (
+            ["--checksum", f"--link-dest={_snapshot_dir(rootfs, previous[-1]['name']) / 'rootfs'}"] if previous else []
+        )
         _rsync(*link, f"{rootfs}/", f"{partial / 'rootfs'}/")
         meta = {"name": snapshot, "description": description, "created_at": datetime.now(UTC).isoformat()}
         (partial / "snapshot.json").write_text(json.dumps(meta))
@@ -164,13 +166,13 @@ def create(name, snapshot, description=None):
     return meta
 
 
-def restore(name, snapshot):
+def restore(rootfs, snapshot):
     """The stopped container's file system becomes the snapshot's (the caller checks it is stopped and holds its
     claim). A failure before the swap leaves it as it was."""
-    source = _snapshot_dir(name, snapshot)
+    rootfs = Path(rootfs)
+    source = _snapshot_dir(rootfs, snapshot)
     if _read(source) is None:
         raise SnapshotError(f"Snapshot '{snapshot}' not found")
-    rootfs = container_rootfs_path(name)
     restoring = safe_child(rootfs.parent, f"{rootfs.name}.restoring")
     old = safe_child(rootfs.parent, f"{rootfs.name}.replaced")
     for leftover in (restoring, old):
@@ -191,16 +193,16 @@ def restore(name, snapshot):
     shutil.rmtree(old)
 
 
-def delete(name, snapshot):
-    path = _snapshot_dir(name, snapshot)
+def delete(rootfs, snapshot):
+    path = _snapshot_dir(rootfs, snapshot)
     if _read(path) is None:
         raise SnapshotError(f"Snapshot '{snapshot}' not found")
     shutil.rmtree(path)
 
 
-def delete_all(name):
-    """With the container: its snapshots go too."""
-    shutil.rmtree(_snapshots_dir(name), ignore_errors=True)
+def delete_all(name, parent):
+    """With the container (its directory under `parent`): its snapshots go too."""
+    shutil.rmtree(safe_child(safe_child(Path(parent), SNAPSHOTS), name), ignore_errors=True)
 
 
 def rename_all(old, new, parent):

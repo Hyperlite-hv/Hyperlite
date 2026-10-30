@@ -58,7 +58,8 @@ def test_a_refused_start_ends_the_task_with_its_reason(client, auth_headers, mon
         ops, "_launch", lambda args: (_ for _ in ()).throw(DaemonError("failed", "systemd-run refused"))
     )
     r = client.post("/update/rollback", headers=auth_headers("root"))
-    assert r.status_code == 502 and "systemd-run refused" in r.json()["detail"]
+    # This node's failure: 500 "internal", not 502, which says another member failed (docs/api.md).
+    assert r.status_code == 500 and r.json()["code"] == "internal" and "systemd-run refused" in r.json()["detail"]
     from app.repositories import registry
 
     assert registry.tasks().sync.latest_running("hyperlite_update", "2000-01-01") is None  # not left running

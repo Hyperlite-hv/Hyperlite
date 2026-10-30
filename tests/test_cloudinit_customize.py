@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from app.core import cloudinit_edit as ce
-from app.core import vm_builder
+from app.core import vm_builder, vm_create
 from app.routers.vms import create, settings
 
 MACS = ["52:54:00:aa:00:01", "52:54:00:aa:00:02"]
@@ -88,7 +88,7 @@ def test_the_user_data_carries_the_host_name_and_the_users_cloud_config():
 
 
 @pytest.fixture()
-def drive(database, tmp_path, monkeypatch):
+def drive(database, tmp_path, monkeypatch, daemon_libvirt):
     """A VM `web` with two interfaces and a cloud-init drive; cloud-localds records what it is given."""
     iso = tmp_path / "web-cloudinit.iso"
     iso.write_bytes(b"old")
@@ -105,6 +105,7 @@ def drive(database, tmp_path, monkeypatch):
     conn = Mock()
     conn.lookupByName.return_value = domain
     monkeypatch.setattr(settings, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon writes the drive, in this process in the tests
     # The drive's directory: vm_builder's, which finds a VM's own drives (and cloudinit_edit's copy of it while the
     # module still imports one), so the test holds whichever lands first.
     monkeypatch.setattr(vm_builder, "IMAGES_DIR", tmp_path)
@@ -169,22 +170,21 @@ def test_a_creation_checks_the_customisation_before_anything_is_made(database):
         )
 
     with pytest.raises(ce.CloudInitError, match="leave mac out"):
-        create._customisation(payload(customize={"network": [{"mac": MACS[0], "addresses": ["10.0.0.2/24"]}]}), "m")
-    keys, custom = create._customisation(
+        vm_create.customisation(payload(customize={"network": [{"mac": MACS[0], "addresses": ["10.0.0.2/24"]}]}), "m")
+    keys, custom = vm_create.customisation(
         payload(ssh_keys=["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKey user@host"], customize={"hostname": "web-1"}),
         MACS[0],
     )
     assert keys == ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKey user@host"] and custom["hostname"] == "web-1"
 
 
-def test_an_iso_installation_takes_no_customisation(client, auth_headers, monkeypatch, tmp_path):
-    monkeypatch.setattr(create, "ISOS_DIR", tmp_path)
+def test_an_iso_installation_takes_no_customisation(client, auth_headers, monkeypatch, tmp_path, daemon_libvirt):
+    monkeypatch.setattr(vm_create.disk_library, "ISOS", tmp_path)
     monkeypatch.setattr(create.maintenance, "refuse_if_in_maintenance", lambda *a: None)
-    monkeypatch.setattr(create, "validate_vm_resources", lambda *a: [])
-    conn = Mock()
-    conn.lookupByName.side_effect = create.libvirt.libvirtError("no domain")
-    monkeypatch.setattr(create, "open_conn", lambda: conn)
-    monkeypatch.setattr(create.firmware, "check_choice", lambda conn, choice: None)
+    monkeypatch.setattr(vm_create, "validate_vm_resources", lambda *a: [])
+    conn = daemon_libvirt(Mock())
+    conn.lookupByName.side_effect = vm_create.libvirt.libvirtError("no domain")
+    monkeypatch.setattr(vm_create.firmware, "check_choice", lambda conn, choice: None)
     (tmp_path / "debian.iso").touch()
     body = {
         "name": "web",
@@ -201,7 +201,7 @@ def test_an_iso_installation_takes_no_customisation(client, auth_headers, monkey
 def test_the_customisation_follows_a_renamed_vm_and_goes_with_a_deleted_one(database):
     from app.core import renaming, vm_records
 
-    ce._save_state("web", "debian", [], {**ce.empty_custom(), "hostname": "web-1"})
+    ce.save_state("web", "debian", [], {**ce.empty_custom(), "hostname": "web-1"})
     renaming.vm_records("web", "www")
     assert ce.get_custom("www")["hostname"] == "web-1" and ce.get_custom("web") == ce.empty_custom()
     vm_records.forget("www")

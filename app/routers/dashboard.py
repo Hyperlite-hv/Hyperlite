@@ -1,10 +1,11 @@
 import libvirt
 from fastapi import APIRouter, Depends
 
-from app.core import cluster_lead, db_health
-from app.core.libvirt_utils import ensure_default_pool, open_conn
+from app.core import cluster_lead, db_health, privileged
+from app.core.libvirt_utils import open_conn
 from app.core.metrics import get_node_live
 from app.core.security import get_current_user
+from app.daemon.registry import DaemonError
 
 router = APIRouter(tags=["dashboard"])
 
@@ -32,7 +33,7 @@ def _get_host_uptime_s():
 
 @router.get("/dashboard")
 def dashboard(user: dict = Depends(get_current_user)):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         hostname = conn.getHostname()
         hv_type = conn.getType()
@@ -46,10 +47,12 @@ def dashboard(user: dict = Depends(get_current_user)):
         mem_available_kb = _get_free_memory_kb()
 
         try:
-            pool = ensure_default_pool(conn)
-            pool.refresh(0)
-            _, capacity, _allocation, available = pool.info()
-        except libvirt.libvirtError:
+            # Made when missing, and read again (files written outside libvirt) by hyperlite-daemon: neither is
+            # allowed on the API's read-only connection.
+            privileged.run("storage.ensure_default_pool", user=user["username"])
+            privileged.run("storage.pool_refresh", user=user["username"], pool="default")
+            _, capacity, _allocation, available = conn.storagePoolLookupByName("default").info()
+        except (libvirt.libvirtError, DaemonError):
             capacity = available = None
 
         return {

@@ -61,7 +61,8 @@ browser ──HTTPS──▶ hyperlite-proxy (user hyperlite)          hyperlite
   with `safe_child()` inside their fixed bases, no shell. Each call is logged with the user the proxy names. It holds
   the SSH keys to the other nodes and the hyperlite-cfs socket.
 - **Protocol**: one JSON request per connection line, `{"op": "disk.create", "args": {...}, "user": "alice",
-  "request_id": "..."}`, answered `{"ok": true, "result": ...}` or `{"error": code, "detail": ...}`, the codes of API v1.
+  "request_id": "..."}`, answered `{"ok": true, "result": ...}` or `{"error": code, "detail": ...}` (built with the
+  daemon's own kinds instead, which the API turns into its codes: section 13).
   Long operations (a disk copy, an apt run) answer at once with a task id, as today. The peer credentials of the
   connection (`SO_PEERCRED`) must be the `hyperlite` user.
 - **Consoles and the host shell**: the daemon opens the PTY or the VNC socket and passes the file descriptor to the
@@ -217,6 +218,8 @@ These move with the domains of step 3 (authentication first); step 1 only moves 
 6. **The API runs as `www-data`**, as `pveproxy` does.
 7. **The cluster configuration as files in `/etc/hyperlite`**, as pmxcfs mounts `/etc/pve`: hyperlite-cfs gets a FUSE
    mount, after the split (#525).
+8. **The daemon checks who asks** (2026-10-25): the caller's proof and permissions on every operation, as pvedaemon
+   and vSphere do; it replaces decision 3's "decided in the proxy" (section 14).
 
 ## 12. Step 3, first domain: authentication (2026-10-21)
 
@@ -355,14 +358,248 @@ claimed on #511 with `.github/scripts/claim.py`:
 | Host system, part 1: package updates, DNS, host name, time, syslog, power (`app/daemon/ops/host.py`) | done |
 | Host system, part 2: Hyperlite's own update (`app/daemon/ops/hyperlite.py`: the job in a unit of its own, the package lists, the channel) | done |
 | Host system, part 3: the HTTPS certificate (`app/daemon/ops/tls.py`: import, previous, self-signed, certbot, the API's restart) | done |
-| Network | next |
-| Storage, disks, VMs, containers, cluster, consoles | |
+| Network, part 1: the network firewall's iptables and the VLANs of Linux bridges (`app/daemon/ops/network.py`: asked for by a network's or a VM's name, the daemon reading the bridge and the ports itself) | done |
+| Network, part 2a: libvirt's networks from the network routes: create, start, stop, autostart, edit, rename, delete, the isolated network (`app/daemon/ops/network.py`; the daemon writes a new network's definition itself from checked fields, `app/core/network_create.py`, never XML from the API) | done |
+| Network, part 2b: the DHCP reservations of the network routes (`network.reservation_add`, `network.reservation_delete`). The reservations VM creation, clones, containers and migration make (`app/core/network_alloc.py`) move with the VM and container domains, which own those calls (migration across two nodes included) | done |
+| Storage, part 1: the ZFS pools and volumes of the storage routes (`app/daemon/ops/storage.py`: names checked again, a volume a VM uses never deleted) | done |
+| Storage, part 2a: the libvirt pools of the storage routes on this node: create (directory, NFS, SMB, iSCSI, LVM), rename, delete, with the SMB credentials file, the iSCSI CHAP secret and the LVM thin pool (`storage.pool_create`, `storage.pool_rename`, `storage.pool_delete`; the daemon writes a pool's definition itself from checked fields, `app/core/storage_pools.py`) | done |
+| Storage, part 2b: the volumes of the storage routes' libvirt pools (`storage.volume_create`, `storage.volume_delete`; the daemon writes a volume's definition from its checked name and size and never deletes one a VM uses). A VM's own disks (resize, move, snapshots) move with the VM domain | done |
+| Storage, part 2c: what the storage routes read that needs root or a connection that may write: the LVM report of a group (`storage.lvm_volumes`) and a pool's refresh (`storage.pool_refresh`; `virStoragePoolRefresh` is refused on libvirt's read-only connection). The ZFS listings need neither (`/dev/zfs` is open to every user) | done |
+| Disks, part 1: the libraries (below) | done |
+| Disks, part 2: a VM's disk (below): `disk.resize`, `disk.move` (one call that waits, its progress written into the task) and `disk.cancel` (the copy is stopped in the daemon, which keeps the copies running by task); the replication checkpoints dropped by the daemon (`checkpoints.drop`), the chain forgotten by the API (`checkpoints.forget`) | done |
+| VMs, part 1: power (below): `vm.power` (start, shutdown and reboot through the guest agent or ACPI, stop, reset), `vm.autostart`, `vm.pre_stop` (the hook script run as root), `vm.agent_ipv4` (an agent's question needs a connection that may write) | done |
+| VMs, part 2a: processors, memory, limits, CPU pinning, advanced hardware (`vm.set_resources`, `vm.set_limits`, `vm.set_cpu_pinning`, `vm.set_disk_options`, `vm.set_boot_order`, `vm.set_balloon`, `vm.set_machine`) | done |
+| VMs, part 2b: a VM's devices (`app/core/vm_devices.py`): disks (`vm.attach_disk`, the image check included; `vm.detach_disk`), interfaces with their VLANs (`vm.set_interface`, `vm.attach_interface`, `vm.detach_interface`; the daemon sets the ports itself, so `network.vlan_apply_vm` is gone), host devices (`vm.attach_hostdev`, `vm.detach_hostdev`), CD-ROM drives (`vm.set_cdrom`, `vm.eject_cdrom`, an ISO of the daemon's own library) | done |
+| VMs, part 2c: a VM's firewall (`vm.set_firewall`, the nwfilter built from checked rules, `app/core/vm_firewall.py`), hook script (`vm.set_hookscript`, checked again in the root library), name (`vm.rename`, with the files named after it, `app/core/vm_rename.py`) and cloud-init drive (`vm.cloudinit_write`: written private to root, the API keeping the state) | done |
+| VMs, part 3a: creation (`vm.create`, `app/core/vm_create.py`): the specification of POST /vms checked again by the daemon (its unknown fields refused at any depth), the disks, the cloud-init drive, the DHCP reservation and the definition made by it; `check_only` runs the checks alone (`?wait=false`, an ISO being copied from another node). The API keeps the lock, the task and what it records | done |
+| VMs, part 3b: deletion (`vm.delete`, `app/core/vm_delete.py`), from DELETE /vms/{name} and the automatic clean-up: the daemon checks the VM is stopped again, and deletes its own disks only, as Proxmox VE does, never vSphere's way of taking a disk shared with another VM along: a disk another VM uses or reads through (a linked clone's base), or a file outside every storage pool, is kept and reported (`kept_disks`). The API forgets the VM's records | done |
+| VMs, part 3c: clones (`vm.clone`, `app/core/vm_clone.py`) and templates (`template.make`, `template.deploy`, `template.rename`, `template.delete`, `app/core/vm_templates.py`): the copies, the new definitions and the template files are the daemon's, which checks the source's state, the names, the room and a template's linked clones again; the Kubernetes clusters' VMs started and stopped through `vm.power` | done |
+| VMs, part 4: snapshots (`vm.snapshot_create`, `vm.snapshot_restore`, `vm.snapshot_delete`, `vm.lvm_snapshots`, `app/core/vm_snapshots.py`): libvirt's, ZFS's and LVM-thin's, checked again by the daemon (a rollback only under a stopped VM, a name ZFS would read as a list or a range refused); every check runs first with `check_only`, so the route answers a refusal before it starts the task | done |
+| Containers, part 1: start, stop, settings, rename and deletion (`container.*`, `app/core/container_ops.py`), the filesystem found in the definition and accepted in Hyperlite's container directories only (below) | done |
+| Containers, part 2: creation and clone (`container.create`, `container.clone`, `app/core/container_create.py`): the specification of POST /containers checked again (its unknown fields refused), the directory chosen from the pool's own definition, the image pulled and the filesystem prepared by the daemon; the API keeps the image's required variables (asked of the registry) and the records | done |
+| Containers, part 3: snapshots and the console log (`container.snapshot_*`, `container.log`): read and written beside the filesystem the definition names, every check first with `check_only` | done |
+| Cluster, part 1: the keys (`cluster.pubkey`, `cluster.test_node`, `cluster.trust`, `cluster.forget`, `cluster.rename_trust`): a node tested, registered, renamed and removed, its host key and its reverse trust, the node poller's checks; HA's own checks (`ha_watch.py`) stay with HA's owner | done |
+| Cluster, part 2: a node registered over SSH only: its VMs' power, pre-stop, start at boot, autostart flag, agents, rename, hook script and deletion, its pools, LVM report and host details by the daemon's operations with `node` (`libvirt_utils.node_conn`); the API's reads through a read-only tunnel the daemon opens (`app/core/node_tunnel.py`, `open_conn(node, readonly=True)`) | done |
+| Cluster, part 3: migration (`vm.migrate`, `vm.migrate_finish`, `vm.migrate_cancel`, `app/core/vm_migrate.py`): the move and its progress by the daemon; the API writes where the VM runs (HA first), then the daemon cleans the source up from what it kept, never from paths the API gives | done |
+| Cluster, part 4: the copies and the commands (`iso.list`, `iso.size`, `iso.copy`, `iso.delete_remote`, `config.copy`, `node.facts`, `node.probe`, `node.peer_call`): an ISO, the configuration (built by the daemon, keys included), a boot id and a host name, the fixed probes, the peer calls' SSH fallback; the remaining reads of another node through the read-only tunnel. What still reads the cluster's key in the API: the consoles' tunnels (the consoles domain) and HA's own calls (`ha*.py`, with HA's owner) | done |
+| Consoles: the host shell, a container's shell and terminal, a VM's serial console, terminal, VNC and SPICE displays, opened by the daemon and handed to the API as a file descriptor (`console.*`, `vm.add_console`, `vm.spice_password`) | done |
+| The automation jobs' steps (`app/core/jobs.py`): a command as root on the host, or over SSH with the automation key on a VM whose address and account the daemon reads (`job.step`, `job.cancel`) | done |
+| Backups, part 1a: the directory backups and the exports (`backup.run`, `backup.restore`, `backup.verify`, `backup.delete`, `vm.export`) | next |
+| Backups, part 1b: the replication's points (`replication.point`); the site recovery reads through a read-only connection and restores with `backup.restore` | next |
+| Backups, part 2: the backup stores (`store.check`, `store.describe`, `store.gc`, `store.make`, `store.unlock`, `store.backup`, `store.import`, `store.sync`) and the remotes (`remote.add`, `remote.stores`): only the daemon opens a store's key or a remote's token, the token sealed with the address and certificate it may be sent to | next |
+| Backups, part 3: the file restore (`restore.open`, `restore.ls`, `restore.export`, `restore.close`, `restore.busy`): the daemon holds the libguestfs sessions on a backup's images and hands an exported file to the API as an open, already unlinked descriptor | next |
+| Backups, part 4: the containers' archives (`container.archive`, `container.archive_delete`, `container.archive_restore`): the filesystem the definition names archived, an archive of the containers' backup directory only deleted or unpacked | next |
 
-**How a domain moves.** The implementation stays in its `app/core` module, which hyperlite-daemon imports. The
-daemon's operation (`app/daemon/ops/<domain>.py`) checks its arguments with a model (extra fields refused, lengths
-bounded) and calls it; a refusal the module raises becomes the daemon's `refused`, whose message reaches the user as
-before. The route asks for the operation by name (`app/core/privileged.py`) and keeps the permission check, the audit
-log and the task. A long operation (an apt run) is one call that waits, its output written into the task by the daemon.
+**How a domain moves.** Every domain follows the same rules, so the daemon stays small and a route answers as it did:
+
+- **The implementation stays in its `app/core` module**, which hyperlite-daemon imports. The operation
+  (`app/daemon/ops/<domain>.py`) checks its arguments with a model (extra fields refused, lengths bounded) and calls it.
+  No argument is named `user`, `timeout`, `refused` or `failed`: the client keeps those for itself
+  (`tests/test_privileged.py` checks it).
+- **An operation takes the names of objects** (a network, a VM, a pool, a volume), never an interface, a path, a
+  command line or XML: the daemon reads the bridge, the ports or the device itself, and writes a definition from
+  checked fields.
+- **The daemon checks again what must never happen**, whatever the API checked: names against the module's own
+  validators, a system network, a network or a volume in use.
+- **Its libvirt is this node's own**: `libvirt_utils.local_conn()`, never another member's nor a URI from the API. The
+  tests fake it in one place, the `daemon_libvirt` fixture.
+- **Each ops module turns its module's exceptions into the daemon's kinds** with one decorator: what the module refuses,
+  `refused` with its message for the user; what does not exist, `not_found`; what is in use, `in_use`; a failure,
+  `failed` with its cause. The kinds are listed in `app/daemon/__init__.py` (`registry.KINDS`); they are the daemon's
+  own, not the codes of API v1 that section 4 first planned.
+- **The route keeps** the permission check, the reads that need no root, the database writes, the audit log and the
+  task. It calls `privileged.ask(op, user, action, target, refused=<status>, **args)`, which writes a failure into the
+  audit log and answers: a refusal, the status the route gave before its domain moved (422 unless it said otherwise);
+  `not_found`, 404; `in_use`, 409; without the daemon, 503; a failure, 500 `internal` (never 502, which docs/api.md
+  keeps for another member of the cluster). A call outside a route (start-up, a task's thread) uses `privileged.run`
+  and handles `DaemonError` itself; one that escapes a route gets the same answer from the handler in `app/main.py`.
+- **The answers do not change**: same statuses, same sentences, checked by the route's existing tests. A long operation
+  (an apt run) is one call that waits, its output written into the task by the daemon.
+
+**Another node's work stays with the cluster domain.** Some storage routes act on another node from this one: a
+`?node=` naming a node registered over SSH only, and the shared pools created, renamed or removed on every node
+(`app/core/shared_pools.py`), through that node's libvirt over SSH. The daemon's operations act on this node only, as
+pvedaemon's do. The work itself is one function of `app/core` taking the libvirt connection, so this node's goes
+through the daemon and another node's keeps its SSH connection from the API, with the same checks and the same
+answers. The cluster domain moves the second: a member is asked through its own API (`app/core/cluster_view.py`,
+which already forwards `?node=`), whose daemon does the work; a node registered over SSH only is reached by the
+daemon, which then holds the SSH keys.
+
+**The disks domain (proposed, 2026-10-24).** `qemu-img` and the image files are used by 16 modules: the libraries
+(ISOs, disks to import), a VM's disk growth and move, VM creation, clones, templates and linked clones, backups,
+restores, replication, exports and OVA. Once the API runs as `hyperlite` (step 4), it can neither write nor read the
+pools' files (owned by root or by QEMU, mode 0600). It moves in four parts, each in its own pull request:
+
+| Part | What moves | Operations |
+|---|---|---|
+| Disks, part 1: the libraries | The ISOs and the disks to import (`app/routers/isos.py`, `app/routers/vm_disks.py`): an upload stored, an ISO renamed, a file deleted, an OVA's disks extracted (`app/core/ova.py`), the pool holding an ISO refreshed | `disk.library_store`, `disk.library_rename`, `disk.library_delete`, `disk.ova_extract` |
+| Disks, part 2: a VM's disk | Growing a disk (`app/core/disk_resize.py`) and moving it to another pool (`app/core/disk_move.py`): asked by the VM's name and the disk's target, never a path | `disk.resize`, `disk.move` (one call that waits, its progress written into the task) |
+| With the VM domain | The disks VM creation, clones, templates and linked clones make (`app/core/vm_builder.py`, `app/core/linked_disks.py`), and the check of an image Hyperlite did not write before a VM uses it (`app/core/disk_images.py`, `qemu-img info`): they go with the domain that uses them | moved with `vm.*` |
+| A domain of its own: backups | Backups, restores, replication and exports, an OVA export included (`app/core/backups.py`, `replication.py`, `vm_export.py`, `checkpoints.py`, `backup_integrity.py`): added after the VMs to section 5's list, with the live restore of #513 | `backup.*` |
+
+**An upload goes through a spool, as on Proxmox VE.** pveproxy writes an upload into a temporary file it owns, and
+pvedaemon copies it into the storage. Hyperlite does the same. The API streams the upload into
+`/var/lib/hyperlite/spool`, a directory it owns, on the libraries' own file system, so storing one is a rename, not a
+second copy of gigabytes. `disk.library_store` takes that file's name in the spool, never a path. It checks the name
+again, refuses an ISO that would replace another, moves the file into the library, gives it the owner and mode QEMU
+needs, and refreshes the pool that lists it. The daemon moves a spool entry into a root-only staging directory before it
+checks it (a regular file with one link), so the API cannot have a link stored, nor swap the entry between the check and
+the move. The spool is emptied of anything older than a day at start-up. Until step 4, the API still runs as root and
+the spool is only a directory: nothing changes for the user.
+
+**What the API keeps.** It keeps listing the libraries (their directories made readable to the API's group at step 4)
+and the checks that need no file (the name, an upload's size, a VM that has the ISO in its drive). It also keeps the
+audit log, the tasks and `?node=`. Sharing an ISO with another node (`app/core/iso_share.py`, over SSH) moves with the
+cluster domain.
+
+**The VM domain (proposed, 2026-10-24).** Every change to a VM goes through libvirt with a connection that may write,
+and the API will keep a read-only one: more than a hundred call sites (`app/routers/vms/`, `app/core/vm_builder.py`,
+`app/core/vm_hardware_opts.py`, `app/core/cloudinit_edit.py`, `app/core/guest_agent.py`), plus the callers outside the
+routes (the scheduled jobs, the inactive VMs' cleanup, the start at boot, maintenance). As for the networks and the
+pools, an operation names the VM and gives checked fields; the daemon reads the definition itself and writes the change,
+never XML from the API. It moves in four parts, each in its own pull request:
+
+| Part | What moves | Operations |
+|---|---|---|
+| VMs, part 1: power | Start, shut down, stop, reboot, reset, suspend, resume, libvirt's autostart flag (`lifecycle.py`, the cleanup, the start at boot, the jobs), and the guest agent's commands (`app/core/guest_agent.py`: an agent command needs a connection that may write) | `vm.power`, `vm.autostart`, `vm.agent` |
+| VMs, part 2: a VM's definition | Processors, memory, options, notes and tags, advanced hardware, the devices (disks, CD-ROM, interfaces, their VLANs), the firewall filter, the hook script, the name (`settings.py`, `hardware_opts.py`, `devices.py`, `runtime.py`, `firewall.py`, `hookscript.py`, `rename.py`) | `vm.set_*`, `vm.attach`, `vm.detach`, `vm.rename`, by field |
+| VMs, part 3: creation and deletion | A VM's definition written from its checked specification (`vm_builder`), its disks (the image check of the disks domain included), its cloud-init medium, its DHCP reservations (`app/core/network_alloc.py`), clones, templates and linked clones, the deletion with its disks | `vm.create`, `vm.clone`, `vm.delete`, `vm.template` |
+| VMs, part 4: snapshots | Create, revert and delete a snapshot (`snapshots.py`) | `vm.snapshot_*` |
+
+What stays elsewhere: a migration crosses two nodes and moves with the cluster domain; the consoles and the tunnel with
+the consoles; HA's own calls (`app/core/ha*.py`) are moved with HA's owner through #298, onto the operations of part 1
+and part 3. Another node's VM (`?node=` naming a node registered over SSH) keeps its connection from the API until the
+cluster domain, as for the pools.
+
+**The containers domain (proposed, 2026-10-24).** A container is a libvirt LXC domain (`lxc:///system`) and a
+directory: its filesystem, its snapshots beside it (`.snapshots/<name>`, rsync copies), its archives. Root deletes,
+renames and writes into those directories, so **the daemon finds a container's filesystem in its definition** (the
+filesystem mounted at `/`), never in the API's records (`container_storage` names the pool a container was put in):
+it must be the directory named after the container in a place Hyperlite puts containers, `/var/lib/libvirt/containers`
+or the `hyperlite-containers` directory of a local directory pool (`app/core/container_ops.py`). A definition naming
+anything else has its filesystem left alone: a deletion keeps it and says so, a rename or a DNS change is refused. The
+daemon opens the LXC driver itself (`libvirt_utils.local_lxc_conn`); the API keeps its own connection for the reads,
+the container's lock (`container_snapshots.claim`) and its records (`container_meta`). Three parts:
+
+| Part | What moves | Operations |
+|---|---|---|
+| Containers, part 1 | Start, stop (SIGTERM to an application image's process, the init's shutdown for a system container, the stop by force after the grace period, which names the run it stops), the settings (processors, memory, start at boot, the DNS servers written into the container's `/etc/resolv.conf`), the rename, the deletion | `container.start`, `container.stop`, `container.update`, `container.rename`, `container.delete` |
+| Containers, part 2 | The creation (system and application containers: the image pulled with skopeo and umoci, the filesystem configured, the definition written from checked fields) and the clone | `container.create`, `container.clone` |
+| Containers, part 3 | The snapshots and the console log read from the container's filesystem | `container.snapshot_*`, `container.log` |
+
+A container's archives move with the backups domain, its terminal and root shell with the consoles.
+
+**The cluster domain (proposed, 2026-10-24).** Hyperlite reaches the other nodes in two ways: a member of the cluster
+through its own API (`app/core/cluster_view.py` forwards `?node=`, `rolling_update.peer_api`, the member's certificate
+pinned), and every node over SSH as root with the cluster's key (`paths.SSH_DIR / "hyperlite_cluster"`, under
+`/etc/hyperlite/priv`): libvirt over `qemu+ssh` for a node registered over SSH only and for a migration, `scp` for the
+ISO and file copies, commands for the stats, the boot id, the LVM, SMB, VLAN and hook-script work of another node, and
+the peer calls' fallback when HTTPS cannot be used. About 75 call sites in 27 files. A process that holds that key is
+root on every node: once the API runs as `www-data` it must not read it. As on Proxmox VE, where the nodes trust each
+other's root over SSH and pveproxy only forwards a request to the node that owns the guest, **only hyperlite-daemon
+holds the cluster's keys**, and the API asks it for named work on a named node, never for a command or a libvirt URI:
+
+- **The node is named, its address read by the daemon** from the node registry (the `nodes` table), the host key pinned
+  in root's `known_hosts` when the node was registered. The API can name a registered node only; registering one stays
+  an administrator's action, as today.
+- **A member is still asked through its own API**, whose daemon does the work on its own host. SSH stays for what has
+  no API: a node registered over SSH only, and the transfers between two hosts' roots (a migration, a disk or an ISO
+  copy).
+- **Each root action on another node is an operation of its domain taking `node`**: `vm.power(vm, action,
+  node=...)`, `storage.lvm_volumes(group, node=...)`, the daemon opening that node's libvirt itself
+  (`libvirt_utils.node_conn`) or running its fixed command there. The `?node=` branches the earlier domains left in
+  the API (marked in their routes) move here.
+
+| Part | What moves | Operations |
+|---|---|---|
+| Cluster, part 1: the keys | The cluster's key pair, root's `known_hosts`, the reverse trust a node is given into this one (`authorized_keys`), and their changes when a node is registered, renamed or removed (`app/core/cluster.py`) | `cluster.pubkey`, `cluster.test_node`, `cluster.trust`, `cluster.forget`, `cluster.rename_trust` |
+| Cluster, part 2: a node registered over SSH only | Its VMs' power, definition and deletion, its pools and volumes, its inventory and its host's details, through the daemon's own connection to it | the domains' operations with `node`, `node.inventory`, `node.capabilities`, `node.stats` |
+| Cluster, part 3: migration | The pre-checks, the disks created and the files copied on the target, `migrateToURI3`, its progress, the cleanup on the source (`app/routers/vms/migration.py`) | `vm.migrate`, `vm.migrate_finish`, `vm.migrate_cancel` |
+| Cluster, part 4: the copies and the commands | An ISO copied to a node (`iso_share`), the configuration copied (`config_copy`), a member's boot id (`vm_boot`), the peer calls' SSH fallback (`rolling_update`) | `iso.list`, `iso.size`, `iso.copy`, `iso.delete_remote`, `config.copy`, `node.facts`, `node.probe`, `node.peer_call` |
+
+HA's own calls (`app/core/ha*.py`, its fencing over SSH included) move with HA's owner through #298, onto these
+operations. The consoles' tunnels to another node (`spice.py`, `console.py`) move with the consoles.
+
+**The consoles domain (proposed, 2026-10-24).** Hyperlite opens seven kinds of interactive session, each from a
+single-use ticket the API issues after its permission check: a VM's graphical console (noVNC, the VNC server QEMU runs
+on 127.0.0.1 of the VM's node), its SPICE display (Hyperlite's proxy relays virt-viewer to QEMU's TLS port on that
+loopback), its serial console (`virsh console`), its SSH terminal and a system container's (ssh with the automation
+key, through the node for a VM of another node), a container's root shell (`nsenter` into its PID 1), and the host
+shell (a root login shell). Each needs root: a root terminal, the cluster's key, the automation key, `/proc` of the
+container's init, or `qemu.conf` (root's only) for SPICE's setup. As section 4 decided, **the daemon opens the session
+and hands its file descriptor to the API** (`SCM_RIGHTS` with the answer, `app/daemon/registry.py`, `Handover`): a
+pseudo-terminal's master for a program, a connected socket for a display. The bytes never cross the daemon's socket;
+the API keeps the tickets, who may open what, the audit log and the bridge to the browser (`app/core/pty_session.py`).
+
+- **The operation names the guest and its node**, never a port, an address, an account or a command: the daemon reads
+  the display's port from the running definition, the guest's address as the VM page shows it (the guest agent's,
+  else the DHCP lease), the account from the records, the container's PID 1 from libvirt's controller, and runs a
+  fixed program (`app/core/console_sessions.py`).
+- **Another node is reached with the host key recorded when it was registered**: `StrictHostKeyChecking=yes` comes
+  first, so a session never learns a key (a changed key is refused, as the noVNC relay refused it before).
+- **A session ends when the API lets go of it**: the daemon closes its copy once handed over, so the terminal hangs up
+  (or ssh reads the end of its input) when the API closes its own, even when the API stops; `console.close` ends its
+  whole process group and answers its exit status (ssh's 255, said in the terminal and as noVNC's error). A restart
+  of the daemon ends the sessions, as a restart of the API ended them before.
+- **What a console adds to a VM** goes through the daemon too (`vm.add_console`: the VNC display of a stopped VM, a
+  serial port, a SPICE display on a node set up for it), and the SPICE ticket's short-lived password
+  (`vm.spice_password`): the API reads the VM through its read-only connection.
+
+| Operation | Session |
+|---|---|
+| `console.host_shell` | Root's login shell, in a clean environment (never the API's, which held its secrets) |
+| `console.container_shell(container)` | `nsenter` into the running container's namespaces |
+| `console.container_terminal(container)`, `console.terminal(vm, node)` | `ssh -tt` with the automation key to the guest's account |
+| `console.serial(vm, node)` | `virsh console` by the VM's UUID, on its node |
+| `console.display(vm, node, protocol)` | A socket connected to the VM's VNC or SPICE TLS port: a connection on this node, `ssh -W` to another |
+| `console.close(session)`, `console.spice_tls(node)` | The end of a session; a node's SPICE CA and server subject for the `.vv` |
+
+The workstation tunnel (`app/routers/vms/tunnel.py`) stays in the API: a TCP connection to a guest's address on this
+node, which needs no key and no root.
+
+**The backups domain (proposed, 2026-10-25, agreed with backups-store on #298).** A backup reads a VM's disks
+(`qemu-img`, an external snapshot then a block commit, libvirt's backup API, `qemu-nbd`), its NVRAM and TPM state,
+and writes a directory or a store's chunks; a restore writes disks, the firmware state and a definition; a store's
+keys are root's. As Proxmox VE runs vzdump as root in a task of pvedaemon, **a backup, a restore, a verification, a
+deletion, an export, a replication point or a store's job is one daemon operation that runs the whole job**, its
+progress written into the task as the migration's. The API keeps the routes, the schedules, the retention decisions,
+the records (`backups`, `backup_jobs`), the locks and the audit log; the daemon answers what it wrote (the path, the
+sizes, the checksums) and the API records it.
+
+- **A backup's directory is checked by the daemon, never taken from the records alone**: the records are the API's
+  to write. It is `<target>/<vm>/<time>` under a target `backup_groups.validate_target` accepts (the default
+  directory, or an administrator's directory outside the system's own), and the daemon deletes in it only the files
+  a backup holds (its images, `vm-config.json`, `manifest.json`, the NVRAM and TPM state), as it deletes a
+  container's filesystem only where Hyperlite puts containers.
+- **A restore names the backup and the mode**: overwrite writes into the disks the VM's own definition names, a new
+  VM into the images directory, its definition built from checked fields (`build_domain_xml`), never from XML.
+- **The operations**:
+
+| Part | What moves | Operations |
+|---|---|---|
+| 1a | The directory backups (`app/core/backups.py`: cold copy, live copy through an external snapshot or libvirt's backup API for a replicated VM, the firmware state, the manifest; restore over the VM or as a new VM; verification; deletion) and the exports (`app/core/vm_export.py`) | `backup.run`, `backup.restore`, `backup.verify`, `backup.delete`, `vm.export` |
+| 1b | The replication's points (`app/core/replication.py`); the site recovery (`site_recovery.py`) reads the other site's directories and restores with part 1a's operation | `replication.point` |
+| 2 | The backup stores (`backup_store_vm`, `backup_stores`, `backup_store_sync`, `backup_remotes`: the stores' keys and the remotes' tokens, sealed with the cluster's secrets). A remote's token is sealed with the address and the certificate it was given with: the records being the API's, an address changed there never receives it. A store's raw reads for another cluster (its export) stay in the API | `store.check`, `store.describe`, `store.gc`, `store.make`, `store.unlock`, `store.backup`, `store.import`, `store.sync`, `remote.add`, `remote.stores` (the restore from a store is part 1a's `backup.restore`) |
+| 3 | The file restore (`file_restore.py`): the libguestfs sessions held by the daemon on a backup's images, a file handed to the API as a descriptor | `restore.open`, `restore.ls`, `restore.export`, `restore.close`, `restore.busy` |
+| 4 | The containers' archives (`container_builder`'s tar archives): the filesystem the definition names, an archive of the containers' backup directory only | `container.archive`, `container.archive_delete`, `container.archive_restore` |
+
+backups-store builds its step 5 (the file restore from a store, the read-only export of a backup for #513's live
+restore) on these operations: the export is a Unix socket under `/run/hyperlite/backup/` that QEMU's AppArmor
+profile allows, opened and closed by the daemon.
+
+**The automation jobs' steps.** A job's step runs an administrator's command as root on the host, or over SSH with
+the automation key on a VM (`app/core/jobs.py`): arbitrary code by design, as the host shell is. It is the one
+operation that takes a command, `job.step(task_id, target_type, target, command)`, under the same decision as the
+host shell (section 8): the API decides who may run a job, the daemon runs the step, reads the VM's address and
+account itself, keeps at most 1 MiB of each output and stops the step when the run is cancelled (`job.cancel`).
+
+**Who may open a root session: a question for step 4.** As decided (section 8), the API decides who may open the host
+shell, a container's shell or a terminal, and the daemon runs what the API asks. So a compromised API can still open a
+root shell, as it can still ask for a VM with a host disk or a hook script: the operations that are root by design.
+A proof on the consoles alone would not close that. What would, as pvedaemon checks the ticket of every call pveproxy
+hands it: the daemon checking the user's own session on every operation, a token only its keys sign (section 12),
+and its role in it. The API tokens would then need a store the API cannot write, and so would the accounts' roles.
+That belongs to step 4, with the database's owner.
 
 **An operation that outlives the daemon.** Hyperlite's own update installs a package whose maintainer script restarts
 hyperlite-daemon, then the API. `hyperlite.start_update` checks the request and starts the job in a transient unit of
@@ -376,3 +613,286 @@ scale lab). `tests/test_privileged.py` checks that every operation a route names
 When the last domain has moved, step 4 runs the API as `www-data`. Measured on 2026-10-22: about 325 privileged calls in
 82 files remain, mostly libvirt, `qemu-img` and SSH to the other nodes.
 
+
+## 14. Step 4: the daemon checks who asks (Antho, 2026-10-25)
+
+**Decision**: "the most secure, and what Proxmox VE and vSphere do". hyperlite-daemon no longer takes the API's word
+for who asks: **it checks the caller's own proof and permissions on every operation**, as pvedaemon checks the ticket
+of each call pveproxy hands it, and as vCenter's and ESXi's services check the session of each call against their own
+permissions. A flaw in the API then gives what its current caller may do, not root. Section 8's decision 3 (the API
+decides who may open the host shell) is replaced by this one.
+
+**Where it starts.** Every request already names a user (`ctx.user`), for the log only. Sessions are tokens only the
+daemon's keys sign (section 12); API tokens are hashes in the database; accounts, roles, ACLs, resource pools and
+privileges are tables of the database, which the API writes. The schedulers (backups, replication, the inactive VMs'
+cleanup, the start at boot, the store copies and garbage collections, the update check) and HA's watch run in the API
+and call the daemon as `system` or `scheduler`.
+
+**Target**:
+
+- **A proof with every call.** The API passes the caller's own credential with each request: the session token it was
+  given, or the API token. The daemon verifies it itself: a session's signature, expiry and revocation with its own
+  keys, an API token against its hash. `ctx.user` becomes the proven user; a request without a valid proof is
+  `forbidden`. A WebSocket's ticket (the consoles) carries the proof of the request that made the ticket.
+- **Permissions the API cannot write.** The accounts, the API tokens' hashes, the roles, the ACLs, the resource pools
+  and the second factors move to a store only the daemon writes (`/etc/hyperlite/priv`, as Proxmox VE keeps
+  `user.cfg`, `token.cfg` and `priv/` in pmxcfs, written by pvedaemon): their routes become daemon operations
+  (`auth.user_*`, `auth.token_*`, `auth.acl_*`). The API reads them to answer, never to decide.
+- **Each operation declares what it needs.** `@operation(name, Args, needs=...)`: a privilege on the object it names
+  (`vm.power` on that VM, `container.console` on that container, `storage.allocate` on that pool) or the
+  administrator's role (the host shell, the automation jobs, the hook scripts, a host disk or device given to a VM).
+  The registry checks it against the proven user before the operation runs (`app/core/permissions.py`, evaluated by
+  the daemon on its own store). The routes keep their checks for their answers; the daemon's is the one that holds.
+- **The schedulers leave the API.** What runs without a person behind it runs as root in a process of its own,
+  `hyperlite-scheduler`, as Proxmox VE's pvescheduler and vSphere's vpxd run the scheduled tasks: the backups, the
+  replication, the cleanup, the start at boot, the stores' jobs, the update check. HA's watch and recovery move with
+  HA's owner (#333). The API keeps no `system` identity: the daemon refuses `system` from the API's socket.
+- **Calls between members** carry the member's own signature (section 12.1, PR C), checked by the receiving daemon.
+- **Then the API runs as `www-data`** (section 11, decision 6): its unit with `User=www-data`, the socket's group, the
+  files it reads (the TLS key, the public keys, the database it still writes: tasks, audit, records of its own), the
+  read-only libvirt and LXC sockets, and the lab run on that unit.
+
+**In this order**, each a pull request with its tests and a lab run:
+
+| PR | Content |
+|---|---|
+| 4a | The proof travels: `privileged.run` passes the caller's credential, the daemon verifies it and logs the proven user; calls without one are logged, not yet refused |
+| 4b | The permissions' store owned by the daemon: accounts, tokens, roles, ACLs, pools, second factors; their routes as daemon operations; the API reads |
+| 4c | `hyperlite-scheduler`: the schedulers out of the API, with their own identity on the daemon's socket |
+| 4d | Each operation's `needs`, checked by the daemon; a call without a valid proof refused |
+| 4e | The API as `www-data`: unit, groups, file modes, read-only libvirt and LXC; the lab on it |
+
+**What 4c needs first: what the API kept in its memory.** Two things worked only because every operation ran in one
+process:
+
+- **The claims on a guest** (`app/core/vm_locks.py`, `container_snapshots.claim`): one operation at a time on a VM or a
+  container. They become files of `/run/lock/hyperlite`, each locked with `flock(2)` by the process that works on the
+  guest and naming what holds it (`app/core/shared_claims.py`), as Proxmox VE's services lock a guest with
+  `/run/lock/qemu-server/lock-<vmid>.conf`. The kernel lets go of a lock when its process stops, even killed. Not
+  under `/run/hyperlite`, which is hyperlite-daemon's and removed when it stops. The directory must be root's or the
+  service's and written by nobody else, since `/run/lock` is writable by every account; with 4e it becomes root's
+  and the API's group's (`tmpfiles.d`).
+- **A task's runner and its cancellation** (`app/core/tasks.py`, proposed on #298): each task records the process
+  that runs it, `<service>:<pid>:<start time>` (`task_runners`), as Proxmox VE's UPID names a task's process. A task
+  is abandoned only when that process is gone, so a restart of the API no longer closes the scheduler's tasks. A
+  cancellation for a task another process runs is written for it (`task_cancel_requests`); that process's watcher
+  thread reads its own tasks' every 2 s and calls their cancellers. Local tables, whatever each service's user is (4e),
+  and no new socket.
+
+**4c, the scheduler** (`app/scheduler`, `installer/hyperlite-scheduler.service`): a root service of its own runs the
+scheduled backups, the replication, the automatic deletion, the update check and the start at boot. It starts with the
+API (`Wants=`) and after it, and follows its restarts and stops (`PartOf=`): a package update, whose restart of the API
+may be deferred, never leaves the two on different versions. Both units set `HYPERLITE_SCHEDULER_SERVICE=1`, so the
+API starts none of these schedulers. The schema is made by one service at a time (a lock in `/run/lock/hyperlite`),
+and the scheduler renews the node's lead under the node's name, so the stores' copies run on the leading node as
+before.
+
+**4c, HA's two services** (`app/ha_services`, drs' split chosen by Antho, taken over on #298), as Proxmox VE's
+pve-ha-lrm and pve-ha-crm, so a hang or a crash of the cluster's decisions never stops the watchdog's feeding:
+
+- `hyperlite-ha-lrm`, every node: the watchdog (`ha_selffence`), the monitoring of its own HA VMs (`ha_monitor`), the
+  load-balancing moves asked of it (`drs` carry-out loop) and **the node's heartbeat** (`statd`). The leader declares a
+  member lost when its heartbeat stops, then waits for its watchdog's reset before restarting its VMs elsewhere: the
+  heartbeat must stop with the feeding, never apart from it, or a dead API would have a member's VMs restarted while
+  they still run. The API keeps sending a summary at once after a change; a summary is idempotent per node.
+- `hyperlite-ha-crm`, every node, acting on the leader: the recovery (`ha_recovery`), the dry run outside a cluster
+  (`ha_watch`), load balancing's observation and evaluation (`drs` evaluate loop). It renews the node's lead.
+- **The heartbeat feeds the watchdog** (multi-cluster's review, #742): the LRM feeds it only while the node's
+  heartbeat went out within 40 s, so a node that cannot send it (libvirt hung) resets before the leader, which waits
+  LOST_S (60 s) and then the reset, restarts its VMs elsewhere. The heartbeat carries the node's load, which the API's
+  collector publishes (`metrics.load`).
+- **The CRM holds a lock of its own** (`hyperlite-ha-lead`), renewed only while its recovery and evaluation rounds
+  run: a CRM that hangs on the leader loses it, and another member's takes over, as Proxmox VE's CRM holds the
+  manager lock. The pages show whether this node's CRM leads.
+- What the API's pages read in their memory is published in a local table (`service_state`): load balancing's state
+  and the dry run's, each round; the API's resume and a manual move's cool-down are written there for the CRM.
+- Both units, the scheduler's and the API's set `HYPERLITE_HA_SERVICE=1`; follow the API's restarts (`PartOf=`), and
+  a normal stop of the LRM disarms the watchdog, as the API's did.
+
+### 14.1 4b in detail: the permissions written by the daemon only (2026-10-25)
+
+Agreed with cfs-files on #298: the store stays in hyperlite-cfs, our pmxcfs. `users`, `api_tokens` and
+`webauthn_credentials` (under `priv/`) are Proxmox VE's `priv/shadow.cfg` and `token.cfg`; `groups`, `group_members`,
+`custom_roles`, `acl`, `pools`, `pool_members` and `revoked_sessions` are its `user.cfg`. #525 only adds a read-only
+file view of the same tree, so nothing 4b writes moves when it lands.
+
+**Measured on test**: every write to these tables is in three repositories (`app/repositories/sqlite/accounts.py`,
+`identity.py`, `access.py`), 39 methods, called from the account service, `permissions.py`, the API tokens, the
+security keys, the second factor, the sign-out, LDAP and SSO. Sign-in already runs in the daemon (section 12).
+
+**The seam is the repository**, as pvedaemon is the only writer of `user.cfg` whatever the API path:
+
+- Each writing method of those repositories is marked `@daemon_write("access.<method>")`. In the API, it becomes a
+  call to hyperlite-daemon with the method's arguments; in the daemon (or in an operation run in process: the test
+  suite, the e2e backend), it runs its SQL. No caller changes, and a new writing method without the mark is caught
+  by a test that scans the repositories' SQL.
+- Each operation has its own argument model in `app/daemon/ops/access.py`: names, ids and roles with their limits,
+  never SQL or a path. 4d adds each one's `needs` (`User.Modify`, `Permissions.Modify` on the ACL's path, as Proxmox
+  VE's `/access` methods).
+- **What needs a secret moves to the daemon itself**, since the API loses the node's keys in 4e:
+  - a second factor's secret is made, sealed and stored by the daemon (`access.totp_start`, which answers the secret
+    once for the QR code); a code is checked there, once (`access.totp_check`), before it is enabled
+    (`access.totp_enable`);
+  - an account provisioned at an LDAP or SSO sign-in gets its random password hash from the daemon
+    (`access.provision_ldap`, `access.provision_sso`), as the repository took a function to call.
+- What stays in the API: the sign-in's own state (challenges, SSO states and hand-offs, failure counters), which are
+  not configuration and not replicated, and the reads.
+
+**Left to 4e**, which makes this hold against a compromised API rather than only in the code: these tables in a
+database file the API opens read-only (`ATTACH ... mode=ro`), written by root, and the copy of another member's rows
+into SQLite (`app/repositories/cfs/inbound.py`), done by root. The volatile columns (`last_used_at`, `last_login_at`,
+`used_at`, `sign_count`, `totp_last_step`) go through the daemon from 4b like the rest, so the file needs no
+exception.
+
+### 14.2 4d in detail: each operation's needs, checked by the daemon (2026-10-25)
+
+`@operation(name, Args, needs=...)` (`app/daemon/needs.py`), checked by the registry before the operation runs, against
+the account the caller's proof proves (a users row, or root of a node through hyperlite-admin, an administrator without
+one, as root@pam):
+
+- **an administrator**, the default: every operation that says nothing;
+- **a privilege on the object it names**, as the route checks it: `on_vm("vm.power")` on the VM of `vm`, and so for a
+  container, a storage pool, a network, a backup store (`backup_store.read`, for another cluster's reader);
+- **the account itself** (`own()`): its second factor, its keys, its tokens, its own password;
+- **a rule** (`by_rule`) where the route has one: a VM's creation (vm.allocate on its pool, storage.allocate,
+  network.assign), a VM put in a pool by its creator, an API token renamed by its owner;
+- **any account** for what a listing does for anyone (the default pool and network made, read-only reads of the
+  members) and **no proof** for the sign-in itself.
+
+A call **without a proof** comes from a service of this node: allowed from root and in process (the scheduler, HA's
+services, the daemon's own code; the API too until 4e), refused from anyone else. A proof that proves nothing is
+refused. The daemon's refusal is the routes' 403. Checking a proof is the daemon's own work: an API token's last use is
+written in place, never asked of the daemon again.
+
+What 4d holds before 4e: a route's mistake (a check forgotten) is caught by the daemon for every request that carries
+its caller's proof. What it does not hold yet: the API, still root, may call without a proof; 4e takes that away.
+
+### 14.3 4e, first part: the permission tables in a file of their own (2026-10-25)
+
+From 4e the API runs as `www-data`, and it writes the main database (tasks, audit, metrics). Had the permission tables
+stayed in it, a compromised API could have changed a role or an ACL and the daemon, which reads them to check each
+operation (14), would have trusted the change. As Proxmox VE keeps `user.cfg` and `priv/` root's, they move to
+`/etc/hyperlite/access.db` (`app/core/database.py`, `ACCESS_TABLES`): the accounts, API tokens, security keys, revoked
+sessions, groups, roles, resource pools, ACLs and the SSO and LDAP settings.
+
+- **Every connection attaches it** as `acc` (`get_conn`): read-write for the processes that may write it (root's
+  services), with `?mode=ro` otherwise. Queries keep unqualified names; SQLite finds the tables in the attached file. It
+  uses a rollback journal, not WAL, so a read-only reader writes nothing beside it.
+- **The main file cannot stand in for it.** SQLite looks unqualified names up in the main file first, and the API writes
+  that file: a table or a view it made there under a permission table's name would be read instead. Each connection has
+  an authorizer (`_only_from_the_access_file`) that refuses, when a statement is prepared, any read or write of those
+  names outside the access file (a view's columns are checked under the view's name). The next start of a root service
+  drops such a view and sets such a table aside as `*_pre_access`, and says so.
+- **The cluster still sees every change.** A trigger stored in the access file cannot write the main file's outbox, so
+  each writer's connection gets TEMP triggers (`shadow.access_triggers`); ids of new rows are reserved in the access
+  file's `sqlite_sequence` (`ids.Connection.schemas`).
+- **Moved once.** The first start of this version copies each table, with its indexes and AUTOINCREMENT counter, in one
+  transaction per table, then drops it from the main file (`_move_to_access`). API v1's renames run on the main file
+  before that.
+- **Back on a return to an older version.** An older version reads the main file. On a downgrade the package's `prerm`
+  stops the writers and runs `python -m app.core.database move-back`: the tables go back into the main file and
+  `access.db` is set aside as `access.db.before-<version>`; the next start of a newer version moves them again.
+- **Copies.** The pre-update copy has its own `hyperlite-access-backup-<stamp>.db`, and the archive leaves the file out,
+  so a rollback that extracts it never restores an older one. A cluster-copy bundle (`config_copy`) still holds one
+  database, the permission tables included; a promoted node sets its own file aside and moves them in at its start.
+
+The file is `0640 root:www-data` (14.6), as `/etc/pve` is readable by `www-data` on Proxmox VE. The API checks an API
+token itself, so the hashes stay readable to it, as before.
+
+### 14.4 4e: the copy to and from hyperlite-cfs done by the daemon (2026-10-25)
+
+Two loops copy between SQLite and the cluster's tree: changes go out from the outbox (`shadow.py`), and the other
+members' changes come in (`inbound.py`). Both are root's work:
+
+- the copy in writes every replicated table, and the permission tables are in root's file (14.3);
+- the copy out writes the tree. A row that `www-data` could put there would reach every member's permissions.
+
+So, from this step on:
+
+- **The loops run in `hyperlite-daemon`** (`app/daemon/__main__.py`). The API starts them only when it runs the daemon's
+  operations in process (the test suite, the e2e backend). The daemon's unit loads the node's env file, as the API's
+  does. Without it, the daemon would not know that `HYPERLITE_CFS_SHADOW` forces shadow mode on, would take shadow mode
+  for off, and would empty the outbox.
+- **A request asks the daemon** (`app/daemon/ops/cfs.py`):
+  - `cfs.catch_up` before its writes;
+  - `cfs.confirm` with its outbox ids before its answer.
+
+  Only one process copies, in the order SQLite made the changes, under one lock.
+
+  Both operations are `public`: each copies only what the node already holds, and a sign-in's own changes have no proof
+  yet. `Changed` comes back as the paths whose other version the cluster kept (the API's 409). `NotConfirmed` comes back
+  as `unavailable` with its sentence (503).
+- **Administration > Replicated configuration** (`/cfs/shadow*`) asks the daemon too: `cfs.report`, `cfs.seed`,
+  `cfs.enable` and `cfs.disable`, for administrators. They start and stop `hyperlite-cfs` and write its tree.
+
+### 14.5 4e: signing in is the daemon's from start to end (2026-10-25)
+
+Before a session exists, a request carries no proof. From 4e the API runs as `www-data`, and the daemon refuses a call
+from it that has no proof (14, 4d). So anything a sign-in writes has to be written by the daemon's sign-in operations
+themselves. On Proxmox VE, pveproxy likewise hands the ticket request to pvedaemon, which writes `user.cfg`.
+
+- **The last sign-in** is recorded by `sign_in._signed_in`, inside `auth.password`, `auth.totp`, `auth.webauthn` and
+  `auth.sso`, when a session is signed. A password change's fresh token is not a sign-in. The API's own `record_login`
+  calls are gone.
+- **SSO's start and callback** are `auth.sso_start` and `auth.sso_callback`. Both need the client secret, which only the
+  daemon opens.
+  - The callback checks the state bound to the browser, exchanges the code, validates the identity token, makes or
+    updates the account (`provision_sso_user`) and leaves the one-time handoff code.
+  - The API keeps the browser's side: the redirects, the cookies and the audit log.
+  - Without the daemon, nobody signs in (503), as with a password.
+- What a sign-in writes in the main file stays the API's: the failure counters and locks, the SSO state and handoff
+  rows, the audit log.
+
+### 14.6 4e: the files the API reads and writes, given its group (2026-10-25)
+
+multi-cluster ran the lab with `hyperlite.service` under `User=www-data` (#298) and listed every refusal. What the API
+needs of root's files goes to the group `www-data`, as on Proxmox VE (`/etc/pve/local/pveproxy-ssl.key` is
+`root:www-data 0640`); root's secrets stay root's alone (`/etc/hyperlite/priv`, the update archives, `spool-staging`).
+
+| What | Mode | Who sets it |
+|---|---|---|
+| `/var/lib/hyperlite` | `0771 root:www-data`: the database's `-wal`/`-shm` are made there; QEMU still traverses it to the ISO images | `installer/hyperlite.tmpfiles` |
+| the database, `-wal`, `-shm` | `0660 root:www-data`; SQLite gives the journal files the database's owner, group and mode when root makes them | `database._init_db`, `migrate_layout.sh`, tmpfiles |
+| `/var/lib/hyperlite/tmp`, `spool` | `0770 root:www-data` (uploads) | tmpfiles |
+| `/var/lib/hyperlite/spool-staging` | `0700 root`; cleaned by the daemon at its start, no longer by the API | tmpfiles, `disk_library.clean_staging` |
+| `/run/lock/hyperlite` and its claim files | `0770` / `0660 root:www-data`; root opens only a regular file there, never a link | tmpfiles, `shared_claims` |
+| `/run/hyperlite/nodes` (tunnels to the members' read-only libvirt) | `2750 root:www-data`: setgid, so the sockets ssh makes are the group's | `node_tunnel` |
+| `/etc/hyperlite/access.db` (14.3) | `0640 root:www-data`: root's services write it, the API attaches it read-only | `database._init_access_file`, tmpfiles |
+| `/etc/hyperlite/local`, `hyperlite.key` | `0750` / `0640 root:www-data` (the API serves HTTPS with it) | `ensure-tls-cert.sh`, `migrate_layout.sh`, `tls_certs`, tmpfiles |
+| `/var/log/hyperlite`, `access.log*` | `2750` / `0640 www-data:adm`: written by the API, read by `adm` | `access_log`, tmpfiles |
+
+The unit runs its `ExecStartPre` steps as root whatever its user (`+`). The package installs the tmpfiles as
+`/etc/tmpfiles.d/hyperlite.conf` and applies it at once. All of this holds while the API is still root: `User=www-data`
+comes last, once the API no longer does root's work itself (#298: the cluster's creation, read-write libvirt, root's SSH
+keys, the writes to hyperlite-cfs).
+
+The file is root's only (0600) for now. When the API's unit changes user, it gets `www-data`'s group read (0640), as
+`/etc/pve` is readable by `www-data` on Proxmox VE: the API checks a password or a token itself, so the hashes stay
+readable to it, as before.
+
+### 14.7 4e: hyperlite-cfs takes a change from root only (2026-10-25)
+
+The API reads the replicated configuration (the members' statuses, the tree's entries). For that, the socket of
+`hyperlite-cfs` gets its group: `--socket-mode 0660 --socket-group www-data`.
+
+Reading must not mean writing, though. Every member applies the tree as root, including the permissions (14.3). If
+`www-data` could put `/db/acl/...` there, it would grant itself rights on every member. So `hyperlite-cfs` now refuses
+any change (`PUT`, `DELETE`, `RENAME`, `LOCK`, `UNLOCK`, `NEXT_ID`) from a peer that is neither root nor its own user (a
+test's). `/etc/pve` is the same for `www-data` on Proxmox VE. Each refusal of a client's identity is one line in its log,
+with the uid.
+
+What the API still wrote itself is now done elsewhere:
+
+- **In the daemon** (`app/daemon/__main__.py`):
+  - the certificate fingerprint (`peer_https`);
+  - API v1's rewrite of the tree (`cluster_v1`);
+  - the node's lead, with Corosync's configuration and the members' SSH keys following the shared ones
+    (`cluster_lead.start_lead_loop(follow_setup=True)`).
+
+  The API starts them only when it runs the daemon's operations in process.
+- **Asked of the daemon** through `shadow.writer()`, once the process is not root:
+  - a new row's cluster-wide id: `cfs.next_id`, public, since a counter only goes up;
+  - the rolling update's lock: `cfs.lock` / `cfs.unlock`, for an administrator, and for that lock's name only.
+- **Still in the API, moving with #298's split:**
+  - the cluster's creation, join and leave (`cluster_setup`);
+  - `statd.changed`'s publish (`STAT_PUT`, already root-only in cfs).

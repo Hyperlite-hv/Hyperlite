@@ -15,17 +15,26 @@ class Domain:
             libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_ARP: arp,
         }
 
+    def UUIDString(self):
+        return "u1"
+
     def interfaceAddresses(self, source):
         addrs = [{"type": libvirt.VIR_IP_ADDR_TYPE_IPV4, "addr": a} for a in self.sources[source]]
         return {"vnet0": {"hwaddr": "52:54:00:00:00:01", "addrs": addrs}} if addrs else {}
 
 
+def _agent_says(monkeypatch, address):
+    """The guest agent's answer, as hyperlite-daemon asks it (vm.agent_ipv4): the API's connection is read-only."""
+    monkeypatch.setattr(tunnel.guest_agent, "connected", lambda domain: True)
+    monkeypatch.setattr(tunnel, "_agent_ips", lambda domains: {"u1": address})
+
+
 def test_an_address_only_the_guest_claims_is_never_the_tunnels(monkeypatch):
-    monkeypatch.setattr(tunnel.guest_agent, "ipv4", lambda domain: "10.0.0.1")  # the management network's gateway
+    _agent_says(monkeypatch, "10.0.0.1")  # the management network's gateway
     assert tunnel._guest_ip(Domain(lease=["192.168.122.50"])) == "192.168.122.50"
     assert tunnel._guest_ip(Domain()) is None
 
 
 def test_the_agents_address_is_preferred_when_the_host_binds_it_to_the_vm(monkeypatch):
-    monkeypatch.setattr(tunnel.guest_agent, "ipv4", lambda domain: "192.168.1.40")  # a static address, bridged
+    _agent_says(monkeypatch, "192.168.1.40")  # a static address, bridged
     assert tunnel._guest_ip(Domain(lease=["192.168.122.50"], arp=["192.168.1.40"])) == "192.168.1.40"

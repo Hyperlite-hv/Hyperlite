@@ -4,6 +4,455 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-30
+
+### Added
+
+- **A node with a BMC is powered off through it before its HA VMs are recovered** (#333, step 2): the manual recovery of a protected VM powers its node off through IPMI or Redfish (`fence_ipmilan`, `fence_redfish`), reads its power state until it says off (60 s at most), and only then restarts the VM elsewhere; without that confirmation the recovery is refused, as the old copy may still run. Never a reboot. A node without a BMC keeps the SSH attempt as before. The package recommends `fence-agents-ipmilan` and `fence-agents-redfish` (about 120 KB, not the 30 MB of every agent). The AMT method stays unavailable: Debian 13 packages no `fence_amt_ws`, and the message now says so. An IPMI password longer than 20 bytes is refused when it is saved: `ipmitool` would refuse it when the fence is needed.
+
+- **HA only on a share that locks across nodes** (#333, step 3): QEMU's own image locks refuse a disk that another node runs, which the lab checked on NFS 4.2 (released once the VM stops, or 94 s after its node dies). A share mounted so that its locks stay on the node that took them (NFS `nolock` or `local_lock=` other than `none`, SMB `nobrl`) protects nothing between nodes: turning HA on refuses a VM with a disk there, or with QEMU's locks turned off in its definition, and the node that runs a protected VM turns its protection off with an audit entry if that changes later.
+
+- **HA admission control** (#333, step 5), as vSphere's: the loss of any one member must leave room for its running HA VMs on the others, placed the largest first on the member with the most free memory left (each node publishes its free memory). The cluster's policy (`PUT /ha/admission`): `warn`, the default, accepts and says which member could not be absorbed (in the answer of turning HA on, in the service's log when an HA VM starts, and in `GET /ha/status`); `strict` refuses to turn HA on for a running VM, or to start an HA VM, that would leave a member unabsorbed; `off` checks nothing. A member whose free memory is not known (a node before this version) is named and never refused for.
+
+- The HA page of a cluster (#333, step 7): automatic HA's state, each member's state (seen, its watchdog, its free memory), admission control's policy and result, the HA history, and each HA VM's priority, preferred nodes and monitoring, changed in place (`PUT /ha/{vm}/policy`).
+
+- **Automatic HA in a cluster** (#333, step 4): the leader, with the quorum, restarts the HA VMs of a member whose status is older than 60 s once it is known to be stopped: its BMC powered it off and read it off, or its watchdog, armed when it was last seen, has had its reset delay plus 30 s. Only the HA VMs that were running in the member's last status are restarted (one stopped on purpose stays stopped, as Proxmox's requested state). The VMs restart one by one, by priority (`high`, `medium`, `low`), on their first preferred node that can take them, else on the online member with the most free memory, never on one in maintenance; a disk still locked by the old node's storage lease is tried again for two minutes; at most 3 automatic restarts of a VM per hour, then it is left to an administrator. With no proof that the member stopped, its VMs are left to an administrator too. Every step is the VM's HA state (the same on every node), an audit entry and a notification. The node that comes back undefines the VMs that moved before anything starts at boot, and HA VMs no longer use libvirt's own autostart. `POST /ha/{vm}/enable` takes `priority` and `preferred_nodes`. The dry-run watcher is now for hosts driven over SSH only.
+
+- VM monitoring of HA VMs (#333, step 6), off by default per VM (`monitoring` when HA is turned on, or `PUT /ha/{vm}/monitoring`): a guest whose agent answered before, then stays silent for three rounds of 30 s with no disk or network I/O, is reset in place by its node, at most three times an hour, then left to an administrator. It needs qemu-guest-agent in the guest.
+
+- Load balancing applies its moves (#334, step 4): automatic by default, two live migrations at a time in the cluster and one per member, paused after two failures in a row until the settings are saved again; manual mode, per-VM exceptions (manual, excluded), its API (/drs), and an administrator's start or migration refused when it breaks a "must" rule.
+
+- Load balancing's engine (#334, step 3): the leader reads every member's load from its status, finds an imbalance that lasts 15 minutes (or a member above 90 %, or a broken rule) and computes the moves that even it, the rules kept; only VMs whose disks are all on a shared pool move.
+
+- Each member's status carries its load and its VMs' (CPU, memory), as the metrics collector last measured them, for load balancing (#334, step 1).
+
+- Load balancing's rules (#334, step 2): VMs kept together, apart, on some nodes or off them, as a "must" or a "should", and its settings (mode, threshold: automatic, level 3 by default); HA restarts a VM only where it keeps its "must" rules, else leaves it to an administrator, saying why.
+
+- Incremental backups into a backup store (#337, step 2 of `docs/design/backup-store.md`): a running VM's qcow2
+  disks keep a dirty bitmap from one backup to the next, and only the 4 MiB chunks with a changed block are read
+  again (measured on a 200 MB disk: 50 chunks read for the first backup, 3 after 10 MiB written, 0 with no change).
+  Each backup stays a complete image. Raw files and block devices are read whole, their unchanged chunks still stored
+  once; a whole read at least every 7 days; a snapshot, a move or a restore drops the bitmap, and the next backup
+  reads the disk whole.
+
+- A Linux bridge can be made VLAN-aware from the dashboard (#345), as Proxmox VE's "VLAN aware" bridge: in a bridge
+  network's details, **Make the bridge VLAN-aware** turns VLAN filtering on with VLANs 2 to 4094 tagged on its uplink,
+  untagged traffic unchanged. The change is a trial the dashboard confirms from a new request a few seconds later; if
+  the host can no longer be reached, it undoes the change by itself within 60 seconds. Kept, it is set again at every
+  boot, before libvirt, by `hyperlite-vlan-bridges.service`, whatever manages the host's network. It can be turned off
+  again while no VM keeps VLANs on the bridge (`POST`/`DELETE /networks/{name}/vlan-aware`).
+
+- VLANs on VLAN-aware Linux bridges (#345), as Proxmox VE's `tag` and `trunks`: on a bridge network whose bridge
+  filters VLANs, a VM interface takes an access VLAN (untagged inside the VM) and trunk VLANs it sees tagged
+  (`10,20-30`). libvirt refuses a VLAN on a Linux bridge, so Hyperlite records it in the VM's definition and sets it on
+  the VM's bridge port: when the VM starts or arrives by migration (a libvirt hook the package installs, which restarts
+  libvirt once; running VMs keep running), when it is changed on a running VM, and when the service starts. A port
+  whose VLAN cannot be set carries no traffic rather than the bridge's untagged one, and says why in the journal
+  (`journalctl -t hyperlite-vlan`). The network list tells which networks take VLANs and how (`vlan_mode`).
+
+- Copies of a backup store, as Proxmox Backup Server's sync jobs (#420, step 4, part 1): a store made as the copy of
+  another, on a pool at the other site, receives on its own schedule the backups it lacks, only the chunks it lacks,
+  copied as they are (encrypted ones never decrypted); the copy keeps a retention of its own, so a backup deleted at
+  the source, by its retention, by mistake or by an attacker, stays in the copy. The recovery of a lost site now also
+  reads a backup store (`/backup-store-syncs`; the dashboard comes next).
+
+- Encrypted backup stores (#420, step 3; `docs/design/backup-store.md`): a store's chunks and the files of its backups
+  (NVRAM, TPM state, configuration) are encrypted on the node with AES-256-GCM before they reach the pool, as Proxmox
+  Backup Server's client encryption. The key is kept encrypted in the cluster's secrets and shown once, as a code, a QR
+  code and a file; an optional master recovery key (made by Hyperlite and given once, or the administrator's own RSA
+  public key) lets a backup be read again even when every node and secret is lost. An encrypted store is taken over
+  with its key's code, and `python -m app.core.backup_store_recover` reads a backup with nothing but the store and one
+  key (`docs/backup-store-recovery.md`).
+
+- A backup of today's format can be copied into a backup store (#420, step 4, part 3): **Into a store…** in a VM's
+  backups, or `POST /backups/{id}/import`. It is verified first, its disks are read whole (a replication point with its
+  chain) and cut into the store's chunks, only what the store lacks written; the backup itself stays as it is.
+
+- Copies of another cluster's backup stores (#420, step 4, part 2), as Proxmox Backup Server's remotes: the backup site
+  pulls a store of the other site over its API, its HTTPS certificate pinned, with the API token of a dedicated account
+  there that may only read that store (the new privilege `backup_store.read`, the role "Backup store reader"). The
+  copy of an encrypted store keeps no key at the backup site until it is restored from: the administrator unlocks it
+  then with the key's code (`/backup-remotes`, `copy_of: "<remote>:<store>"`, `POST /backup-stores/{name}/unlock`).
+
+- Backup stores, as Proxmox Backup Server's datastores (#337, #420; `docs/design/backup-store.md`): a store lives in
+  a directory of a storage pool (directory, NFS, SMB) and keeps every VM's disks as 4 MiB chunks named by their
+  digest, each held once whatever the number of VMs and backups that share it; a backup is a complete image, never a
+  chain. VMs with ZFS, LVM or iSCSI disks can be backed up into a store, running or stopped; a running VM's disks are
+  read as they were when the backup began, while it keeps writing. Restores over the VM (file disks swapped in at
+  once, block devices written in place) or to a new VM; verification, retention, deletion as for every backup, and a
+  weekly garbage collection, one node at a time in a cluster. In the dashboard, **Backups › Backup stores** makes,
+  cleans up and removes them, and a VM's schedule, **Back up now** and the grouped jobs choose their **Destination**;
+  through the API, `/backup-stores` and `store` on backups, schedules and grouped jobs.
+
+- A VM exported from VMware as an OVA can be imported (#426): upload the `.ova` with the imported disks, then **Create
+  a VM** on its row (Library > Imported disks). Its settings are read from the OVF descriptor (vCPUs, memory, disks,
+  BIOS, UEFI or UEFI with Secure Boot, the system's family, network cards), its disks copied out of the archive and
+  checked against its manifest, and the VM created from them, stopped (`GET /vm-disks/{file}/ovf`,
+  `POST /vm-disks/{file}/extract`, `disks[].import_disk` in `POST /vms`). A live connection to an ESXi host is not
+  there yet.
+
+- In a cluster, the CSV exports of the tasks and of the audit log hold every node's rows, as the lists do (#441): each
+  member's export is read while it arrives and merged newest first, with a last column `member` (`?cluster=true` on
+  `GET /tasks/export.csv` and `GET /audit/export.csv`, which the dashboard now asks for). The members that did not
+  answer are named in the `Hyperlite-Unreachable` header and said by the dashboard; a member that stops midway ends
+  the download with an error instead of a file missing its rows.
+
+- Hook scripts on a VM's lifecycle, as Proxmox VE's hookscripts (#515): an administrator attaches a script that root
+  placed in `/var/lib/hyperlite/snippets/` on the node (Hardware > Advanced > Hook script, `PUT /vms/{name}/hookscript`).
+  It runs as root with the VM's name and the phase at pre-start, post-start, pre-stop and post-stop, for every start
+  and stop (the dashboard, the start at boot, HA, `virsh`) through libvirt's qemu hook, pre-stop before a stop asked
+  through Hyperlite. A failing pre-start refuses the start, a failing pre-stop refuses a shutdown (not a forced stop);
+  the output is in the task's log and the VM's last runs.
+
+- Lockdown of `hyperlite-admin` (#516), as ESXi's lockdown mode: an administrator can refuse root of a node its
+  session as `root@<node>` (Administration › API, or `PUT /api/v1/admin-cli`), on every member and for the sessions already
+  open; root must then use a named account's API token (`--token-file`), so every action is under a person's name.
+  Off by default.
+
+- `hyperlite-admin`, the administration CLI of a node (#516), as `qm`, `pct` and `pvesh` on Proxmox VE: any route of
+  API v1 (`hyperlite-admin get /vms`), short commands for VMs, containers, storage, networks, backups, tasks, the
+  cluster and the node (`hyperlite-admin vm migrate web1 node3`), the parameters of a route (`hyperlite-admin api`),
+  `--json` for scripts and the tasks waited for with their log. As root it needs no token: the node signs it in as
+  `root@<node>`, an administrator that has no password and no way in from the web, under which the audit log records
+  its actions on every member. Deletions, restores and updates ask first, or take `--yes`.
+
+### Changed
+
+- The parity page counts the replicated configuration as the only source of truth as done (#416): every node applies
+  the cluster's configuration in one order, read-only without quorum, and shows every node's tasks, audit log,
+  backups and their CSV exports; the hosts driven over SSH that still need a controller are deprecated.
+
+- The accounts, API tokens, groups, roles, resource pools, ACLs and SSO/LDAP settings move to a file of their own,
+  `/etc/hyperlite/access.db`, readable and writable by root only, at the first start of this version (#511). A table of
+  those names made in the main database is never read in its place. A return to an older version puts them back into
+  the database.
+
+- The files the web API reads and writes are now shared with the `www-data` group, as on Proxmox VE (#511): the
+  database, the claim files, the TLS certificate's key, the upload directories and the access log. A
+  `tmpfiles.d` entry, `/etc/tmpfiles.d/hyperlite.conf`, sets this up at every boot. The API itself still runs as root;
+  this prepares it to run as `www-data`.
+
+- The API's last local libvirt changes outside HA go through `hyperlite-daemon` (#511, step 4 preparation): the
+  dashboard's default storage pool, made when missing and read again, and the guests' shutdown before the host
+  reboots or powers off. Every route now reads libvirt through a read-only connection.
+
+- The backup stores run in `hyperlite-daemon` instead of the API (#511, step 3, backups part 2): a store made or
+  taken over, an encrypted copy unlocked, a backup into a store, an import into one, a copy job, a garbage collection,
+  what a store holds, and another cluster's stores. Only the daemon opens a store's key and a remote's token. A
+  remote's token is now sealed with the address and the certificate it was given with, and is only ever sent there,
+  whatever the records say later; a remote recorded before keeps the address of its record.
+
+- The directory backups and the VM exports run in `hyperlite-daemon` instead of the API (#511, step 3, backups
+  part 1a): a backup's copy, its restore over the VM or as a new VM, its verification and its deletion, an export's
+  copy and its deletion. The daemon checks a backup's directory itself (under the default directory or an
+  administrator's target, never a system directory) and deletes in it only a backup's own files: a backup directory
+  that holds other files is kept, and its deletion refused with the names of those files. Cancelling a backup's task
+  still stops its copy.
+
+- The copy of the configuration to and from the cluster's replicated store (hyperlite-cfs) is done by `hyperlite-daemon`
+  instead of the API (#511). This covers both loops, the confirmation of a change before its answer, and the actions of
+  Administration > Replicated configuration. The daemon now loads the node's `/etc/hyperlite/priv/env`.
+
+- The replicated configuration service (`hyperlite-cfs`) now accepts changes from root only (#511). Its socket is
+  readable by the web API's group, `www-data`. The API's own few changes (a new row's id, the rolling update's lock, the
+  certificate fingerprint, the node's lead) now go through `hyperlite-daemon`. Each refused change is written to
+  hyperlite-cfs's log with the caller's uid.
+
+- The copies and the commands between nodes are done by `hyperlite-daemon` instead of the API (#511, step 3, cluster
+  domain part 4). This covers an ISO copied to or from another node, listed or deleted there; the configuration copy
+  (the daemon builds the bundle with the node's keys and sends it); a node's boot id and host name; the fixed probes
+  of another node's statistics and hardware; and the peer calls' fallback over SSH, which still carries the user's
+  ticket. The API names a node and the work, never an address, a path or a script. Another node's summary, address
+  use and metrics are read through the daemon's read-only tunnel. The answers are unchanged.
+
+- The cluster's SSH keys are used by `hyperlite-daemon` instead of the API (#511, step 3, cluster domain part 1).
+  This covers testing a node before it is registered, the public key shown to authorize it, and recording its host
+  key. It also covers giving and revoking the reverse trust in root's `authorized_keys`, and the node checks of the
+  node poller. The daemon reads a registered node's address from the node registry itself. It checks an address
+  before using the key. The answers are unchanged.
+
+- A node registered over SSH only is changed by `hyperlite-daemon` instead of the API (#511, step 3, cluster domain
+  part 2). This covers its VMs' power, pre-stop script, start at boot, libvirt autostart flag, guest agents, rename,
+  hook script and deletion (with Hyperlite's rule on the disks it keeps), its storage pools, LVM report, default pool
+  and its host's details. The daemon opens that node's libvirt with the cluster's key, which only it reads. The API
+  reads the node through a read-only tunnel the daemon opens to the node's read-only libvirt socket
+  (`/run/hyperlite/nodes`). The answers are unchanged. Migration and HA still use the API's connection until they
+  move.
+
+- The consoles and the shells are opened by `hyperlite-daemon` instead of the API (#511, step 3, consoles domain):
+  the host shell, a container's root shell and SSH terminal, and a VM's serial console, SSH terminal, VNC console and
+  SPICE display. The daemon runs the session as root and hands its terminal or its socket to the API, which relays it
+  to the browser. It reads the display's port, the guest's address and account itself, and reaches another node with
+  the host key recorded when the node was registered. The host shell starts in a clean environment instead of the
+  service's. When the SSH terminal cannot connect, ssh's own message is shown, then Hyperlite's.
+
+- A container's backup archives run in `hyperlite-daemon` instead of the API (#511, step 3, backups part 4): the
+  archive of a stopped container's filesystem, its deletion and its restore. The daemon archives the filesystem the
+  container's definition names, so a container kept in a storage pool's directory is archived too (it used to be
+  looked for in the default directory only), and it deletes or unpacks an archive of the containers' backup
+  directory only.
+
+- A container is created and cloned by `hyperlite-daemon` instead of the API (#511, step 3, containers part 2). The
+  daemon checks the request again: the name, the account, the network, the limits and the storage pool, read from the
+  pool's own definition. It then pulls and unpacks the image, prepares the filesystem, reserves an application
+  container's address and writes the definition, escaping the network and the directory. Unknown fields in a
+  request are refused. A system container that does not start is no longer left defined without its filesystem.
+  An application container whose process did not start said "Container defined purpose its process did not start":
+  it now says "Container defined but its process did not start".
+
+- Starting, stopping, renaming and deleting a container, and changing its settings, are done by `hyperlite-daemon`
+  instead of the API (#511, step 3, containers part 1). The daemon finds a container's filesystem in its libvirt
+  definition and only accepts it in a directory where Hyperlite puts containers. It no longer takes it from the API's
+  records. A container whose definition names any other directory keeps that directory when it is deleted, and the
+  audit log says so; its rename and DNS changes are refused. The answers are otherwise unchanged.
+
+- A container's snapshots are listed, taken, restored and deleted by `hyperlite-daemon` instead of the API (#511,
+  step 3, containers part 3). Its console log (what `docker logs` shows) is read through the daemon too. The daemon
+  finds the container's directory in its definition, so a snapshot is only ever written beside a filesystem Hyperlite
+  manages. Every check runs before the task starts, so a refusal is the answer. The answers are unchanged.
+
+- `hyperlite-daemon` checks what each of its operations needs of the person who asks (#511, step 4d), as Proxmox VE's
+  `pvedaemon` checks each method's permissions:
+  - an administrator by default;
+  - otherwise the privilege the route itself asks for, on the VM, container, storage pool, network or backup store
+    it names;
+  - or the account itself, for its own second factor, keys, tokens and password.
+
+  A request whose route forgot a check is refused by the daemon (403). Calls of this node's own services keep working.
+
+- The ISO library and the disks to import are written by `hyperlite-daemon` instead of the API (#511, step 3, disks
+  domain part 1). It stores an upload, renames or deletes an ISO, deletes a disk to import and extracts an OVA's
+  disks. An upload is written into a spool (`/var/lib/hyperlite/spool`), then moved into its library by the daemon,
+  as Proxmox VE's pveproxy and pvedaemon do. The daemon checks the names again and refuses anything in the spool that
+  is not a file of its own (a link to another file). It keeps an ISO that a VM has in its CD-ROM drive. The answers are
+  unchanged. An interrupted upload left in the spool for more than a day is removed when the service starts.
+
+- Growing a VM's disk and moving it to another storage pool are done by `hyperlite-daemon` instead of the API (#511,
+  step 3, disks domain part 2). The daemon is asked for the VM by its name and the disk by its target, never a path.
+  It checks the request again, drops the replication checkpoints only once the request is accepted, and writes a
+  move's progress into its task. Cancelling the task stops the copy in the daemon. The answers are unchanged.
+
+- The file restore runs in `hyperlite-daemon` instead of the API (#511, step 3, backups part 3): the daemon opens a
+  backup's images with libguestfs, read-only, only in a backup's own directory, and hands a downloaded file to the
+  API as an open file, removed as soon as it is sent.
+
+- HA runs in two services of its own, as Proxmox VE's `pve-ha-lrm` and `pve-ha-crm` (#511, step 4c, #333):
+  - `hyperlite-ha-lrm`, on every node: the watchdog, the monitoring of the node's HA VMs, the node's heartbeat and
+    the load-balancing moves asked of it;
+  - `hyperlite-ha-crm`, active on the leader: the recovery of a lost member's HA VMs and load balancing's evaluation.
+
+  A hang or a crash of the API or of the cluster's decisions no longer stops the watchdog's feeding, so a healthy node
+  is no longer reset because of them. A dead LRM still stops both the feeding and the heartbeat, so a member's VMs are
+  never restarted elsewhere while they still run. The HA and load-balancing pages show the same state as before.
+  Logs: `journalctl -u hyperlite-ha-lrm` and `-u hyperlite-ha-crm`.
+
+- The scheduled work runs in a service of its own, `hyperlite-scheduler`, as Proxmox VE's `pvescheduler` (#511,
+  step 4c): the scheduled backups (with the backup groups and the stores' copies and garbage collections), the
+  replication, the automatic deletion of inactive VMs, the update check and the start at boot. It starts and restarts
+  with the API, keeps running if the API crashes, and its tasks appear and can be cancelled in the dashboard as
+  before. Its log: `journalctl -u hyperlite-scheduler`.
+
+- The automation jobs' steps run in `hyperlite-daemon` instead of the API (#511, step 3): a command as root on the
+  host, or over SSH with the automation key on a VM, whose address and account the daemon reads itself. Cancelling a
+  run still stops the step in progress. A step's output is kept up to 1 MiB each, then marked as truncated.
+
+- A live migration is done by `hyperlite-daemon` instead of the API (#511, step 3, cluster domain part 3). The daemon
+  opens both nodes' libvirt with the cluster's key, prepares the destination (its networks, its default pool, the
+  VM's addresses, the disks and CD-ROM files) and runs the migration, writing its progress into the task. A
+  cancellation aborts libvirt's job. The API then writes where the VM runs (HA protection first, tags and notes,
+  start at boot) and asks the daemon to clean the source up. The daemon kept what to clean, so the API never names a
+  file to delete. The answers are unchanged.
+
+- The network firewall's iptables rules and the VLANs of Linux bridges are set by `hyperlite-daemon` instead of the API
+  (#511, step 3, network domain part 1, `app/daemon/ops/network.py`): applying or removing a network's firewall, the
+  trial, confirmation and undoing of a VLAN-aware bridge, the VLANs of a running VM's ports, and their replay when the
+  service starts. The daemon is asked by a network's or a VM's name and reads the bridge and the ports itself, so the
+  API cannot point them at another interface; the API keeps who may ask, the audit log and the firewall's rules.
+  Without the daemon, these answer that it is unavailable (503).
+
+- libvirt's networks are created, started, stopped, edited, renamed and deleted by `hyperlite-daemon` instead of the
+  API (#511, step 3, network domain part 2a): the daemon writes a new network's definition itself from checked fields
+  (`app/core/network_create.py`), never libvirt XML from the API, and checks again that a system network or one a VM
+  still uses is not deleted. The routes and their answers are unchanged; without the daemon they answer that it is
+  unavailable (503). A list of the networks no longer redefines the isolated network every time: only when it is
+  missing or stopped.
+
+- A network's DHCP reservations, added and removed from the network's page, are written by `hyperlite-daemon` (#511,
+  step 3, network domain part 2b), which checks the MAC address, the name and the address again. The routes and their
+  answers are unchanged.
+
+- The permissions are written by `hyperlite-daemon` only (#511, step 4b), as `pvedaemon` is the only writer of
+  Proxmox VE's `user.cfg` and `priv/`. This covers:
+  - the accounts, the API tokens, the security keys, the second factors and the sign-outs;
+  - the groups, the custom roles, the resource pools and the ACLs, including their renames and those of the VMs and
+    containers they name.
+
+  The API asks the daemon for each change and no longer writes these tables itself. A second factor's secret is made,
+  sealed and checked by the daemon. In a cluster, these changes still answer once the cluster took them.
+  `hyperlite.service` now starts after `hyperlite-daemon.service`, which tells systemd when its socket answers.
+
+- The replication's points run in `hyperlite-daemon` instead of the API (#511, step 3, backups part 1b): the daemon
+  copies a VM into the other site's directory, full or incremental through libvirt's backup API, starts a stopped VM
+  paused for the copy and prunes the old chains. It takes the chain's state from the API's records only as point and
+  checkpoint names of its own form, never as paths. The site recovery reads the VMs through a read-only connection
+  and restores through the daemon, as the backups do.
+
+- The claims that keep one operation at a time on a VM or a container (a backup, a restore, a snapshot, a migration)
+  are files of `/run/lock/hyperlite`, locked by the process that works on the guest, as Proxmox VE locks a guest with
+  `/run/lock/qemu-server` (#511, step 4c). Every Hyperlite process sees them: once the scheduled backups and
+  replication run in a service of their own, an operation the API is asked for is still refused while one of them
+  works on that guest. A process that stops, even killed, leaves no claim behind. `HYPERLITE_LOCK_DIR` moves the
+  directory for development and tests.
+
+- Signing in is done entirely by `hyperlite-daemon` (#511). It records the last sign-in, and for single sign-on it builds
+  the redirection to the identity provider, checks the provider's answer and creates or updates the account. The API
+  only handles the browser's redirections and cookies.
+
+- On an installed node, the API no longer runs what nobody asks for: hyperlite-daemon makes the admin account, checks the initial password and seals the second factors at its own start; hyperlite-scheduler polls the nodes, copies the configuration, and sets the network firewall's rules and the running VMs' VLANs again at its start, so a scheduler stopped by hand leaves them as they are until it starts again (it restarts with the API).
+
+- The storage pools made, renamed and removed from the storage page on this node are handled by `hyperlite-daemon`
+  instead of the API (#511, step 3, storage domain part 2a). This covers directory, NFS, SMB, iSCSI and LVM pools, with
+  the SMB credentials file, the iSCSI CHAP secret and the LVM thin pool. It also covers the NFS and SMB permission
+  check, and the `default` pool made at the first listing. The daemon writes a pool's definition itself from checked
+  fields, checks them again, and refuses to remove a pool that holds files or that a VM uses. A pool on another node
+  keeps that node's connection, with the same checks and answers. The answers are unchanged. A pool's refused creation,
+  rename or removal is now always written into the audit log.
+
+- The storage page's reads that need root on this node are done by `hyperlite-daemon` (#511, step 3, storage domain
+  part 2c). That is a volume group's LVM report, which gives an LVM pool's thin pool and its thin volumes, and a pool's
+  refresh before its volumes are listed. The storage domain of the storage routes is then done. The answers are
+  unchanged.
+
+- The volumes created and deleted from the storage page, on this node's libvirt pools, are handled by
+  `hyperlite-daemon` instead of the API (#511, step 3, storage domain part 2b). The daemon writes a volume's definition
+  itself from its checked name and size, and refuses to delete a volume a VM uses, whatever the API checked. The
+  answers are unchanged.
+
+- The ZFS pools and volumes made and removed from the storage page are handled by `hyperlite-daemon` instead of the API
+  (#511, step 3, storage domain part 1): loading the kernel module, creating and deleting a pool, creating and deleting
+  a volume. The daemon checks the names again and refuses to delete a volume a VM still uses. The routes and their
+  answers are unchanged; the volume's deletion records "Confirmation missing" in English in the audit log.
+
+- The work a request starts in the background (a backup, a migration, a clone, a disk move, an ISO copy, a host upgrade...) keeps that user's proof for hyperlite-daemon until it ends: a task ticket bound to its task, for any account, valid while the task runs, instead of a session that could expire or be revoked meanwhile.
+
+- A VM is cloned, and a template made, deployed, renamed and deleted, by `hyperlite-daemon` instead of the API (#511,
+  step 3, VM domain part 3c). The template files are root's. The daemon checks the source VM's state, the names, the
+  room for the copy and a template's linked clones again, and writes the new definition itself. A Kubernetes cluster's
+  VMs are started and stopped through it too. The answers are unchanged. An unexpected failure during a clone is no
+  longer described in the answer; the daemon's log has it.
+
+- A VM is created by `hyperlite-daemon` instead of the API (#511, step 3, VM domain part 3a). The daemon checks the
+  specification again against its own libraries, pools and VMs, then makes the disks, the cloud-init drive, the DHCP
+  reservation and the definition. It writes the definition from the checked fields, never from XML or paths sent by
+  the API. The answers are unchanged.
+
+- A VM's firewall, hook script, name and cloud-init drive are changed by `hyperlite-daemon` instead of the API (#511,
+  step 3, VM domain part 2c). The daemon builds the firewall's filter from checked rules and checks a hook script again
+  in the root library. It renames the files named after the VM with it, and writes the cloud-init drive private to
+  root. The answers are unchanged. An interface the firewall could not be applied to said "Filter created purpose not
+  applied": it now says "Filter created but not applied".
+
+- A VM is deleted by `hyperlite-daemon` instead of the API (#511, step 3, VM domain part 3b), with Proxmox VE's rule
+  for its disks rather than vSphere's. Its own disks and the drives Hyperlite made for it go. A disk another VM uses,
+  a disk another VM's linked disk reads through, or a file outside every storage pool of the node is now kept: vSphere
+  deletes a disk shared with another VM, and a file attached by hand is not Hyperlite's to delete. The answer lists
+  what was kept and why (`kept_disks`), as do the audit log, the automatic clean-up's entry and the dashboard.
+
+- A VM's devices are changed by `hyperlite-daemon` instead of the API (#511, step 3, VM domain part 2b): disks, network
+  interfaces with their VLANs, PCI and USB passthrough, and CD-ROM drives. The daemon finds the volume, the network
+  or the ISO itself, checks a disk image before a VM uses it, and writes each device's definition from checked fields.
+  It keeps a VM's last interface. The answers are unchanged.
+
+- Starting, shutting down, stopping, rebooting and resetting a VM of this node are done by `hyperlite-daemon` instead
+  of the API (#511, step 3, VM domain part 1). This covers the dashboard's buttons, the repeated shutdown request,
+  the start at boot and libvirt's autostart flag. The VM's pre-stop hook script is run as root by the daemon, and the
+  guest agents' addresses in the VM list are read through it. The daemon checks the VM's state again. A VM on a node
+  registered over SSH only keeps that node's connection. The answers are unchanged.
+
+- A VM's processors, memory, resource limits, CPU pinning and advanced hardware (disk options, boot order, memory
+  ballooning, machine type) are written by `hyperlite-daemon` instead of the API (#511, step 3, VM domain part 2a).
+  The daemon checks the fields again and changes the VM's definition itself. The answers are unchanged.
+
+- A VM's snapshots are taken, restored and deleted by `hyperlite-daemon` instead of the API (#511, step 3, VM domain
+  part 4): libvirt's internal snapshots, ZFS snapshots of every zvol and LVM-thin snapshots alike. The daemon checks
+  the name, the VM's state and the snapshot again, and builds a snapshot's definition itself. An LVM-thin VM's list
+  is read through it, since `lvm` needs root. The answers are unchanged. An unexpected failure is no longer described
+  in a task's error; the daemon's log has it.
+
+### Deprecated
+
+- Hosts driven over SSH from one node (one controller, nodes over SSH), the configuration copy and `hyperlite-promote`
+  are deprecated (#416): they work as before for as long as API v1 lasts and go with v2. A node joins a cluster of
+  equal nodes instead (the **Cluster** page), as on Proxmox VE; a site across a WAN will be one of several autonomous
+  sites driven from one view (#656). Their routes (`POST /nodes`, `POST /nodes/test`, `GET /nodes/cluster-pubkey`,
+  `GET` and `POST /nodes/config-copy`) are marked `deprecated` in the API's description and answer with a
+  `Deprecation` header and a `Link` to `docs/cluster-failover.md`; the dashboard says so where such a host is added.
+
+### Fixed
+
+- Automatic HA recovery (#333) is safer:
+  - a node whose Hyperlite service was stopped normally (an update, a restart) is never powered off, and its HA VMs
+    are never started elsewhere while they still run there;
+  - a target node that cannot be reached is passed over for the next one, instead of stopping the round;
+  - a VM an earlier round started is found where it runs and never started a second time;
+  - each VM restarted takes its memory out of its node's free memory, so one node is not overcommitted;
+  - a BMC that did not confirm the power-off is asked again, up to three times, before the VMs go to manual;
+  - a leader that loses the lead mid-round restarts nothing more.
+
+- HA recovery (#333): a member back after it was fenced never gets a VM that runs there, or one stopped on purpose, started elsewhere later; a service stop never lets a round re-arm the watchdog; a libvirt error no longer turns a VM's protection off; a failed manual recovery leaves nothing that refuses the next one.
+
+- Reading a VM (`GET /vms/{name}`) on the member a live migration is leaving answers 404 instead of a 500 when the VM is
+  undefined there between its lookup and its read (#334).
+
+- Two backups of a VM into a store within the same second (an unchanged VM's incremental takes less) no longer
+  collide: the second waits for the next second instead of finding the first's directory or checkpoint already
+  named (#420).
+
+- A VM created from an imported disk with an explicit system family (`guest_os`) now gets that family's devices:
+  an imported Windows guest had VirtIO disks and card, which Windows without VirtIO drivers does not boot from. An
+  imported disk's name that leaves its directory is refused with a 422 instead of an error 500 (#426).
+
+- The database health test suite passes on Debian 13 (#440): its SQLite (3.46) already sees, in the daily quick check,
+  index entries that disagree with their table, which the test expected only the full check to see. Hyperlite then
+  names the same index and offers the same online repair.
+
+- A node whose Corosync runs an older configuration than the one written reloads it again, so a joining node is
+  not left out of the ring by a reload that did not take.
+
+- A failure of `hyperlite-daemon` answers 500 (`internal`) again, as these routes did before their work moved to the
+  daemon, instead of 502 (`peer_error`), which API v1 keeps for another member of the cluster: the host's settings
+  (DNS, host name, time, syslog, automatic updates), the update channel, the start of an update or a rollback, and the
+  VLAN-aware trial of a network (#511). A call the daemon cannot answer is always a 503 (`unavailable`) with the reason,
+  and a network removed while a request was being handled is a 404.
+
+- A user with rights on a VM, not an administrator, is no longer refused by hyperlite-daemon where the dashboard lets them in: a backup of that VM into a store (its retention and its cancellation included), a VM created from another node's ISO, and the cluster's lists when a member is reached over SSH.
+
+- The single sign-on and LDAP settings are written by `hyperlite-daemon`, as the other permissions since 4b (#511).
+  These settings decide who may sign in and which of the identity provider's or directory's groups are
+  administrators. The daemon also seals their client secret and bind password with the node's keys; the API did this
+  until now.
+
+- Each task records the process that runs it, so tasks are handled correctly once some run outside the API
+  (#511, step 4c: `hyperlite-scheduler`, HA's services):
+  - a restart of one service no longer closes as interrupted the tasks another one still runs;
+  - cancelling such a task asks the process that runs it to stop, instead of closing its record while it goes on.
+
+  The tests also reset libvirt's last error before each test, which made an HA test fail now and then.
+
+- **Joining a cluster from a loaded or slow host no longer gives up after a minute** (#607): the joining node waited 60 seconds for the quorum, counted from the restart of its Corosync, and its links to the members came up only once they reloaded with it, which took longer on a loaded host; the join rolled back with the member still listing the node. It now waits up to five minutes, as Proxmox's `pvecm add` waits for the quorum, and says so in its log. Found by the cluster lab on GitHub's runners (twice).
+
+- A node without libvirt's LXC driver lists no containers instead of answering 500, and a route on a named container
+  answers 501, saying the node has no LXC driver (#631). A node installed from the package always has the driver.
+
+- Messages read "purpose" where they meant "but" (#703), for example "Zvol created purpose device never appeared" or
+  "Shadow mode is on, purpose the first copy did not complete": a leftover of the API v1 renames, which turned the
+  French column `but` into `purpose` and reached the English word too. A few audit entries and one error left in
+  French are English now ("missing confirmation", "Missing URL", "working tree not clean", "threshold N day(s)").
+
+- A BMC password an agent echoes is hidden even where its output is cut; an SSO group claim sent as a string counts as one group; an unreachable identity provider is said without the connection error's details to the anonymous visitor; a snapshot name with ZFS's range or list syntax is refused.
+
+- Retention never counts nor deletes a backup imported from another site's storage, which may be the only copy left of its data; a failure after a live disk move switched the VM to its new file keeps both files and says what to do, where the new file was deleted under the running VM.
+
 ## [1.3.3] - 2026-10-24
 
 ### Security

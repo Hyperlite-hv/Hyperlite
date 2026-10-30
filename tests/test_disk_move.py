@@ -113,9 +113,10 @@ def test_refusals_are_clear(domain, pool, status, text):
 
 
 @pytest.fixture()
-def api(client, auth_headers, monkeypatch):
+def api(client, auth_headers, monkeypatch, daemon_libvirt):
     domain = FakeDomain()
     monkeypatch.setattr(devices, "open_conn", lambda *a, **k: FakeConn(domain))
+    daemon_libvirt(FakeConn(domain))  # hyperlite-daemon moves the disk, in this process in the tests
     monkeypatch.setattr(devices, "_run_in_background", lambda target, *args: target(*args))
     return {"client": client, "headers": auth_headers("admin1")}
 

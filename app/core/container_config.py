@@ -7,6 +7,7 @@ container's own /etc/resolv.conf, written as a plain file (never through a link 
 
 import ipaddress
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import libvirt
 
@@ -35,13 +36,13 @@ def interfaces(domain):
     return out
 
 
-def _resolv_conf(name):
-    return container_rootfs_path(name) / "etc" / "resolv.conf"
+def _resolv_conf(rootfs):
+    return Path(rootfs) / "etc" / "resolv.conf"
 
 
 def read_dns(name):
     """The nameservers of the container, or None when its resolver is not a plain file Hyperlite can read."""
-    path = _resolv_conf(name)
+    path = _resolv_conf(container_rootfs_path(name))
     if path.is_symlink() or not path.is_file():
         return None
     servers = []
@@ -69,9 +70,10 @@ def validate_dns(servers):
     return cleaned
 
 
-def write_dns(name, servers):
+def write_dns(rootfs, servers):
+    """Into the container's filesystem `rootfs`, as hyperlite-daemon found it (app/core/container_ops.py)."""
     servers = validate_dns(servers)
-    path = _resolv_conf(name)
+    path = _resolv_conf(rootfs)
     if not path.parent.is_dir() or path.parent.is_symlink():
         raise ConfigError("This container has no /etc directory Hyperlite can write to")
     if path.is_symlink():

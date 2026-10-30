@@ -8,14 +8,14 @@ import json
 import os
 import shutil
 import time
-import xml.etree.ElementTree as ET
 from collections import namedtuple
 from pathlib import Path
+from unittest.mock import Mock
 
 import libvirt
 import pytest
 
-from app.core import container_builder, container_snapshots
+from app.core import container_builder, container_ops, container_snapshots
 from app.routers import containers
 
 pytestmark = pytest.mark.skipif(shutil.which("rsync") is None, reason="needs rsync")
@@ -26,7 +26,6 @@ def place(tmp_path, monkeypatch):
     """A containers directory of its own, with a container "web" in it."""
     monkeypatch.setattr(container_builder, "CONTAINERS_DIR", tmp_path)
     monkeypatch.setattr(container_builder, "container_rootfs_path", lambda name: tmp_path / name)
-    monkeypatch.setattr(container_snapshots, "container_rootfs_path", lambda name: tmp_path / name)
     root = tmp_path / "web"
     (root / "etc").mkdir(parents=True)
     (root / "etc" / "hostname").write_text("web\n")
@@ -63,13 +62,13 @@ def _tree(root):
 def test_a_snapshot_is_restored_exactly(place):
     root = place / "web"
     before = _tree(root)
-    meta = container_snapshots.create("web", "clean", "before the upgrade")
+    meta = container_snapshots.create(place / "web", "clean", "before the upgrade")
     assert meta["name"] == "clean" and meta["description"] == "before the upgrade"
     (root / "etc" / "motd").write_text("version 2, longer\n")
     (root / "etc" / "secret").unlink()
     (root / "etc" / "new").write_text("added\n")
 
-    container_snapshots.restore("web", "clean")
+    container_snapshots.restore(place / "web", "clean")
     assert _tree(root) == before
     assert sorted(os.listdir(place)) == [".snapshots", "web"], "nothing left next to the container"
     snap_file = place / ".snapshots" / "web" / "clean" / "rootfs" / "etc" / "motd"
@@ -82,29 +81,29 @@ def test_a_snapshot_is_restored_exactly(place):
 def test_a_file_changed_without_its_size_or_mtime_is_in_the_next_snapshot(place):
     """rsync's quick check (size and mtime) linked the previous snapshot's file: the snapshot kept the old content."""
     motd = place / "web" / "etc" / "motd"
-    container_snapshots.create("web", "one")
+    container_snapshots.create(place / "web", "one")
     st = motd.stat()
     motd.write_text("version 2\n")  # the same size
     os.utime(motd, ns=(st.st_atime_ns, st.st_mtime_ns))
-    container_snapshots.create("web", "two")
+    container_snapshots.create(place / "web", "two")
     assert (place / ".snapshots" / "web" / "two" / "rootfs" / "etc" / "motd").read_text() == "version 2\n"
 
 
 def test_unchanged_files_are_shared_with_the_previous_snapshot(place):
-    container_snapshots.create("web", "one")
+    container_snapshots.create(place / "web", "one")
     (place / "web" / "etc" / "motd").write_text("version 2, longer\n")
-    container_snapshots.create("web", "two")
+    container_snapshots.create(place / "web", "two")
     one, two = (place / ".snapshots" / "web" / s / "rootfs" / "etc" for s in ("one", "two"))
     assert os.stat(one / "secret").st_ino == os.stat(two / "secret").st_ino
     assert os.stat(one / "motd").st_ino != os.stat(two / "motd").st_ino
 
-    container_snapshots.delete("web", "one")
+    container_snapshots.delete(place / "web", "one")
     assert (two / "secret").read_text() == "s\n", "deleting one snapshot leaves the next one whole"
-    assert [s["name"] for s in container_snapshots.list_snapshots("web")] == ["two"]
+    assert [s["name"] for s in container_snapshots.list_snapshots(place / "web")] == ["two"]
 
 
 def test_a_failed_snapshot_leaves_nothing_and_a_failed_restore_leaves_the_container(place, monkeypatch):
-    container_snapshots.create("web", "one")
+    container_snapshots.create(place / "web", "one")
     before = _tree(place / "web")
 
     def broken(*args):
@@ -112,10 +111,10 @@ def test_a_failed_snapshot_leaves_nothing_and_a_failed_restore_leaves_the_contai
 
     monkeypatch.setattr(container_snapshots, "_rsync", broken)
     with pytest.raises(container_snapshots.SnapshotError):
-        container_snapshots.create("web", "two")
+        container_snapshots.create(place / "web", "two")
     assert sorted(os.listdir(place / ".snapshots" / "web")) == ["one"]
     with pytest.raises(container_snapshots.SnapshotError):
-        container_snapshots.restore("web", "one")
+        container_snapshots.restore(place / "web", "one")
     assert _tree(place / "web") == before and sorted(os.listdir(place)) == [".snapshots", "web"]
 
 
@@ -124,26 +123,26 @@ def test_a_copy_cut_short_is_never_a_snapshot(place):
     partial = place / ".snapshots" / "web" / "two.partial"
     (partial / "rootfs").mkdir(parents=True)
     (partial / "snapshot.json").write_text(json.dumps({"name": "two", "created_at": "2026-01-01T00:00:00+00:00"}))
-    assert container_snapshots.list_snapshots("web") == []
-    assert not container_snapshots.exists("web", "two")
-    container_snapshots.create("web", "two")
-    assert [s["name"] for s in container_snapshots.list_snapshots("web")] == ["two"]
+    assert container_snapshots.list_snapshots(place / "web") == []
+    assert not container_snapshots.exists(place / "web", "two")
+    container_snapshots.create(place / "web", "two")
+    assert [s["name"] for s in container_snapshots.list_snapshots(place / "web")] == ["two"]
 
 
 def test_a_full_copy_needs_room_for_it(place, monkeypatch):
     Usage = namedtuple("Usage", "total used free")
     monkeypatch.setattr(container_snapshots.shutil, "disk_usage", lambda p: Usage(10**12, 0, 1024))
     with pytest.raises(container_snapshots.SnapshotError, match="Not enough free space"):
-        container_snapshots.create("web", "one")
-    assert container_snapshots.list_snapshots("web") == []
+        container_snapshots.create(place / "web", "one")
+    assert container_snapshots.list_snapshots(place / "web") == []
 
 
 def test_snapshots_follow_the_container(place):
-    container_snapshots.create("web", "one")
+    container_snapshots.create(place / "web", "one")
     os.rename(place / "web", place / "www")
     container_snapshots.rename_all("web", "www", place)
-    assert [s["name"] for s in container_snapshots.list_snapshots("www")] == ["one"]
-    container_snapshots.delete_all("www")
+    assert [s["name"] for s in container_snapshots.list_snapshots(place / "www")] == ["one"]
+    container_snapshots.delete_all("www", place)
     assert not (place / ".snapshots" / "www").exists()
 
 
@@ -151,6 +150,8 @@ def test_snapshots_follow_the_container(place):
 
 
 class Domain:
+    home = None  # the containers directory its filesystem is in (the place fixture's)
+
     def __init__(self, name, active=False):
         self._name, self.active, self.started = name, active, False
 
@@ -161,7 +162,10 @@ class Domain:
         self.started = True
 
     def XMLDesc(self, flags=0):
-        return f"<domain type='lxc'><name>{self._name}</name></domain>"
+        return (
+            f"<domain type='lxc'><name>{self._name}</name><devices><filesystem type='mount'>"
+            f"<source dir='{self.home / self._name}'/><target dir='/'/></filesystem></devices></domain>"
+        )
 
     def name(self):
         return self._name
@@ -181,9 +185,13 @@ class Conn:
 
 
 @pytest.fixture()
-def api(place, monkeypatch):
+def api(place, monkeypatch, daemon_libvirt, daemon_lxc):
+    monkeypatch.setattr(Domain, "home", place)
+    monkeypatch.setattr(container_ops, "CONTAINERS_DIR", place)
     domains = {"web": Domain("web")}
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: Conn(domains))
+    daemon_lxc(Conn(domains))  # hyperlite-daemon starts, renames and deletes the containers
+    daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
     monkeypatch.setattr(containers, "_summary", lambda domain: {"name": domain.name()})
     return domains
 
@@ -214,7 +222,7 @@ def test_the_api_takes_lists_restores_and_deletes(client, auth_headers, api, pla
     assert client.get("/containers/web/snapshots", headers=admin).json()["items"] == []
 
 
-def test_what_the_api_refuses(client, auth_headers, api):
+def test_what_the_api_refuses(client, auth_headers, api, place):
     admin = auth_headers("root")
     assert client.post("/containers/web/snapshots", json={"name": "a"}, headers=admin).status_code == 422
     assert (
@@ -227,7 +235,7 @@ def test_what_the_api_refuses(client, auth_headers, api):
     assert client.post("/containers/web/snapshots/none/restore", headers=admin).status_code == 404
     assert client.delete("/containers/web/snapshots/none", headers=admin).status_code == 404
 
-    container_snapshots.create("web", "clean")
+    container_snapshots.create(place / "web", "clean")
     api["web"].active = True
     taken = client.post("/containers/web/snapshots", json={"name": "other"}, headers=admin)
     assert taken.status_code == 409 and "Stop the container" in taken.json()["detail"]
@@ -238,9 +246,9 @@ def test_what_the_api_refuses(client, auth_headers, api):
     assert again.status_code == 409 and "already exists" in again.json()["detail"]
 
 
-def test_a_container_busy_with_a_snapshot_refuses_the_rest(client, auth_headers, api):
+def test_a_container_busy_with_a_snapshot_refuses_the_rest(client, auth_headers, api, place):
     admin = auth_headers("root")
-    container_snapshots.create("web", "clean")
+    container_snapshots.create(place / "web", "clean")
     with container_snapshots.claim("web", "a snapshot restore"):
         for method, path, body in (
             ("post", "/containers/web/start", None),
@@ -261,7 +269,7 @@ def test_a_container_busy_with_a_snapshot_refuses_the_rest(client, auth_headers,
 
 
 def test_a_container_deleted_takes_its_snapshots(client, auth_headers, api, place, monkeypatch):
-    container_snapshots.create("web", "clean")
+    container_snapshots.create(place / "web", "clean")
 
     class Doomed(Domain):
         def destroy(self):
@@ -270,12 +278,6 @@ def test_a_container_deleted_takes_its_snapshots(client, auth_headers, api, plac
         def undefine(self):
             pass
 
-        def XMLDesc(self, flags=0):
-            return ET.tostring(
-                ET.fromstring("<domain type='lxc'><name>web</name><devices/></domain>"), encoding="unicode"
-            )
-
     api["web"] = Doomed("web")
-    monkeypatch.setattr(containers, "delete_container_rootfs", lambda name: shutil.rmtree(place / name))
     assert client.delete("/containers/web?confirm=true", headers=auth_headers("root")).status_code == 200
     assert not (place / ".snapshots" / "web").exists() and not (place / "web").exists()

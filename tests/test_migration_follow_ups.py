@@ -5,13 +5,16 @@ the VM had left and could later start a second copy of it there."""
 
 import pytest
 
-from app.core import audit, checkpoints, ha, network_alloc, object_meta, snapshot_carry, vm_boot
+from app.core import audit, checkpoints, ha, network_alloc, object_meta, snapshot_carry, vm_boot, vm_migrate
 from app.core import cluster as cluster_mod
 from app.core.tasks import create_task
 from app.routers.vms import migration
 
 
 class FakeDomain:
+    def isActive(self):
+        return True
+
     def XMLDesc(self, flags=0):
         return "<domain><name>web</name><devices/></domain>"
 
@@ -31,14 +34,14 @@ class FakeConn:
 
 
 @pytest.fixture()
-def migrate(database, monkeypatch):
-    monkeypatch.setattr(migration, "open_conn", lambda node=None: FakeConn())
-    monkeypatch.setattr(migration, "_ensure_networks_active", lambda conn, names: None)
-    monkeypatch.setattr(migration, "domain_disk_paths", lambda domain: [])
-    monkeypatch.setattr(migration, "uses_shared_storage", lambda *a: True)
+def migrate(database, monkeypatch, daemon_libvirt):
+    daemon_libvirt(FakeConn())  # both nodes' libvirt, as hyperlite-daemon opens them with the cluster's key
+    monkeypatch.setattr(vm_migrate, "_ensure_networks_active", lambda conn, names: None)
+    monkeypatch.setattr(vm_migrate, "domain_disk_paths", lambda domain: [])
+    monkeypatch.setattr(vm_migrate, "uses_shared_storage", lambda *a: True)
     monkeypatch.setattr(network_alloc, "carry_reservations", lambda *a: ([], []))
     monkeypatch.setattr(network_alloc, "release_reservations", lambda *a: None)
-    monkeypatch.setattr(checkpoints, "release", lambda *a: None)
+    monkeypatch.setattr(checkpoints, "drop", lambda *a: 0)
     monkeypatch.setattr(snapshot_carry, "stash", lambda domain: None)
     monkeypatch.setattr(cluster_mod, "get_node", lambda key: {"hostname": "10.0.0.2"})
     monkeypatch.setattr(cluster_mod, "build_libvirt_uri", lambda node: "qemu+ssh://root@10.0.0.2/system")
@@ -98,11 +101,11 @@ def test_the_default_pool_is_made_on_the_destination_before_the_disk_is_copied(m
     """A fresh node defines the 'default' pool only when something first asks for it, and libvirt creates the copied
     disk through the pool of its directory: the migration failed with "no storage pool with matching target path"."""
     order = []
-    monkeypatch.setattr(migration, "domain_disk_paths", lambda domain: ["/var/lib/libvirt/images/web.qcow2"])
-    monkeypatch.setattr(migration, "uses_shared_storage", lambda *a: False)
-    monkeypatch.setattr(migration, "refresh_pools_for_paths", lambda *a: None, raising=False)
-    monkeypatch.setattr(migration, "_delete_paths_on_node", lambda *a: None)
-    monkeypatch.setattr(migration, "ensure_default_pool", lambda conn: order.append("pool"))
+    monkeypatch.setattr(vm_migrate, "domain_disk_paths", lambda domain: ["/var/lib/libvirt/images/web.qcow2"])
+    monkeypatch.setattr(vm_migrate, "uses_shared_storage", lambda *a: False)
+    monkeypatch.setattr(vm_migrate, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_migrate, "delete_paths_on_node", lambda *a: None)
+    monkeypatch.setattr(vm_migrate, "ensure_default_pool", lambda conn: order.append("pool"))
     monkeypatch.setattr(FakeDomain, "migrateToURI3", lambda self, uri, params, flags: order.append("migrate"))
     task, _ = migrate["run"]()
     assert task["status"] == "succeeded", task
@@ -111,8 +114,8 @@ def test_the_default_pool_is_made_on_the_destination_before_the_disk_is_copied(m
 
 def test_no_pool_is_made_for_a_disk_elsewhere(monkeypatch):
     made = []
-    monkeypatch.setattr(migration, "ensure_default_pool", lambda conn: made.append(conn))
-    migration._ensure_default_pool_for("dest", ["/mnt/pve/nfs/web.qcow2", "/var/lib/libvirt/images/sub/x.qcow2"])
+    monkeypatch.setattr(vm_migrate, "ensure_default_pool", lambda conn: made.append(conn))
+    vm_migrate._ensure_default_pool_for("dest", ["/mnt/pve/nfs/web.qcow2", "/var/lib/libvirt/images/sub/x.qcow2"])
     assert made == []
-    migration._ensure_default_pool_for("dest", ["/var/lib/libvirt/images/web.qcow2"])
+    vm_migrate._ensure_default_pool_for("dest", ["/var/lib/libvirt/images/web.qcow2"])
     assert made == ["dest"]

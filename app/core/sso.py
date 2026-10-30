@@ -35,7 +35,6 @@ import jwt
 
 from app.core import secrets_crypto
 from app.core.http_safety import require_http_url
-from app.core.security import hash_password
 
 STATE_TTL_S = 600  # 10 min: enough time to authenticate at the IdP, no more
 HANDOFF_TTL_S = 60  # from the callback to the dashboard asking for its session: a redirect, a page load
@@ -95,9 +94,7 @@ def set_config(**fields):
     unknown = set(fields) - CONFIG_COLUMNS
     if unknown:
         raise ValueError(f"Unknown SSO configuration field(s): {', '.join(sorted(unknown))}")
-    if fields.get("client_secret"):
-        fields["client_secret"] = secrets_crypto.encrypt(fields["client_secret"])
-    _store().save_sso_config(fields)
+    _store().save_sso_config(fields)  # hyperlite-daemon seals the client secret (step 4b)
 
 
 def _http_get_json(url):
@@ -244,7 +241,9 @@ def resolve_role(config, claims):
     admin_groups = {g.strip() for g in (config.get("admin_groups") or "").split(",") if g.strip()}
     if not admin_groups:
         return "viewer"
-    user_groups = set(claims.get(config.get("group_claim") or "groups") or [])
+    groups = claims.get(config.get("group_claim") or "groups") or []
+    # Some identity providers send one group as a string, not a list: one group, never its characters.
+    user_groups = {groups} if isinstance(groups, str) else {g for g in groups if isinstance(g, str)}
     return "admin" if user_groups & admin_groups else "viewer"
 
 
@@ -270,7 +269,7 @@ def provision_user(username, role, subject=None):
     before this was recorded are bound to the first subject that signs in to them."""
     from app.repositories.sqlite import identity
 
-    outcome, row = _store().provision_sso_user(username, role, subject, lambda: hash_password(secrets.token_hex(32)))
+    outcome, row = _store().provision_sso_user(username, role, subject)
     if outcome == identity.LOCAL_ACCOUNT:
         raise LocalAccountConflict(row["username"])
     if outcome == identity.OTHER_SUBJECT:

@@ -5,6 +5,7 @@ import LibraryPage from "../pages/LibraryPage";
 import AutomationPage from "../pages/AutomationPage";
 import NodesPage from "../pages/NodesPage";
 import HaPage from "../pages/HaPage";
+import DrsPage from "../pages/DrsPage";
 import NotificationsPage from "../pages/NotificationsPage";
 import ContainersPage from "../pages/ContainersPage";
 import KubernetesPage from "../pages/KubernetesPage";
@@ -31,6 +32,7 @@ import VmAdvancedPage from "../pages/VmAdvanced";
 import MetricsPage from "../pages/MetricsPage";
 import ApiPage from "../pages/ApiPage";
 import CfsPage from "../pages/CfsPage";
+import SitesPage from "../pages/SitesPage";
 import { NodeUpdatesPage } from "../pages/NodeHostSystem";
 import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPermissions";
 
@@ -38,7 +40,7 @@ import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPerm
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage,
+  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage, sites: SitesPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,

@@ -1,6 +1,7 @@
 """The SPICE proxy (docs/design/spice-console.md), as Proxmox VE's spiceproxy: virt-viewer sends
 `CONNECT <ticket>:<port>` here (the .vv names this proxy), and the proxy relays the connection to the VM's SPICE TLS
-port on 127.0.0.1 of its node, through the cluster's SSH connection for another node, as the noVNC console does.
+port on 127.0.0.1 of its node, which hyperlite-daemon connects to (through the cluster's SSH for another node) and
+hands over, as for the noVNC console.
 
 It cannot be Hyperlite's HTTPS port: uvicorn answers CONNECT with 400 (httptools), or hands it to the application with
 no way to take over the socket (h11). So it is a listener of its own, in the same process, started with the API.
@@ -40,7 +41,7 @@ def issue(vm_name, node, port, ttl_s=spice.TICKET_TTL_S):
 
 
 def admit(request_line):
-    """(node, port) for a valid `CONNECT <ticket>:<port> HTTP/1.x` line, else None."""
+    """(VM name, node, port) for a valid `CONNECT <ticket>:<port> HTTP/1.x` line, else None."""
     parts = request_line.split()
     if len(parts) != 3 or parts[0] != "CONNECT" or not parts[2].startswith("HTTP/1."):
         return None
@@ -48,23 +49,10 @@ def admit(request_line):
     entry = TICKETS.get(ticket)
     if entry is None or not port.isdigit():
         return None
-    _vm, node, ticket_port, expiry = entry
+    vm, node, ticket_port, expiry = entry
     if time.time() > expiry or int(port) != ticket_port:
         return None
-    return node, ticket_port
-
-
-async def _open(node, port):
-    if node is None:
-        return await asyncio.open_connection("127.0.0.1", port), None
-    from app.routers.vms.console import _connect_to_node
-
-    ssh = await _connect_to_node(node)
-    try:
-        return await ssh.open_connection("127.0.0.1", port), ssh
-    except Exception:
-        ssh.close()
-        raise
+    return vm, node, ticket_port
 
 
 async def _pipe(reader, writer):
@@ -109,11 +97,16 @@ async def _serve(client_reader, client_writer):
         logger.warning("SPICE proxy: refused a connection from %s (no valid ticket)", peer[0] if peer else "?")
         await _refuse(client_writer, "403 Forbidden")
         return
-    node, port = target
+    vm, node, _port = target  # the daemon reads the port from the definition
+    from app.core import pty_session
+    from app.daemon.registry import DaemonError
+    from app.routers.vms.console import open_display
+
     try:
-        (vm_reader, vm_writer), ssh = await _open(node, port)
-    except Exception:
-        logger.warning("SPICE proxy: cannot reach port %s%s", port, f" on {node}" if node else "", exc_info=True)
+        # hyperlite-daemon connects to the VM's SPICE TLS port, read from its definition, on its node.
+        vm_reader, vm_writer, session = await open_display(vm, node, "spice")
+    except (DaemonError, OSError) as e:
+        logger.warning("SPICE proxy: cannot reach the display of %s%s: %s", vm, f" on {node}" if node else "", e)
         await _refuse(client_writer, "502 Bad Gateway")
         return
     client_writer.write(b"HTTP/1.0 200 Connection established\r\n\r\n")
@@ -121,8 +114,7 @@ async def _serve(client_reader, client_writer):
         await client_writer.drain()
         await asyncio.gather(_pipe(client_reader, vm_writer), _pipe(vm_reader, client_writer))
     finally:
-        if ssh is not None:
-            ssh.close()
+        await pty_session.end(session, None)
 
 
 async def start(host=None, port=None):

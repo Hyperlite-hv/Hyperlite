@@ -376,7 +376,7 @@ def check_vm_migration(src, dst, domain):
                     _c(
                         f"disk:{target}",
                         BLOCKING,
-                        f"Disk {target} is on shared storage purpose is based on {local_base}, which only this node has",
+                        f"Disk {target} is on shared storage but is based on {local_base}, which only this node has",
                         action="copy the base image to the same path on the destination, or merge it into the disk "
                         "(virsh blockpull)",
                     )

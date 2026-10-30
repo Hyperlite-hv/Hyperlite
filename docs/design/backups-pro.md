@@ -1,6 +1,7 @@
 # Design: professional-grade backups
 
-Status: **proposal, waiting for the maintainer's decision.** No code is written before it is accepted.
+Status: **partly done, partly replaced.** Steps 1 (manifest and verify) and 5 (retention) are done; steps 2 to 4 and
+6 are replaced by a chunk store, `docs/design/backup-store.md` (2026-10-24).
 
 ## 1. Where we are (`app/core/backups.py`)
 

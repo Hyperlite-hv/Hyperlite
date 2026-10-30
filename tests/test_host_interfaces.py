@@ -82,6 +82,10 @@ class _Conn:
     def networkLookupByName(self, name):
         import libvirt
 
+        # As libvirt: a network is found once defined (the route reads it back after hyperlite-daemon made it).
+        for xml in self.defined:
+            if ET.fromstring(xml).findtext("name") == name:
+                return _Net(xml)
         raise libvirt.libvirtError("no network")
 
     def networkDefineXML(self, xml):
@@ -93,14 +97,15 @@ class _Conn:
 
 
 @pytest.fixture()
-def api(database, sysnet, monkeypatch):
+def api(database, sysnet, monkeypatch, daemon_libvirt):
     from app.core import host_interfaces
     from app.routers import network
 
     conn = _Conn()
     monkeypatch.setattr(host_interfaces, "SYS_NET", sysnet)
     monkeypatch.setattr(host_interfaces, "_addresses", lambda: {})
-    monkeypatch.setattr(network, "open_conn", lambda node=None: conn)
+    monkeypatch.setattr(network, "open_conn", lambda node=None, **_k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon's own connection, in this process
     return conn
 
 

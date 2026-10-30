@@ -12,17 +12,21 @@ The claim is taken synchronously by the endpoint, so the refusal reaches the
 caller, and released by the background thread when the work ends:
 
     claim = vm_locks.claim(name, "Restore")      # raises VmBusy
-    threading.Thread(target=job, args=(claim,)).start()
+    tasks.start_thread(job, claim)               # keeps the request's proof (app/core/tasks.py)
     ...
     def job(claim):
         with claim:                              # released on exit, whatever happens
             ...
+
+The claim is shared with the other processes that work on VMs (app/core/shared_claims.py): an operation the
+schedulers run refuses a second one the API is asked for, and the other way round.
 """
 
 import threading
 
-_registry_lock = threading.Lock()
-_held = {}  # (node, vm name) -> label of the running operation
+from app.core import shared_claims
+
+KIND = "vm"
 
 
 class VmBusy(RuntimeError):
@@ -31,8 +35,8 @@ class VmBusy(RuntimeError):
         self.running = running
 
 
-def _key(name, node):
-    return (node or "local", name)
+def _node(node):
+    return node or "local"
 
 
 class Claim:
@@ -48,8 +52,7 @@ class Claim:
             if self._released:
                 return
             self._released = True
-        with _registry_lock:
-            _held.pop(self._key, None)
+        shared_claims.release(self._key)
 
     def __enter__(self):
         return self
@@ -61,26 +64,21 @@ class Claim:
 
 def claim(name, what, node=None):
     """Claim VM `name` (on `node`, the local host by default) for operation `what`.
-    Raises VmBusy when another operation holds it."""
-    key = _key(name, node)
-    with _registry_lock:
-        running = _held.get(key)
-        if running is not None:
-            raise VmBusy(name, running)
-        _held[key] = what
-    return Claim(key)
+    Raises VmBusy when another operation holds it, in this process or another."""
+    try:
+        return Claim(shared_claims.take(KIND, _node(node), name, what))
+    except shared_claims.Busy as e:
+        raise VmBusy(name, e.running) from None
 
 
 def running(name, node=None):
     """Label of the operation holding the VM, or None."""
-    with _registry_lock:
-        return _held.get(_key(name, node))
+    return shared_claims.holder(KIND, _node(node), name)
 
 
 def busy_on_node(node):
     """Labels of the operations running on VMs of `node` (the local host for None)."""
-    with _registry_lock:
-        return [what for (n, _vm), what in _held.items() if n == (node or "local")]
+    return shared_claims.held_on(KIND, _node(node))
 
 
 def claim_or_409(name, what, node=None):

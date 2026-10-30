@@ -1,6 +1,6 @@
 """Live load and identity of a node (the local host or a registered remote node).
 
-libvirt exposes the CPU and memory of a node purpose neither its disk and network
+libvirt exposes the CPU and memory of a node but neither its disk and network
 throughput nor its kernel or OS name, so one small shell probe reads the same
 kernel files for every node: run locally for this host, over the cluster SSH
 trust for a remote node (one round trip per node and per sample). Parsing is
@@ -140,9 +140,33 @@ def run_probe(node=None):
     return run_probe_script(PROBE_SCRIPT, node)
 
 
+def _probes():
+    """The fixed scripts hyperlite-daemon runs on another node, by name: the API names one, never sends a script."""
+    from app.core import node_hardware
+
+    return {"stats": PROBE_SCRIPT, "hardware": node_hardware.PROBE_SCRIPT}
+
+
 def run_probe_script(script, node=None):
-    """Runs a read-only shell script on the local host or, over the cluster SSH trust,
-    on a registered remote node. The script is fixed code, never user input."""
+    """Runs a read-only shell script on the local host or, through hyperlite-daemon over the cluster SSH trust
+    (node.probe), on a registered remote node. The script is fixed code, never user input."""
+    if node is None:
+        return run_script_on(script, None)
+    from app.core import node_health, privileged
+    from app.daemon.registry import DaemonError
+
+    if node_health.is_down(node):
+        return None  # not even asked: the daemon would answer the same (run_script_on)
+    name = next(k for k, v in _probes().items() if v == script)
+    try:
+        return privileged.run("node.probe", node=node["name"], probe=name)["output"]
+    except DaemonError as e:
+        logger.debug("Probe of %s failed: %s", node["name"], e.detail)
+        return None
+
+
+def run_script_on(script, node=None):
+    """run_probe_script's work, hyperlite-daemon's for another node."""
     if node is None:
         cmd = ["bash", "-s"]
     else:

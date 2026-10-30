@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import xml.etree.ElementTree as ET
@@ -12,35 +13,53 @@ LIBVIRT_URI = "qemu:///system"
 LXC_URI = "lxc:///system"
 
 
-def open_lxc_conn():
-    """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
-    SEPARATE from qemu:///system (same libvirtd daemon, purpose VM and container
-    domains do not share the same list: a qemu:///system connection never
-    sees a container, and vice versa). There is no multi-node support for now
-    (unlike open_conn): local containers only in this first version."""
+NO_LXC = "This node has no LXC driver (libvirt-daemon-driver-lxc), so it runs no containers"
+
+
+def _lxc():
     conn = libvirt.open(LXC_URI)
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt (LXC) connection")
     return conn
 
 
+def open_lxc_conn():
+    """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
+    SEPARATE from qemu:///system (same libvirtd daemon, but VM and container
+    domains do not share the same list: a qemu:///system connection never
+    sees a container, and vice versa). There is no multi-node support for now
+    (unlike open_conn): local containers only in this first version. A node without the LXC driver answers 501
+    for a container named by the user, not a 500 with libvirt's error."""
+    try:
+        return _lxc()
+    except libvirt.libvirtError as e:
+        logger.info("No LXC connection on this node: %s", e)
+        raise HTTPException(status_code=501, detail=NO_LXC) from None
+
+
 def open_lxc_conn_if_any():
     """The LXC connection, or None when this node has no LXC driver (libvirt installed without it, as on a VM-only
     host or a CI runner): it then simply has no containers. What looks for every guest of the node (a network's, a
-    shutdown's) goes through this; what acts on a container named by the user uses open_lxc_conn."""
+    shutdown's, the list of containers) goes through this; what acts on a container named by the user uses
+    open_lxc_conn."""
     try:
-        return open_lxc_conn()
+        return _lxc()
     except libvirt.libvirtError as e:
         logger.info("No LXC connection on this node, so no containers: %s", e)
         return None
 
 
-def open_conn(node_name=None):
+def open_conn(node_name=None, readonly=False):
     """node_name=None (the default): unchanged local connection, so every existing
     call (dozens, across all routers) keeps working without any change.
     node_name='<registered name>': remote connection through qemu+ssh://
     (see app/core/cluster.py) to a registered cluster node. A node the cluster
-    sees down is refused at once (node_health.NodeDown, 503), never waited for."""
+    sees down is refused at once (node_health.NodeDown, 503), never waited for.
+
+    readonly: another node's connection through hyperlite-daemon's tunnel to its read-only libvirt
+    (app/core/node_tunnel.py), which needs no key here; what changes that node goes through the daemon's operations
+    (`node`). The connection opened with the cluster's key stays for HA and migration until they move
+    (docs/design/privilege-separation.md, section 13, the cluster domain)."""
     if node_name and node_name != "local":
         from app.core import node_health
         from app.core.cluster import get_node, libvirt_uri_from_here
@@ -49,6 +68,8 @@ def open_conn(node_name=None):
         if not node:
             raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
         node_health.check(node)
+        if readonly:
+            return _through_tunnel(node_name)
         uri = libvirt_uri_from_here(node)
     else:
         uri = LIBVIRT_URI
@@ -64,6 +85,84 @@ def open_conn(node_name=None):
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt connection")
     return conn
+
+
+@contextlib.contextmanager
+def local_conn():
+    """This node's own libvirt, closed on the way out: the one hyperlite-daemon's operations read and write
+    (app/daemon/ops), never another member's nor a URI the API names. Called as libvirt_utils.local_conn(), so the
+    tests fake the daemon's libvirt in one place (the daemon_libvirt fixture)."""
+    conn = open_local()
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _through_tunnel(name):
+    from app.core import node_tunnel, privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        privileged.run("node.tunnel", node=name)
+        conn = libvirt.openReadOnly(node_tunnel.uri(name))
+    except (DaemonError, libvirt.libvirtError) as e:
+        from app.core.error_messages import describe_exception
+
+        reason = e.detail if isinstance(e, DaemonError) else describe_exception(e)
+        raise HTTPException(status_code=502, detail=f"Node unreachable: {reason}") from e
+    if conn is None:
+        raise HTTPException(status_code=502, detail="Node unreachable")
+    return conn
+
+
+@contextlib.contextmanager
+def node_conn(node=None):
+    """hyperlite-daemon's connection that may write: this node's own libvirt (None), or a node registered over SSH
+    only's, opened with the cluster's key, which only the daemon reads. Called as libvirt_utils.node_conn(), faked by
+    the daemon_libvirt fixture. Its refusals are the daemon's, with the statuses open_conn gave: a node that is not
+    registered 404, one seen down 503, one that does not answer 502."""
+    if not node or node == "local":
+        with local_conn() as conn:
+            yield conn
+        return
+    from app.core import node_health
+    from app.core.cluster import get_node, libvirt_uri_from_here
+    from app.core.error_messages import describe_exception
+    from app.daemon.registry import DaemonError
+
+    row = get_node(node)
+    if row is None:
+        raise DaemonError("not_found", f"Node '{node}' not found")
+    try:
+        node_health.check(row)
+    except node_health.NodeDown as e:
+        raise DaemonError("unavailable", e.detail) from None
+    try:
+        conn = libvirt.open(libvirt_uri_from_here(row))
+    except libvirt.libvirtError as e:
+        raise DaemonError("unreachable", f"Node unreachable: {describe_exception(e)}") from None
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@contextlib.contextmanager
+def local_lxc_conn():
+    """This node's own LXC driver, closed on the way out: the containers hyperlite-daemon's operations act on
+    (app/daemon/ops/container.py). Called as libvirt_utils.local_lxc_conn(), faked by the daemon_lxc fixture."""
+    conn = libvirt.open(LXC_URI)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def open_local():
+    """This node's own libvirt, left open: for a caller whose work outlives the call (the guest agents' questions in
+    flight, app/daemon/ops/vm.py); libvirt closes it once nothing holds it any more."""
+    return libvirt.open(LIBVIRT_URI)
 
 
 def get_vm_uptime_s(vm_name):
@@ -328,3 +427,21 @@ def ensure_vnc_graphics(conn, domain):
     new_xml = ET.tostring(root, encoding="unicode")
     conn.defineXML(new_xml)
     return True
+
+
+def has_serial(xml):
+    """A serial port, or a console on one, in this definition: what the serial console (`virsh console`) reaches."""
+    devices_el = ET.fromstring(xml).find("devices")
+    return devices_el is not None and (devices_el.find("serial") is not None or devices_el.find("console") is not None)
+
+
+def add_serial_port(conn, domain):
+    """Give a VM without a serial port one, in its configuration: a serial port cannot be plugged into a running
+    VM, so a running one gets it at its next start."""
+    root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
+    devices_el = root.find("devices")
+    serial = ET.SubElement(devices_el, "serial", type="pty")
+    ET.SubElement(serial, "target", port="0")
+    console = ET.SubElement(devices_el, "console", type="pty")
+    ET.SubElement(console, "target", type="serial", port="0")
+    conn.defineXML(ET.tostring(root, encoding="unicode"))

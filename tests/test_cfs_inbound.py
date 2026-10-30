@@ -160,7 +160,7 @@ def test_a_reset_or_empty_daemon_is_not_applied(cluster):
     assert "older than" in inbound.report()["problem"]
     assert object_meta.get("vm", "web")["notes"] == "kept"
 
-    cluster.version = 10_000  # newer, purpose empty
+    cluster.version = 10_000  # newer, but empty
     assert inbound.apply() is None
     assert "no configuration" in inbound.report()["problem"]
     assert object_meta.get("vm", "web")["notes"] == "kept"

@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
-from app.core import linked_disks, templates_store
+from app.core import linked_disks, templates_store, vm_templates
 from app.routers import templates
 from tests.test_linked_disks import _qcow2
 
@@ -69,16 +69,17 @@ class _Conn:
 
 
 @pytest.fixture()
-def lab(database, tmp_path, monkeypatch):
+def lab(database, tmp_path, monkeypatch, daemon_libvirt):
     """A templates directory and an images directory of their own, and a libvirt whose VMs this test defines."""
     tpl_dir, images = tmp_path / "templates", tmp_path / "images"
     tpl_dir.mkdir()
     images.mkdir()
     conn = _Conn()
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tpl_dir)
-    monkeypatch.setattr(templates, "IMAGES_DIR", images)
-    monkeypatch.setattr(templates, "open_conn", lambda *a: conn)
-    monkeypatch.setattr(templates, "refresh_pools_for_paths", lambda *a: None)
+    monkeypatch.setattr(vm_templates, "IMAGES_DIR", images)
+    conn_ = daemon_libvirt(conn)
+    monkeypatch.setattr(templates, "open_conn", lambda *a, **_k: conn_)
+    monkeypatch.setattr(vm_templates, "refresh_pools_for_paths", lambda *a: None)
     monkeypatch.setattr(templates.maintenance, "refuse_if_in_maintenance", lambda *a: None)
 
     def template(name, real=False):
@@ -154,13 +155,19 @@ def test_a_template_with_linked_clones_is_neither_deleted_nor_renamed(lab, clien
     assert client.delete("/templates/renamed?confirm=true", headers=admin).status_code == 200
 
 
-def test_without_libvirt_the_list_still_answers_and_nothing_is_removed(lab, client, auth_headers, monkeypatch):
+def test_without_libvirt_the_list_still_answers_and_nothing_is_removed(
+    lab, client, auth_headers, monkeypatch, daemon_libvirt
+):
     lab["template"]("base")
 
-    def down(*a):
+    def down(*a, **_k):
         raise libvirt.libvirtError("Failed to connect socket")
 
+    class Down:
+        listAllDomains = down
+
     monkeypatch.setattr(templates, "open_conn", down)
+    daemon_libvirt(Down())
     admin = auth_headers("root")
     assert client.get("/templates", headers=admin).json()["items"][0]["linked_clones"] is None
     r = client.delete("/templates/base?confirm=true", headers=admin)

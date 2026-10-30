@@ -30,6 +30,9 @@ bridge-utils
 ovmf
 swtpm
 swtpm-tools
+# HA fencing through a node's BMC (IPMI, Redfish): app/core/ha_fencing.py.
+fence-agents-ipmilan
+fence-agents-redfish
 
 # Images, cloud-init and containers
 genisoimage

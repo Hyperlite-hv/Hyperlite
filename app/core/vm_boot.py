@@ -18,6 +18,7 @@ import libvirt
 from app.core import vm_locks
 from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn
+from app.daemon.registry import DaemonError
 
 
 def _store():
@@ -83,7 +84,7 @@ def run_sequence(node=None, sleep=time.sleep):
     if not steps:
         return []
     results = []
-    conn = open_conn(None if _node_key(node) == LOCAL else node)
+    conn = open_conn(None if _node_key(node) == LOCAL else node, readonly=True)
     try:
         for step in steps:
             name = step["name"]
@@ -96,6 +97,12 @@ def run_sequence(node=None, sleep=time.sleep):
             if domain.isActive():
                 results.append((name, "already_enabled"))
                 continue
+            from app.core import ha
+
+            if ha.moved_away(name):  # HA restarted it on another member while this one was down
+                logger.warning("Start at boot: VM %s runs on another member now (HA), not started here", name)
+                results.append((name, "moved"))
+                continue
             busy = vm_locks.running(name, None if _node_key(node) == LOCAL else node)
             if busy:  # its disks are being copied or replaced: started meanwhile, it would write to them
                 logger.warning("Start at boot: VM %s is busy (%s), not started", name, busy)
@@ -103,10 +110,15 @@ def run_sequence(node=None, sleep=time.sleep):
                 results.append((name, "busy"))
                 continue
             try:
-                domain.create()
-            except libvirt.libvirtError as e:
-                logger.error("Start at boot: VM %s did not start on %s: %s", name, _node_key(node), e)
-                log_action("system", "autostart_vm", name, "failed", str(e))
+                # Started by hyperlite-daemon (app/daemon/ops/vm.py), here or on the node registered over SSH only.
+                from app.core import privileged
+
+                remote = None if _node_key(node) == LOCAL else node
+                privileged.run("vm.power", user="system", vm=name, action="start", node=remote)
+            except (libvirt.libvirtError, DaemonError) as e:
+                reason = e.detail if isinstance(e, DaemonError) else str(e)
+                logger.error("Start at boot: VM %s did not start on %s: %s", name, _node_key(node), reason)
+                log_action("system", "autostart_vm", name, "failed", reason)
                 results.append((name, "failed"))
                 continue
             log_action("system", "autostart_vm", name, "success", f"{_node_key(node)}: order {step['position']}")
@@ -127,18 +139,15 @@ def _local_boot_id():
 
 
 def remote_boot_id(node_row):
-    """The boot id of a registered node, read over the cluster's SSH trust; None when unreachable."""
-    from app.core.cluster import _run_ssh  # late import: cluster.py imports much of the core
+    """The boot id of a registered node, read by hyperlite-daemon over the cluster's SSH trust (node.facts); None when
+    unreachable."""
+    from app.core import privileged
 
     try:
-        r = _run_ssh(node_row, ["cat", str(BOOT_ID_FILE)], timeout=10)
-    except (OSError, ValueError) as e:
-        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], e)
+        return privileged.run("node.facts", node=node_row["name"])["boot_id"]
+    except DaemonError as e:
+        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], e.detail)
         return None
-    if r.returncode != 0:
-        logger.warning("Cannot read the boot id of %s: %s", node_row["name"], r.stderr.strip())
-        return None
-    return r.stdout.strip() or None
 
 
 def boot_if_new(node, boot_id):
@@ -162,6 +171,12 @@ def _boot_when_writable():
 
     while cluster_lead.paused("Start at boot"):
         time.sleep(QUORUM_WAIT_S)
+    from app.core import ha
+
+    try:
+        ha.forget_moved()  # before anything starts: the VMs HA moved while this node was down
+    except Exception:
+        logger.exception("The VMs HA moved away could not be undefined: they are not started here anyway")
     boot_if_new(LOCAL, _local_boot_id())
 
 

@@ -37,7 +37,7 @@ from pydantic import BaseModel
 
 from app.core import host_system, offline_update, paths, version
 from app.core.audit import log_action
-from app.core.database import DB_PATH
+from app.core.database import DB_PATH, access_path
 from app.core.http_safety import require_http_url
 from app.core.security import require_role
 from app.core.tasks import create_task, finish_task, task_log, update_task_progress
@@ -125,6 +125,9 @@ _BACKUP_EXCLUDES = [
     "--exclude=dashboard/node_modules",
     "--exclude=dashboard/dist",
     "--exclude=.git",
+    # The permission tables' file is copied on its own, consistently, as the database is; a rollback that extracts the
+    # archive never puts an older one back over it.
+    "--exclude=access.db*",
 ]
 
 
@@ -138,7 +141,7 @@ UPDATE_BACKUPS_KEPT = 3
 def _prune_old_backups(directory, keep=UPDATE_BACKUPS_KEPT):
     """Keep only the newest `keep` update backups (archive and database copy); other files in the directory are
     never touched."""
-    for pattern in ("hyperlite-backup-*.tar.gz", "hyperlite-backup-*.db"):
+    for pattern in ("hyperlite-backup-*.tar.gz", "hyperlite-backup-*.db", "hyperlite-access-backup-*.db"):
         backups = sorted(Path(directory).glob(pattern), key=lambda p: p.name, reverse=True)
         for old in backups[keep:]:
             with contextlib.suppress(OSError):
@@ -164,10 +167,10 @@ def _private_file(path):
     os.chmod(path, 0o600)
 
 
-def _backup_database(dest):
+def _backup_database(dest, source=None):
     """A consistent copy of the live database (SQLite online backup: includes what is still in the WAL)."""
     _private_file(dest)
-    src = sqlite3.connect(str(DB_PATH), timeout=30)
+    src = sqlite3.connect(str(source or DB_PATH), timeout=30)
     try:
         out = sqlite3.connect(str(dest))
         try:
@@ -187,7 +190,7 @@ def _run(cmd, cwd=None, timeout=180):
 # "Candidate:") as soon as LANG/LC_ALL is not English, and the parsing in
 # _check_update_apt() then failed SILENTLY (no error, just `remote_commit: null`
 # and a wrong `up_to_date: false`). dpkg-query -f='...' is not concerned (already
-# machine-readable whatever the locale) purpose is forced here too for consistency.
+# machine-readable whatever the locale) but is forced here too for consistency.
 def _run_c(cmd, timeout=180):
     env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
     return subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True, text=True, timeout=timeout, env=env)
@@ -312,7 +315,7 @@ def _dpkg_installed_version():
 # `apt-get update` used to fail PERSISTENTLY with an inconsistent size error
 # (confirmed over 30 attempts spread over 10+ minutes, still inconsistent more
 # than 1 h 20 after the last publication, checked by querying the origin
-# directly). It was not a transient propagation window purpose a structural lack of
+# directly). It was not a transient propagation window but a structural lack of
 # strong consistency between linked files on GitHub Pages' multi-node CDN. It was
 # FIXED AT THE ROOT rather than worked around here: the repository is now served
 # directly by nginx on the publishing host, with no intermediate CDN (see
@@ -446,7 +449,7 @@ def _check_update_apt(user=None):
         if line.startswith("Candidate:"):
             candidate = version.without_epoch(line.split(":", 1)[1].strip())
     # The package can say one version while the service runs another: an update whose new code did not answer
-    # in time is rolled back from the backup, purpose dpkg still records the new package. Comparing only dpkg with
+    # in time is rolled back from the backup, but dpkg still records the new package. Comparing only dpkg with
     # the candidate then answered "up to date" and the update could never be applied again.
     running = version.STARTUP_VERSION
     rolled_back = bool(running and installed and running != installed)
@@ -578,6 +581,8 @@ def _backup(task_id):
     tarball = BACKUP_DIR / f"hyperlite-backup-{stamp}.tar.gz"
     if DB_PATH.exists():
         _backup_database(BACKUP_DIR / f"hyperlite-backup-{stamp}.db")
+    if access_path().exists():  # the permission tables' own file (app/core/database.py, ACCESS)
+        _backup_database(BACKUP_DIR / f"hyperlite-access-backup-{stamp}.db", access_path())
     _private_file(tarball)  # tar keeps the mode of an existing file: never world-readable, even for a moment
     cmd = ["tar", "czf", str(tarball), *_BACKUP_EXCLUDES, "-C", str(ARCHIVE_ROOT), *_backup_members()]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -873,8 +878,7 @@ def _start_job(user, kind, task_id, system=True):
     except DaemonError as e:
         finish_task(task_id, "failed", e.detail)
         log_action(user["username"], "hyperlite_update", e.detail, "failed")
-        status = 409 if e.kind == "refused" else 503 if e.kind == "unavailable" else 502
-        raise HTTPException(status_code=status, detail=e.detail) from None
+        raise privileged.http_error(e, refused=409) from None
 
 
 def _update_in_progress():
@@ -915,7 +919,7 @@ def _start_update(user, system=True):
         return {"task_id": task_id, "status": "running"}
 
     if _is_dirty():
-        log_action(user["username"], "hyperlite_update", "arbre non propre", "failed")
+        log_action(user["username"], "hyperlite_update", "working tree not clean", "failed")
         raise HTTPException(
             status_code=409,
             detail="Working tree is not clean (uncommitted changes): commit or discard them before updating.",
@@ -1052,7 +1056,7 @@ def _set_channel(user, name):
     except DaemonError as e:
         if e.kind == "refused":
             raise host_system.SettingError(e.detail) from None
-        raise HTTPException(status_code=503 if e.kind == "unavailable" else 502, detail=e.detail) from None
+        raise privileged.http_error(e) from None
 
 
 @router.put("/channel")

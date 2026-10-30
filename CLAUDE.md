@@ -16,7 +16,7 @@ journalctl -u hyperlite -n 100 --no-pager                 # service logs (instal
 ## Rules
 
 - Everything in the repository is **English** (code, comments, messages, docs, commits).
-- The API and the database use **French wire identifiers and values** (`nom`, `etat`, `en_cours`, `observateur`...). Never rename them silently; translate only display text (see `docs/api.md`, `dashboard/src/lib/labels.js`).
+- The API and the database use **English wire identifiers and values** since API v1 (`name`, `state`, `running`, `viewer`...; the 1.0 renames are in `docs/design/api-v1/glossary.md`). They are a contract: inside v1 a change only adds, never renames silently (see `docs/api.md`).
 - Work on a branch and open a pull request; never push to `master` directly, never force-push.
 - Do not commit secrets or private hostnames/IP addresses. `hyperlite.db` and `.env` are not tracked.
 - Comments explain *why*; no ticket numbers, dates or people in comments.

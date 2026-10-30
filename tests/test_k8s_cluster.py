@@ -66,14 +66,14 @@ def k8s(database, monkeypatch, tmp_path):
     from app.core import k8s_cluster, libvirt_utils, vm_limits
 
     conn = _Conn()
-    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None: conn)
+    monkeypatch.setattr(libvirt_utils, "open_conn", lambda node=None, **_k: conn)
     monkeypatch.setattr(vm_limits, "validate_vm_resources", lambda *a, **k: [])
     monkeypatch.setattr(k8s_cluster, "ARTIFACTS_DIR", tmp_path / "k3s")
     calls = []
     monkeypatch.setattr(k8s_cluster, "stable_version", lambda: "v1.36.4+k3s1")
     monkeypatch.setattr(k8s_cluster, "ensure_artifacts", lambda tag: tmp_path)
     monkeypatch.setattr(k8s_cluster, "_create_vm", lambda vm, *a: calls.append(("create", vm)))
-    monkeypatch.setattr(k8s_cluster, "_start_vm", lambda vm: calls.append(("start", vm)))
+    monkeypatch.setattr(k8s_cluster, "_start_vm", lambda vm, username: calls.append(("start", vm)))
     ips = {}
     monkeypatch.setattr(k8s_cluster, "wait_ssh", lambda vm: ips.setdefault(vm, f"10.0.0.{len(ips) + 10}"))
 
@@ -182,6 +182,7 @@ def test_only_administrators_create_clusters_or_read_their_credentials(k8s, clie
 
 
 def test_deleting_a_cluster_removes_its_vms_and_its_record(k8s, client, auth_headers, monkeypatch):
+    from app.core import privileged
     from app.routers.vms import lifecycle
 
     admin = auth_headers("admin")
@@ -197,11 +198,13 @@ def test_deleting_a_cluster_removes_its_vms_and_its_record(k8s, client, auth_hea
         def isActive(self):
             return True
 
-        def destroy(self):
-            deleted.append(("destroy", self.name))
+    def power(op, user=None, **args):
+        assert (op, args["action"]) == ("vm.power", "stop")  # stopped by hyperlite-daemon, as from its Stop button
+        deleted.append(("destroy", args["vm"]))
 
     k8s["conn"].vms.update({"demo-server", "demo-worker-1"})
     monkeypatch.setattr(k8s["conn"], "lookupByName", _Dom)
+    monkeypatch.setattr(privileged, "run", power)
     monkeypatch.setattr(lifecycle, "delete_vm", lambda vm, confirm, node, user: deleted.append(("delete", vm)))
 
     assert client.delete("/kubernetes/clusters/demo", headers=admin).status_code == 400

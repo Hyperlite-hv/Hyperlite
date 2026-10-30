@@ -1,47 +1,35 @@
 import logging
-import re
 import shutil
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import libvirt
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.core import cluster_view, paths
+from app.core import cluster_view, disk_library, privileged
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import open_conn, refresh_pools_for_paths
+from app.core.libvirt_utils import open_conn
 from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_role
 from app.core.tasks import create_task, finish_task
+from app.daemon.registry import DaemonError
 
 logger = logging.getLogger(__name__)
 
 # ?node= on every route: the member that holds the object does the work (app/core/cluster_view.py, on_node).
 router = APIRouter(prefix="/isos", tags=["isos"], dependencies=[Depends(cluster_view.on_node)])
 
-ISO_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,200}")
+ISO_NAME_RE = disk_library.ISO_NAME_RE
 
-ISOS_DIR = paths.ISOS
+# This node's library, written by hyperlite-daemon (app/core/disk_library.py); the VM routes read it under this name.
+ISOS_DIR = disk_library.ISOS
 ISOS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _iso_in_use(conn, iso_path: str) -> bool:
-    for domain in conn.listAllDomains():
-        try:
-            root = ET.fromstring(domain.XMLDesc(0))
-        except libvirt.libvirtError:
-            continue
-        for disk in root.findall(".//devices/disk"):
-            if disk.get("device") != "cdrom":
-                continue
-            source = disk.find("source")
-            if source is not None and source.get("file") == iso_path:
-                return True
-    return False
+    return disk_library.in_cdrom(conn, iso_path)
 
 
 @router.get("")
@@ -81,26 +69,48 @@ def copy_iso(payload: IsoCopy, user: dict = Depends(require_role("admin"))):
     return {"name": payload.name, "tasks": tasks}
 
 
-def _refresh_iso_pool(path):
-    """The ISO was written directly, not through libvirt: refresh the pool that holds it (if any) so that it is
-    listed right away. Best-effort, the upload itself succeeded."""
-    try:
-        conn = open_conn()
-    except (libvirt.libvirtError, HTTPException):
-        logger.warning("libvirt unreachable, the pool holding %s was not refreshed", path, exc_info=True)
-        return
-    try:
-        refresh_pools_for_paths(conn, [path])
-    finally:
-        conn.close()
-
-
-def _write_upload(source, partial, dest):
+def _write_upload(source, partial):
     with open(partial, "wb") as out:
         shutil.copyfileobj(source, out, 8 * 1024 * 1024)
-    if dest.exists():  # another upload of the same name finished meanwhile
-        raise FileExistsError(f"An ISO named '{dest.name}' already exists")
-    partial.rename(dest)
+
+
+async def store_upload(file, library, name, user, task_id, failed, replace=False):
+    """An upload written into the spool, then moved into its library by hyperlite-daemon (app/core/disk_library.py,
+    as pveproxy writes an upload and pvedaemon stores it). Returns its size in bytes; any failure ends the task with
+    its reason and leaves nothing in the spool."""
+    spool_name, partial = disk_library.spool_file()
+    try:
+        try:
+            # The copy (gigabytes) runs in a worker thread: in this coroutine it held up every other request meanwhile.
+            await run_in_threadpool(_write_upload, file.file, partial)
+        finally:
+            await file.close()
+        return (
+            await run_in_threadpool(
+                privileged.run,
+                "disk.library_store",
+                user=user["username"],
+                library=library,
+                spool_name=spool_name,
+                name=name,
+                replace=replace,
+            )
+        )["size"]
+    except DaemonError as e:
+        finish_task(task_id, "failed", e.detail)
+        log_action(user["username"], f"upload_{'iso' if library == 'iso' else 'vm_disk'}", name, "failed", e.detail)
+        raise privileged.http_error(e, refused=409, failed=failed) from None
+    except BaseException as e:
+        # Safety net: without it, a failing write (disk full, permissions...) would
+        # leave the task stuck in "running" forever in the task list, never
+        # "succeeded" and never "failed".
+        msg = describe_exception(e) if isinstance(e, OSError) else "upload interrupted"
+        finish_task(task_id, "failed", msg)
+        if isinstance(e, OSError):
+            raise HTTPException(status_code=500, detail=failed.format(msg)) from e
+        raise
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 @router.post("", status_code=201)
@@ -118,37 +128,18 @@ async def upload_iso(file: UploadFile = File(...), user: dict = Depends(require_
         finish_task(task_id, "failed", msg)
         raise HTTPException(status_code=422, detail=msg)
 
-    dest = safe_child(ISOS_DIR, filename)
+    dest = safe_child(disk_library.ISOS, filename)
     # An upload under an existing name replaced it silently, even in a VM's CD-ROM drive: rename or delete it first.
     if dest.exists():
         await file.close()
         msg = f"An ISO named '{filename}' already exists: rename or delete it first"
         finish_task(task_id, "failed", msg)
         raise HTTPException(status_code=409, detail=msg)
-    # Written under a temporary name, then renamed: an interrupted upload left a truncated ISO in the library. The
-    # copy (gigabytes) runs in a worker thread: in this coroutine it held up every other request meanwhile.
-    partial = dest.with_name(f".{filename}.part")
-    try:
-        try:
-            await run_in_threadpool(_write_upload, file.file, partial, dest)
-        finally:
-            await file.close()
-    except BaseException as e:
-        partial.unlink(missing_ok=True)
-        # Safety net: without it, a failing write (disk full, permissions...) would
-        # leave the task stuck in "running" forever in the task list, never
-        # "succeeded" and never "failed".
-        msg = describe_exception(e) if isinstance(e, OSError) else "upload interrupted"
-        finish_task(task_id, "failed", msg)
-        if isinstance(e, FileExistsError):
-            raise HTTPException(status_code=409, detail=str(e)) from e
-        if isinstance(e, OSError):
-            raise HTTPException(status_code=500, detail=f"Failed to write the ISO: {msg}") from e
-        raise
-
-    _refresh_iso_pool(dest)
+    # Written into the spool, then moved into the library whole: an interrupted upload never leaves a truncated ISO
+    # there, and another upload of the same name that finished meanwhile is not replaced (409).
+    size = await store_upload(file, "iso", filename, user, task_id, "Failed to write the ISO: {}")
     log_action(user["username"], "upload_iso", filename, "success", task_id=task_id)
-    return {"name": filename, "size_mb": round(dest.stat().st_size / (1024 * 1024), 1)}
+    return {"name": filename, "size_mb": round(size / (1024 * 1024), 1)}
 
 
 class IsoRename(BaseModel):
@@ -176,7 +167,7 @@ def rename_iso(filename: str, payload: IsoRename, user: dict = Depends(require_r
         raise HTTPException(status_code=404, detail=f"ISO '{old}' not found")
     if target.exists():
         raise HTTPException(status_code=409, detail=f"An ISO named '{new}' already exists")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         if _iso_in_use(conn, str(source)):
             raise HTTPException(
@@ -184,11 +175,7 @@ def rename_iso(filename: str, payload: IsoRename, user: dict = Depends(require_r
             )
     finally:
         conn.close()
-    try:
-        source.rename(target)
-    except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Rename failed: {describe_exception(e)}") from e
-    _refresh_iso_pool(target)
+    privileged.ask("disk.library_rename", user, "rename_iso", old, refused=409, name=old, new_name=new)
     log_action(user["username"], "rename_iso", old, "success", f"-> {new}")
     return {"name": new, "old": old}
 
@@ -206,7 +193,7 @@ def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: 
         raise HTTPException(status_code=404, detail=str(e)) from e
     if remote is not None and not valid_iso_name(filename):
         raise HTTPException(status_code=422, detail="Invalid file name")
-    path = safe_child(ISOS_DIR, filename)
+    path = safe_child(disk_library.ISOS, filename)
     exists = iso_size(remote, filename) is not None if remote is not None else path.exists()
     if not exists:
         raise HTTPException(status_code=404, detail=f"ISO '{filename}' not found")
@@ -214,7 +201,7 @@ def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: 
         raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
 
     # Every node keeps its library at the same path, so the in-use check reads that node's own VMs.
-    conn = open_conn(None if remote is None else node)
+    conn = open_conn(None if remote is None else node, readonly=True)
     try:
         if _iso_in_use(conn, str(path)):
             raise HTTPException(status_code=409, detail="ISO in use by a VM, eject it first")
@@ -222,7 +209,7 @@ def delete_iso(filename: str, confirm: bool = False, node: str = "local", user: 
         conn.close()
 
     if remote is None:
-        path.unlink()
+        privileged.ask("disk.library_delete", user, "delete_iso", filename, library="iso", name=filename)
     else:
         try:
             delete_remote(remote, filename)

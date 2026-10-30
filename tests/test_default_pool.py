@@ -69,7 +69,9 @@ def test_another_pool_is_only_looked_up():
     assert conn.pools == {}
 
 
-def test_a_volume_is_created_in_the_default_pool_of_a_fresh_node(client, auth_headers, monkeypatch, tmp_path):
+def test_a_volume_is_created_in_the_default_pool_of_a_fresh_node(
+    client, auth_headers, monkeypatch, tmp_path, daemon_libvirt
+):
     from app.routers import storage
 
     conn = Conn()
@@ -77,6 +79,7 @@ def test_a_volume_is_created_in_the_default_pool_of_a_fresh_node(client, auth_he
 
     def define(xml):
         pool = Pool()
+        pool.name = lambda: "default"
         pool.storageVolLookupByName = lambda name: (_ for _ in ()).throw(libvirt.libvirtError("no volume"))
         pool.refresh = lambda flags=0: None
         pool.XMLDesc = lambda flags=0: (
@@ -89,6 +92,7 @@ def test_a_volume_is_created_in_the_default_pool_of_a_fresh_node(client, auth_he
     conn.storagePoolDefineXML = define
     conn.close = lambda: None
     monkeypatch.setattr(storage, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon makes the pool and the volume, in this process in the tests
     monkeypatch.setattr(storage.zfs_storage, "pool_exists", lambda name: False)
     r = client.post("/storage/default/volumes", json={"name": "data", "size_gb": 1}, headers=auth_headers("root"))
     assert r.status_code == 201, r.text

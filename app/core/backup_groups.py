@@ -93,6 +93,16 @@ def validate(payload):
     if not TIME_RE.match(payload.get("time") or ""):
         raise GroupError("Invalid time (expected HH:MM)")
     target = validate_target(payload.get("target_dir")) or ""  # the default directory (validate_target)
+    store = payload.get("store") or None
+    if store:
+        from app.core import backup_stores
+
+        if target:
+            raise GroupError("Choose a backup store or a directory, not both")
+        try:
+            backup_stores.get(store)
+        except backup_stores.StoreError as e:
+            raise GroupError(str(e)) from None
     policy = {}
     for key, low, high in (
         ("retention_count", 1, 365),
@@ -115,6 +125,7 @@ def validate(payload):
         "frequency": payload["frequency"],
         "time": payload["time"],
         "target_dir": target,
+        "store": store,
         "active": bool(payload.get("active", True)),
         **policy,
     }
@@ -159,6 +170,7 @@ COLS = (
     "keep_weeks",
     "keep_months",
     "active",
+    "store",
 )
 
 
@@ -215,7 +227,7 @@ def run_job(job, username="scheduler"):
         policy = backup_retention.policy_of(job)
         for vm in resolve(job):
             try:
-                backup_id = run_backup(vm, job["target_dir"], username=username)
+                backup_id = run_backup(vm, job["target_dir"], username=username, store=job.get("store"))
             except vm_locks.VmBusy as e:
                 results[vm] = f"skipped: {e}"
                 continue
@@ -225,7 +237,7 @@ def run_job(job, username="scheduler"):
             _store().set_group(backup_id, job["id"])
             own = _store().get_schedule(vm)
             if not own:
-                _apply_retention(vm, policy)
+                _apply_retention(vm, policy, _backup_task(backup_id))
             results[vm] = "ok"
     finally:
         with _running_lock:
@@ -257,3 +269,10 @@ def run_due(now):
             _next_run(job["frequency"], job["time"], now).isoformat(),
             shared_next=row["next_shared"] if own else None,
         )
+
+
+def _backup_task(backup_id):
+    """The task a backup ran in: its retention is applied in that task's name (backup.delete's needs)."""
+    from app.repositories import registry
+
+    return (registry.backups().sync.get(backup_id) or {}).get("task_id")

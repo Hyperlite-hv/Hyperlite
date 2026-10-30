@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.routers.vms import migration
+from app.core import vm_migrate
 
 
 def test_a_file_goes_from_one_node_to_the_other_through_a_private_temporary_file(monkeypatch):
@@ -21,9 +21,9 @@ def test_a_file_goes_from_one_node_to_the_other_through_a_private_temporary_file
         moves.append(("to", node, remote))
         moves.append(local)
 
-    monkeypatch.setattr(migration, "_copy_file_from_node", fetch)
-    monkeypatch.setattr(migration, "_copy_file_to_node", send)
-    migration._relay_file("hlc3", "hlc2", "/var/lib/libvirt/images/web-cloudinit.iso")
+    monkeypatch.setattr(vm_migrate, "copy_file_from_node", fetch)
+    monkeypatch.setattr(vm_migrate, "copy_file_to_node", send)
+    vm_migrate._relay_file("hlc3", "hlc2", "/var/lib/libvirt/images/web-cloudinit.iso")
     path = "/var/lib/libvirt/images/web-cloudinit.iso"
     assert moves[0] == ("from", "hlc3", path, "0o600") and moves[1] == ("to", "hlc2", path)
     assert not Path(moves[2]).exists()  # the temporary copy is removed
@@ -36,7 +36,7 @@ def test_a_failed_copy_leaves_no_temporary_file(monkeypatch):
         seen.append(local)
         raise RuntimeError("scp failed")
 
-    monkeypatch.setattr(migration, "_copy_file_from_node", fetch)
+    monkeypatch.setattr(vm_migrate, "copy_file_from_node", fetch)
     with pytest.raises(RuntimeError):
-        migration._relay_file("hlc3", "hlc2", "/x.iso")
+        vm_migrate._relay_file("hlc3", "hlc2", "/x.iso")
     assert not Path(seen[0]).exists()

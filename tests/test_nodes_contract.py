@@ -17,7 +17,6 @@ def nodes_api(client, auth_headers, monkeypatch):
     monkeypatch.setattr(cluster, "forget_known_host", lambda node: None)
     monkeypatch.setattr(cluster, "revoke_reverse_trust", lambda name: None)
     monkeypatch.setattr(cluster, "rename_reverse_trust", lambda old, new: None)
-    monkeypatch.setattr(nodes, "rename_reverse_trust", lambda old, new: None)
     monkeypatch.setattr(nodes, "_compat_with_local", lambda name: {"compatible": True})
     monkeypatch.setattr("app.routers.storage.apply_shared_pools", lambda name, username: [])
     monkeypatch.setattr(nodes, "node_summary", lambda name: {"hostname": f"{name}.lan", "connected": True})

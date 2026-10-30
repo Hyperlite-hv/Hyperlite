@@ -39,7 +39,7 @@ def _cluster_vms(username):
     if own and not own["stale"]:
         items = [{**v, "node": "local"} for v in own["vms"]]
     else:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             items = [{**v, "node": "local"} for v in _domain_summaries(conn, None)]
         finally:
@@ -97,7 +97,7 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
         # every request, the largest cost of this list under load (docs/scale-results.md).
         return JSONResponse(result)
     try:
-        conn = open_conn(node)
+        conn = open_conn(node, readonly=True)
     except libvirt.libvirtError as e:
         # A node that does not answer is named, and the dashboard still lists the others (no unhandled 500).
         raise HTTPException(status_code=502, detail=f"{node or 'This node'} does not answer: {e}") from None
@@ -114,14 +114,22 @@ def list_vms(node: str | None = None, cluster: bool = False, user: dict = Depend
 @router.get("/{name}")
 def get_vm(name: str, node: str | None = None, user: dict = Depends(get_current_user)):
     """node: the registered node the VM runs on (the local host by default), as for GET /vms."""
-    conn = open_conn(None if node == "local" else node)
+    conn = open_conn(None if node == "local" else node, readonly=True)
     try:
         domain = conn.lookupByName(name)
     except libvirt.libvirtError:
         log_action(user["username"], "get_vm", name, "failed", "VM not found")
         conn.close()
         raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
-    result = _domain_summary(domain)
-    conn.close()
+    try:
+        result = _domain_summary(domain)
+    except libvirt.libvirtError as e:
+        # Gone between the lookup and the read: a live migration's end undefines it on the member it leaves.
+        if e.get_error_code() != libvirt.VIR_ERR_NO_DOMAIN:
+            raise
+        log_action(user["username"], "get_vm", name, "failed", "VM not found")
+        raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
+    finally:
+        conn.close()
     log_action(user["username"], "get_vm", name, "success")
     return result

@@ -32,7 +32,7 @@ from app.core import paths
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.secrets_crypto import SecretUnreadable, decrypt, encrypt
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, start_thread, update_task_progress
 
 
 def _store():
@@ -391,16 +391,18 @@ def _create_vm(vm, vcpu, memory_mb, disk_gb, network, password, username):
     _create_vm(payload, {"username": username})
 
 
-def _start_vm(vm):
+def _start_vm(vm, username):
+    """Started by hyperlite-daemon, as from the VM's own Start button (vm.power)."""
+    from app.core import privileged
     from app.core.libvirt_utils import open_conn
 
     conn = open_conn()
     try:
-        domain = conn.lookupByName(vm)
-        if not domain.isActive():
-            domain.create()
+        running = conn.lookupByName(vm).isActive()
     finally:
         conn.close()
+    if not running:
+        privileged.run("vm.power", user=username, vm=vm, action="start")
 
 
 def start_create(name, workers, vcpu, memory_mb, disk_gb, network, username):
@@ -414,11 +416,9 @@ def start_create(name, workers, vcpu, memory_mb, disk_gb, network, username):
     _store().create_k8s_cluster(
         name, network, server, json.dumps(agents), vcpu, memory_mb, disk_gb, task_id, username, _now()
     )
-    threading.Thread(
-        target=_provision,
-        args=(name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id),
-        daemon=True,
-    ).start()
+    start_thread(
+        _provision, name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id, task_id=task_id
+    )
     return task_id
 
 
@@ -437,7 +437,7 @@ def _provision(name, server, agents, vcpu, memory_mb, disk_gb, network, username
         password = secrets.token_urlsafe(24)
         for i, vm in enumerate((server, *agents)):
             _create_vm(vm, vcpu, memory_mb, disk_gb, network, password, username)
-            _start_vm(vm)
+            _start_vm(vm, username)
             update_task_progress(task_id, 15 + int(20 * (i + 1) / (len(agents) + 1)))
 
         step = "waiting for the VMs"
@@ -479,6 +479,7 @@ def delete_cluster(name, username):
     """Delete a cluster's VMs (stopped first, disks included) and its record."""
     import libvirt
 
+    from app.core import privileged
     from app.core.libvirt_utils import open_conn
     from app.routers.vms.lifecycle import delete_vm
 
@@ -500,7 +501,7 @@ def delete_cluster(name, username):
                 except libvirt.libvirtError:
                     continue
                 if domain.isActive():
-                    domain.destroy()
+                    privileged.run("vm.power", user=username, vm=vm, action="stop")
                 delete_vm(vm, confirm=True, node=None, user={"username": username})
         finally:
             conn.close()

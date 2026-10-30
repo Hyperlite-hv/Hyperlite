@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from app.core import container_create, container_ops
+
 NGINX_CONFIG = {
     "process": {
         "args": ["/docker-entrypoint.sh", "nginx", "-g", "daemon off;"],
@@ -223,34 +225,40 @@ class _Conn:
     def listAllDomains(self):
         return list(self.domains.values())
 
+    def listAllStoragePools(self, flags=0):
+        return []
+
     def close(self):
         pass
 
 
 @pytest.fixture()
-def api(database, image, monkeypatch, tmp_path):
+def api(database, image, monkeypatch, tmp_path, daemon_libvirt, daemon_lxc):
     from app.routers import containers
 
     conn = _Conn()
     reserved = {}
     monkeypatch.setattr(containers, "open_lxc_conn", lambda: conn)
-    monkeypatch.setattr(containers, "generate_mac", lambda c: f"52:54:00:00:00:{len(reserved) + 1:02x}")
+    monkeypatch.setattr(container_create, "generate_mac", lambda c: f"52:54:00:00:00:{len(reserved) + 1:02x}")
 
     def allocate(c, network, mac):
         reserved[mac] = f"192.168.100.{10 + len(reserved)}"
         return reserved[mac]
 
-    monkeypatch.setattr(containers, "allocate_static_ip", allocate)
-    monkeypatch.setattr(containers, "release_static_ip", lambda c, network, mac: reserved.pop(mac, None))
+    monkeypatch.setattr(container_create, "allocate_static_ip", allocate)
+    monkeypatch.setattr(container_create, "release_static_ip", lambda c, network, mac: reserved.pop(mac, None))
+    # hyperlite-daemon stops and deletes the containers, and releases an application container's address.
+    daemon_lxc(conn)
+    daemon_libvirt(conn)
+    monkeypatch.setattr(container_ops, "release_static_ip", lambda c, network, mac: reserved.pop(mac, None))
     rootfs = image("nginx:latest", NGINX_CONFIG)
     pulls = []
 
-    def create_rootfs(name, image=None, bootstrap=True, storage=None):
+    def create_rootfs(name, image=None, bootstrap=True, home=None):
         pulls.append((name, image, bootstrap))
         return rootfs, None
 
-    monkeypatch.setattr(containers, "create_container_rootfs", create_rootfs)
-    monkeypatch.setattr(containers, "delete_container_rootfs", lambda name: None)
+    monkeypatch.setattr(container_create, "create_container_rootfs", create_rootfs)
     return {"conn": conn, "reserved": reserved, "pulls": pulls}
 
 
@@ -300,10 +308,9 @@ def test_requests_are_refused_before_any_download(api, client, auth_headers, pay
 
 
 def test_a_system_container_from_an_image_is_still_available(api, client, auth_headers, monkeypatch):
-    from app.routers import containers
 
-    monkeypatch.setattr(containers, "configure_container_rootfs", lambda *a, **k: None)
-    monkeypatch.setattr(containers, "get_or_create_automation_pubkey", lambda: "ssh-ed25519 AAAA test")
+    monkeypatch.setattr(container_create, "configure_container_rootfs", lambda *a, **k: None)
+    monkeypatch.setattr(container_create, "get_or_create_automation_pubkey", lambda: "ssh-ed25519 AAAA test")
     r = client.post(
         "/containers",
         json={

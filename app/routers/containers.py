@@ -4,76 +4,53 @@ is still no per-container firewall. Restricted to administrators like the other
 resource creation endpoints (isos.py, templates.py), with the same granular
 ACLs as VMs (app/core/permissions.py)."""
 
-import asyncio
-import json
+import contextlib
 import logging
-import os
 import secrets
-import subprocess
 import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Literal
 
-import asyncssh
 import libvirt
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from app.core import (
     container_config,
-    container_console,
     container_shell,
     container_snapshots,
     image_env,
     maintenance,
     object_meta,
     paths,
+    privileged,
     pty_session,
     renaming,
 )
 from app.core.audit import log_action
-from app.core.container_builder import (
-    app_spec,
-    backup_container_rootfs,
-    build_container_xml,
-    clone_container_rootfs,
-    configure_container_rootfs,
-    container_rootfs_path,
-    create_container_rootfs,
-    delete_container_rootfs,
-    prepare_app_rootfs,
-    resolve_init,
-    restore_container_rootfs,
-    set_container_hostname,
-    validate_app_overrides,
-)
+from app.core.container_create import ContainerCreate
 from app.core.container_meta import (
     delete_container_app,
     delete_container_ssh_user,
+    delete_container_storage,
     get_container_app,
     get_container_ssh_user,
     get_container_storage,
     set_container_app,
     set_container_ssh_user,
+    set_container_storage,
 )
 from app.core.docker_hub import search_images
 from app.core.error_messages import describe_exception
-from app.core.libvirt_utils import open_lxc_conn
+from app.core.libvirt_utils import open_lxc_conn, open_lxc_conn_if_any
 from app.core.listing import listing
-from app.core.network_alloc import allocate_static_ip, generate_mac, network_gateway, release_static_ip
-from app.core.safe_paths import safe_child
 from app.core.security import get_current_user, require_container_privilege, require_role
-from app.core.tasks import create_task, finish_task, update_task_progress
+from app.core.tasks import create_task, finish_task, start_thread, update_task_progress
 from app.core.vm_builder import (
-    get_automation_private_key_path,
-    get_or_create_automation_pubkey,
     validate_name,
-    validate_username,
 )
-from app.core.vm_limits import compute_limits, validate_vm_resources
+from app.daemon.registry import DaemonError
 from app.services import backup_service
 
 logger = logging.getLogger(__name__)
@@ -126,31 +103,11 @@ def _summary(domain):
     }
 
 
-class ContainerCreate(BaseModel):
-    name: str
-    vcpu: int = Field(default=1, ge=1)
-    memory_mb: int = Field(default=512, ge=128)
-    # Required for a system container (the account created in it); unused by an application container.
-    username: str | None = None
-    password: str | None = None
-    network: str = "default"
-    # None/empty = the local Debian 12 base (fast, already cached); otherwise a
-    # Docker Hub image reference (or any OCI registry), e.g. "ubuntu:22.04",
-    # "alpine:3.19", "nginx:latest". See container_builder.pull_image_rootfs.
-    image: str | None = None
-    # "application": run the image's own process (the default with an image); "system": boot it as a small
-    # system with systemd and sshd (the only choice without an image). See container_builder.read_image_config.
-    mode: Literal["application", "system"] | None = None
-    # A "dir" storage pool to hold the container's filesystem (None: the default /var/lib/libvirt/containers).
-    storage_pool: str | None = None
-    # Application containers only: replaces the image's Entrypoint+Cmd, and adds to or overrides its environment.
-    command: list[str] | None = None
-    env: dict[str, str] | None = None
-
-
 @router.get("")
 def list_containers(user: dict = Depends(get_current_user)):
-    conn = open_lxc_conn()
+    conn = open_lxc_conn_if_any()
+    if conn is None:
+        return listing([])  # no LXC driver on this node: no containers, as libvirt_utils.open_lxc_conn_if_any says
     try:
         return listing([_summary(d) for d in conn.listAllDomains()])
     finally:
@@ -214,91 +171,26 @@ class ContainerUpdate(BaseModel):
 
 @router.patch("/{name}")
 def update_container(name: str, payload: ContainerUpdate, user: dict = Depends(require_role("admin"))):
-    if payload.vcpu is not None or payload.memory_mb is not None:
-        errors = validate_vm_resources(payload.vcpu, payload.memory_mb)
-        if errors:
-            raise HTTPException(status_code=422, detail=errors)
+    # Written by hyperlite-daemon (app/core/container_ops.py), the DNS servers into the container's own files.
+    changed = _daemon("container.update", user, "update_container", name, **payload.model_dump())
     conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-        changes, restart = [], False
-        try:
-            if payload.dns is not None:
-                servers = container_config.write_dns(name, payload.dns)
-                changes.append(f"DNS {', '.join(servers)}")
-            if payload.vcpu is not None or payload.memory_mb is not None:
-                restart = container_config.set_resources(conn, domain, payload.vcpu, payload.memory_mb)["needs_restart"]
-                domain = conn.lookupByName(name)  # the definition was replaced
-                changes.append(f"{payload.vcpu or '-'} vCPU, {payload.memory_mb or '-'} MB")
-            if payload.autostart is not None:
-                domain.setAutostart(1 if payload.autostart else 0)
-                changes.append(f"start at boot {'on' if payload.autostart else 'off'}")
-        except container_config.ConfigError as e:
-            log_action(user["username"], "update_container", name, "failed", str(e))
-            raise HTTPException(status_code=422, detail=str(e)) from e
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "update_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=msg) from e
-        if not changes:
-            raise HTTPException(status_code=422, detail="No change requested")
-        log_action(user["username"], "update_container", name, "success", "; ".join(changes))
-        return {**_detail(domain), "needs_restart": restart}
+        domain = _lookup(conn, name)
+        log_action(user["username"], "update_container", name, "success", "; ".join(changed["changes"]))
+        return {**_detail(domain), "needs_restart": changed["needs_restart"]}
     finally:
         conn.close()
 
 
-def _app_domain_xml(conn, name, rootfs, spec, network, vcpu, memory_mb):
-    """Reserve an address on the network, prepare the image's filesystem and build the domain of an application
-    container. Returns (xml, mac, ip); the reservation is released again if anything after it fails."""
-    gateway = network_gateway(conn, network)
-    if gateway is None:
-        raise ValueError(
-            f"Network '{network}' has no Hyperlite-managed subnet: an application container needs a NAT or isolated "
-            "network, whose address it receives from Hyperlite"
-        )
-    mac = generate_mac(conn)
-    ip = allocate_static_ip(conn, network, mac)
-    if not ip:
-        raise ValueError(f"Network '{network}' has no free address left in its DHCP range")
+def _daemon(op, user, action, name, **args):
+    """`op` run by hyperlite-daemon on the container `name`: its result, or its refusal or failure recorded as
+    `action` and answered (a refusal 422, what is in use 409, what does not exist 404)."""
     try:
-        init = resolve_init(rootfs, spec)
-        prepare_app_rootfs(rootfs, name, gateway[0])
-        app = {"init": init, "spec": spec, "ip": ip, "prefix": gateway[1], "gateway": gateway[0]}
-        if container_console.install(rootfs, int(spec.get("uid", 0)), int(spec.get("gid", 0))):
-            app["launcher"] = (container_console.LAUNCHER, container_console.LOG)
-        return build_container_xml(name, vcpu, memory_mb, rootfs, network=network, mac=mac, app=app), mac, ip
-    except Exception:
-        release_static_ip(conn, network, mac)
-        raise
-
-
-def resolve_container_storage(pool_name):
-    """{"pool", "base_dir"} for a local directory storage pool, or raise ValueError. NFS, ZFS and iSCSI pools are
-    refused: a container filesystem needs root ownership, device files and extended attributes, which an NFS
-    export (root squash) does not reliably keep, and ZFS/iSCSI pools hold block volumes, not directories."""
-    from app.core.libvirt_utils import lookup_pool, open_conn
-
-    conn = open_conn()
-    try:
-        try:
-            pool = lookup_pool(conn, pool_name)
-        except libvirt.libvirtError:
-            raise ValueError(f"Storage pool '{pool_name}' not found") from None
-        root = ET.fromstring(pool.XMLDesc(0))
-        if root.get("type") != "dir":
-            raise ValueError(f"Storage pool '{pool_name}' is not a local directory pool: containers need one")
-        if not pool.isActive():
-            raise ValueError(f"Storage pool '{pool_name}' is not started")
-        path = root.findtext("target/path")
-        if not path or not path.startswith("/"):
-            raise ValueError(f"Storage pool '{pool_name}' has no usable path")
-        return {"pool": pool_name, "base_dir": str(Path(path) / "hyperlite-containers")}
-    finally:
-        conn.close()
+        return privileged.run(op, user=user["username"], container=name, **args)
+    except DaemonError as e:
+        reason = "; ".join(e.detail) if isinstance(e.detail, list) else e.detail
+        log_action(user["username"], action, name, "failed", reason)
+        raise privileged.http_error(e) from None
 
 
 def _domain_mac(domain):
@@ -308,148 +200,37 @@ def _domain_mac(domain):
 
 @router.post("", status_code=201)
 def create_container(payload: ContainerCreate, user: dict = Depends(require_role("admin"))):
+    # Checked, then made by hyperlite-daemon (app/core/container_create.py); its records are written here.
     maintenance.refuse_if_in_maintenance("local", "Container creation")
-    _limits = compute_limits()
-    _errs = []
-
-    def _origin(lim):
-        return f"variable {lim['variable']}" if lim["source"] == "configuration" else "technical ceiling"
-
-    if payload.vcpu > _limits["vcpu"]["max"]:
-        _errs.append(f"vCPU: {payload.vcpu} is above the limit ({_limits['vcpu']['max']}, {_origin(_limits['vcpu'])})")
-    if payload.memory_mb > _limits["memory_mb"]["max"]:
-        _errs.append(
-            f"Memory: {payload.memory_mb} MB is above the limit "
-            f"({_limits['memory_mb']['max']} MB, {_origin(_limits['memory_mb'])})"
-        )
-    if _errs:
-        raise HTTPException(status_code=422, detail=" ; ".join(_errs))
-    errors = []
     mode = payload.mode or ("application" if payload.image else "system")
-    name_error = validate_name(payload.name, "container")
-    if name_error:
-        errors.append(name_error)
-    if mode == "application":
-        if not payload.image:
-            errors.append("An application container needs an image")
-        errors.extend(validate_app_overrides(payload.command, payload.env))
-        # Before the download: an official postgres image stops at once without its password.
-        errors.extend(image_env.missing(payload.image, payload.env))
-    else:
-        if payload.command or payload.env:
-            errors.append("A command or environment variables apply to application containers only")
-        username_error = validate_username(payload.username or "")
-        if username_error:
-            errors.append(username_error)
-        if len(payload.password or "") < 4:
-            errors.append("The password must contain at least 4 characters")
-
-    conn = open_lxc_conn()
+    # Asked of the registry before the download: an official postgres image stops at once without its password.
+    before = image_env.missing(payload.image, payload.env) if mode == "application" else []
+    spec = payload.model_dump()
+    try:
+        privileged.run("container.create", user=user["username"], spec=spec, check_only=True)
+    except DaemonError as e:
+        if e.kind != "refused" or not isinstance(e.detail, list) or not before:
+            raise privileged.http_error(e) from None
+        before = [*e.detail, *before]
+    if before:
+        raise HTTPException(status_code=422, detail=before)
     task_id = create_task("create_container", payload.name, node=None, username=user["username"])
     try:
-        try:
-            conn.lookupByName(payload.name)
-            errors.append(f"A container named '{payload.name}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in create_container()", exc_info=True)
-
-        storage = None
-        if payload.storage_pool:
-            try:
-                storage = resolve_container_storage(payload.storage_pool)
-            except ValueError as e:
-                errors.append(str(e))
-        # Checked before the image is fetched: a download of hundreds of MB must not end in this refusal.
-        try:
-            if not conn.networkLookupByName(payload.network).isActive():
-                errors.append(f"Network '{payload.network}' is not started")
-        except libvirt.libvirtError:
-            logger.debug("Network lookup failed in create_container()", exc_info=True)
-        if mode == "application":
-            try:
-                if network_gateway(conn, payload.network) is None:
-                    errors.append(
-                        f"Network '{payload.network}' has no Hyperlite-managed subnet: an application container "
-                        "needs a NAT or isolated network"
-                    )
-            except libvirt.libvirtError:
-                errors.append(f"Network '{payload.network}' not found")
-
-        if errors:
-            log_action(user["username"], "create_container", payload.name, "failed", "; ".join(errors), task_id=task_id)
-            raise HTTPException(status_code=422, detail=errors)
-
-        if mode == "application":
-            return _create_app_container(conn, payload, user, task_id, storage)
-
-        try:
-            rootfs, family = create_container_rootfs(payload.name, image=payload.image, storage=storage)
-            ssh_pubkey = get_or_create_automation_pubkey()
-            configure_container_rootfs(
-                rootfs, payload.name, payload.username, payload.password, ssh_pubkey, family=family
-            )
-        except subprocess.CalledProcessError as e:
-            msg = e.stderr or str(e)
-            delete_container_rootfs(payload.name)
-            log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to prepare the filesystem: {msg}") from e
-        except ValueError as e:
-            log_action(user["username"], "create_container", payload.name, "failed", str(e), task_id=task_id)
-            raise HTTPException(status_code=422, detail=str(e)) from e
-
-        mac = generate_mac(conn)
-        xml = build_container_xml(
-            payload.name, payload.vcpu, payload.memory_mb, rootfs, network=payload.network, mac=mac
+        made = privileged.run(
+            "container.create", user=user["username"], timeout=CREATE_TIMEOUT_S, spec=spec, check_only=False
         )
-        try:
-            domain = conn.defineXML(xml)
-            domain.create()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            delete_container_rootfs(payload.name)
-            log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to start the container: {msg}") from e
-
+    except DaemonError as e:
+        reason = "; ".join(e.detail) if isinstance(e.detail, list) else e.detail
+        log_action(user["username"], "create_container", payload.name, "failed", reason, task_id=task_id)
+        raise privileged.http_error(e) from None
+    if made["pool"]:
+        set_container_storage(payload.name, made["pool"], made["base_dir"])
+    if made["app"]:
+        set_container_app(payload.name, payload.image, made["app"]["spec"], made["app"]["ip"], payload.network)
+    else:
         set_container_ssh_user(payload.name, payload.username)
-        log_action(user["username"], "create_container", payload.name, "success", task_id=task_id)
-        return _summary(domain)
-    finally:
-        conn.close()
-
-
-def _create_app_container(conn, payload, user, task_id, storage=None):
-    try:
-        rootfs, _family = create_container_rootfs(payload.name, image=payload.image, bootstrap=False, storage=storage)
-    except subprocess.CalledProcessError as e:
-        msg = e.stderr or str(e)
-        delete_container_rootfs(payload.name)
-        log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-        raise HTTPException(status_code=500, detail=f"Failed to fetch the image: {msg}") from e
-    except ValueError as e:
-        log_action(user["username"], "create_container", payload.name, "failed", str(e), task_id=task_id)
-        raise HTTPException(status_code=422, detail=str(e)) from e
-
-    mac = None
-    try:
-        spec = app_spec(payload.image, payload.command, payload.env)
-        xml, mac, ip = _app_domain_xml(
-            conn, payload.name, rootfs, spec, payload.network, payload.vcpu, payload.memory_mb
-        )
-        domain = conn.defineXML(xml)
-    except (ValueError, libvirt.libvirtError) as e:
-        msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-        if mac:
-            release_static_ip(conn, payload.network, mac)
-        delete_container_rootfs(payload.name)
-        log_action(user["username"], "create_container", payload.name, "failed", msg, task_id=task_id)
-        raise HTTPException(status_code=422 if isinstance(e, ValueError) else 500, detail=msg) from e
-
-    set_container_app(payload.name, payload.image, spec, ip, payload.network)
-    try:
-        domain.create()
-    except libvirt.libvirtError as e:
-        # Defined purpose not started (a wrong command, for instance): kept, so it can be fixed or deleted.
-        msg = describe_exception(e)
+    if made["start_error"]:
+        msg = made["start_error"]
         log_action(
             user["username"],
             "create_container",
@@ -458,13 +239,18 @@ def _create_app_container(conn, payload, user, task_id, storage=None):
             f"defined, start failed: {msg}",
             task_id=task_id,
         )
-        raise HTTPException(
-            status_code=500, detail=f"Container defined purpose its process did not start: {msg}"
-        ) from e
-    log_action(
-        user["username"], "create_container", payload.name, "success", f"application {payload.image}", task_id=task_id
-    )
-    return _summary(domain)
+        raise HTTPException(status_code=500, detail=f"Container defined but its process did not start: {msg}")
+    detail = f"application {payload.image}" if made["app"] else None
+    log_action(user["username"], "create_container", payload.name, "success", detail, task_id=task_id)
+    conn = open_lxc_conn()
+    try:
+        return _summary(_lookup(conn, payload.name))
+    finally:
+        conn.close()
+
+
+# A creation or a clone is one call to hyperlite-daemon that waits: an image is pulled, a filesystem copied.
+CREATE_TIMEOUT_S = 2 * 3600
 
 
 def _claim_or_409(name, what):
@@ -488,16 +274,8 @@ def start_container(name: str, user: dict = Depends(require_container_privilege(
     conn = open_lxc_conn()
     try:
         domain = _lookup(conn, name)
-        # Answered before libvirt does: its own refusal surfaced as a 500, in the host's language.
-        if domain.isActive():
-            raise HTTPException(status_code=409, detail=f"Container '{name}' is already running")
-        try:
-            with _claim_or_409(name, "a start"):
-                domain.create()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "start_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=msg) from e
+        with _claim_or_409(name, "a start"):
+            _daemon("container.start", user, "start_container", name)
         log_action(user["username"], "start_container", name, "success")
         return _summary(domain)
     finally:
@@ -513,7 +291,7 @@ def _force_stop_later(name, run_id, grace_s):
     """Stop the container by force when it is still running after grace_s: a process can ignore SIGTERM (a shell
     script as PID 1, or an image's entrypoint still initializing), and a stop must end with a stopped container.
     run_id (the domain's ID, the pid of its libvirt controller) tells the run that was asked to stop from a new one
-    started meanwhile, which is left alone."""
+    started meanwhile, which hyperlite-daemon leaves alone."""
     deadline = time.monotonic() + grace_s
     conn = open_lxc_conn()
     try:
@@ -525,15 +303,15 @@ def _force_stop_later(name, run_id, grace_s):
                     return
             except libvirt.libvirtError:
                 return  # deleted meanwhile
-        try:
-            domain.destroy()
-            log_action(
-                "system", "stop_container", name, "success", f"stopped by force: still running after {grace_s} s"
-            )
-        except libvirt.libvirtError as e:
-            logger.debug("Forced stop of %s not needed or failed: %s", name, e)
     finally:
         conn.close()
+    try:
+        done = privileged.run("container.stop", user="system", container=name, force=True, run_id=run_id)
+    except DaemonError as e:
+        logger.info("Forced stop of %s not needed or failed: %s", name, e.detail)
+        return
+    if done["stopped"]:
+        log_action("system", "stop_container", name, "success", f"stopped by force: still running after {grace_s} s")
 
 
 @router.post("/{name}/stop")
@@ -542,31 +320,17 @@ def stop_container(
 ):
     conn = open_lxc_conn()
     try:
-        domain = _lookup(conn, name)
-        if not domain.isActive():
-            raise HTTPException(status_code=409, detail=f"Container '{name}' is already stopped")
-        try:
-            run_id = domain.ID()
-            if force:
-                domain.destroy()
-            elif get_container_app(name):
-                # SIGTERM to the image's process, as `docker stop` does. libvirt's default first looks for an init
-                # control pipe, which an application image does not have, and then sends nothing at all.
-                domain.shutdownFlags(libvirt.VIR_DOMAIN_SHUTDOWN_SIGNAL)
-            else:
-                domain.shutdown()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "stop_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=msg) from e
-        grace = None
-        if not force:
-            grace = STOP_GRACE_S["application" if get_container_app(name) else "system"]
-            threading.Thread(target=_force_stop_later, args=(name, run_id, grace), daemon=True).start()
-        log_action(user["username"], "stop_container", name, "success", "forced" if force else None)
-        return {"ok": True, "force_stop_after_s": grace}
+        _lookup(conn, name)
     finally:
         conn.close()
+    application = bool(get_container_app(name))
+    done = _daemon("container.stop", user, "stop_container", name, force=force, application=application)
+    grace = None
+    if not force:
+        grace = STOP_GRACE_S["application" if application else "system"]
+        start_thread(_force_stop_later, name, done["run_id"], grace)
+    log_action(user["username"], "stop_container", name, "success", "forced" if force else None)
+    return {"ok": True, "force_stop_after_s": grace}
 
 
 @router.delete("/{name}")
@@ -579,33 +343,18 @@ def delete_container(name: str, confirm: bool = False, user: dict = Depends(requ
 
 
 def _delete_container(name, user):
-    conn = open_lxc_conn()
-    try:
-        try:
-            domain = conn.lookupByName(name)
-            mac, network = _domain_mac(domain), _domain_network(domain)
-            try:
-                domain.destroy()
-            except libvirt.libvirtError:
-                logger.debug("Ignored exception in delete_container()", exc_info=True)
-            domain.undefine()
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "delete_container", name, "failed", msg)
-            raise HTTPException(status_code=404, detail=msg) from e
-
-        container_snapshots.delete_all(name)  # before the filesystem: its place is read from the container's storage
-        delete_container_rootfs(name)
-        delete_container_ssh_user(name)
-        object_meta.delete("container", name)
-        if get_container_app(name):
-            if mac:
-                release_static_ip(conn, network, mac)
-            delete_container_app(name)
-        log_action(user["username"], "delete_container", name, "success")
-        return {"ok": True}
-    finally:
-        conn.close()
+    """Stopped, undefined, its snapshots and its filesystem removed by hyperlite-daemon (app/core/container_ops.py),
+    which leaves a filesystem outside Hyperlite's container directories in place; its records go here."""
+    application = bool(get_container_app(name))
+    done = _daemon("container.delete", user, "delete_container", name, application=application)
+    delete_container_storage(name)
+    delete_container_ssh_user(name)
+    object_meta.delete("container", name)
+    if application:
+        delete_container_app(name)
+    kept = done["filesystem_kept"]
+    log_action(user["username"], "delete_container", name, "success", f"filesystem {kept} kept" if kept else None)
+    return {"ok": True}
 
 
 class RenameContainerRequest(BaseModel):
@@ -623,72 +372,17 @@ def rename_container(name: str, payload: RenameContainerRequest, user: dict = De
 
 def _rename_container(name, payload, user):
     new = payload.new_name
-    error = validate_name(new, "container")
-    if error:
-        raise HTTPException(status_code=422, detail=error)
-    if new == name:
-        raise HTTPException(status_code=422, detail="The new name is the current one")
     conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-        try:
-            conn.lookupByName(new)
-            raise HTTPException(status_code=409, detail=f"A container named '{new}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("No container named %s yet", new)
-        if domain.isActive():
-            raise HTTPException(status_code=409, detail="Stop the container before renaming it")
-        old_root = container_rootfs_path(name)
-        new_root = safe_child(old_root.parent, new)
-        if os.path.lexists(new_root):
-            raise HTTPException(status_code=409, detail=f"A filesystem named '{new}' is already on disk: {new_root}")
-        old_xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE)
-        autostart = bool(domain.autostart())
-        root = ET.fromstring(old_xml)
-        root.find("name").text = new
-        sources = [s for s in root.findall("./devices/filesystem/source") if s.get("dir") == str(old_root)]
-        if not sources:
-            raise HTTPException(
-                status_code=409, detail=f"The container's definition does not use its filesystem {old_root}"
-            )
-        for source in sources:
-            source.set("dir", str(new_root))
-        try:
-            container_snapshots.rename_all(name, new, old_root.parent)
-        except (OSError, container_snapshots.SnapshotError) as e:
-            log_action(user["username"], "rename_container", name, "failed", str(e))
-            raise HTTPException(status_code=409, detail=f"Could not rename the container's snapshots: {e}") from e
-        try:
-            os.rename(old_root, new_root)
-        except OSError as e:
-            container_snapshots.rename_all(new, name, old_root.parent)
-            log_action(user["username"], "rename_container", name, "failed", str(e))
-            raise HTTPException(status_code=500, detail=f"Could not rename the filesystem: {e}") from e
-        try:
-            domain.undefine()
-            try:
-                new_domain = conn.defineXML(ET.tostring(root, encoding="unicode"))
-            except libvirt.libvirtError:
-                conn.defineXML(old_xml)
-                raise
-        except libvirt.libvirtError as e:
-            os.rename(new_root, old_root)
-            container_snapshots.rename_all(new, name, old_root.parent)
-            msg = describe_exception(e)
-            log_action(user["username"], "rename_container", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Rename failed: {msg}") from e
-        renaming.container_records(name, new)
-        if autostart:
-            new_domain.setAutostart(1)
-        try:
-            set_container_hostname(new_root, new)
-        except OSError as e:
-            logger.warning("Host name of the renamed container %s not updated: %s", new, e)
-        log_action(user["username"], "rename_container", name, "success", f"-> {new}")
-        return _summary(new_domain)
+        _lookup(conn, name)
+    finally:
+        conn.close()
+    _daemon("container.rename", user, "rename_container", name, new_name=new)
+    renaming.container_records(name, new)
+    log_action(user["username"], "rename_container", name, "success", f"-> {new}")
+    conn = open_lxc_conn()
+    try:
+        return _summary(_lookup(conn, new))
     finally:
         conn.close()
 
@@ -712,77 +406,38 @@ def clone_container(name: str, payload: CloneContainerRequest, user: dict = Depe
 
 
 def _clone_container(name, payload, user):
+    # Copied by hyperlite-daemon (app/core/container_create.py) in its source's directory; the records follow here.
     conn = open_lxc_conn()
-    task_id = create_task("clone_container", name, node=None, username=user["username"])
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            log_action(
-                user["username"], "clone_container", name, "failed", "source container not found", task_id=task_id
-            )
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-
-        name_error = validate_name(payload.new_name, "container")
-        if name_error:
-            log_action(user["username"], "clone_container", name, "failed", name_error, task_id=task_id)
-            raise HTTPException(status_code=422, detail=name_error)
-
-        try:
-            conn.lookupByName(payload.new_name)
-            log_action(
-                user["username"],
-                "clone_container",
-                name,
-                "failed",
-                f"'{payload.new_name}' already exists",
-                task_id=task_id,
-            )
-            raise HTTPException(status_code=409, detail=f"A container '{payload.new_name}' already exists")
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in clone_container()", exc_info=True)
-
-        if domain.isActive():
-            log_action(user["username"], "clone_container", name, "failed", "container active", task_id=task_id)
-            raise HTTPException(status_code=409, detail="Stop the container before cloning it")
-
-        try:
-            rootfs = clone_container_rootfs(name, payload.new_name)
-        except (subprocess.CalledProcessError, ValueError) as e:
-            msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
-            log_action(user["username"], "clone_container", name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to copy the filesystem: {msg}") from e
-
-        source_root = ET.fromstring(domain.XMLDesc(0))
-        vcpu = int(source_root.findtext("vcpu") or "1")
-        memory_kb = int(source_root.findtext("memory") or str(512 * 1024))
-        network = _domain_network(domain)
-        app = get_container_app(name)
-        mac = ip = None
-        try:
-            if app:
-                xml, mac, ip = _app_domain_xml(
-                    conn, payload.new_name, rootfs, app["spec"], network, vcpu, memory_kb // 1024
-                )
-            else:
-                mac = generate_mac(conn)
-                xml = build_container_xml(payload.new_name, vcpu, memory_kb // 1024, rootfs, network=network, mac=mac)
-            new_domain = conn.defineXML(xml)
-        except (ValueError, libvirt.libvirtError) as e:
-            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            if app and ip:
-                release_static_ip(conn, network, mac)
-            delete_container_rootfs(payload.new_name)
-            log_action(user["username"], "clone_container", name, "failed", msg, task_id=task_id)
-            raise HTTPException(status_code=500, detail=f"Failed to define the cloned container: {msg}") from e
-
-        ssh_user = get_container_ssh_user(name)
-        if ssh_user:
-            set_container_ssh_user(payload.new_name, ssh_user)
-        if app:
-            set_container_app(payload.new_name, app["image"], app["spec"], ip, network)
-        log_action(user["username"], "clone_container", name, "success", f"-> {payload.new_name}", task_id=task_id)
-        return _summary(new_domain)
+        _lookup(conn, name)
+    finally:
+        conn.close()
+    task_id = create_task("clone_container", name, node=None, username=user["username"])
+    app = get_container_app(name)
+    try:
+        made = privileged.run(
+            "container.clone",
+            user=user["username"],
+            timeout=CREATE_TIMEOUT_S,
+            container=name,
+            new_name=payload.new_name,
+            app=app["spec"] if app else None,
+        )
+    except DaemonError as e:
+        log_action(user["username"], "clone_container", name, "failed", e.detail, task_id=task_id)
+        raise privileged.http_error(e) from None
+    storage = get_container_storage(name)
+    if storage:  # a clone stays in its source's storage pool
+        set_container_storage(payload.new_name, storage["pool"], storage["base_dir"])
+    ssh_user = get_container_ssh_user(name)
+    if ssh_user:
+        set_container_ssh_user(payload.new_name, ssh_user)
+    if app:
+        set_container_app(payload.new_name, app["image"], app["spec"], made["ip"], made["network"])
+    log_action(user["username"], "clone_container", name, "success", f"-> {payload.new_name}", task_id=task_id)
+    conn = open_lxc_conn()
+    try:
+        return _summary(_lookup(conn, payload.new_name))
     finally:
         conn.close()
 
@@ -806,26 +461,32 @@ def _run_container_backup_job(task_id, username, container_name, claim):
 
 
 def _container_backup(task_id, username, container_name):
-    now = datetime.now(UTC)
-    CONTAINER_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"{container_name}-{now.strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
-    dest_path = CONTAINER_BACKUP_DIR / filename
+    """The task and the record are the API's; hyperlite-daemon archives the filesystem its definition names
+    (container.archive)."""
     store = backup_service.container_store()
-    backup_id = store.create_container_backup(container_name, str(dest_path), now.isoformat(), task_id)
+    backup_id = store.create_container_backup(container_name, "", datetime.now(UTC).isoformat(), task_id)
     try:
         with _container_backup_lock:
             update_task_progress(task_id, 10)
-            backup_container_rootfs(container_name, dest_path)
+            try:
+                done = privileged.run(
+                    "container.archive", user=username, timeout=ARCHIVE_TIMEOUT_S, container=container_name
+                )
+            except DaemonError as e:
+                raise RuntimeError(e.detail) from None
             update_task_progress(task_id, 90)
-        size = dest_path.stat().st_size
-        store.container_backup_done(backup_id, size)
+        store.set_container_backup_path(backup_id, done["path"])
+        store.container_backup_done(backup_id, done["size"])
         finish_task(task_id, "succeeded")
         log_action(username, "backup_container", container_name, "success")
     except Exception as e:
-        dest_path.unlink(missing_ok=True)
         store.container_backup_failed(backup_id, str(e)[:500])
         finish_task(task_id, "failed", str(e)[:500])
         log_action(username, "backup_container", container_name, "failed", str(e)[:500])
+
+
+# An archive of a large filesystem takes a while.
+ARCHIVE_TIMEOUT_S = 6 * 3600
 
 
 @router.post("/{name}/backups", status_code=202)
@@ -845,9 +506,7 @@ def create_container_backup(name: str, user: dict = Depends(require_role("admin"
     claim = _claim_or_409(name, "a backup")
     try:
         task_id = create_task("backup_container", name, username=user["username"])
-        threading.Thread(
-            target=_run_container_backup_job, args=(task_id, user["username"], name, claim), daemon=True
-        ).start()
+        start_thread(_run_container_backup_job, task_id, user["username"], name, claim, task_id=task_id)
     except BaseException:
         claim.release()
         raise
@@ -862,35 +521,33 @@ class ContainerSnapshotCreate(BaseModel):
     description: str | None = Field(default=None, max_length=500)
 
 
-def _stopped_container_or_error(name, action):
-    conn = open_lxc_conn()
-    try:
-        domain = _lookup(conn, name)
-        if domain.isActive():
-            raise HTTPException(status_code=409, detail=f"Stop the container before {action}")
-    finally:
-        conn.close()
-
-
-def _snapshot_job(task_id, username, action, name, snapshot, claim, work):
+def _snapshot_job(task_id, username, action, name, snapshot, claim, op, args):
     with claim:
         try:
-            work()
+            privileged.run(op, user=username, timeout=SNAPSHOT_TIMEOUT_S, container=name, snapshot=snapshot, **args)
             finish_task(task_id, "succeeded")
             log_action(username, action, name, "success", f"Snapshot '{snapshot}'")
         except Exception as e:  # any error closes the task, said as it is
-            msg = str(e)[:500] if isinstance(e, container_snapshots.SnapshotError) else describe_exception(e)
+            msg = e.detail if isinstance(e, DaemonError) else describe_exception(e)
             finish_task(task_id, "failed", msg)
             log_action(username, action, name, "failed", f"Snapshot '{snapshot}': {msg}")
 
 
-def _start_snapshot_job(user, action, name, snapshot, what, work):
+# Copying a container's files takes longer than an ordinary operation.
+SNAPSHOT_TIMEOUT_S = 3600
+
+
+def _daemon_task(op, user, action, name, snapshot, what, **args):
+    """Checked by hyperlite-daemon first (check_only), so that a refusal is the answer; then the work as a task,
+    holding the container's lock until it ends."""
+    try:
+        privileged.run(op, user=user["username"], container=name, snapshot=snapshot, check_only=True, **args)
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
     claim = _claim_or_409(name, what)
     try:
         task_id = create_task(action, name, username=user["username"])
-        threading.Thread(
-            target=_snapshot_job, args=(task_id, user["username"], action, name, snapshot, claim, work), daemon=True
-        ).start()
+        start_thread(_snapshot_job, task_id, user["username"], action, name, snapshot, claim, op, args, task_id=task_id)
     except BaseException:
         claim.release()
         raise
@@ -899,57 +556,45 @@ def _start_snapshot_job(user, action, name, snapshot, what, work):
 
 @router.get("/{name}/snapshots")
 def list_container_snapshots(name: str, user: dict = Depends(require_container_privilege("container.view"))):
-    conn = open_lxc_conn()
+    # Read by hyperlite-daemon: the snapshots are root's.
     try:
-        _lookup(conn, name)
-    finally:
-        conn.close()
-    return listing(container_snapshots.list_snapshots(name))
+        found = privileged.run("container.snapshot_list", user=user["username"], container=name)["snapshots"]
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
+    return listing(found)
 
 
 @router.post("/{name}/snapshots", status_code=202)
 def create_container_snapshot(name: str, payload: ContainerSnapshotCreate, user: dict = Depends(require_role("admin"))):
-    error = validate_name(payload.name, "snapshot")
-    if error:
-        raise HTTPException(status_code=422, detail=error)
-    _stopped_container_or_error(name, "taking a snapshot (its files are copied)")
-    if container_snapshots.exists(name, payload.name):
-        raise HTTPException(status_code=409, detail=f"A snapshot '{payload.name}' already exists for this container")
-    return _start_snapshot_job(
+    return _daemon_task(
+        "container.snapshot_create",
         user,
         "create_container_snapshot",
         name,
         payload.name,
         "a snapshot",
-        lambda: container_snapshots.create(name, payload.name, payload.description),
+        description=payload.description,
     )
 
 
 @router.post("/{name}/snapshots/{snapshot}/restore", status_code=202)
 def restore_container_snapshot(name: str, snapshot: str, user: dict = Depends(require_role("admin"))):
-    if validate_name(snapshot, "snapshot") or not container_snapshots.exists(name, snapshot):
-        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot}' not found")
-    _stopped_container_or_error(name, "restoring a snapshot")
-    return _start_snapshot_job(
-        user,
-        "restore_container_snapshot",
-        name,
-        snapshot,
-        "a snapshot restore",
-        lambda: container_snapshots.restore(name, snapshot),
+    return _daemon_task(
+        "container.snapshot_restore", user, "restore_container_snapshot", name, snapshot, "a snapshot restore"
     )
 
 
 @router.delete("/{name}/snapshots/{snapshot}")
 def delete_container_snapshot(name: str, snapshot: str, user: dict = Depends(require_role("admin"))):
-    if validate_name(snapshot, "snapshot") or not container_snapshots.exists(name, snapshot):
-        raise HTTPException(status_code=404, detail=f"Snapshot '{snapshot}' not found")
     with _claim_or_409(name, "a snapshot deletion"):
         try:
-            container_snapshots.delete(name, snapshot)
-        except (OSError, container_snapshots.SnapshotError) as e:
-            log_action(user["username"], "delete_container_snapshot", name, "failed", f"Snapshot '{snapshot}': {e}")
-            raise HTTPException(status_code=500, detail=str(e)) from e
+            privileged.run("container.snapshot_delete", user=user["username"], container=name, snapshot=snapshot)
+        except DaemonError as e:
+            if e.kind != "not_found":
+                log_action(
+                    user["username"], "delete_container_snapshot", name, "failed", f"Snapshot '{snapshot}': {e.detail}"
+                )
+            raise privileged.http_error(e) from None
     log_action(user["username"], "delete_container_snapshot", name, "success", f"Snapshot '{snapshot}'")
     return {"ok": True}
 
@@ -982,52 +627,27 @@ def restore_container_backup(
     if name_error:
         raise HTTPException(status_code=422, detail=name_error)
 
+    # hyperlite-daemon unpacks the archive and defines the container (container.archive_restore).
+    done = privileged.ask(
+        "container.archive_restore",
+        user,
+        "restore_container_backup",
+        target_name,
+        failed="{}",
+        path=row["path"] or "",
+        container=target_name,
+        original=row["container_name"],
+    )
+    app = get_container_app(row["container_name"])
+    ssh_user = get_container_ssh_user(row["container_name"])
+    if ssh_user:
+        set_container_ssh_user(target_name, ssh_user)
+    if app:
+        set_container_app(target_name, app["image"], app["spec"], done["ip"], done["network"])
+    log_action(user["username"], "restore_container_backup", target_name, "success", f"from backup #{backup_id}")
     conn = open_lxc_conn()
     try:
-        try:
-            conn.lookupByName(target_name)
-            raise HTTPException(
-                status_code=409,
-                detail=f"A container '{target_name}' already exists: delete it first or choose another name",
-            )
-        except libvirt.libvirtError:
-            logger.debug("Ignored exception in restore_container_backup()", exc_info=True)
-
-        try:
-            rootfs = restore_container_rootfs(Path(row["path"]), target_name, original_name=row["container_name"])
-        except (subprocess.CalledProcessError, ValueError) as e:
-            msg = e.stderr if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
-            raise HTTPException(status_code=500, detail=f"Restore failed: {msg}") from e
-
-        # KNOWN LIMITATION: the original vcpu/memory are not kept in the archive (unlike
-        # cloning, which reads them straight from the still defined source domain), so
-        # they fall back to the default values, adjustable afterwards like for any
-        # container.
-        app = get_container_app(row["container_name"])
-        mac = ip = None
-        try:
-            if app:
-                # The original network, not "default": that one may not even be started on this host.
-                network = app["network"] or "default"
-                xml, mac, ip = _app_domain_xml(conn, target_name, rootfs, app["spec"], network, 1, 512)
-            else:
-                mac = generate_mac(conn)
-                xml = build_container_xml(target_name, 1, 512, rootfs, network="default", mac=mac)
-            domain = conn.defineXML(xml)
-        except (ValueError, libvirt.libvirtError) as e:
-            if app and ip:
-                release_static_ip(conn, network, mac)
-            delete_container_rootfs(target_name)
-            detail = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-            raise HTTPException(status_code=500, detail=f"Failed to define the restored container: {detail}") from e
-
-        ssh_user = get_container_ssh_user(row["container_name"])
-        if ssh_user:
-            set_container_ssh_user(target_name, ssh_user)
-        if app:
-            set_container_app(target_name, app["image"], app["spec"], ip, network)
-        log_action(user["username"], "restore_container_backup", target_name, "success", f"from backup #{backup_id}")
-        return _summary(domain)
+        return _summary(conn.lookupByName(target_name))
     finally:
         conn.close()
 
@@ -1040,23 +660,20 @@ def container_logs(name: str, lines: int = 300, user: dict = Depends(require_con
     """The last lines an application container's process printed: what `docker logs` shows."""
     if not get_container_app(name):
         raise HTTPException(status_code=409, detail="Only Docker (application) containers have a log: use the terminal")
-    conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-        except libvirt.libvirtError:
-            raise HTTPException(status_code=404, detail=f"Container '{name}' not found") from None
-        active = bool(domain.isActive())
-    finally:
-        conn.close()
-    tail = container_console.read_tail(container_rootfs_path(name), max(1, min(lines, 5000)))
-    return {"name": name, "active": active, "available": tail is not None, "lines": tail or []}
+        found = privileged.run("container.log", user=user["username"], container=name, lines=max(1, min(lines, 5000)))
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
+    tail = found["lines"]
+    return {"name": name, "active": found["active"], "available": tail is not None, "lines": tail or []}
 
 
 # ---- Web terminal (SSH, same mechanism as app/routers/vms.py) ----
 
 TERMINAL_TICKETS = {}
 TERMINAL_TICKET_TTL = 30
+# ssh's own exit status when it could not connect or sign in: said in the terminal, after ssh's own words.
+SSH_FAILED = 255
 
 
 # Restricted to the admin role, as the VM one (app/routers/vms/console.py): the automation key signs in as the
@@ -1089,12 +706,12 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin")
             raise HTTPException(status_code=409, detail=f"No known SSH user for '{name}'")
 
         now = time.time()
-        for old_ticket, (_old_ct, _old_ip, _old_user, old_expiry) in list(TERMINAL_TICKETS.items()):
-            if old_expiry < now:
+        for old_ticket, entry in list(TERMINAL_TICKETS.items()):
+            if entry[3] < now:
                 TERMINAL_TICKETS.pop(old_ticket, None)
 
         ticket = secrets.token_urlsafe(24)
-        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL)
+        TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, user["username"])
         log_action(user["username"], "create_container_terminal_ticket", name, "success")
         return {"ticket": ticket, "user": ssh_user, "expires_in_s": TERMINAL_TICKET_TTL}
     finally:
@@ -1109,81 +726,24 @@ async def container_terminal(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
 
-    ct_name, ip, ssh_user, expiry = entry
+    ct_name, _ip, _ssh_user, expiry, username = entry
     if ct_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
 
     await websocket.accept()
-
-    private_key = get_automation_private_key_path()
     try:
-        ssh_conn = await asyncssh.connect(
-            ip,
-            username=ssh_user,
-            client_keys=[str(private_key)],
-            known_hosts=None,
-            connect_timeout=10,
-        )
-    except (asyncssh.Error, OSError) as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] SSH connection to {ip} failed: {e}\x1b[0m\r\n")
-        await websocket.close(code=1011)
+        # hyperlite-daemon runs ssh with the automation key, which only root reads, to the address it reads itself.
+        session = await pty_session.open_session("console.container_terminal", username, container=name)
+    except DaemonError as e:
+        await pty_session.say(websocket, e.detail)
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011)
         return
-
-    try:
-        process = await ssh_conn.create_process(term_type="xterm-256color", term_size=(80, 24))
-    except asyncssh.Error as e:
-        await websocket.send_text(f"\r\n\x1b[31m[hyperlite] Failed to open the shell: {e}\x1b[0m\r\n")
-        ssh_conn.close()
-        await websocket.close(code=1011)
-        return
-
-    async def ws_to_ssh():
-        try:
-            while True:
-                msg = await websocket.receive_text()
-                if msg.startswith("\x00"):
-                    try:
-                        dims = json.loads(msg[1:])
-                        process.change_terminal_size(int(dims["cols"]), int(dims["rows"]))
-                    except (ValueError, KeyError, TypeError):
-                        logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-                else:
-                    process.stdin.write(msg)
-        except (WebSocketDisconnect, RuntimeError):
-            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-        except Exception:
-            logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-        finally:
-            try:
-                process.stdin.write_eof()
-            except Exception:
-                logger.debug("Ignored exception in ws_to_ssh()", exc_info=True)
-
-    async def ssh_to_ws():
-        try:
-            while True:
-                data = await process.stdout.read(65536)
-                if not data:
-                    break
-                await websocket.send_text(data)
-        except Exception:
-            logger.debug("Ignored exception in ssh_to_ws()", exc_info=True)
-
-    task1 = asyncio.ensure_future(ws_to_ssh())
-    task2 = asyncio.ensure_future(ssh_to_ws())
-    _done, pending = await asyncio.wait({task1, task2}, return_when=asyncio.FIRST_COMPLETED)
-    for t in pending:
-        t.cancel()
-    try:
-        process.close()
-    except Exception:
-        logger.debug("Ignored exception in container_terminal()", exc_info=True)
-    ssh_conn.close()
-    try:
+    if await session.serve(websocket) == SSH_FAILED:
+        await pty_session.say(websocket, f"SSH connection to {session.result['address']} failed")
+    with contextlib.suppress(RuntimeError, WebSocketDisconnect):
         await websocket.close()
-    except (RuntimeError, WebSocketDisconnect):
-        logger.debug("Ignored exception in container_terminal()", exc_info=True)
 
 
 # ---- Root shell inside the container (app/core/container_shell.py), administrators only ----
@@ -1222,24 +782,16 @@ async def container_shell_session(websocket: WebSocket, name: str):
         return
     username = entry[1]
     await websocket.accept()
-    conn = open_lxc_conn()
     try:
-        try:
-            domain = conn.lookupByName(name)
-            pid = container_shell.init_pid(domain.ID()) if domain.isActive() else None
-        except libvirt.libvirtError:
-            pid = None
-    finally:
-        conn.close()
-    if pid is None:
-        await websocket.send_text("\r\n\x1b[31m[hyperlite] The container is not running.\x1b[0m\r\n")
-        await websocket.close(code=1011)
+        # hyperlite-daemon finds the container's PID 1 itself and enters its namespaces (console.container_shell).
+        session = await pty_session.open_session("console.container_shell", username, container=name)
+    except DaemonError as e:
+        await pty_session.say(websocket, e.detail)
+        with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(code=1011)
         return
-    app = get_container_app(name)
     log_action(username, "container_shell_open", name, "success")
-    await pty_session.run(
-        websocket, container_shell.command(pid), container_shell.environment(app["spec"] if app else None)
-    )
+    await session.serve(websocket)
     log_action(username, "container_shell_close", name, "success")
     try:
         await websocket.close()

@@ -6,7 +6,11 @@ from app.core import database
 def test_init_db_is_idempotent(database):
     def schema():
         with database.get_conn() as conn:
-            return sorted(tuple(r) for r in conn.execute("SELECT type, name, sql FROM sqlite_master"))
+            return sorted(
+                (schema, *r)
+                for schema in ("main", database.ACCESS)
+                for r in conn.execute(f"SELECT type, name, sql FROM {schema}.sqlite_master")  # noqa: S608
+            )
 
     with database.get_conn() as conn:
         conn.execute("INSERT INTO users (username, hashed_password, role) VALUES ('keep', 'x', 'admin')")
@@ -21,7 +25,11 @@ def test_init_db_is_idempotent(database):
 
 def test_core_tables_exist(database):
     with database.get_conn() as conn:
-        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        tables = {
+            row["name"]
+            for schema in ("main", database.ACCESS)
+            for row in conn.execute(f"SELECT name FROM {schema}.sqlite_master WHERE type='table'")  # noqa: S608
+        }
     expected = {
         "users",
         "audit_log",
@@ -119,5 +127,9 @@ def test_a_rebuild_that_stopped_half_way_is_finished(tmp_path, monkeypatch):
     database.init_db()
     with database.get_conn() as conn:
         assert [tuple(r) for r in conn.execute("SELECT id, subject_id FROM acl")] == [(7, "ana")]
-        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        names = {
+            r[0]
+            for schema in ("main", database.ACCESS)
+            for r in conn.execute(f"SELECT name FROM {schema}.sqlite_master WHERE type='table'")  # noqa: S608
+        }
     assert "acl_pre_container_migration" not in names

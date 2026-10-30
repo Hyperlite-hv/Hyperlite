@@ -89,7 +89,7 @@ export default function VmDiskUploadDropzone({ onDone, labels = {} }) {
         <input aria-label={labels.input ?? t("upload.diskFileAria")}
           ref={inputRef}
           type="file"
-          accept=".qcow2,.img,.raw,.vmdk,.vdi,.vhd,.vhdx"
+          accept=".qcow2,.img,.raw,.vmdk,.vdi,.vhd,.vhdx,.ova"
           className="hidden"
           onChange={(e) => e.target.files?.[0] && startUpload(e.target.files[0])}
         />

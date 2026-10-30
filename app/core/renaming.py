@@ -23,6 +23,12 @@ def _store():
     return registry.renames().sync
 
 
+def _access():
+    from app.repositories import registry
+
+    return registry.access().sync
+
+
 def _renamed_xml(xml, new):
     """HA's cached copy of a VM's definition (app/core/ha.py), with the new name: it is what would redefine the VM on
     another node, and the periodic refresh may not have run yet."""
@@ -40,10 +46,13 @@ def vm_records(old, new, node=None):
     """Move a VM's records from `old` to `new`."""
     # Metrics: a local VM is sampled as "<vm>", a VM of a registered node as "<node>:<vm>" (app/core/metrics.py).
     prefix = f"{node}:" if node and node != LOCAL else ""
+    # Its pools and ACLs first, by hyperlite-daemon: a VM already renamed in libvirt keeps who may use it.
+    _access().move_vm(old, new)
     _store().vm_records(old, new, node or LOCAL, prefix, _renamed_xml)
 
 
 def container_records(old, new):
+    _access().move_container(old, new)
     _store().container_records(old, new)
 
 
@@ -74,9 +83,14 @@ def rename_label(kind, object_id, new, owner=None):
     """Rename a pool, group, custom role, job or API token (objects known by an id, whose name is only a label);
     its old name, or None when there is no such object (for `owner`, when given). Raises LabelTaken when another
     one already has the name (the tables require unique names)."""
+    from app.repositories.sqlite.access import LABELS as PERMISSION_LABELS
     from app.repositories.sqlite.renames import TAKEN
 
-    old = _store().rename_label(kind, object_id, new, owner)
+    if kind in PERMISSION_LABELS:  # the permissions', renamed by hyperlite-daemon
+        answer = _access().rename_label(kind, object_id, new, owner)
+        old = TAKEN if answer.get("taken") else answer["old"]
+    else:
+        old = _store().rename_label(kind, object_id, new, owner)
     if old is TAKEN:
         raise LabelTaken(f"The name '{new}' is already used")
     return old

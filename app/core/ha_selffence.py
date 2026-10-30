@@ -8,7 +8,9 @@ watchdog resets the node TIMEOUT_S later. The leader, which only acts with the q
 restarting the VMs (step 3).
 
 The watchdog is armed only when needed: in a cluster, while this node hosts a running HA VM. It is disarmed cleanly
-(the magic close) when no HA VM runs here any more and when the service stops normally (an update restarts it). A
+(the magic close) when no HA VM runs here any more and when the service stops normally (an update restarts it); a
+normal stop is published too ("stopped"), so the leader does not take the node's silence for a reset while its VMs
+still run, and the service clears it once it runs again. A
 process that dies or hangs stops feeding it too: then the node is reset, as Proxmox's lrm does, since nothing else
 proves its VMs stopped.
 
@@ -61,7 +63,8 @@ class _State:
         self.fd = None  # the open watchdog: armed
         self.timeout = None  # its real timeout, as its driver reports it (None: the driver does not say)
         self.problem = None  # why it could not be armed, for the administrator
-        self.starving = False  # armed purpose not fed: the quorum is lost
+        self.starving = False  # armed but not fed: the quorum is lost
+        self.unpublished_start = True  # a "stopped" this node published before it started may still be in the tree
         self.stop = threading.Event()
 
 
@@ -90,8 +93,9 @@ def _hosts_running_ha_vm():
         conn.close()
 
 
-def _publish(armed):
-    """Tell the cluster whether this node's watchdog guards its HA VMs (read by the leader before a recovery)."""
+def _publish(armed, stopped=False):
+    """Tell the cluster whether this node's watchdog guards its HA VMs (read by the leader before a recovery), and
+    whether its service stopped normally (`stopped`: the watchdog is off, its VMs may still run)."""
     from app.repositories.cfs import shadow
 
     entry = {
@@ -99,6 +103,7 @@ def _publish(armed):
         "delay_s": state.timeout,
         # None: the reset time is unknown, and the node's VMs are never restarted elsewhere without an administrator.
         "reset_within_s": reset_within(state.timeout),
+        "stopped": stopped,
         "at": datetime.now(UTC).isoformat(),
     }
     path = f"{STATE_DIR}/{shadow.component(self_node.name())}"
@@ -106,7 +111,7 @@ def _publish(armed):
 
 
 def published(node):
-    """What `node` last published: {"armed", "delay_s", "reset_within_s", "at"} or None."""
+    """What `node` last published: {"armed", "delay_s", "reset_within_s", "stopped", "at"} or None."""
     from app.core.cfs_client import NotFound
     from app.repositories.cfs import shadow
 
@@ -158,6 +163,23 @@ def _close(fd):
         os.close(fd)
 
 
+# The node's heartbeat older than this stops the feeding: the leader declares a member lost LOST_S after its last
+# summary and waits for its reset before restarting its VMs elsewhere, so a node that cannot send it (libvirt hung,
+# the heartbeat's thread stuck) must reset itself first, as Proxmox's LRM feeds its watchdog in the loop that writes
+# its status.
+HEARTBEAT_STALE_S = 40
+
+
+def _heartbeat_goes_out():
+    from app.core import statd
+
+    age = statd.heartbeat_age()
+    if age < HEARTBEAT_STALE_S:
+        return True
+    logger.warning("This node's heartbeat has not gone out for %.0f s: the watchdog is not fed", age)
+    return False
+
+
 def tick():
     """One round: feed while the quorum holds, then arm or disarm as this node's HA VMs need."""
     if not enabled():
@@ -165,6 +187,9 @@ def tick():
     writable = cluster_lead.read_only_reason() is None
     with state.lock:
         armed = state.fd is not None
+    if armed and writable and not _heartbeat_goes_out():
+        writable = False  # as without the quorum: not fed, and nothing armed or disarmed below
+    with state.lock:
         if armed and writable:
             _feed(state.fd)  # first: nothing below (libvirt, the tree) may keep a node with the quorum from feeding it
         if state.starving and writable:
@@ -174,12 +199,14 @@ def tick():
         # Cut off from the majority: not fed, the node resets TIMEOUT_S after its last feed. Never disarmed here: this
         # node cannot tell the cluster, and the leader counts on it.
         logger.warning(
-            "No quorum: the watchdog is not fed, this node resets within %s s unless it comes back",
+            "No quorum (or no heartbeat): the watchdog is not fed, this node resets within %s s unless it comes back",
             reset_within(state.timeout) or "an unknown time",
         )
         return
     if not writable:
         return
+    if state.unpublished_start:
+        _clear_last_run()
     try:
         needed = cluster_lead.mode() == "cluster" and _hosts_running_ha_vm()
     except Exception as e:  # unknown (libvirt not answering): the watchdog stays as it is
@@ -187,6 +214,10 @@ def tick():
         return
     publish = None
     with state.lock:
+        if state.stop.is_set():
+            # The service stops: a round that started before must not arm what stop() just disarmed, or the node
+            # would reset once this process is gone.
+            return
         if needed and state.fd is None:
             try:
                 fd, timeout = _open()
@@ -206,7 +237,7 @@ def tick():
             state.problem = (
                 None
                 if timeout
-                else f"The watchdog's driver does not report its timeout ({device()}): it is armed, purpose this node's "
+                else f"The watchdog's driver does not report its timeout ({device()}): it is armed, but this node's "
                 "HA VMs are only restarted elsewhere by hand"
             )
             if timeout and timeout != TIMEOUT_S:
@@ -226,14 +257,34 @@ def tick():
             logger.warning("The watchdog's state could not be published: %s", e)
 
 
+def _clear_last_run():
+    """What the last run of the service published ("stopped", or "armed" when it died) is not true of this one, which
+    has no watchdog armed yet: cleared once, before anything else is published."""
+    mine = published(self_node.name()) or {}
+    if mine.get("stopped") or mine.get("armed"):
+        try:
+            _publish(False)
+        except (CfsError, OSError) as e:
+            logger.warning("The watchdog's state could not be published: %s", e)
+            return  # tried again at the next round
+    state.unpublished_start = False
+
+
 def stop():
     """The service stops normally (an update, a restart): disarm, so the node is not reset."""
     state.stop.set()
     with state.lock:
-        if state.fd is not None:
-            _close(state.fd)
-            state.fd = state.timeout = None
-            logger.info("Watchdog disarmed: the service stops")
+        if state.fd is None:
+            return
+        _close(state.fd)
+        state.fd = state.timeout = None
+        logger.info("Watchdog disarmed: the service stops")
+    # Said to the cluster, or the leader would take this node's silence for a reset its watchdog made while its VMs
+    # still run here, and start them elsewhere (app/core/ha_recovery.py).
+    try:
+        _publish(False, stopped=True)
+    except (CfsError, OSError) as e:
+        logger.warning("The watchdog's state could not be published: %s", e)
 
 
 def report():

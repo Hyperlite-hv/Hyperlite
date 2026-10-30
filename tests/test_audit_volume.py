@@ -56,8 +56,8 @@ def test_the_polled_inventory_leaves_no_trace(client, auth_headers, database, mo
 
     for module in (network, storage):
         monkeypatch.setattr(module, "open_conn", lambda *_a, **_k: _EmptyHost())
-    monkeypatch.setattr(network, "ensure_isolated_network", lambda _conn: None)
-    monkeypatch.setattr(storage, "ensure_default_pool", lambda _conn: None)
+    monkeypatch.setattr(network, "_ensure_isolated", lambda _conn, _user: None)
+    monkeypatch.setattr(storage, "_ensure_default", lambda _conn, _node: None)
     monkeypatch.setattr(storage.zfs_storage, "list_pools", lambda: [])
     headers = auth_headers("alice")
     before = len(_rows(database))

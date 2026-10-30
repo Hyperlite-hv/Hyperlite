@@ -1,8 +1,6 @@
 """Grouped backup jobs (app/core/backup_groups.py). Administrators only: a job reaches every VM it selects,
 whatever the rights on each one."""
 
-import threading
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -10,6 +8,7 @@ from app.core import backup_groups
 from app.core.audit import log_action
 from app.core.listing import item, listing
 from app.core.security import require_role
+from app.core.tasks import start_thread
 
 router = APIRouter(prefix="/backup-groups", tags=["backups"])
 
@@ -27,6 +26,7 @@ class GroupJob(BaseModel):
     keep_weeks: int | None = None
     keep_months: int | None = None
     active: bool = True
+    store: str | None = None  # a backup store (GET /backup-stores) instead of a directory
 
 
 @router.get("")
@@ -95,5 +95,5 @@ def run_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
             "; ".join(f"{vm}: {r}" for vm, r in failed.items())[:500] or f"{len(results)} VMs",
         )
 
-    threading.Thread(target=work, name="backup-group", daemon=True).start()
+    start_thread(work, name="backup-group")
     return {"vms": vms}

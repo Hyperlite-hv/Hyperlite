@@ -185,10 +185,11 @@ def test_grow_zvol_validates_names_before_calling_zfs(monkeypatch):
 
 
 @pytest.fixture()
-def api(client, auth_headers, monkeypatch, commands):
+def api(client, auth_headers, monkeypatch, commands, daemon_libvirt):
     monkeypatch.setenv("HYPERLITE_VM_MAX_DISK_GB", "100")
     domain = FakeDomain(active=False)
     monkeypatch.setattr(devices, "open_conn", lambda *a, **k: FakeConn(domain))
+    daemon_libvirt(FakeConn(domain))  # hyperlite-daemon grows the disk, in this process in the tests
     return {"client": client, "headers": auth_headers("admin1"), "domain": domain, "commands": commands}
 
 
@@ -224,18 +225,20 @@ def test_the_disk_list_says_which_disks_can_be_grown(api):
 def test_a_refused_resize_keeps_the_replication_chain(api, monkeypatch):
     """Code review (#448): the checkpoints were dropped before the request was checked, so asking for a smaller size
     still forced the next replication to copy the whole VM again."""
-    released = []
-    monkeypatch.setattr(devices.checkpoints, "release", lambda domain, name: released.append(name))
+    dropped, forgotten = [], []
+    # hyperlite-daemon drops the checkpoints; the API forgets the chain in its database.
+    monkeypatch.setattr(devices.checkpoints, "drop", lambda domain: dropped.append(domain) or 2)
+    monkeypatch.setattr(devices.checkpoints, "forget", lambda name, n: forgotten.append((name, n)))
     post = lambda size: api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": size}, headers=api["headers"])  # noqa: E731
-    assert post(4).status_code == 422 and released == []
-    assert post(32).status_code == 200 and released == ["vm1"]
+    assert post(4).status_code == 422 and dropped == [] and forgotten == []
+    assert post(32).status_code == 200 and len(dropped) == 1 and forgotten == [("vm1", 2)]
 
 
 def test_checkpoints_that_cannot_be_dropped_are_a_reported_failure(api, monkeypatch):
-    def broken(domain, name):
+    def broken(domain):
         raise RuntimeError("Cannot remove the replication bitmap hl-1 of /pool/vm1.qcow2")
 
-    monkeypatch.setattr(devices.checkpoints, "release", broken)
+    monkeypatch.setattr(devices.checkpoints, "drop", broken)
     r = api["client"].post("/vms/vm1/disks/vda/resize", json={"size_gb": 32}, headers=api["headers"])
     assert r.status_code == 500 and "replication bitmap" in r.json()["detail"]
     assert api["commands"]["qemu_img"] == []
