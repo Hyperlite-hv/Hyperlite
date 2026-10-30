@@ -19,16 +19,17 @@ export function normalize(str) {
   return String(str ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-// Locale-aware sizes: 1024-based like the backend, French unit names (Mo/Go) in French.
+// Locale-aware sizes: 1024-based like the backend, French unit names (Mo/Go) in French. A no-break space joins a
+// figure and its unit (sizes, rates, durations): they never part at the end of a line.
 export function formatSizeMb(mb, lang = "en") {
   if (mb == null || Number.isNaN(mb)) return null;
   const nf = new Intl.NumberFormat(lang, { maximumFractionDigits: 1 });
   const u = lang === "fr" ? { mb: "Mo", gb: "Go" } : { mb: "MB", gb: "GB" };
-  return mb >= 1024 ? `${nf.format(mb / 1024)} ${u.gb}` : `${nf.format(Math.round(mb))} ${u.mb}`;
+  return mb >= 1024 ? `${nf.format(mb / 1024)}\u00a0${u.gb}` : `${nf.format(Math.round(mb))}\u00a0${u.mb}`;
 }
 export function formatSizeGb(gb, lang = "en") {
   if (gb == null || Number.isNaN(gb)) return null;
-  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(gb)} ${lang === "fr" ? "Go" : "GB"}`;
+  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(gb)}\u00a0${lang === "fr" ? "Go" : "GB"}`;
 }
 // Throughput in bytes per second, 1024-based like the sizes (Ko/s in French). `compact` drops the decimals for axes.
 export function formatRate(bps, lang = "en", compact = false) {
@@ -37,15 +38,15 @@ export function formatRate(bps, lang = "en", compact = false) {
   let v = Math.max(0, bps), i = 0;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   const nf = new Intl.NumberFormat(lang, { maximumFractionDigits: compact || i === 0 ? 0 : 1 });
-  return `${nf.format(v)} ${units[i]}`;
+  return `${nf.format(v)}\u00a0${units[i]}`;
 }
 export function formatUptimeLong(seconds, lang = "en") {
   if (!seconds || seconds <= 0) return null;
   const d = Math.floor(seconds / 86400), h = Math.floor((seconds % 86400) / 3600), m = Math.floor((seconds % 3600) / 60);
   const j = lang === "fr" ? "j" : "d";
-  if (d > 0) return `${d} ${j} ${h} h`;
-  if (h > 0) return `${h} h ${m} min`;
-  return `${m} min`;
+  if (d > 0) return `${d}\u00a0${j} ${h}\u00a0h`;
+  if (h > 0) return `${h}\u00a0h ${m}\u00a0min`;
+  return `${m}\u00a0min`;
 }
 // Date and time from an ISO string or a Unix timestamp in seconds (libvirt reports snapshot creation times that way).
 export function formatDateTime(v, lang = "en") {

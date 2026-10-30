@@ -95,7 +95,7 @@ export default function VmSummary({ resource: vm }) {
         <Card title={t("vm.config")}>
           <dl className="nx-dl2">
             <dt>{t("vm.os")}</dt><dd>{vm.os || na}</dd>
-            <dt>{t("ns.node")}</dt><dd><button type="button" className="nx-lnk nx-mono" style={{ fontWeight: 500 }} onClick={() => navigateTo("node", vm.node, "summary")}>{nodeName}</button></dd>
+            <dt>{t("ns.node")}</dt><dd><button type="button" className="nx-lnk" style={{ fontWeight: 500 }} onClick={() => navigateTo("node", vm.node, "summary")}>{nodeName}</button></dd>
             <dt>{t("vh.processor")}</dt><dd className="nx-mono">{vm.vcpu} vCPU</dd>
             <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memory_mb, lang)}</dd>
             <dt>{t("vh.disks")}</dt>
@@ -106,12 +106,12 @@ export default function VmSummary({ resource: vm }) {
             <dd>{net == null ? "…" : net === false ? na : net.length === 0 ? <span className="nx-muted">—</span> : (
               <ul className="nx-plainlist">{net.map((i) => <li key={i.mac} className="nx-mono">{i.network || i.type_source || "—"} · {i.mac}</li>)}</ul>
             )}</dd>
-            <dt>{t("vmlist.ip")}</dt><dd className="nx-mono">{vm.ip || <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
-            <dt>{t("vm.ssh")}</dt><dd className="nx-mono">{vm.ssh_user ? `${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}` : na}</dd>
+            <dt>{t("vmlist.ip")}</dt><dd>{vm.ip ? <span className="nx-mono">{vm.ip}</span> : <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
+            <dt>{t("vm.ssh")}</dt><dd>{vm.ssh_user ? <span className="nx-mono">{`${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}`}</span> : na}</dd>
             <dt>{t("vm.tools")}</dt><dd>{vm.guest_agent ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.guest_agent}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
             <dt>{t("wz.firmware")}</dt><dd>{vm.firmware ? t(`fw.${vm.firmware}`) : na}</dd>
             <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"}</dd>
-            <dt>UUID</dt><dd className="nx-mono nx-muted nx-break">{vm.uuid || na}</dd>
+            <dt>UUID</dt><dd className="nx-break">{vm.uuid ? <span className="nx-mono nx-muted">{vm.uuid}</span> : na}</dd>
           </dl>
         </Card>
         <Card title={t("vm.protection")}>
@@ -119,7 +119,7 @@ export default function VmSummary({ resource: vm }) {
           <ul className="nx-list2">
             <li><Archive size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("vm.lastBackup")}<div className="nx-list2-sub">{backups == null ? "…" : lastBackup ? `${formatDateTime(lastBackup.created_at, lang)} · ${t(lastBackup.status === "failed" ? "state.failed" : lastBackup.status === "succeeded" || lastBackup.status === "success" ? "state.done" : "state.inprogress")}` : t("vm.noBackup")}{schedule ? ` · ${t(`vb.f.${schedule.frequency}`)} ${schedule.time} UTC` : schedule === null ? ` · ${t("vm.noSchedule")}` : ""}</div></div>
-              <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "backup")}>{schedule ? t("vm.manage") : t("ov.plan")}</button></li>
+              <button type="button" className={`nx-btn nx-btn--sm${schedule ? " nx-btn--ghost" : ""}`} onClick={() => navigateTo("vm", vmKey(vm), "backup")}>{schedule ? t("vm.manage") : t("ov.plan")}</button></li>
             <li><Camera size={16} aria-hidden="true" />
               <div className="nx-list2-main">{t("tab.snapshots")}<div className="nx-list2-sub">{snaps == null ? "…" : snaps === false ? t("ns.notReported") : snaps.length ? t("vm.snapsN", { n: snaps.length }) : t("vm.snapsNone")}</div></div>
               <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "snapshots")}>{t("dock.view")}</button></li>

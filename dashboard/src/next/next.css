@@ -269,9 +269,9 @@
 
 /* ---------- Workspace ---------- */
 .nx-main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--color-bg-workspace); }
-.nx-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-border-default); background: var(--color-warning-subtle); border-left: 3px solid var(--color-warning); font-size: var(--font-size-sm); }
-.nx-banner--danger { background: var(--color-danger-subtle); border-left-color: var(--color-danger); }
-.nx-banner--info { background: var(--color-info-subtle); border-left-color: var(--color-info); }
+.nx-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-border-default); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
+.nx-banner--danger { background: var(--color-danger-subtle); }
+.nx-banner--info { background: var(--color-info-subtle); }
 .nx-reshead { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4) 0; flex-wrap: wrap; }
 .nx-reshead h1 { margin: 0; font-size: var(--font-size-xl); line-height: var(--line-height-tight); font-weight: 600; overflow-wrap: anywhere; }
 .nx-reshead .nx-meta { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
@@ -297,7 +297,7 @@
 .nx-gauge-value small { font-size: 0.6875rem; font-weight: 500; margin-left: 1px; color: var(--color-text-muted); }
 .nx-gauge--empty { width: 84px; height: 84px; border-radius: 50%; border: 7px solid var(--color-border-subtle); display: grid; place-items: center; }
 .nx-empty, .nx-error { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-6); max-width: 40rem; }
-.nx-error { border-left: 3px solid var(--color-danger); background: var(--color-danger-subtle); border-radius: var(--radius-md); }
+.nx-error { border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border-subtle)); background: var(--color-danger-subtle); border-radius: var(--radius-md); }
 .nx-empty h2, .nx-error h2 { margin: 0; font-size: var(--font-size-lg); }
 
 /* vSphere-style perspectives, actions and section navigation */
@@ -398,6 +398,8 @@
 @media (max-width: 1100px) { .nx-cols { grid-template-columns: minmax(0, 1fr); } }
 .nx-cardhead { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
 .nx-cardhead h2 { margin: 0 auto 0 0; }
+/* A textarea takes the rows it asks for: the fixed height of a one-line input folded it into a single line. */
+textarea.nx-input { height: auto; min-height: 4.5rem; padding-block: var(--space-2); line-height: 1.45; resize: vertical; }
 .nx-input { height: 2rem; min-width: 10rem; padding: 0 var(--space-3); background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
 .nx-spark { display: block; margin-top: var(--space-2); font-size: var(--font-size-xs); min-height: 28px; }
 .nx-cards { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
@@ -528,7 +530,7 @@
 .nx-ns > *, .nx-cols > * { min-width: 0; }
 
 /* ---------- Forms inside cards ---------- */
-.nx-form { display: grid; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); background: var(--color-bg-workspace); }
+.nx-form { display: grid; align-content: start; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); background: var(--color-bg-workspace); }
 .nx-form label { display: grid; gap: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-secondary); }
 .nx-formgrid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
 .nx-formgrid--3 { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
@@ -554,10 +556,11 @@ select.nx-input { height: 2rem; }
 .nx-keybox code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--font-size-xs); }
 
 /* HA / compatibility */
-.nx-notice { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--color-border-strong); border-left-width: 4px; background: var(--color-bg-raised); }
-.nx-notice--warning { border-left-color: var(--color-warning); background: var(--color-warning-subtle); }
-.nx-notice--success { border-left-color: var(--color-success); background: var(--color-success-subtle); }
-.nx-error-inline { margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border-left: 4px solid var(--color-danger); background: var(--color-danger-subtle); }
+/* The same vocabulary as the banners (.nx-bn): a border tinted all round, not a thick coloured bar on the left. */
+.nx-notice { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); }
+.nx-notice--warning { border-color: color-mix(in oklab, var(--color-warning) 35%, var(--color-border-subtle)); background: var(--color-warning-subtle); }
+.nx-notice--success { border-color: color-mix(in oklab, var(--color-success) 35%, var(--color-border-subtle)); background: var(--color-success-subtle); }
+.nx-error-inline { margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border-subtle)); background: var(--color-danger-subtle); }
 .nx-row--warn > * { background: var(--color-warning-subtle); }
 .nx-check { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
 .nx-input--auto { width: auto; }
@@ -722,6 +725,10 @@ select.nx-input { height: 2rem; }
 @media (max-width: 1100px) { .nx-ov-row, .nx-ov-row--even { grid-template-columns: minmax(0, 1fr); } }
 
 /* Scrollbars: thin and in the theme's colours everywhere (the navigation column resolves its own dark tokens) */
+/* What the browser draws carries the palette too: checkboxes, radios and ranges, the caret, the selected text. */
+:root[data-ui="next"] { accent-color: var(--color-accent); }
+:root[data-ui="next"] :is(input, textarea) { caret-color: var(--color-accent); }
+:root[data-ui="next"] ::selection { background: color-mix(in oklab, var(--color-accent) 32%, transparent); }
 :root[data-ui="next"], :root[data-ui="next"] * { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--color-text-muted) 45%, transparent) transparent; }
 :root[data-ui="next"] *:hover { scrollbar-color: color-mix(in oklab, var(--color-text-muted) 70%, transparent) transparent; }
 /* Tab rows scroll sideways when they must, without a visible bar (the 1px underline offset used to create a stray one) */
@@ -817,7 +824,7 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 @media (max-width: 720px) { .nx-iplist li { grid-template-columns: 1fr 1fr; } }
 
 /* Settings waiting for a VM's next start, under its header. */
-.nx-pending { margin: 0.9333rem 1.6rem 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
+.nx-pending { margin: 0.9333rem 1.6rem 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in oklab, var(--color-warning) 35%, var(--color-border-subtle)); border-radius: var(--radius-md); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
 .nx-pending-h { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .nx-pending-t { margin-top: var(--space-2); }
 .nx-pending + .nx-tabs { margin-top: 0.9333rem; }

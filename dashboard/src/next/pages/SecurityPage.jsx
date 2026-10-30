@@ -21,6 +21,7 @@ import { KeyRound, Layers, PencilLine, Plus, Trash2, Users as UsersIcon, X } fro
 import { askNewName } from "../lib/rename";
 import { NewPasswordFields } from "../components/PasswordFields";
 import { passwordAccepted } from "../lib/passwordPolicy";
+import { localizeRoles } from "../lib/apiText";
 
 // Global roles stay `admin` / `viewer` (wire values); ACLs, groups, pools and custom roles only ADD
 // scoped rights on top of them (app/core/permissions.py). Same endpoints and payloads as the historical tab.
@@ -44,10 +45,10 @@ export default function SecurityPage({ initialTab = "users" }) {
         fetchUsers(), fetchGroups(), fetchPools(), fetchAclRoles(), fetchPrivileges(), fetchCustomRoles(), fetchAcl(), fetchContainers().catch(() => []),
         fetchStoragePools().catch(() => []), fetchNetworks().catch(() => []), fetchBackupStores().catch(() => []),
       ]);
-      setData({ users, groups, pools, roles, privileges, customRoles, acl, containers, storages, networks, backupStores });
+      setData({ users, groups, pools, roles: localizeRoles(t, roles), privileges, customRoles, acl, containers, storages, networks, backupStores });
       setError(null);
     } catch (e) { setError(errorMessage(e)); }
-  }, []);
+  }, [t]);
   useEffect(() => { reload(); }, [reload]);
   useIntent("user", () => { setTab("users"); setDrawer("users"); });
 

@@ -86,7 +86,7 @@
 
 /* ---------- KPI strip ---------- */
 .nx-strip { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); overflow: hidden; }
-.nx-kpi { all: unset; box-sizing: border-box; padding: 0.9333rem 1.2rem; display: grid; gap: 0.1333rem; border-left: 1px solid var(--color-border-subtle); min-width: 0; position: relative; min-height: 5.6rem; }
+.nx-kpi { all: unset; box-sizing: border-box; padding: 0.9333rem 1.2rem; display: grid; align-content: start; gap: 0.1333rem; border-left: 1px solid var(--color-border-subtle); min-width: 0; position: relative; min-height: 5.6rem; }
 .nx-kpi:first-child { border-left: 0; }
 button.nx-kpi { cursor: pointer; }
 button.nx-kpi:hover { background: var(--color-bg-hover); }
@@ -205,6 +205,8 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-pwnote svg { flex: none; margin-top: 0.1333rem; color: var(--color-success); }
 .nx-inp { height: 2.2667rem; border-radius: var(--radius-md); border: 1px solid var(--color-border-default); background: var(--color-bg-workspace); padding: 0 0.6667rem; font-size: var(--fs-13); width: 100%; min-width: 0; }
 .nx-inp:focus { outline: 2px solid var(--color-border-focus); outline-offset: 0; border-color: transparent; }
+/* A list of a few choices stays as wide as they need, not as wide as a card on a large screen. */
+select.nx-inp, select.nx-input { max-width: 32rem; }
 .nx-inp[aria-invalid="true"] { border-color: var(--color-danger); }
 .nx-unit { position: relative; }
 .nx-unit > span { position: absolute; right: 0.6667rem; top: 50%; transform: translateY(-50%); font-size: var(--fs-12); color: var(--color-text-muted); pointer-events: none; }
@@ -581,7 +583,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
   .nx-kpi:has(.nx-spark) .nx-kpi-s { padding-right: 0; }
   /* The page's actions sit under the title at full width rather than floating in a corner. */
   .nx-ph-acts { margin-left: 0; width: 100%; }
-  .nx-ph-acts > .nx-btn:only-child { flex: 1; justify-content: center; }
+  .nx-ph-acts > .nx-btn--primary:only-child { flex: 1; justify-content: center; }
 }
 
 /* Right-click menus: the row or card the open menu belongs to stays marked, so it is clear what the actions apply
