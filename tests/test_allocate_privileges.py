@@ -132,7 +132,7 @@ def test_an_older_database_takes_storage_and_network_assignments(database):
     with database.get_conn() as db:
         db.execute("DROP TABLE acl")
         db.execute(
-            "CREATE TABLE acl (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_type TEXT NOT NULL CHECK(subject_type IN "
+            f"CREATE TABLE {database.ACCESS}.acl (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_type TEXT NOT NULL CHECK(subject_type IN "
             "('user','group')), subject_id TEXT NOT NULL, role TEXT NOT NULL, resource_type TEXT NOT NULL CHECK("
             "resource_type IN ('vm','pool','container')), resource_id TEXT NOT NULL)"
         )
@@ -152,7 +152,7 @@ def test_an_older_database_takes_storage_and_network_assignments(database):
 
 
 @pytest.fixture()
-def manager(client, pipeline, monkeypatch):
+def manager(client, pipeline, monkeypatch, daemon_libvirt):
     """The account manages the VM `web` (the Manager role on its pool); no VM exists behind it, so a request that
     passes every check ends in a 404."""
     import libvirt
@@ -166,8 +166,8 @@ def manager(client, pipeline, monkeypatch):
         def close(self):
             pass
 
-    for module in (devices, clone):
-        monkeypatch.setattr(module, "open_conn", lambda *a, **k: NoVm())
+    monkeypatch.setattr(devices, "open_conn", lambda *a, **k: NoVm())
+    daemon_libvirt(NoVm())  # the clone's source is looked up by hyperlite-daemon
     monkeypatch.setattr(clone.maintenance, "refuse_if_in_maintenance", lambda *a: None)
     perm.add_pool_member(pipeline["pool"], "web")
     perm.create_acl("user", "ci", "manager", "pool", str(pipeline["pool"]))
@@ -194,7 +194,7 @@ def test_an_existing_vm_gets_a_disk_or_an_interface_only_with_the_right_on_it(cl
         assert getattr(client, method)(path, json=body, headers=h).status_code == 404, path
 
 
-def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager, monkeypatch):
+def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager, monkeypatch, daemon_libvirt):
     from app.core import disk_resize
     from app.routers.vms import devices
 
@@ -206,6 +206,7 @@ def test_a_disk_is_grown_only_with_the_right_on_its_storage_pool(client, manager
             pass
 
     monkeypatch.setattr(devices, "open_conn", lambda *a, **k: OneVm())
+    daemon_libvirt(OneVm())  # hyperlite-daemon grows the disk, in this process in the tests
     monkeypatch.setattr(disk_resize, "grow", lambda *a, **k: (1 << 30, 2 << 30, False))
     h = manager["headers"]
     monkeypatch.setattr(disk_resize, "storage_pool_name", lambda conn, domain, dev: None)

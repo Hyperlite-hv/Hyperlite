@@ -63,13 +63,15 @@ def _clauses(filters):
 
 
 class SqliteTaskStore:
-    def create(self, task_id, type_, target, node, username, now):
+    def create(self, task_id, type_, target, node, username, now, runner=None):
         with get_conn() as conn:
             conn.execute(
                 "INSERT INTO tasks (id, type, target, node, username, status, progress, created_at, started_at) "
                 "VALUES (?, ?, ?, ?, ?, 'running', 0, ?, ?)",
                 (task_id, type_, target, node, username, now, now),
             )
+            if runner:
+                conn.execute("INSERT OR REPLACE INTO task_runners (task_id, runner) VALUES (?, ?)", (task_id, runner))
             _log_in(conn, task_id, f"Started by {username or 'the system'}", now)
             conn.commit()
 
@@ -129,18 +131,65 @@ class SqliteTaskStore:
             )
             conn.commit()
 
-    def close_interrupted(self, now):
+    def running_with_runners(self):
+        """{task id: its runner, or None for a task recorded before runners were}, of the tasks still running."""
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT t.id, r.runner FROM tasks t LEFT JOIN task_runners r ON r.task_id = t.id "
+                "WHERE t.status IN ('running', 'pending')"
+            ).fetchall()
+        return {r["id"]: r["runner"] for r in rows}
+
+    def runner(self, task_id):
+        with get_conn() as conn:
+            row = conn.execute("SELECT runner FROM task_runners WHERE task_id = ?", (task_id,)).fetchone()
+        return row["runner"] if row else None
+
+    def close_interrupted(self, task_ids, now):
+        """The tasks `task_ids`, whose process is gone, closed as interrupted."""
         reason = "Interrupted: the Hyperlite service restarted while it ran"
         with get_conn() as conn:
-            rows = conn.execute("SELECT id FROM tasks WHERE status IN ('running', 'pending')").fetchall()
-            for row in rows:
-                _log_in(conn, row["id"], reason, now)
+            for task_id in task_ids:
+                _log_in(conn, task_id, reason, now)
+                conn.execute(
+                    "UPDATE tasks SET status = 'failed', progress = 100, finished_at = ?, error = ? "
+                    "WHERE id = ? AND status IN ('running', 'pending')",
+                    (now, reason, task_id),
+                )
+                conn.execute("DELETE FROM task_runners WHERE task_id = ?", (task_id,))
+                conn.execute("DELETE FROM task_cancel_requests WHERE task_id = ?", (task_id,))
+            conn.commit()
+        return len(task_ids)
+
+    def ask_cancel(self, task_id, username, now):
+        """A cancellation for the process that runs the task to act on."""
+        with get_conn() as conn:
             conn.execute(
-                "UPDATE tasks SET status = 'failed', progress = 100, finished_at = ?, error = ? WHERE status IN ('running', 'pending')",
-                (now, reason),
+                "INSERT OR REPLACE INTO task_cancel_requests (task_id, username, at) VALUES (?, ?, ?)",
+                (task_id, username, now),
             )
             conn.commit()
-        return len(rows)
+
+    def take_cancel_requests(self, task_ids):
+        """{task id: who asked} among `task_ids`, each taken once."""
+        if not task_ids:
+            return {}
+        marks = ", ".join("?" for _ in task_ids)
+        with get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT task_id, username FROM task_cancel_requests WHERE task_id IN ({marks})",  # noqa: S608
+                list(task_ids),
+            ).fetchall()
+            for row in rows:
+                conn.execute("DELETE FROM task_cancel_requests WHERE task_id = ?", (row["task_id"],))
+            conn.commit()
+        return {r["task_id"]: r["username"] for r in rows}
+
+    def forget_runner(self, task_id):
+        with get_conn() as conn:
+            conn.execute("DELETE FROM task_runners WHERE task_id = ?", (task_id,))
+            conn.execute("DELETE FROM task_cancel_requests WHERE task_id = ?", (task_id,))
+            conn.commit()
 
     def append_log(self, task_id, message, now):
         with get_conn() as conn:

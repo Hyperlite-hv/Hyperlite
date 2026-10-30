@@ -37,6 +37,10 @@ RETRY_S = 15  # after a round that failed
 PUBLISH_S = 600
 PEER_LIFETIME_S = 5 * 60
 TASK_LIFETIME_S = 12 * 3600  # the longest rolling update, its own session aside
+# A task ticket bound to one task (bound_ticket): valid while that task runs, and END_MARGIN_S after it ended (the last
+# calls of its cleanup), never longer than BOUND_LIFETIME_S however long the task runs.
+BOUND_LIFETIME_S = 7 * 86400
+END_MARGIN_S = 300
 LEEWAY_S = 60  # the members' clocks may differ by that much
 PEER, TASK = "peer", "task"
 
@@ -233,7 +237,7 @@ def legacy_peer_calls():
 def _ask(op, **args):
     """`op` of hyperlite-daemon; in this process with HYPERLITE_AUTH_SIGNING=local (tests)."""
     if os.environ.get(tickets.SIGNING_ENV) == "local":
-        return {"peer": peer, "delegate": delegate}[op](**args)
+        return {"peer": peer, "delegate": delegate, "task": bound_ticket}[op](**args)
     from app.core import daemon_client
 
     return daemon_client.call(f"auth.{op}", args)
@@ -271,6 +275,20 @@ def task_ticket():
         raise NoTicket(str(getattr(e, "detail", e))) from None
 
 
+def task_ticket_for(task_id):
+    """A task ticket bound to the task `task_id`, for this request's credential: what a thread the request starts for
+    that task shows hyperlite-daemon once the request has answered (app/core/tasks.py, thread). Raises NoTicket."""
+    from app.daemon.registry import DaemonError
+
+    credential = CREDENTIAL.get()
+    if credential is None:
+        raise NoTicket("no credential to show for this task")
+    try:
+        return _ask("task", credential=credential, task_id=task_id)
+    except (PermissionError, DaemonError) as e:
+        raise NoTicket(str(getattr(e, "detail", e))) from None
+
+
 # ---- What hyperlite-daemon runs (app/daemon/ops/auth.py) ----
 
 
@@ -293,7 +311,9 @@ def _account(credential):
     claims = tickets.decode(credential)
     try:
         if claims is not None and claims.get("typ") == TASK:
-            return security._session_user({k: v for k, v in claims.items() if k != "typ"})
+            if "task" in claims:
+                _refuse_unless_running(claims["task"], claims.get("sub"))
+            return security._session_user({k: v for k, v in claims.items() if k not in ("typ", "task")})
         return security._current_user(credential, pending_ok=False)
     except HTTPException as e:
         raise PermissionError(f"The credential was refused: {e.detail}") from None
@@ -316,8 +336,16 @@ def peer(credential, targets):
     tickets.ensure_keys()
     publish()  # a key made since: the members called can find it before they see a ticket signed with it
     me = self_node.name()
-    claims = {"typ": PEER, "iss": me, "sub": user["username"], "uid": user["id"]}
+    claims = {"typ": PEER, "iss": me, "sub": user["username"], "uid": user["id"], **_root_claim(user)}
     return {t: _sign({**claims, "aud": t}, PEER_LIFETIME_S) for t in targets}
+
+
+def _root_claim(user):
+    """root of this node (hyperlite-admin) acts on the other members as itself: a member accepts the name
+    root@<this node> only in a ticket this node signed (security._local_root)."""
+    from app.core import security
+
+    return {security.LOCAL_ROOT_CLAIM: True} if user.get(security.LOCAL_ROOT_CLAIM) else {}
 
 
 def delegate(credential):
@@ -327,7 +355,37 @@ def delegate(credential):
     user = _account(credential)
     if user["role"] != "admin":
         raise PermissionError("Only an administrator starts a run across the cluster")
-    return _sign({"typ": TASK, "sub": user["username"], "uid": user["id"]}, TASK_LIFETIME_S)
+    return _sign({"typ": TASK, "sub": user["username"], "uid": user["id"], **_root_claim(user)}, TASK_LIFETIME_S)
+
+
+def bound_ticket(credential, task_id):
+    """A task ticket for the account a session or an API token proves, whatever its role, bound to one of its tasks:
+    the work a request starts for that task keeps the account's proof once the request has answered, as Proxmox VE's
+    workers keep the user of the task they run. It proves the account while the task runs (_account). A task ticket
+    still valid makes one for another task of the same account: the next VM of a backup group, a drain's migrations."""
+    user = _account(credential)  # never a call from another member: _account refuses those
+    _refuse_unless_running(task_id, user["username"], margin=False)
+    claims = {"typ": TASK, "sub": user["username"], "uid": user["id"], "task": task_id, **_root_claim(user)}
+    return _sign(claims, BOUND_LIFETIME_S)
+
+
+def _refuse_unless_running(task_id, username, margin=True):
+    """PermissionError unless the task `task_id` is `username`'s and runs (or ended within END_MARGIN_S)."""
+    from datetime import UTC, datetime
+
+    from app.core import tasks
+
+    row = tasks._store().get(task_id) if isinstance(task_id, str) else None
+    if row is None or row.get("username") != username:
+        raise PermissionError("No such task of this account")
+    if row["status"] in ("pending", "running"):
+        return
+    try:
+        ended = datetime.fromisoformat(row["finished_at"]).astimezone(UTC)
+    except (TypeError, ValueError):
+        ended = None
+    if not margin or ended is None or (datetime.now(UTC) - ended).total_seconds() > END_MARGIN_S:
+        raise PermissionError("The task this ticket was made for has ended")
 
 
 def start_publishing():

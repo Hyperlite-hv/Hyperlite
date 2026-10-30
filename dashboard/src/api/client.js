@@ -345,7 +345,7 @@ export async function fetchStoragePools() {
 
 export async function fetchNetworks() {
   const nets = await realList("/networks");
-  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true }));
+  return nets.map((n) => ({ name: n.name, type: n.type, bridge: n.bridge, active: n.active, network: n.network, autostart: n.autostart, dhcp: n.dhcp, vms: n.vms, vlan: n.vlan === true, vlanMode: n.vlan_mode ?? null, vlanAware: n.vlan_aware ?? null, vlanAwareByHyperlite: n.vlan_aware_by_hyperlite === true }));
 }
 export async function fetchNetworkDetail(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}`);
@@ -369,6 +369,17 @@ export async function addNetworkReservation(name, payload) {
 }
 export async function deleteNetworkReservation(name, mac) {
   return realFetch(`/networks/${encodeURIComponent(name)}/reservations/${encodeURIComponent(mac)}`, { method: "DELETE" });
+}
+// A network's Linux bridge made VLAN-aware, as a trial the dashboard confirms from a new request (app/core/bridge_vlan.py):
+// undone by the host itself when the confirmation does not come back in time.
+export async function makeBridgeVlanAware(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware`, { method: "POST" });
+}
+export async function confirmBridgeVlanAware(name, token) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware/confirm`, { method: "POST", ...jsonBody({ token }) });
+}
+export async function undoBridgeVlanAware(name) {
+  return realFetch(`/networks/${encodeURIComponent(name)}/vlan-aware`, { method: "DELETE" });
 }
 export async function startNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}/start`, { method: "POST" });
@@ -414,8 +425,102 @@ export async function fetchAllBackups() {
 export async function fetchVMBackups(name, node) {
   return realList(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`);
 }
-export async function createBackup(name, targetDir = null, node) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`, { method: "POST", ...jsonBody({ target_dir: targetDir }) });
+export async function createBackup(name, targetDir = null, node, store = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/backups${backupQs("node", node)}`, { method: "POST", ...jsonBody({ target_dir: targetDir, store }) });
+}
+// Backup stores (docs/design/backup-store.md): chunk stores in a directory of a storage pool, as PBS datastores.
+export async function fetchBackupStores() {
+  return realList("/backup-stores");
+}
+export async function createBackupStore(payload) {
+  return realFetch("/backup-stores", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteBackupStore(name) {
+  return realFetch(`/backup-stores/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function cleanUpBackupStore(name) {
+  return realFetch(`/backup-stores/${encodeURIComponent(name)}/gc`, { method: "POST" });
+}
+// Copies of a store into its copy store, pulled on their own schedule with their own retention.
+export async function fetchStoreSyncs() {
+  return realList("/backup-store-syncs");
+}
+export async function createStoreSync(payload) {
+  return realFetch("/backup-store-syncs", { method: "POST", ...jsonBody(payload) });
+}
+export async function updateStoreSync(id, payload) {
+  return realFetch(`/backup-store-syncs/${id}`, { method: "PUT", ...jsonBody(payload) });
+}
+export async function deleteStoreSync(id) {
+  return realFetch(`/backup-store-syncs/${id}`, { method: "DELETE" });
+}
+export async function runStoreSync(id) {
+  return realFetch(`/backup-store-syncs/${id}/run`, { method: "POST" });
+}
+// Other clusters whose stores are copied here (their certificate pinned, a reader's token).
+export async function fetchBackupRemotes() {
+  return realList("/backup-remotes");
+}
+export async function probeBackupRemote(address, port) {
+  return realFetch("/backup-remotes/probe", { method: "POST", ...jsonBody({ address, port }) });
+}
+export async function createBackupRemote(payload) {
+  return realFetch("/backup-remotes", { method: "POST", ...jsonBody(payload) });
+}
+export async function deleteBackupRemote(name) {
+  return realFetch(`/backup-remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function fetchRemoteStores(name) {
+  return realList(`/backup-remotes/${encodeURIComponent(name)}/stores`);
+}
+// Other Hyperlite clusters seen from this one (app/core/sites.py): each with its summary, or why it is missing.
+export async function fetchSites() {
+  return realList("/sites");
+}
+export async function searchSites(q) {
+  return realFetch(`/sites/search?q=${encodeURIComponent(q)}`);
+}
+export async function probeSite(address, port) {
+  return realFetch("/sites/probe", { method: "POST", ...jsonBody({ address, port }) });
+}
+export async function createSite(payload) {
+  return realFetch("/sites/remotes", { method: "POST", ...jsonBody(payload) });
+}
+export async function fetchSiteRemotes() {
+  return realList("/sites/remotes");
+}
+export async function fetchSiteList(remote, what, node) {
+  const query = node ? `?node=${encodeURIComponent(node)}` : "";
+  return realList(`/sites/${encodeURIComponent(remote)}/${what}${query}`);
+}
+// A stopped VM of this node moved to another cluster: what goes and what stays, then the move itself (a task).
+export async function fetchSiteOutgoing(vm, live = false) {
+  return realFetch(`/sites/outgoing/${encodeURIComponent(vm)}${live ? "?live=true" : ""}`);
+}
+export async function moveVmToSite(vm, payload) {
+  return realFetch(`/sites/outgoing/${encodeURIComponent(vm)}`, { method: "POST", ...jsonBody(payload) });
+}
+export async function setSiteToken(name, use, token) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}/tokens/${use}`, { method: "PUT", ...jsonBody({ token }) });
+}
+export async function deleteSiteToken(name, use) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}/tokens/${use}`, { method: "DELETE" });
+}
+// A VM of another cluster, with its manage token: start, shutdown, stop, reboot, reset; or moved to another of its nodes.
+export async function siteVmAction(remote, vm, action, on) {
+  return realFetch(`/sites/${encodeURIComponent(remote)}/vms/${encodeURIComponent(vm)}/${action}`, { method: "POST", ...jsonBody({ on }) });
+}
+export async function siteVmMigrate(remote, vm, on, targetNode) {
+  return realFetch(`/sites/${encodeURIComponent(remote)}/vms/${encodeURIComponent(vm)}/migrate`, { method: "POST", ...jsonBody({ on, target_node: targetNode }) });
+}
+export async function deleteSite(name) {
+  return realFetch(`/sites/remotes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function fetchThisNodeFingerprint() {
+  return realFetch("/backup-remotes/this-node");
+}
+export async function unlockBackupStore(name, key) {
+  return realFetch(`/backup-stores/${encodeURIComponent(name)}/unlock`, { method: "POST", ...jsonBody({ key }) });
 }
 export async function deleteBackup(id, on) {
   return realFetch(`/backups/${id}${backupQs("on", on, "confirm=true")}`, { method: "DELETE" });
@@ -424,6 +529,10 @@ export async function restoreBackup(id, mode, newName = null, on) {
   return realFetch(`/backups/${id}/restore${backupQs("on", on)}`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
 }
 // Recompute every checksum of a backup and check its images (a task, held by the same node as the backup).
+// A backup of the directory format copied into a backup store (a task); the backup stays as it is.
+export async function importBackupIntoStore(id, store, on) {
+  return realFetch(`/backups/${id}/import${backupQs("on", on)}`, { method: "POST", ...jsonBody({ store }) });
+}
 export async function verifyBackup(id, on) {
   return realFetch(`/backups/${id}/verify${backupQs("on", on)}`, { method: "POST" });
 }
@@ -508,6 +617,13 @@ export async function fetchVmDisks() {
 export async function deleteVmDisk(filename) {
   return realFetch(`/vm-disks/${encodeURIComponent(filename)}`, { method: "DELETE" });
 }
+// An OVA exported from VMware: its VM mapped to Hyperlite's settings, then its disks copied out as a task.
+export async function readOva(filename) {
+  return realFetch(`/vm-disks/${encodeURIComponent(filename)}/ovf`);
+}
+export async function extractOva(filename) {
+  return realFetch(`/vm-disks/${encodeURIComponent(filename)}/extract?wait=false`, { method: "POST" });
+}
 
 // ---- VM export ----
 export async function fetchVmExports() {
@@ -549,6 +665,9 @@ async function downloadCsv(path, filters, fallbackName) {
   const a = document.createElement("a");
   a.href = url; a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+  // A cluster's export names the members that did not answer: their rows are not in the file.
+  const unreachable = res.headers.get("Hyperlite-Unreachable");
+  return { unreachable: unreachable ? unreachable.split(",").map((n) => n.trim()).filter(Boolean) : [] };
 }
 // File-level restore: a browsing session on a backup's disks, its folders, and a file (or a folder as .tar.gz).
 export async function openBackupFiles(backupId, on) {
@@ -563,11 +682,12 @@ export function downloadBackupFile(session, device, path) {
 export async function closeBackupFiles(session) {
   return realFetch(`/file-restore/${encodeURIComponent(session)}`, { method: "DELETE" });
 }
+// Every member's rows in a cluster, as the lists show them, with a last column "member".
 export function downloadAuditCsv(filters = {}) {
-  return downloadCsv("/audit/export.csv", filters, "hyperlite-audit.csv");
+  return downloadCsv("/audit/export.csv", { ...filters, cluster: "true" }, "hyperlite-audit.csv");
 }
 export function downloadTasksCsv(filters = {}) {
-  return downloadCsv("/tasks/export.csv", filters, "hyperlite-tasks.csv");
+  return downloadCsv("/tasks/export.csv", { ...filters, cluster: "true" }, "hyperlite-tasks.csv");
 }
 
 // The activity of a cluster (tasks and audit log, app/core/cluster_view.py) is asked of every member: cluster=true.
@@ -758,17 +878,18 @@ export async function migrateVM(name, targetNode, sourceNode, ignorerVerificatio
   const qs = sourceNode && sourceNode !== "local" ? `?node=${encodeURIComponent(sourceNode)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/migrate${qs}`, { method: "POST", ...jsonBody({ target_node: targetNode, skip_checks: ignorerVerifications }) });
 }
-// ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode;
-// targetNode null only marks the node.
+// ---- Node maintenance (node "local" = this host). Draining live-migrates the running VMs to targetNode, or each
+// where load balancing places it (spread); targetNode null without spread only marks the node.
 export async function fetchNodeMaintenance() {
   return realList("/nodes/maintenance");
 }
-export async function fetchDrainPlan(node, targetNode) {
-  const qs = targetNode ? `?target_node=${encodeURIComponent(targetNode)}` : "";
+export async function fetchDrainPlan(node, targetNode, spread = false) {
+  const qs = spread ? "?spread=true" : targetNode ? `?target_node=${encodeURIComponent(targetNode)}` : "";
   return realFetch(`/nodes/${encodeURIComponent(node)}/drain-plan${qs}`);
 }
-export async function enterNodeMaintenance(node, targetNode) {
-  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "POST", ...jsonBody({ target_node: targetNode || null }) });
+export async function enterNodeMaintenance(node, targetNode, spread = false) {
+  const body = spread ? { spread: true } : { target_node: targetNode || null };
+  return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "POST", ...jsonBody(body) });
 }
 export async function leaveNodeMaintenance(node) {
   return realFetch(`/nodes/${encodeURIComponent(node)}/maintenance`, { method: "DELETE" });
@@ -823,6 +944,20 @@ export async function disableHa(name) {
 }
 export async function recoverHa(name, targetNode) {
   return realFetch(`/ha/${encodeURIComponent(name)}/recover`, { method: "POST", ...jsonBody({ target_node: targetNode }) });
+}
+// Automatic HA in a cluster (docs/design/ha-automatic.md): a VM's restart priority and preferred nodes, its VM
+// monitoring, the admission control policy and the HA events of the audit log.
+export async function setHaPolicy(name, priority, preferredNodes) {
+  return realFetch(`/ha/${encodeURIComponent(name)}/policy`, { method: "PUT", ...jsonBody({ priority, preferred_nodes: preferredNodes }) });
+}
+export async function setHaMonitoring(name, enabled) {
+  return realFetch(`/ha/${encodeURIComponent(name)}/monitoring`, { method: "PUT", ...jsonBody({ enabled }) });
+}
+export async function setHaAdmission(policy) {
+  return realFetch("/ha/admission", { method: "PUT", ...jsonBody({ policy }) });
+}
+export async function fetchHaHistory(limit = 50) {
+  return realList(`/ha/history?limit=${limit}`);
 }
 
 // Automatic deletion of inactive VMs (opt-in per VM, see app/core/vm_cleanup.py).
@@ -887,8 +1022,38 @@ export async function testSso() {
   return realFetch("/auth/sso/test", { method: "POST" });
 }
 
-export async function createVM(payload) {
-  return realFetch("/vms", { method: "POST", ...jsonBody(payload) });
+// node: the member the VM is created on (?node=, which sends the request there); omitted for this host.
+export async function createVM(payload, node = null) {
+  const qs = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms${qs}`, { method: "POST", ...jsonBody(payload) });
+}
+// Load balancing (docs/design/drs.md, #334): { settings, state, rules, behaviours }, and what an administrator changes.
+export async function fetchDrs() {
+  return realFetch("/drs");
+}
+export async function saveDrsSettings(mode, threshold) {
+  return realFetch("/drs/settings", { method: "PUT", ...jsonBody({ mode, threshold }) });
+}
+export async function saveDrsRule(rule) {
+  return realFetch(`/drs/rules/${encodeURIComponent(rule.name)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function deleteDrsRule(name) {
+  return realFetch(`/drs/rules/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+export async function setDrsBehaviour(vm, behaviour) {
+  return realFetch(`/drs/vms/${encodeURIComponent(vm)}`, { method: "PUT", ...jsonBody({ behaviour }) });
+}
+export async function applyDrsMove({ vm, source, target, reason }) {
+  return realFetch("/drs/apply", { method: "POST", ...jsonBody({ vm, source, target, ...(reason ? { reason } : {}) }) });
+}
+// The member a new VM goes to on "auto" (load balancing's placement, docs/design/drs.md 3.6): { node, local, skipped }.
+export async function fetchPlacement({ name, memoryMb, vcpus, network, storagePool }) {
+  const params = new URLSearchParams({ memory_mb: String(memoryMb), vcpus: String(vcpus), name: name || "", network: network || "default", storage_pool: storagePool || "default" });
+  return realFetch(`/drs/placement?${params}`);
+}
+// The same creation as a task (202): for large imported disks, whose conversion outlasts a request.
+export async function createVMTask(payload) {
+  return realFetch("/vms?wait=false", { method: "POST", ...jsonBody(payload) });
 }
 export async function updateVM(name, payload) {
   return realFetch(`/vms/${encodeURIComponent(name)}`, { method: "PATCH", ...jsonBody(payload) });
@@ -952,6 +1117,15 @@ export async function fetchVMBoot(name, node = null) {
 export async function setVMBoot(name, payload, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/boot${q}`, { method: "PUT", ...jsonBody(payload) });
+}
+// The VM's hook script (app/core/hookscript.py): the script attached, its last runs, the node's library (admins).
+export async function fetchVMHookscript(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/hookscript${q}`);
+}
+export async function setVMHookscript(name, script, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/hookscript${q}`, { method: "PUT", ...jsonBody({ script }) });
 }
 // ---- Resource limits/reservations (real: GET/PUT /vms/{name}/limits, cgroups
 // through libvirt schedulerParametersFlags/memoryParameters) ----
@@ -1051,8 +1225,8 @@ export async function resizeDisk(name, targetDev, sizeGb) {
 export async function fetchVMNetwork(name, node = null) {
   return realFetch(`/vms/${encodeURIComponent(name)}/network${nodeQs(node)}`);
 }
-export async function attachInterface(name, network, vlanTag = null) {
-  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network, vlan_tag: vlanTag }) });
+export async function attachInterface(name, network, vlanTag = null, vlanTrunks = null) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/interfaces`, { method: "POST", ...jsonBody({ network, vlan_tag: vlanTag, vlan_trunks: vlanTrunks }) });
 }
 export async function detachInterface(name, mac) {
   return realFetch(`/vms/${encodeURIComponent(name)}/interfaces/${encodeURIComponent(mac)}`, { method: "DELETE" });
@@ -1405,6 +1579,12 @@ export async function fetchApiDocsAccess() {
 }
 export async function setApiDocsAccess(access) {
   return realFetch("/api-docs/access", { method: "PUT", ...jsonBody({ access }) });
+}
+export async function fetchAdminCli() {
+  return realFetch("/admin-cli");
+}
+export async function setAdminCli(lockdown) {
+  return realFetch("/admin-cli", { method: "PUT", ...jsonBody({ lockdown }) });
 }
 // A single-use link to Swagger (/docs), for an account allowed to open it: { url }.
 export async function openSwagger() {

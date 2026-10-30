@@ -12,19 +12,19 @@ authenticated call, is encoded in the URL itself."""
 
 import logging
 import secrets
-import threading
 import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from app.core import cluster_view, vm_locks
+from app.core import cluster_view, privileged, vm_locks
 from app.core.audit import log_action
 from app.core.backups import refuse_vm_with_block_disks
 from app.core.listing import listing
 from app.core.safe_paths import safe_child
 from app.core.security import require_role, require_vm_privilege
+from app.core.tasks import start_thread
 from app.core.vm_export import EXPORTS_DIR, list_exports, run_export
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
                 "Ignored exception in job()", exc_info=True
             )  # already logged and tracked in run_export (task + audit_log)
 
-    threading.Thread(target=vm_locks.released_after(claim, job), daemon=True).start()
+    start_thread(vm_locks.released_after(claim, job))  # its task is made by run_export, on the thread
     log_action(user["username"], "export_vm_requested", name, "success")
     return {"message": f"Export of '{name}' started in the background"}
 
@@ -70,10 +70,17 @@ def export_vm(name: str, user: dict = Depends(require_vm_privilege("vm.snapshot"
 @router.delete("/vm-exports/{filename}")
 def delete_vm_export(filename: str, user: dict = Depends(require_role("admin"))):
     filename = Path(filename).name
-    path = safe_child(EXPORTS_DIR, filename)
-    if not path.exists():
+    # hyperlite-daemon removes it: the exports directory is root's.
+    if not privileged.ask(
+        "vm.export_delete",
+        user,
+        "delete_vm_export",
+        filename,
+        refused=404,
+        failed="Export not deleted: {}",
+        name=filename,
+    )["deleted"]:
         raise HTTPException(status_code=404, detail="Export not found")
-    path.unlink()
     log_action(user["username"], "delete_vm_export", filename, "success")
     return {"name": filename, "deleted": True}
 

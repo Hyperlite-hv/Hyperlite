@@ -32,7 +32,16 @@ TABLES = {
     "node_maintenance": {},
     "node_fencing": {"priv": True},
     "ha_settings": {},
-    "ha_protected_vms": {"volatile": {"last_synced_at", "ha_state", "last_action", "last_action_at"}},
+    # The HA state of a VM is the leader's, and read on every node (docs/design/ha-automatic.md, 4.5): replicated.
+    "ha_protected_vms": {"volatile": {"last_synced_at"}},
+    "ha_policies": {},
+    "ha_monitoring": {},
+    # Load balancing (docs/design/drs.md): the cluster's, read on every node.
+    "drs_settings": {},
+    "drs_rules": {},
+    "drs_vms": {},
+    # Its moves: written by the leader, carried out and answered by the member the VM runs on.
+    "drs_requests": {},
     # The switch of this very mirror, the cfs version this node last applied, the daemon's last mode, this node's own
     # name, its pending join, the ticket of its join information, the one-time rewrite of its tasks (they are its own
     # history) and its own step of a rolling update stay per node.
@@ -64,6 +73,13 @@ TABLES = {
     "container_apps": {},
     # Storage and network
     "shared_pools": {},
+    "backup_stores": {},
+    "backup_store_keys": {"priv": True},
+    "backup_store_syncs": {"volatile": {"last_run", "last_result"}},
+    "backup_remotes": {"priv": True},
+    "remotes": {},
+    "remote_endpoints": {},
+    "remote_tokens": {"priv": True},
     "network_firewall": {},
     # Protection and automation
     "backup_jobs": {"volatile": {"last_run"}},

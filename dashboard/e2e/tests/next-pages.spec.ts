@@ -78,8 +78,11 @@ test.describe("Storage page", () => {
     await main.getByRole("button", { name: `Delete ISO ${ISO}` }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
     await expect(main.getByRole("button", { name: `Delete ISO ${ISO}` })).toHaveCount(0, { timeout: 20_000 });
-    const isos = (await (await request.get("/isos", { headers: auth() })).json()) as { name: string }[];
-    expect(isos.map((i) => i.name)).not.toContain(ISO);
+    // The list reloads after the confirmation and its buttons are gone for a moment before the deletion is done (seen
+    // in CI: the API read first, the file deleted half a second later): the API is asked until it no longer lists it.
+    await expect
+      .poll(async () => ((await (await request.get("/isos", { headers: auth() })).json()) as { name: string }[]).map((i) => i.name), { timeout: 20_000 })
+      .not.toContain(ISO);
   });
 });
 

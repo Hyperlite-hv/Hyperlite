@@ -78,21 +78,26 @@ def export_tasks(
     target: str | None = None,
     node: str | None = None,
     since: str | None = None,
+    # In a cluster: every member's tasks, merged newest first, with a last column "member" (the node that holds the
+    # task); the members that did not answer are named in the Hyperlite-Unreachable header.
+    cluster: bool = False,
     user: dict = Depends(get_current_user),
 ):
     """EVERY task matching the same filters as GET /tasks, newest first, as CSV (the page
     only loads the most recent ones)."""
     filters = {"status": status, "type": type, "username": username, "target": target, "node": node, "since": since}
+    header = ("id", "created", "type", "target", "node", "user", "status", "progress", "started", "finished", "error")
     rows = task_service.export_rows(filters)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    return StreamingResponse(
-        csv_lines(
-            ("id", "created", "type", "target", "node", "user", "status", "progress", "started", "finished", "error"),
-            rows,
-        ),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="hyperlite-tasks-{stamp}.csv"'},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="hyperlite-tasks-{stamp}.csv"'}
+    if cluster:
+        params = {**filters, "node": cluster_view.node_filter(node)}
+        exports, missing = cluster_view.gather_exports(user["username"], "/tasks/export.csv", params)
+        rows = cluster_view.merged_export(rows, exports, header, "created")
+        header = (*header, "member")
+        if missing:
+            headers[cluster_view.UNREACHABLE_HEADER] = ", ".join(missing)
+    return StreamingResponse(csv_lines(header, rows), media_type="text/csv; charset=utf-8", headers=headers)
 
 
 @router.get("/{task_id}")

@@ -2,9 +2,10 @@
 any VM's backup are readable through it."""
 
 import os
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
 from app.core import cluster_view, file_restore
@@ -12,6 +13,12 @@ from app.core.audit import log_action
 from app.core.security import require_role
 
 router = APIRouter(tags=["backups"])
+
+
+def _attachment(name):
+    """The download's Content-Disposition, as FileResponse writes it: a guest's file name may be anything."""
+    quoted = quote(name)
+    return f"attachment; filename*=utf-8''{quoted}" if quoted != name else f'attachment; filename="{name}"'
 
 
 def _fail(e):
@@ -46,8 +53,8 @@ def open_backup_files(backup_id: int, on: str | None = None, user: dict = Depend
 @router.get("/file-restore/{session_id}/ls")
 def list_backup_dir(session_id: str, device: str, path: str = "/", user: dict = Depends(require_role("admin"))):
     try:
-        s = file_restore.get_session(session_id, user["username"])
-        return s.request({"op": "ls", "device": device, "path": path})
+        file_restore.get_session(session_id, user["username"])
+        return file_restore.list_dir(session_id, user["username"], device, path)
     except file_restore.RestoreError as e:
         raise _fail(e) from e
 
@@ -57,13 +64,18 @@ def download_from_backup(session_id: str, device: str, path: str, user: dict = D
     """A file as it is, a folder as a .tar.gz; the temporary copy is removed once sent."""
     try:
         s = file_restore.get_session(session_id, user["username"])
-        dest, name = file_restore.export(s, device, path)
+        fd, name = file_restore.export(session_id, user["username"], device, path)
     except file_restore.RestoreError as e:
         log_action(user["username"], "restore_file", path, "failed", str(e))
         raise _fail(e) from e
     log_action(user["username"], "restore_file", f"{s.vm_name} #{s.backup_id}:{device}{path}", "success")
-    return FileResponse(
-        dest, filename=name, media_type="application/octet-stream", background=BackgroundTask(os.unlink, dest)
+    # hyperlite-daemon hands the copy over as an open file, already unlinked: it goes once read and closed.
+    copy = os.fdopen(fd, "rb")
+    return StreamingResponse(
+        iter(lambda: copy.read(1 << 20), b""),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": _attachment(name)},
+        background=BackgroundTask(copy.close),
     )
 
 

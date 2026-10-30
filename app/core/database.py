@@ -9,6 +9,43 @@ from app.repositories.cfs import ids as _ids
 
 DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or paths.DB)
 
+# The permission tables (docs/design/privilege-separation.md, section 14.3): in a file of their own, written by root's
+# services only (hyperlite-daemon since 4b) and read by the API, as Proxmox VE keeps user.cfg root's. Every connection
+# attaches it as ACCESS; unqualified names find these tables there, so no query names the file.
+ACCESS = "acc"
+ACCESS_TABLES = (
+    "users",
+    "api_tokens",
+    "webauthn_credentials",
+    "revoked_sessions",
+    "groups",
+    "group_members",
+    "custom_roles",
+    "acl",
+    "pools",
+    "pool_members",
+    "sso_config",
+    "ldap_config",
+)
+ACCESS_PATH = os.environ.get("HYPERLITE_ACCESS_DB_PATH")
+
+
+def access_path():
+    """/etc/hyperlite/access.db beside the node's configuration; beside the database when it was moved elsewhere (the
+    test suite, the end-to-end backend), so each keeps its own."""
+    if ACCESS_PATH:
+        return Path(ACCESS_PATH)
+    if DB_PATH == paths.DB:
+        return paths.ETC / "access.db"
+    return DB_PATH.with_name(DB_PATH.stem + "-access.db")
+
+
+def access_writable(path=None):
+    """Whether this process may write the permission tables' file: root's services; never the API once it runs as
+    www-data (4e), whose connections attach it read-only."""
+    path = Path(path or access_path())
+    return os.access(path, os.W_OK) if path.exists() else os.access(path.parent, os.W_OK)
+
 
 @contextmanager
 def get_conn():
@@ -19,53 +56,223 @@ def get_conn():
     # default rollback-journal mode, which locks the whole file). The PRAGMA is a
     # no-op when already applied, so repeating it on every connection costs nothing.
     # ids.Connection: in a cluster, a new row of a replicated table gets an id no other node hands out.
-    conn = sqlite3.connect(DB_PATH, timeout=30, factory=_ids.Connection)
+    conn = sqlite3.connect(Path(DB_PATH).absolute().as_uri(), timeout=30, factory=_ids.Connection, uri=True)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.row_factory = sqlite3.Row
     try:
+        _attach_access(conn)
+        conn.schemas = dict.fromkeys(ACCESS_TABLES, ACCESS)  # where ids.Connection finds their sqlite_sequence
+        conn.set_authorizer(_only_from_the_access_file)
         yield conn
     finally:
         conn.close()
 
 
-def init_db():
-    # Root only, as Proxmox VEs config.db: it holds every accounts password hash. Made so before SQLite creates it
-    # with the default mode; its -wal and -shm files take the same.
-    with contextlib.suppress(OSError):
-        os.close(os.open(DB_PATH, os.O_RDWR | os.O_CREAT, 0o600))
-        os.chmod(DB_PATH, 0o600)
-    with get_conn() as conn:
-        # API v1: the old French names renamed first, before any statement below uses the new ones (app/core/schema_v1.py).
-        from app.core import schema_v1
+_ACCESS_NAMES = frozenset(ACCESS_TABLES)
+_ROW_ACTIONS = frozenset({sqlite3.SQLITE_READ, sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE})
 
-        schema_v1.migrate(conn, DB_PATH)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                hashed_password TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('admin', 'viewer'))
+
+def _only_from_the_access_file(action, table, _column, schema, _source):
+    """Unqualified names are looked up in the main file before the attached ones, and the API (www-data from 4e)
+    writes the main file: a table or a view it made there under a permission table's name would be read in its place
+    by root's services. A statement that would read or write such a name outside the access file is refused when it is
+    prepared (a view's columns are checked under the view's name, and a schema change prepares it again). A table read
+    without any of its columns (COUNT(*) without WHERE) is reported without its file, and let through: no such query
+    reads these tables."""
+    if action in _ROW_ACTIONS and table in _ACCESS_NAMES and schema not in (ACCESS, None):
+        return sqlite3.SQLITE_DENY
+    return sqlite3.SQLITE_OK
+
+
+def _attach_access(conn):
+    """The permission tables' file, read-write for root's services (with the triggers that record their changes for
+    hyperlite-cfs), read-only otherwise. Not there yet (a node not started since this version): nothing attached."""
+    path = access_path()
+    writer = access_writable(path)
+    if not path.exists():
+        return
+    uri = Path(path).absolute().as_uri() + ("" if writer else "?mode=ro")
+    conn.execute(f"ATTACH DATABASE ? AS {ACCESS}", (uri,))
+    if writer:
+        from app.repositories.cfs import shadow
+
+        for sql in shadow.access_triggers(conn):
+            conn.execute(sql)
+
+
+def init_db():
+    """The schema made or brought up to date. Each service that opens the database runs it at its start (the API,
+    hyperlite-scheduler): one at a time, so two never add the same column at once."""
+    import fcntl
+
+    from app.core import shared_claims
+
+    fd = shared_claims._open(shared_claims._directory() / "schema.lock", os.O_RDWR | os.O_CREAT)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        _init_main_file()
+        _init_access_file()
+        _init_db()
+    finally:
+        os.close(fd)
+
+
+def _init_access_file():
+    """The permission tables' file made or brought up to date, and the tables of a node from before it moved there,
+    once. Root's services only: the API, once www-data, reads what they made."""
+    from app.repositories.cfs import shadow
+
+    path = access_path()
+    if not access_writable(path):
+        return
+    from app.core import api_group
+
+    # Root writes it, the API's group reads it (attached read-only, get_conn), as /etc/pve's files for www-data.
+    with contextlib.suppress(OSError):
+        os.close(os.open(path, os.O_RDWR | os.O_CREAT, 0o640))
+        api_group.share(path, 0o640)
+    acc = sqlite3.connect(path, timeout=30, factory=_ids.Connection)
+    acc.row_factory = sqlite3.Row
+    acc.reserve_ids = False  # the rows it copies or rebuilds keep their ids
+    try:
+        # A rollback journal, not WAL: a reader of this file then needs no write at all (WAL's -shm).
+        acc.execute("PRAGMA journal_mode=DELETE")
+        _move_to_access(acc)
+        _init_access(acc)
+        acc.commit()
+    finally:
+        acc.close()
+    shadow.forget_access_triggers()
+
+
+def _move_to_access(acc):
+    """The permission tables of the main file (a node from before the split, or back from a return to such a version:
+    move_back) copied into the access file, then dropped from the main file. A copy cut short is finished at the next
+    start. A table the access file already holds is its own: a different one found in the main file is set aside
+    under *_pre_access, and said."""
+    import logging
+
+    if not Path(DB_PATH).exists():
+        return
+    acc.execute("ATTACH DATABASE ? AS legacy", (str(DB_PATH),))
+    try:
+        # With the old acl a rebuild cut short left behind (_init_access finishes it).
+        names = (*ACCESS_TABLES, "acl_pre_container_migration")
+        # A view under a permission table's name is nobody's: the services refuse to read through it
+        # (_only_from_the_access_file), and it goes.
+        for (view,) in acc.execute(
+            f"SELECT name FROM legacy.sqlite_master WHERE type = 'view' AND name IN ({', '.join('?' * len(names))})",  # noqa: S608
+            names,
+        ).fetchall():
+            logging.getLogger(__name__).error("%s: a view of that name in the database, dropped", view)
+            acc.execute(f'DROP VIEW legacy."{view}"')
+            acc.commit()
+        copy_tables(acc, "legacy", names)
+        legacy = {r[0] for r in acc.execute("SELECT name FROM legacy.sqlite_master WHERE type = 'table'").fetchall()}
+        for table in names:
+            if table not in legacy:
+                continue
+            # Names from ACCESS_TABLES.
+            moved = acc.execute(f'SELECT COUNT(*) FROM main."{table}"').fetchone()[0]  # noqa: S608
+            left = acc.execute(f'SELECT COUNT(*) FROM legacy."{table}"').fetchone()[0]  # noqa: S608
+            if moved != left:
+                aside = f"{table}_pre_access"
+                logging.getLogger(__name__).error(
+                    "%s: %d rows in the access file, %d in the database: the database's set aside as %s",
+                    table,
+                    moved,
+                    left,
+                    aside,
+                )
+                acc.execute(f'DROP TABLE IF EXISTS legacy."{aside}"')
+                acc.execute(f'ALTER TABLE legacy."{table}" RENAME TO "{aside}"')
+            else:
+                acc.execute(f'DROP TABLE legacy."{table}"')
+            acc.commit()
+    finally:
+        acc.execute("DETACH DATABASE legacy")
+
+
+def copy_tables(conn, source, names, replace=False):
+    """Each of `names` the attached `source` holds, made in the main schema with its rows, indexes and AUTOINCREMENT
+    counter, one transaction per table: a copy stopped half way leaves nothing. A table main already has is left as
+    it is, or replaced with `replace`."""
+    held = {
+        r[0]: r[1]
+        for r in conn.execute(f"SELECT name, sql FROM {source}.sqlite_master WHERE type = 'table'").fetchall()  # noqa: S608
+    }
+    here = {r[0] for r in conn.execute("SELECT name FROM main.sqlite_master WHERE type = 'table'").fetchall()}
+    for table in names:
+        if table not in held or (table in here and not replace):
+            continue
+        # Names from the callers' lists, SQL from the source's own schema.
+        conn.execute("BEGIN")
+        try:
+            conn.execute(f'DROP TABLE IF EXISTS main."{table}"')
+            conn.execute(held[table])
+            for (index,) in conn.execute(
+                f"SELECT sql FROM {source}.sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL",  # noqa: S608
+                (table,),
+            ).fetchall():
+                conn.execute(index)
+            conn.execute(f'INSERT INTO main."{table}" SELECT * FROM {source}."{table}"')  # noqa: S608
+            seq = (
+                conn.execute(f"SELECT seq FROM {source}.sqlite_sequence WHERE name = ?", (table,)).fetchone()  # noqa: S608
+                if "sqlite_sequence" in held
+                else None
             )
-        """)
-        # TOTP 2FA: a separate ALTER, because `users` already exists in deployed
-        # databases (same reason as vm_provisioning/task_id below). totp_secret stays
-        # NULL until 2FA is both configured and confirmed (see app/core/twofa.py): a
-        # secret that was generated purpose never confirmed by a real code must NOT enable
-        # 2FA, otherwise a user who never finished the QR code step would be locked out
-        # of their own account.
-        for ddl in (
-            "ALTER TABLE users ADD COLUMN totp_secret TEXT",
-            "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
-            # SSO: 'local' (Hyperlite password, the historical behaviour) or 'sso'
-            # (provisioned automatically by app/core/sso.py, with the local password made
-            # unusable and the role re-resolved at every login from the IdP groups).
-            # Distinguishing the two is essential to NEVER let an SSO login overwrite an
-            # existing local account (see sso.py::provision_user): the local admin must stay
-            # a reliable fallback even if the IdP is misconfigured.
-            "ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'",
-        ):
-            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
-                conn.execute(ddl)
+            if seq is not None:
+                conn.execute("DELETE FROM main.sqlite_sequence WHERE name = ?", (table,))
+                conn.execute("INSERT INTO main.sqlite_sequence (name, seq) VALUES (?, ?)", (table, seq[0]))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def move_back(suffix):
+    """For a return to a version from before the access file (installer/deb/prerm, on a downgrade): its tables copied
+    back into the main file, where that version reads them, and the file set aside as access.db.<suffix>. A later
+    start of a version that has it moves them again (_move_to_access). Returns whether there was anything to move."""
+    path = access_path()
+    if not path.exists() or not Path(DB_PATH).exists():
+        return False
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        conn.execute("ATTACH DATABASE ? AS access", (str(path),))
+        copy_tables(conn, "access", ACCESS_TABLES, replace=True)
+        conn.execute("DETACH DATABASE access")
+    finally:
+        conn.close()
+    path.rename(path.with_name(f"{path.name}.{suffix}"))
+    return True
+
+
+def _init_main_file():
+    # Root's and the API's group (app/core/api_group.py), read and written by both: made so before SQLite creates it
+    # with the default mode. SQLite gives its -wal and -shm files the same owner, group and mode when root makes them,
+    # so the API still opens the database after a root service did first. The permissions are in their own file
+    # (_init_access_file), which the API only reads.
+    from app.core import api_group
+
+    with contextlib.suppress(OSError):
+        os.close(os.open(DB_PATH, os.O_RDWR | os.O_CREAT, 0o660))
+        for path in (DB_PATH, Path(f"{DB_PATH}-wal"), Path(f"{DB_PATH}-shm")):
+            if path.exists():
+                api_group.share(path, 0o660)
+    # API v1: the old French names renamed first (app/core/schema_v1.py), before any statement uses the new ones, and
+    # before the permission tables, renamed with the rest, move to their own file.
+    from app.core import schema_v1
+
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    try:
+        schema_v1.migrate(conn, DB_PATH)
+    finally:
+        conn.close()
+
+
+def _init_db():
+    with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +300,31 @@ def init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_cree_le ON tasks(created_at)")
+        # The process that runs a task (app/core/tasks.py: "<service>:<pid>:<start time>"), and a cancellation asked of
+        # a task another process runs: the API, hyperlite-scheduler and HA's services each run tasks. This node's
+        # state only, never replicated.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_runners (
+                task_id TEXT PRIMARY KEY,
+                runner TEXT NOT NULL
+            )
+        """)
+        # What a service publishes for the others to read (app/core/service_state.py): HA's and load balancing's state,
+        # made in hyperlite-ha-crm and shown by the API. This node's only, never replicated.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS service_state (
+                name TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_cancel_requests (
+                task_id TEXT PRIMARY KEY,
+                username TEXT,
+                at TEXT NOT NULL
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS metrics_samples (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,21 +343,6 @@ def init_db():
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_cible_ts ON metrics_samples(target, tier, ts)")
 
-        # ---- Security keys and passkeys (WebAuthn, see app/core/webauthn_keys.py) ----
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS webauthn_credentials (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL,
-                name TEXT NOT NULL,
-                credential_id TEXT NOT NULL UNIQUE,
-                public_key TEXT NOT NULL,
-                sign_count INTEGER NOT NULL DEFAULT 0,
-                rp_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                used_at TEXT
-            )
-        """)
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials(username, rp_id)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS webauthn_challenges (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,6 +436,101 @@ def init_db():
                 next_run TEXT NOT NULL
             )
         """)
+        # Backup stores (app/core/backup_stores.py, docs/design/backup-store.md): a store lives in a directory of a
+        # storage pool, the same on every node that mounts the pool. `store_id` is the one its .store.json holds.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_stores (
+                name TEXT PRIMARY KEY,
+                pool TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                store_id TEXT NOT NULL,
+                encrypted INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # The key of an encrypted store, encrypted at rest (app/core/secrets_crypto.py), replicated under /priv (root
+        # only). Kept apart from backup_stores, whose rows every reader of the configuration sees.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_store_keys (
+                name TEXT PRIMARY KEY,
+                key_encrypted TEXT NOT NULL,
+                created_at TEXT
+            )
+        """)
+        # Copies of a store into another (app/core/backup_store_sync.py): pulled by the copy's side on its own
+        # schedule, with a retention of its own (a deletion at the source never reaches the copy).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_store_syncs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                frequency TEXT NOT NULL CHECK(frequency IN ('daily', 'weekly', 'monthly')),
+                time TEXT NOT NULL,
+                retention_count INTEGER NOT NULL DEFAULT 7,
+                keep_days INTEGER,
+                keep_weeks INTEGER,
+                keep_months INTEGER,
+                active INTEGER NOT NULL DEFAULT 1,
+                last_run TEXT,
+                last_result TEXT,
+                next_run TEXT NOT NULL
+            )
+        """)
+        # Other Hyperlite clusters whose stores are copied here (app/core/backup_remotes.py): an address, its pinned
+        # certificate, a reader's API token encrypted at rest; replicated under /priv.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS backup_remotes (
+                name TEXT PRIMARY KEY,
+                address TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                token_encrypted TEXT NOT NULL,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # The remote clusters of the multi-cluster view (app/core/sites.py): each node's address and pinned certificate,
+        # and a token per use (sealed, replicated under /priv).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS remotes (
+                name TEXT PRIMARY KEY,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS remote_endpoints (
+                remote TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                address TEXT NOT NULL,
+                port INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                node TEXT,
+                PRIMARY KEY (remote, position)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS remote_tokens (
+                remote TEXT NOT NULL,
+                use TEXT NOT NULL CHECK(use IN ('view', 'manage')),
+                token_encrypted TEXT NOT NULL,
+                PRIMARY KEY (remote, use)
+            )
+        """)
+        # A backup or a job into a store: its name; NULL for a backup directory (the format of every backup before).
+        for ddl in (
+            # A store made as the copy of another (same chunk size and key): the source's name.
+            "ALTER TABLE backup_stores ADD COLUMN copy_of TEXT",
+            # The public half of a store's master recovery key (PEM), NULL without one.
+            "ALTER TABLE backup_stores ADD COLUMN master_public_key TEXT",
+            "ALTER TABLE backups ADD COLUMN store TEXT",
+            "ALTER TABLE backup_jobs ADD COLUMN store TEXT",
+            "ALTER TABLE backup_group_jobs ADD COLUMN store TEXT",
+        ):
+            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+                conn.execute(ddl)
         # In a cluster, this node's own next run of the jobs every node runs for its VMs (grouped backups,
         # replication), against the shared value it was computed from: app/repositories/sqlite/schedule_state.py.
         # Each node keeps its own (not in app/repositories/cfs/tables.py).
@@ -356,7 +668,7 @@ def init_db():
         # OS label DECLARED when the VM is created (deduced from the chosen
         # template/ISO, see vms.create_vm). It is not "detected" in the strict sense (no
         # qemu-guest-agent is installed in guest VMs, so libvirt cannot read anything from
-        # the inside), purpose it is reliable because Hyperlite itself started that
+        # the inside), but it is reliable because Hyperlite itself started that
         # installation and knows which OS it asked for.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_os_label (
@@ -365,90 +677,6 @@ def init_db():
             )
         """)
 
-        # ---- Granular permissions (see app/core/permissions.py) ----
-        # User groups, VM pools and assignments (ACLs): a scoped role
-        # (operator/manager/reader, distinct from the global admin/observer roles) granted
-        # to a user OR a group on a specific VM OR pool. Additive only: it never removes
-        # rights from the existing global roles.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS groups (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS group_members (
-                group_id INTEGER NOT NULL,
-                username TEXT NOT NULL,
-                PRIMARY KEY (group_id, username)
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS pools (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                description TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS pool_members (
-                pool_id INTEGER NOT NULL,
-                vm_name TEXT NOT NULL,
-                PRIMARY KEY (pool_id, vm_name)
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS acl (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
-                subject_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
-                resource_id TEXT NOT NULL
-            )
-        """)
-        # Migration: existing databases were created with an older CHECK
-        # (resource_type IN ('vm','pool'), then ('vm','pool','container')). CREATE TABLE IF NOT EXISTS above is a no-op on
-        # a table that already exists, and SQLite cannot modify an existing CHECK through
-        # ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
-        # migrated).
-        existing_acl_sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'").fetchone()
-        if existing_acl_sql and "'network'" not in existing_acl_sql["sql"]:
-            conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
-            conn.execute("""
-                CREATE TABLE acl (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
-                    subject_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network')),
-                    resource_id TEXT NOT NULL
-                )
-            """)
-        # The rows are copied with their ids: nothing to reserve from the cluster (app/repositories/cfs/ids.py), which
-        # may still be agreeing on its state as the service starts after an update. Reserving one failed there, and a
-        # start that stopped between the two statements left the assignments in the old table, unread: a start that
-        # finds it finishes the copy.
-        if conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='acl_pre_container_migration'"
-        ).fetchone():
-            reserve_ids, conn.reserve_ids = conn.reserve_ids, False
-            try:
-                conn.execute("INSERT OR IGNORE INTO acl SELECT * FROM acl_pre_container_migration")
-            finally:
-                conn.reserve_ids = reserve_ids
-            conn.execute("DROP TABLE acl_pre_container_migration")
-        # Custom roles: the same ACL assignments as the predefined roles
-        # (reader/operator/manager), purpose the user chooses the privilege subset (see
-        # ALL_PRIVILEGES in app/core/permissions.py). They are identified in acl.role by
-        # "custom:<id>".
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS custom_roles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                privileges TEXT NOT NULL
-            )
-        """)
         # LXC containers: a table distinct from vm_ssh_users. Qemu and lxc domains live
         # in separate libvirt namespaces (see open_lxc_conn), so a container and a VM can
         # in theory share the same name with no collision to avoid here.
@@ -502,6 +730,64 @@ def init_db():
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
+        # Automatic HA per protected VM (docs/design/ha-automatic.md, 4.3): its restart priority, its preferred nodes
+        # (a JSON list, in order) and its last automatic restarts (a JSON list of times), for the limit per hour. A
+        # table of its own, not columns of ha_protected_vms: a node before this version ignores a table it does not
+        # know, while a column it does not know would stop it applying any change from the cluster.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ha_policies (
+                vm_name TEXT PRIMARY KEY,
+                priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('high', 'medium', 'low')),
+                preferred_nodes TEXT NOT NULL DEFAULT '[]',
+                auto_restarts TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
+        # Load balancing (docs/design/drs.md): its settings (mode, threshold), its rules (VMs together, apart, on or off
+        # some nodes) and each VM's exception. Tables of their own, replicated.
+        conn.execute("CREATE TABLE IF NOT EXISTS drs_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_rules (
+                name TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('together', 'apart', 'on_nodes', 'not_on_nodes')),
+                strength TEXT NOT NULL DEFAULT 'should' CHECK(strength IN ('must', 'should')),
+                vms TEXT NOT NULL DEFAULT '[]',
+                nodes TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_vms (
+                vm_name TEXT PRIMARY KEY,
+                behaviour TEXT NOT NULL DEFAULT 'default' CHECK(behaviour IN ('default', 'manual', 'excluded'))
+            )
+        """)
+        # A move of automatic load balancing: requested by the leader, carried out by the member the VM runs on (only
+        # that member reads its full configuration, which the migration's checks need), its outcome written back.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS drs_requests (
+                id TEXT PRIMARY KEY,
+                vm_name TEXT NOT NULL,
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                reason TEXT,
+                requested_by TEXT NOT NULL DEFAULT 'drs',
+                requested_at TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending', 'started', 'succeeded', 'failed')),
+                task_id TEXT,
+                detail TEXT,
+                updated_at TEXT
+            )
+        """)
+        # VM monitoring of an HA VM (docs/design/ha-automatic.md, 4.9): a table of its own, for the same reason.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ha_monitoring (
+                vm_name TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                resets TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
         # Fencing settings per node ("local" or a registered node name), see app/core/ha_fencing.py. The password
         # is Fernet-encrypted and never returned by the API.
         conn.execute("""
@@ -558,31 +844,6 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
-        # API tokens: a credential dedicated to automation (scripts/Terraform), separate
-        # from the session JWT (different lifetime and scope: an API token does not
-        # expire after 4 h like a session, purpose can be revoked individually without
-        # signing the user out everywhere). ONLY token_hash (SHA-256) is stored, NEVER
-        # the plain token: it is shown only ONCE, at creation (see
-        # app/core/api_tokens.py), and cannot be recovered afterwards even by an admin
-        # with direct access to the database.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS api_tokens (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL,
-                name TEXT NOT NULL,
-                token_hash TEXT UNIQUE NOT NULL,
-                created_at TEXT NOT NULL,
-                last_used_at TEXT
-            )
-        """)
-        # Workstation tokens (`hyperlite login`) expire; tokens created by hand keep no
-        # expiry unless one is set. kind tells them apart in the token list.
-        for ddl in (
-            "ALTER TABLE api_tokens ADD COLUMN expires_at TEXT",
-            "ALTER TABLE api_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'api'",
-        ):
-            with contextlib.suppress(sqlite3.OperationalError):  # column already exists
-                conn.execute(ddl)
         # Network/datacenter firewall: unlike the per-VM firewall (nwfilter, stored and
         # reapplied by libvirt itself), these iptables rules do NOT survive a host
         # reboot. This table is the only persistent source of truth, reapplied when the
@@ -627,21 +888,6 @@ def init_db():
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 last_notified_version TEXT,
                 last_checked_at TEXT
-            )
-        """)
-        # OIDC SSO: a SINGLE row (id=1), the same pattern as update_check_state above.
-        # client_secret is encrypted at rest (see app/core/secrets_crypto.py). Admin-only.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS sso_config (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                enabled INTEGER NOT NULL DEFAULT 0,
-                issuer TEXT NOT NULL DEFAULT '',
-                client_id TEXT NOT NULL DEFAULT '',
-                client_secret TEXT NOT NULL DEFAULT '',
-                redirect_uri TEXT NOT NULL DEFAULT '',
-                scope TEXT NOT NULL DEFAULT 'openid profile email groups',
-                group_claim TEXT NOT NULL DEFAULT 'groups',
-                admin_groups TEXT NOT NULL DEFAULT ''
             )
         """)
         # CSRF/nonce states of the OIDC Authorization Code flow: SINGLE USE (deleted as
@@ -731,32 +977,14 @@ def init_db():
             )
         """)
         for ddl in (
-            "ALTER TABLE users ADD COLUMN last_login_at TEXT",
-            # Epoch second of the last password change or reset (NULL: never): session tokens issued
-            # before it are refused (app/core/security.py::set_password, _session_user).
-            "ALTER TABLE users ADD COLUMN password_changed_at INTEGER",
-            # 1 when the password no longer meets the policy (seen at sign-in, the only moment the plain password
-            # is known): the account can do nothing purpose change it (app/core/security.py::_session_user).
-            "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
             # Source address of the request that produced the audit entry (NULL for
             # background jobs, which have no request).
             "ALTER TABLE audit_log ADD COLUMN ip TEXT",
-            # Last TOTP time step accepted for the account: a code is accepted once (app/core/twofa.py).
-            "ALTER TABLE users ADD COLUMN totp_last_step INTEGER",
-            # The identity provider's stable identifier (`sub`) of an SSO account (app/core/sso.py).
-            "ALTER TABLE users ADD COLUMN sso_subject TEXT",
             # The browser a sign-in started from: the callback must come back to it (app/core/sso.py).
             "ALTER TABLE sso_login_state ADD COLUMN binding TEXT",
         ):
             with contextlib.suppress(sqlite3.OperationalError):  # column already exists
                 conn.execute(ddl)
-        # Session tokens signed out before their expiry (POST /auth/logout); rows are dropped once expired.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS revoked_sessions (
-                jti TEXT PRIMARY KEY,
-                expires_at INTEGER NOT NULL
-            )
-        """)
         # One-time codes that hand an SSO sign-in over to the dashboard (the session token never travels in
         # a URL): single use, a minute at most.
         conn.execute("""
@@ -822,26 +1050,6 @@ def init_db():
                 PRIMARY KEY (kind, node, name)
             )
         """)
-        # LDAP / Active Directory sign-in (app/core/ldap_auth.py): one directory; the bind password is encrypted.
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ldap_config (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                enabled INTEGER NOT NULL DEFAULT 0,
-                url TEXT NOT NULL DEFAULT '',
-                starttls INTEGER NOT NULL DEFAULT 0,
-                verify_tls INTEGER NOT NULL DEFAULT 1,
-                ca_cert TEXT NOT NULL DEFAULT '',
-                bind_dn TEXT NOT NULL DEFAULT '',
-                bind_password TEXT NOT NULL DEFAULT '',
-                base_dn TEXT NOT NULL DEFAULT '',
-                user_filter TEXT NOT NULL DEFAULT '(&(objectClass=person)(|(uid={username})(sAMAccountName={username})))',
-                group_attribute TEXT NOT NULL DEFAULT 'memberOf',
-                admin_groups TEXT NOT NULL DEFAULT '',
-                allowed_groups TEXT NOT NULL DEFAULT ''
-            )
-        """)
-        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
-            conn.execute("ALTER TABLE users ADD COLUMN ldap_dn TEXT")
         # Metric servers the collector pushes each sample to (app/core/metric_export.py); the token is encrypted.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS metric_servers (
@@ -880,3 +1088,219 @@ def init_db():
             "OR action LIKE 'get\\_%' ESCAPE '\\')"
         )
         conn.commit()
+
+
+def _init_access(conn):
+    """The permission tables' schema, in their own file (access_path(), docs/design/privilege-separation.md, section
+    14.3): `conn` is a connection to that file. Made or brought up to date by root's services only."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            hashed_password TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('admin', 'viewer'))
+        )
+    """)
+    # TOTP 2FA: a separate ALTER, because `users` already exists in deployed
+    # databases (same reason as vm_provisioning/task_id below). totp_secret stays
+    # NULL until 2FA is both configured and confirmed (see app/core/twofa.py): a
+    # secret that was generated but never confirmed by a real code must NOT enable
+    # 2FA, otherwise a user who never finished the QR code step would be locked out
+    # of their own account.
+    for ddl in (
+        "ALTER TABLE users ADD COLUMN totp_secret TEXT",
+        "ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0",
+        # SSO: 'local' (Hyperlite password, the historical behaviour) or 'sso'
+        # (provisioned automatically by app/core/sso.py, with the local password made
+        # unusable and the role re-resolved at every login from the IdP groups).
+        # Distinguishing the two is essential to NEVER let an SSO login overwrite an
+        # existing local account (see sso.py::provision_user): the local admin must stay
+        # a reliable fallback even if the IdP is misconfigured.
+        "ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'",
+        "ALTER TABLE users ADD COLUMN last_login_at TEXT",
+        # Epoch second of the last password change or reset (NULL: never): session tokens issued
+        # before it are refused (app/core/security.py::set_password, _session_user).
+        "ALTER TABLE users ADD COLUMN password_changed_at INTEGER",
+        # 1 when the password no longer meets the policy (seen at sign-in, the only moment the plain password
+        # is known): the account can do nothing but change it (app/core/security.py::_session_user).
+        "ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0",
+        # Last TOTP time step accepted for the account: a code is accepted once (app/core/twofa.py).
+        "ALTER TABLE users ADD COLUMN totp_last_step INTEGER",
+        # The identity provider's stable identifier (`sub`) of an SSO account (app/core/sso.py).
+        "ALTER TABLE users ADD COLUMN sso_subject TEXT",
+    ):
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+            conn.execute(ddl)
+    # ---- Security keys and passkeys (WebAuthn, see app/core/webauthn_keys.py) ----
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS webauthn_credentials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            name TEXT NOT NULL,
+            credential_id TEXT NOT NULL UNIQUE,
+            public_key TEXT NOT NULL,
+            sign_count INTEGER NOT NULL DEFAULT 0,
+            rp_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            used_at TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_webauthn_user ON webauthn_credentials(username, rp_id)")
+    # ---- Granular permissions (see app/core/permissions.py) ----
+    # User groups, VM pools and assignments (ACLs): a scoped role
+    # (operator/manager/reader, distinct from the global admin/observer roles) granted
+    # to a user OR a group on a specific VM OR pool. Additive only: it never removes
+    # rights from the existing global roles.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            PRIMARY KEY (group_id, username)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pools (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            description TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pool_members (
+            pool_id INTEGER NOT NULL,
+            vm_name TEXT NOT NULL,
+            PRIMARY KEY (pool_id, vm_name)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS acl (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
+            subject_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store')),
+            resource_id TEXT NOT NULL
+        )
+    """)
+    # Migration: existing databases were created with an older CHECK (resource_type IN ('vm','pool'), then
+    # ('vm','pool','container'), then without 'backup_store'). CREATE TABLE IF NOT EXISTS above is a no-op on a
+    # table that already exists, and SQLite cannot modify an existing CHECK through ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
+    # migrated).
+    existing_acl_sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'").fetchone()
+    if existing_acl_sql and "'backup_store'" not in existing_acl_sql["sql"]:
+        conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
+        conn.execute("""
+            CREATE TABLE acl (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
+                subject_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store')),
+                resource_id TEXT NOT NULL
+            )
+        """)
+    # The rows are copied with their ids: nothing to reserve from the cluster (app/repositories/cfs/ids.py), which
+    # may still be agreeing on its state as the service starts after an update. Reserving one failed there, and a
+    # start that stopped between the two statements left the assignments in the old table, unread: a start that
+    # finds it finishes the copy.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='acl_pre_container_migration'").fetchone():
+        reserve_ids, conn.reserve_ids = conn.reserve_ids, False
+        try:
+            conn.execute("INSERT OR IGNORE INTO acl SELECT * FROM acl_pre_container_migration")
+        finally:
+            conn.reserve_ids = reserve_ids
+        conn.execute("DROP TABLE acl_pre_container_migration")
+    # Custom roles: the same ACL assignments as the predefined roles
+    # (reader/operator/manager), but the user chooses the privilege subset (see
+    # ALL_PRIVILEGES in app/core/permissions.py). They are identified in acl.role by
+    # "custom:<id>".
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS custom_roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            privileges TEXT NOT NULL
+        )
+    """)
+    # API tokens: a credential dedicated to automation (scripts/Terraform), separate
+    # from the session JWT (different lifetime and scope: an API token does not
+    # expire after 4 h like a session, but can be revoked individually without
+    # signing the user out everywhere). ONLY token_hash (SHA-256) is stored, NEVER
+    # the plain token: it is shown only ONCE, at creation (see
+    # app/core/api_tokens.py), and cannot be recovered afterwards even by an admin
+    # with direct access to the database.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            name TEXT NOT NULL,
+            token_hash TEXT UNIQUE NOT NULL,
+            created_at TEXT NOT NULL,
+            last_used_at TEXT
+        )
+    """)
+    # Workstation tokens (`hyperlite login`) expire; tokens created by hand keep no
+    # expiry unless one is set. kind tells them apart in the token list.
+    for ddl in (
+        "ALTER TABLE api_tokens ADD COLUMN expires_at TEXT",
+        "ALTER TABLE api_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'api'",
+    ):
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+            conn.execute(ddl)
+    # OIDC SSO: a SINGLE row (id=1), the same pattern as update_check_state above.
+    # client_secret is encrypted at rest (see app/core/secrets_crypto.py). Admin-only.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sso_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled INTEGER NOT NULL DEFAULT 0,
+            issuer TEXT NOT NULL DEFAULT '',
+            client_id TEXT NOT NULL DEFAULT '',
+            client_secret TEXT NOT NULL DEFAULT '',
+            redirect_uri TEXT NOT NULL DEFAULT '',
+            scope TEXT NOT NULL DEFAULT 'openid profile email groups',
+            group_claim TEXT NOT NULL DEFAULT 'groups',
+            admin_groups TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    # Session tokens signed out before their expiry (POST /auth/logout); rows are dropped once expired.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS revoked_sessions (
+            jti TEXT PRIMARY KEY,
+            expires_at INTEGER NOT NULL
+        )
+    """)
+    # LDAP / Active Directory sign-in (app/core/ldap_auth.py): one directory; the bind password is encrypted.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ldap_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled INTEGER NOT NULL DEFAULT 0,
+            url TEXT NOT NULL DEFAULT '',
+            starttls INTEGER NOT NULL DEFAULT 0,
+            verify_tls INTEGER NOT NULL DEFAULT 1,
+            ca_cert TEXT NOT NULL DEFAULT '',
+            bind_dn TEXT NOT NULL DEFAULT '',
+            bind_password TEXT NOT NULL DEFAULT '',
+            base_dn TEXT NOT NULL DEFAULT '',
+            user_filter TEXT NOT NULL DEFAULT '(&(objectClass=person)(|(uid={username})(sAMAccountName={username})))',
+            group_attribute TEXT NOT NULL DEFAULT 'memberOf',
+            admin_groups TEXT NOT NULL DEFAULT '',
+            allowed_groups TEXT NOT NULL DEFAULT ''
+        )
+    """)
+    with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+        conn.execute("ALTER TABLE users ADD COLUMN ldap_dn TEXT")
+
+
+if __name__ == "__main__":
+    import sys
+
+    # python -m app.core.database move-back <suffix>: installer/deb/prerm, on a return to an older version.
+    if sys.argv[1:2] == ["move-back"] and len(sys.argv) == 3:
+        print("moved back" if move_back(sys.argv[2]) else "nothing to move back")
+    else:
+        sys.exit("usage: python -m app.core.database move-back <suffix>")

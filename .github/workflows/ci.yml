@@ -351,7 +351,7 @@ jobs:
         with:
           packages: >-
             libvirt-dev pkg-config gcc openssl libvirt-daemon-system qemu-system-x86 qemu-utils genisoimage wget
-            dnsmasq-base cloud-image-utils libvirt-daemon-driver-lxc ovmf swtpm swtpm-tools
+            dnsmasq-base cloud-image-utils libvirt-daemon-driver-lxc ovmf swtpm swtpm-tools libnbd-bin python3-libnbd
             ${{ steps.browser.outputs.deps }}
       - name: Enable KVM when the runner exposes it
         run: |
@@ -392,6 +392,14 @@ jobs:
         run: |
           venv/bin/pip install -r requirements-dev.txt
           sudo env HYPERLITE_TEST_LIBVIRT=1 venv/bin/python -m pytest -q -p no:cacheprovider tests/test_replication_qemu.py
+      - name: Backups into a backup store on a real QEMU VM
+        if: matrix.shard == 1
+        run: |
+          sudo bash scripts/ensure-backup-apparmor.sh
+          sudo env HYPERLITE_TEST_LIBVIRT=1 venv/bin/python -m pytest -q -p no:cacheprovider tests/test_backup_store_qemu.py
+      - name: A migration between clusters on real disks
+        if: matrix.shard == 1
+        run: sudo env HYPERLITE_TEST_LIBVIRT=1 venv/bin/python -m pytest -q -p no:cacheprovider tests/test_site_transfer_qemu.py
       # The first VM created downloads the base cloud image (a few hundred MB): the spec that happened to create it
       # waited past its 60 s hook timeout. Fetched once here, through the backend's own function.
       - name: Fetch the base cloud image

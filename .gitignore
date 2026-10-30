@@ -9,6 +9,7 @@ deploy.sh
 dashboard/node_modules/
 dashboard/dist/
 cli/dist/
+cli/admin-dist/
 data/ssh/
 data/tls/
 data/isos/

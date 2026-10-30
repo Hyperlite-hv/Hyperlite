@@ -7,22 +7,76 @@ the test suite, the e2e backend and the scale lab, which run no daemon. A node n
 
 import os
 
+from fastapi import HTTPException
+
 from app.core import daemon_client
+from app.core.audit import log_action
 from app.daemon.registry import DaemonError
 
 INPROCESS_ENV = "HYPERLITE_DAEMON_INPROCESS"
+
+# A route's answer to the daemon's kinds (app/daemon/__init__.py), with the statuses of docs/api.md. A refusal's status
+# is the route's own: what it answered before its domain moved. A failure of the daemon is this node's (500), never
+# 502, which says another member of the cluster failed. A server outside this node refusing (an SMB server, an iSCSI
+# target) is the 502 the storage routes gave it before their domain moved.
+# "forbidden": what the daemon refused the caller (app/daemon/needs.py, step 4d), as the routes refuse it.
+STATUS = {"forbidden": 403, "not_found": 404, "in_use": 409, "unreachable": 502, "unavailable": 503}
 
 
 def run(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
     """The result of `op` with `args`, on behalf of `user` (named in the daemon's log). Raises DaemonError: its kind
     "refused" for a request the operation turned down (the message is for the user), "unavailable" without the
     daemon, another for a failure."""
+    result, fds = run_fds(op, user=user, timeout=timeout, **args)
+    daemon_client.close_fds(fds)
+    return result
+
+
+def run_fds(op, user=None, timeout=daemon_client.TIMEOUT_S, **args):
+    """run(), and the file descriptors the operation hands over (a session's terminal or socket, the consoles
+    domain): the caller's to close."""
+    return _call(op, user, timeout, args)
+
+
+def write(op, **args):
+    """A write of the permissions (app/repositories/daemon_write.py): run() under a name of its own, which a test
+    standing in for the daemon's other operations leaves alone."""
+    result, fds = _call(op, None, daemon_client.TIMEOUT_S, args)
+    daemon_client.close_fds(fds)
+    return result
+
+
+def _call(op, user, timeout, args):
     if os.environ.get(INPROCESS_ENV) != "1":
-        return daemon_client.call(op, args, user=user, timeout=timeout)
+        return daemon_client.call_fds(op, args, user=user, timeout=timeout)
     import app.daemon.ops  # noqa: F401  (registers the operations)
     from app.daemon.registry import Context, dispatch
 
-    answer = dispatch({"op": op, "args": args}, Context(user, None, os.getpid(), os.getuid()))
+    answer = dispatch(
+        {"op": op, "args": args}, Context(user, None, os.getpid(), os.getuid(), proof=daemon_client._proof())
+    )
     if not answer.get("ok"):
         raise DaemonError(answer.get("error") or "failed", answer.get("detail") or f"{op} failed")
-    return answer.get("result")
+    return answer.get("result"), answer.get("fds") or []
+
+
+def http_error(e, refused=422, failed="{}"):
+    """The HTTPException for the DaemonError `e`: what the operation refused, or arguments it does not take, `refused`
+    with its reason; what does not exist, 404; what is in use, 409; a server outside this node refusing, 502; without
+    the daemon, 503; any other failure, 500 with `failed` around its reason."""
+    if e.kind in ("refused", "invalid_arguments"):
+        return HTTPException(status_code=refused, detail=e.detail)
+    if e.kind in STATUS:
+        return HTTPException(status_code=STATUS[e.kind], detail=e.detail)
+    return HTTPException(status_code=500, detail=failed.format(e.detail))
+
+
+def ask(op, user, action, target, /, *, refused=422, failed="{}", **args):
+    """`op` run for a route, on behalf of the account `user`: its result, or the HTTPException of http_error, the
+    failure written into the audit log as `action` on `target`. The routes keep their permission checks and their
+    success's audit entry."""
+    try:
+        return run(op, user=user["username"], **args)
+    except DaemonError as e:
+        log_action(user["username"], action, target, "failed", e.detail)
+        raise http_error(e, refused=refused, failed=failed) from None

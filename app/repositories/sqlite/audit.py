@@ -16,6 +16,9 @@ def _clauses(filters):
         if filters.get(column):
             clauses.append(f"{column} = ?")
             params.append(filters[column])
+    if filters.get("action_prefix"):  # a family of actions (the HA page's history: ha_...)
+        clauses.append("action LIKE ? ESCAPE '\\'")
+        params.append(filters["action_prefix"].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
     if filters.get("resource"):
         clauses.append("resource LIKE ?")
         params.append(f"%{filters['resource']}%")

@@ -86,11 +86,32 @@ if ! bash "$CODE/scripts/ensure-spice-tls.sh"; then
     log "WARNING: SPICE consoles could not be set up on this node: bash $CODE/scripts/ensure-spice-tls.sh"
 fi
 
+# libvirt's qemu hooks: the VLANs of VMs on VLAN-aware Linux bridges (docs/design/network.md) and the VMs' hook
+# scripts (docs/design/hook-scripts.md). A failure leaves them unset on this node, never the installation.
+if ! bash "$CODE/scripts/ensure-libvirt-hooks.sh"; then
+    log "WARNING: libvirt's hooks could not be installed on this node: bash $CODE/scripts/ensure-libvirt-hooks.sh"
+fi
+
+# Backups into a backup store (docs/design/backup-store.md): QEMU may bind a running VM's export. A failure leaves
+# backups of running VMs into a store unavailable on this node, never the installation.
+if ! bash "$CODE/scripts/ensure-backup-apparmor.sh"; then
+    log "WARNING: backups of running VMs into a store need: bash $CODE/scripts/ensure-backup-apparmor.sh"
+fi
+
 log "systemd service"
 cp "$CODE/installer/hyperlite.service" /etc/systemd/system/hyperlite.service
 cp "$CODE/installer/hyperlite-cfs.service" /etc/systemd/system/hyperlite-cfs.service
 cp "$CODE/installer/hyperlite-daemon.service" /etc/systemd/system/hyperlite-daemon.service
+cp "$CODE/installer/hyperlite-scheduler.service" /etc/systemd/system/hyperlite-scheduler.service
+cp "$CODE/installer/hyperlite-ha-lrm.service" /etc/systemd/system/hyperlite-ha-lrm.service
+cp "$CODE/installer/hyperlite-ha-crm.service" /etc/systemd/system/hyperlite-ha-crm.service
+cp "$CODE/installer/hyperlite-vlan-bridges.service" /etc/systemd/system/hyperlite-vlan-bridges.service
+# The directories and modes the API's group needs (installer/hyperlite.tmpfiles), at every boot and now.
+cp "$CODE/installer/hyperlite.tmpfiles" /etc/tmpfiles.d/hyperlite.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/hyperlite.conf || log "WARNING: systemd-tmpfiles failed for hyperlite.conf"
 systemctl daemon-reload
+# Runs at boot only when a bridge was made VLAN-aware from the dashboard (its list exists): nothing to start now.
+systemctl enable hyperlite-vlan-bridges.service
 # Corosync is a dependency (a cluster is created from the dashboard), but Debian's package starts it at once with its
 # own sample configuration: cluster "debian", no encryption. Until Hyperlite writes its own (cluster creation or join,
 # app/core/cluster_setup.py, which enables and starts it), it stays stopped.
@@ -118,6 +139,9 @@ if ! systemctl restart hyperlite-daemon.service; then
     log "WARNING: hyperlite-daemon did not start: systemctl status hyperlite-daemon"
 fi
 systemctl enable hyperlite.service
+# hyperlite-scheduler and HA's two services: started and restarted with the API (Wants=, PartOf=), so both always run the same version; a
+# deferred restart of the API defers its own too.
+systemctl enable hyperlite-scheduler.service hyperlite-ha-lrm.service hyperlite-ha-crm.service
 if [ "$FRESH_INSTALL" = "1" ]; then
     systemctl start hyperlite.service
 elif [ -z "$HYPERLITE_SKIP_RESTART" ]; then

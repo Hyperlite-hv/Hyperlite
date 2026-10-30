@@ -1,6 +1,8 @@
+import faulthandler
 import ipaddress
 import logging
 import os
+import signal
 import threading
 from contextlib import asynccontextmanager
 
@@ -13,44 +15,36 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app import ha_services, scheduler
 from app.core import (
     cluster_view,
     error_codes,
     ha_selffence,
-    initial_password,
     inventory_cache,
     paths,
+    privileged,
     rolling_update,
     self_node,
     version,
 )
 from app.core.audit import request_ip
-from app.core.backups import start_backup_scheduler
 from app.core.client_address import client_address
-from app.core.cluster import start_node_poller
 from app.core.cluster_lead import start_lead_loop
-from app.core.config_copy import start_config_copy
-from app.core.ha_watch import start_ha_watch
 from app.core.http_headers import api_docs_enabled, inline_script_hashes, security_headers
 from app.core.jobs import ensure_lb_job_exists
 from app.core.k8s_cluster import recover_interrupted as recover_interrupted_k8s_clusters
 from app.core.libvirt_utils import open_conn
 from app.core.metrics import start_metrics_collector
-from app.core.network_firewall import reapply_all as reapply_network_firewalls
-from app.core.replication import start_replication_scheduler
 from app.core.security import optional_user
-from app.core.seed import seed_admin
 from app.core.tasks import close_interrupted_tasks
-from app.core.twofa import encrypt_stored_secrets as encrypt_stored_totp_secrets
-from app.core.update_check import start_update_check_scheduler
-from app.core.vm_boot import start_boot_sequence
 from app.core.vm_builder import protect_existing_drives
-from app.core.vm_cleanup import start_auto_cleanup_scheduler
 from app.core.vm_crash_watch import start_vm_crash_watch
-from app.repositories.cfs.ids import NoId
+from app.daemon.registry import DaemonError
+from app.repositories.cfs.ids import NO_ID_DETAIL, NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
+from app.routers.admin_cli import router as admin_cli_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
@@ -63,6 +57,7 @@ from app.routers.cluster_setup import router as cluster_setup_router
 from app.routers.cluster_update import router as cluster_update_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.drs import router as drs_router
 from app.routers.file_restore import router as file_restore_router
 from app.routers.groups import router as groups_router
 from app.routers.ha import router as ha_router
@@ -80,6 +75,7 @@ from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
 from app.routers.replication import router as replication_router
+from app.routers.sites import router as sites_router
 from app.routers.sso import pages as sso_pages
 from app.routers.sso import router as sso_router
 from app.routers.storage import router as storage_router
@@ -105,16 +101,39 @@ if not _app_log.handlers:
     _app_log.propagate = False
 
 
+def _log_tasks():
+    import asyncio
+    import io
+
+    out = io.StringIO()
+    tasks = asyncio.all_tasks()
+    for task in tasks:
+        task.print_stack(limit=12, file=out)
+    logger.warning("event loop: %d task(s)\n%s", len(tasks), out.getvalue())
+
+
 @asynccontextmanager
 async def lifespan(_app):
+    # SIGUSR1 writes every thread's stack to the journal: what a stalled event loop is doing, on a live node.
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
+    # SIGUSR2 logs the event loop's own tasks and where each waits: a request stuck in a coroutine (a lock, a queue)
+    # leaves every thread idle, and only this shows it.
+    import asyncio
+
+    try:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGUSR2, _log_tasks)
+    except (ValueError, RuntimeError) as e:  # a loop outside the main thread: the test client's
+        logger.info("SIGUSR2 does not log the event loop's tasks here: %s", e)
     on_startup()
     from app.core import spice_proxy
 
     await spice_proxy.start()  # virt-viewer's way to a VM's SPICE display (docs/design/spice-console.md)
     yield
     await spice_proxy.stop()
-    # A normal stop (an update, a restart) disarms the HA watchdog: the node must not be reset for it.
-    ha_selffence.stop()
+    # A normal stop (an update, a restart) disarms the HA watchdog: the node must not be reset for it. On an installed
+    # node it is hyperlite-ha-lrm's, which does so on its own stop.
+    if not ha_services.separate():
+        ha_selffence.stop()
 
 
 _API_DOCS = api_docs_enabled()
@@ -187,6 +206,7 @@ _API_ROUTERS = (
     vm_disks_router,
     vm_export_router,
     ha_router,
+    drs_router,
     notifications_router,
     workstation_router,
     kubernetes_router,
@@ -202,6 +222,8 @@ _API_ROUTERS = (
     file_restore_router,
     ldap_router,
     api_docs_router,
+    admin_cli_router,
+    sites_router,
 )
 for _router in _API_ROUTERS:
     app.include_router(_router, prefix=API)
@@ -259,7 +281,7 @@ def _is_loopback(request):
 @app.get("/health")
 def health(request: Request):
     """Answers everyone (the sign-in page reads the environment label before any
-    sign-in), purpose host name and software versions only go to a signed-in caller: to
+    sign-in), but host name and software versions only go to a signed-in caller: to
     anyone else they are a precise fingerprint of the host. The update watchdog
     (scripts/update_watchdog.sh) polls from the host itself without a session and
     needs the running version, so a loopback caller gets that one field."""
@@ -346,11 +368,10 @@ def _confirming():
 
 
 def _catch_up():
-    from app.repositories.cfs import inbound, shadow
+    from app.repositories.cfs import shadow
 
     try:
-        shadow.drain()  # this node's own changes go out first, or nothing is applied (inbound.apply)
-        inbound.apply()
+        shadow.catch_up()  # by hyperlite-daemon, which copies both ways
     except Exception as e:  # the daemon does not answer: the change is refused or confirmed below, as the cluster says
         logger.debug("The cluster's changes not applied before the request: %s", e)
 
@@ -452,7 +473,7 @@ async def no_id_handler(request: Request, exc: NoId):
     return JSONResponse(
         status_code=503,
         content={
-            "detail": "The cluster configuration service does not answer: nothing new can be created right now",
+            "detail": NO_ID_DETAIL,
             "code": "cluster_unavailable",
         },
     )
@@ -473,6 +494,13 @@ async def http_error_handler(request: Request, exc: StarletteHTTPException):
     )
 
 
+# A route that lets hyperlite-daemon's error through (the routes' own translation is privileged.ask): without the daemon,
+# 503 with the reason, rather than the generic 500 below; a failure, 500 with the daemon's sentence.
+@app.exception_handler(DaemonError)
+async def daemon_error_handler(request: Request, exc: DaemonError):
+    return await http_error_handler(request, privileged.http_error(exc))
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors()), "code": "invalid"})
@@ -485,60 +513,49 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 def on_startup():
-    pwd = seed_admin()
+    from app.core import seed
+
+    if not seed.in_daemon():  # the test suite, the end-to-end backend: hyperlite-daemon's start does it otherwise
+        seed.first_start()
     from app.core import access_log
 
     access_log.start()  # the requests' lines: daily files kept as the admin chose, never the journal (#448, F4)
-    from app.core import peer_https
-
-    peer_https.start()  # this node's certificate fingerprint, for the other members' HTTPS calls
     from app.core import db_health
 
     db_health.start()  # PRAGMA quick_check now and once a day: a damaged file is said, not only logged by the loops
     from app.core import statd
 
-    statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
-    from app.core import cluster_v1
-
-    cluster_v1.start()  # the replicated configuration rewritten once every member runs 1.0 (docs/design/api-v1.md)
-    if pwd:
-        # Never log the password: store it in a root-only file and log only where it is.
-        pw_file = paths.INITIAL_PASSWORD_FILE
-        pw_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(pw_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(pwd + "\n")
-        print(f"=== Admin account created: the initial password is in {pw_file} ===", flush=True)
-    initial_password.start()
-    encrypt_stored_totp_secrets()
-    # Before anything starts new tasks: the ones still "running" belonged to the previous process.
+    if (
+        not ha_services.separate()
+    ):  # hyperlite-ha-lrm sends it on an installed node; the API asks at once (statd.changed)
+        statd.start()  # this node's VMs, sent to every node: the lists read them locally (phase E)
+    # Before anything starts new tasks: the ones still "running" whose process is gone (app/core/tasks.py).
     close_interrupted_tasks()
     # This node updated itself as the last step of a rolling update: now that it runs, out of maintenance.
     rolling_update.finish_self_after_restart()
     start_metrics_collector()
-    start_backup_scheduler()
+    if not scheduler.separate():  # hyperlite-scheduler runs them on an installed node (app/scheduler)
+        scheduler.start()
     ensure_lb_job_exists()
-    start_node_poller()
-    start_config_copy()
-    start_ha_watch()
-    ha_selffence.start_selffence()
+    if not ha_services.separate():  # hyperlite-ha-lrm and hyperlite-ha-crm run them on an installed node
+        ha_services.start(None)
     start_vm_crash_watch()
-    start_replication_scheduler()
-    start_auto_cleanup_scheduler()
-    start_update_check_scheduler()
-    start_shadow_copy()
-    start_apply_loop()
-    start_lead_loop()
+    if os.environ.get(privileged.INPROCESS_ENV) == "1":
+        # hyperlite-daemon's otherwise (app/daemon/__main__.py): what writes the cluster's tree, which hyperlite-cfs
+        # takes from root only.
+        from app.core import cluster_v1, peer_https
+
+        peer_https.start()
+        cluster_v1.start()
+        start_shadow_copy()
+        start_apply_loop()
+        start_lead_loop()
     recover_interrupted_k8s_clusters()
-    start_boot_sequence()
     # Cloud-init drives written before they were private (they hold the account and its password's hash).
     threading.Thread(target=protect_existing_drives, daemon=True, name="protect-cloudinit-drives").start()
 
-    # The iptables rules of the network firewall do not survive a host reboot
-    # (unlike the per-VM firewall's nwfilter, which libvirt itself manages):
-    # reapply everything persisted in the database each time the service starts.
-    conn = open_conn()
-    try:
-        reapply_network_firewalls(conn)
-    finally:
-        conn.close()
+    # Uploads a stop interrupted, left in the spool before hyperlite-daemon stored them (app/core/disk_library.py).
+    from app.core import disk_library
+
+    if removed := disk_library.clean_spool():
+        logger.info("Removed %d interrupted upload(s) from the spool", removed)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ExternalLink } from "lucide-react";
-import { fetchApiDocsAccess, openSwagger, setApiDocsAccess } from "../../api/client";
+import { fetchAdminCli, fetchApiDocsAccess, openSwagger, setAdminCli, setApiDocsAccess } from "../../api/client";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT } from "../i18n";
@@ -12,7 +12,8 @@ import { PageHeader, Card, Loading } from "../components/ui";
 const ACCESS = ["disabled", "admins", "all"];
 
 // Administration › API: a button that opens Swagger (/docs) in a new tab, where "Authorize" signs in and the API can
-// be called; and, for administrators, who may open it. See app/core/api_docs.py.
+// be called; and, for administrators, who may open it (app/core/api_docs.py) and whether root of a node may run
+// hyperlite-admin without a token (app/core/admin_cli.py).
 export default function ApiPage() {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
@@ -59,9 +60,38 @@ export default function ApiPage() {
               </div>
             </Card>
           )}
+          {caps.admin && <AdminCliCard />}
         </>
       )}
     </>
   );
 }
 ApiPage.ownHeader = true;
+
+// hyperlite-admin's lockdown, as ESXi's: root of a node signed in as root@<node>, or named accounts only.
+function AdminCliCard() {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [lockdown, setLockdown] = useState(null);
+  const [error, setError] = useState(null);
+  const load = () => fetchAdminCli().then((r) => { setLockdown(r.lockdown); setError(null); }).catch((e) => setError(errorMessage(e)));
+  useEffect(() => { load(); }, []);
+
+  async function change(value) {
+    try { setLockdown((await setAdminCli(value)).lockdown); pushToast({ kind: "success", title: t("api.cliSaved"), message: t(value ? "api.cli.locked" : "api.cli.open") }); }
+    catch (e) { pushToast({ kind: "error", title: t("api.accessFailed"), message: errorMessage(e) }); }
+  }
+  return (
+    <Card title={t("api.cliTitle")}>
+      {error && lockdown === null ? <ErrorState message={error} onRetry={load} /> : lockdown === null ? <Loading /> : (
+        <div className="nx-f">
+          <span className="nx-f-label" id="admin-cli-lockdown">{t("api.cliLabel")}</span>
+          <div className="nx-seg2" role="group" aria-labelledby="admin-cli-lockdown">
+            {[false, true].map((v) => <button key={String(v)} type="button" aria-pressed={lockdown === v} onClick={() => lockdown !== v && change(v)}>{t(v ? "api.cli.locked" : "api.cli.open")}</button>)}
+          </div>
+          <span className="nx-f-h">{t("api.cliHelp")}</span>
+        </div>
+      )}
+    </Card>
+  );
+}

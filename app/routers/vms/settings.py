@@ -1,18 +1,18 @@
 import logging
-import xml.etree.ElementTree as ET
 
 import libvirt
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import cloudinit_edit, cpu_pinning, vm_boot, vm_pending
+from app.core import cloudinit_edit, cpu_pinning, privileged, vm_boot, vm_pending
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import (
     open_conn,
 )
 from app.core.security import require_vm_privilege
-from app.core.vm_limits import validate_vm_resources
+from app.core.vm_create import CloudInitCustom, StaticInterface  # noqa: F401  (the routes' models)
+from app.core.vm_limits import CPU_PERIOD_US, UNLIMITED_KB, validate_vm_resources
 from app.core.vm_meta import get_vm_ssh_user, set_vm_os_label, set_vm_ssh_user
 from app.routers.vms._shared import _domain_summary, router
 
@@ -34,7 +34,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
     if payload.vcpu is None and payload.memory_mb is None and payload.os_label is None:
         raise HTTPException(status_code=422, detail="No change requested (vcpu, memory_mb or os_label required)")
     if payload.vcpu is None and payload.memory_mb is None:
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             try:
                 domain = conn.lookupByName(name)
@@ -49,7 +49,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
     if limit_errors:
         raise HTTPException(status_code=422, detail=limit_errors)
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -61,20 +61,17 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
             log_action(user["username"], "update_vm", name, "failed", "VM active")
             raise HTTPException(status_code=409, detail="Stop the VM before changing its resources")
 
-        try:
-            if payload.vcpu is not None:
-                # The max must be adjusted before (or at the same time as) the current value,
-                # otherwise libvirt refuses a "current" value above the old max.
-                domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_VCPU_MAXIMUM)
-                domain.setVcpusFlags(payload.vcpu, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-            if payload.memory_mb is not None:
-                kib = payload.memory_mb * 1024
-                domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG | libvirt.VIR_DOMAIN_MEM_MAXIMUM)
-                domain.setMemoryFlags(kib, libvirt.VIR_DOMAIN_AFFECT_CONFIG)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "update_vm", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Resource update error: {msg}") from e
+        # Written by hyperlite-daemon (app/daemon/ops/vm.py), which checks again that the VM is stopped.
+        privileged.ask(
+            "vm.set_resources",
+            user,
+            "update_vm",
+            name,
+            failed="Resource update error: {}",
+            vm=name,
+            vcpu=payload.vcpu,
+            memory_mb=payload.memory_mb,
+        )
 
         if payload.os_label is not None:
             set_vm_os_label(name, payload.os_label.strip())
@@ -102,7 +99,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
 #   vCPUs and a 50% limit can consume at most the equivalent of 1 full core,
 #   never more, even if the host is idle.
 # - RAM: NO real "guaranteed reservation" here. libvirt does expose
-#   <memtune><min_guarantee> in its XML schema, purpose that field is only honoured by
+#   <memtune><min_guarantee> in its XML schema, but that field is only honoured by
 #   the Xen hypervisor and is a no-op on QEMU/KVM (checked in the libvirt
 #   documentation). The only real RAM reservation on KVM is not to over-allocate
 #   the host (check the available RAM before raising memory_mb, already done by
@@ -110,9 +107,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
 #   allocated RAM (<memtune><hard_limit>, cgroup memory.limit_in_bytes), useful
 #   to cap a qemu process that would drift beyond the RAM allocated to the guest,
 #   not to guarantee a minimum.
-UNLIMITED_KB = 9007199254740991  # sentinel documented by libvirt for "no limit"
 DEFAULT_CPU_SHARES = 1024
-CPU_PERIOD_US = 100000  # standard cgroup period (100 ms), consistent with the libvirt default
 
 
 class ResourceLimits(BaseModel):
@@ -145,7 +140,7 @@ def _limits_summary(domain):
 
 @router.get("/{name}/limits")
 def get_vm_limits(name: str, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -158,7 +153,7 @@ def get_vm_limits(name: str, user: dict = Depends(require_vm_privilege("vm.resiz
 
 @router.put("/{name}/limits")
 def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -166,25 +161,18 @@ def set_vm_limits(name: str, payload: ResourceLimits, user: dict = Depends(requi
             log_action(user["username"], "set_vm_limits", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        nvcpu = domain.info()[3] or 1
-        # libvirt convention: -1 means unlimited
-        vcpu_quota = -1 if payload.cpu_limit_pct is None else int(CPU_PERIOD_US * nvcpu * payload.cpu_limit_pct / 100)
-
-        flags = libvirt.VIR_DOMAIN_AFFECT_CONFIG
-        if domain.isActive():
-            flags |= libvirt.VIR_DOMAIN_AFFECT_LIVE
-
-        try:
-            domain.setSchedulerParametersFlags(
-                {"cpu_shares": payload.cpu_shares, "vcpu_period": CPU_PERIOD_US, "vcpu_quota": vcpu_quota},
-                flags,
-            )
-            hard_limit_kb = UNLIMITED_KB if payload.mem_hard_limit_mb is None else payload.mem_hard_limit_mb * 1024
-            domain.setMemoryParameters({"hard_limit": hard_limit_kb}, flags)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "set_vm_limits", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"Error applying the limits: {msg}") from e
+        # Applied by hyperlite-daemon (app/daemon/ops/vm.py); -1 for vcpu_quota is libvirt's "unlimited".
+        privileged.ask(
+            "vm.set_limits",
+            user,
+            "set_vm_limits",
+            name,
+            failed="Error applying the limits: {}",
+            vm=name,
+            cpu_shares=payload.cpu_shares,
+            cpu_limit_pct=payload.cpu_limit_pct,
+            mem_hard_limit_mb=payload.mem_hard_limit_mb,
+        )
 
         log_action(user["username"], "set_vm_limits", name, "success")
         return _limits_summary(domain)
@@ -209,7 +197,7 @@ def _pinning_summary(conn, domain):
 
 @router.get("/{name}/cpu-pinning")
 def get_vm_cpu_pinning(name: str, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -222,7 +210,7 @@ def get_vm_cpu_pinning(name: str, user: dict = Depends(require_vm_privilege("vm.
 
 @router.put("/{name}/cpu-pinning")
 def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(require_vm_privilege("vm.resize"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -230,24 +218,18 @@ def set_vm_cpu_pinning(name: str, payload: CpuPinning, user: dict = Depends(requ
             log_action(user["username"], "set_vm_cpu_pinning", name, "failed", "VM not found")
             raise HTTPException(status_code=404, detail=f"VM '{name}' not found") from None
 
-        root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
-        nvcpu = int((root.findtext("vcpu") or "1").strip())
         before = cpu_pinning.read(domain)
-        try:
-            how = cpu_pinning.plan(cpu_pinning.host_topology(conn), nvcpu, payload.cpuset, payload.strict)
-        except cpu_pinning.PinningError as e:
-            log_action(user["username"], "set_vm_cpu_pinning", name, "failed", e.message)
-            raise HTTPException(status_code=e.status, detail=e.message) from e
-
-        cpu_pinning.apply_to_xml(root, nvcpu, how)
-        try:
-            conn.defineXML(ET.tostring(root, encoding="unicode"))
-            if domain.isActive():
-                cpu_pinning.apply_live(domain, conn, domain.info()[3] or nvcpu, how)
-        except libvirt.libvirtError as e:
-            msg = describe_exception(e)
-            log_action(user["username"], "set_vm_cpu_pinning", name, "failed", msg)
-            raise HTTPException(status_code=500, detail=f"CPU pinning error: {msg}") from e
+        # Checked against this host's topology, written and applied live by hyperlite-daemon (app/daemon/ops/vm.py).
+        how = privileged.ask(
+            "vm.set_cpu_pinning",
+            user,
+            "set_vm_cpu_pinning",
+            name,
+            failed="CPU pinning error: {}",
+            vm=name,
+            cpuset=payload.cpuset,
+            strict=payload.strict,
+        )
 
         detail = (
             f"CPUs {cpu_pinning.format_cpuset(how['cpus'])}{' strict' if how['strict'] else ''}"
@@ -280,7 +262,7 @@ def _lookup(conn, name):
 
 @router.get("/{name}/boot")
 def get_vm_boot(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         domain = _lookup(conn, name)
         # A libvirt autostart flag set outside Hyperlite (virsh autostart) starts the VM in no order: say so.
@@ -293,13 +275,15 @@ def get_vm_boot(name: str, node: str | None = None, user: dict = Depends(require
 def set_vm_boot(
     name: str, payload: BootSetting, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.options"))
 ):
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         domain = _lookup(conn, name)
         vm_boot.set_setting(name, payload.autostart, payload.position, payload.delay_s, node)
         if payload.autostart and domain.autostart():
-            # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over.
-            domain.setAutostart(0)
+            # Two mechanisms would start it twice and out of order: Hyperlite's sequence takes over. The flag is
+            # libvirt's, written by hyperlite-daemon (app/daemon/ops/vm.py), here or on the VM's node.
+            remote = node if node and node != "local" else None
+            privileged.ask("vm.autostart", user, "set_vm_boot", name, vm=name, autostart=False, node=remote)
         detail = (
             f"on, order {payload.position if payload.position is not None else '-'}, delay {payload.delay_s} s"
             if payload.autostart
@@ -309,25 +293,6 @@ def set_vm_boot(
         return {**vm_boot.get_setting(name, node), "autostart_libvirt": bool(domain.autostart())}
     finally:
         conn.close()
-
-
-class StaticInterface(BaseModel):
-    # The interface, by its MAC address; absent: the VM's first interface.
-    mac: str | None = Field(default=None, max_length=17)
-    addresses: list[str] = Field(min_length=1, max_length=16)  # with their prefix: "10.0.20.11/24", "2001:db8::5/64"
-    gateway: str | None = Field(default=None, max_length=45)
-
-
-class CloudInitCustom(BaseModel):
-    """The rest of a guest's customisation, as vSphere's and Proxmox VE's (cloudinit_edit.CUSTOM). A field left out
-    keeps what the drive holds; an empty value ("" or []) clears it."""
-
-    hostname: str | None = Field(default=None, max_length=63)  # the VM's name when empty
-    domain: str | None = Field(default=None, max_length=253)
-    network: list[StaticInterface] | None = Field(default=None, max_length=16)  # the interfaces not listed use DHCP
-    dns: list[str] | None = Field(default=None, max_length=8)
-    dns_search: list[str] | None = Field(default=None, max_length=8)
-    user_data: str | None = Field(default=None, max_length=16 * 1024)  # a cloud-config added to Hyperlite's own
 
 
 class CloudInitUpdate(CloudInitCustom):
@@ -353,7 +318,7 @@ def _cloudinit_view(name, domain):
 @router.get("/{name}/cloud-init")
 def get_vm_cloudinit(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
     """Whether the VM has a cloud-init drive Hyperlite can rewrite, and the account and keys last written there."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         return _cloudinit_view(name, _lookup(conn, name))
     finally:
@@ -363,7 +328,7 @@ def get_vm_cloudinit(name: str, user: dict = Depends(require_vm_privilege("vm.vi
 @router.put("/{name}/cloud-init")
 def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(require_vm_privilege("vm.options"))):
     """Rewrite the VM's cloud-init drive; the guest applies it at its next boot."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         domain = _lookup(conn, name)
         drive = cloudinit_edit.drive_path(domain, name)
@@ -372,20 +337,20 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
                 status_code=409,
                 detail="This VM has no cloud-init drive: it was installed from an ISO image, not made from a cloud image",
             )
-        try:
-            keys = cloudinit_edit.validate(payload.user, payload.password, payload.ssh_keys)
-            macs = cloudinit_edit.interface_macs(domain)
-            custom = cloudinit_edit.validate_custom(merged_custom(name, payload), macs)
-            cloudinit_edit.rewrite_drive(name, drive, payload.user, payload.password, keys, custom, macs)
-        except cloudinit_edit.CloudInitError as e:
-            log_action(user["username"], "update_vm_cloudinit", name, "failed", str(e))
-            raise HTTPException(status_code=422, detail=str(e)) from e
-        reloaded = False
-        try:
-            reloaded = cloudinit_edit.reload_media(domain, name)
-        except libvirt.libvirtError as e:
-            # The file is written: the change applies anyway once the VM is powered off and on again.
-            logger.warning("Could not reload the cloud-init drive of %s live: %s", name, e)
+        # Checked again, written private to root and reloaded by hyperlite-daemon (app/daemon/ops/vm.py).
+        written = privileged.ask(
+            "vm.cloudinit_write",
+            user,
+            "update_vm_cloudinit",
+            name,
+            vm=name,
+            account=payload.user,
+            password=payload.password,
+            ssh_keys=payload.ssh_keys,
+            custom=merged_custom(name, payload),
+        )
+        keys, reloaded = written["keys"], written["reloaded"]
+        cloudinit_edit.save_state(name, payload.user, keys, written["custom"])
         set_vm_ssh_user(name, payload.user)
         log_action(
             user["username"],
@@ -402,7 +367,7 @@ def set_vm_cloudinit(name: str, payload: CloudInitUpdate, user: dict = Depends(r
 @router.get("/{name}/pending-changes")
 def get_vm_pending_changes(name: str, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.view"))):
     """Settings changed on a running VM that wait for its next start (app/core/vm_pending.py)."""
-    conn = open_conn(node)
+    conn = open_conn(node, readonly=True)
     try:
         domain = _lookup(conn, name)
         try:

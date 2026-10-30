@@ -21,7 +21,7 @@ MIN_SECRET_KEY_LENGTH = 32
 
 def _load_secret_key():
     """The key the members of a cluster share, which signs the calls between them (create_peer_token) and signed every
-    session token up to 1.1.0; sessions are signed by hyperlite-daemon now (app/core/tickets.py). Set purpose empty
+    session token up to 1.1.0; sessions are signed by hyperlite-daemon now (app/core/tickets.py). Set but empty
     or short, it is refused: an empty HMAC key lets anyone forge a token. Unset (development only), a random key is
     used; the installer always writes one to /etc/hyperlite/priv/env."""
     raw = os.environ.get("HYPERLITE_SECRET_KEY")
@@ -145,7 +145,7 @@ def flag_weak_password(username: str):
 
 
 def create_preauth_token(username: str, remember: bool = False):
-    """Intermediate token issued after a correct password purpose BEFORE the TOTP
+    """Intermediate token issued after a correct password but BEFORE the TOTP
     code is verified. It only proves "this password is right", not "this user
     is authenticated". Short-lived (5 min, enough time to type a code) and
     explicitly marked `2fa_pending`: get_current_user() rejects that claim so
@@ -230,15 +230,61 @@ def _password_change_required():
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password change required")
 
 
+# root on a node, through hyperlite-admin (docs/design/admin-cli.md): as root@pam on Proxmox VE, an administrator with
+# no row in `users`, no password and no way in from the web. Its ticket is signed by its own node's daemon for a process
+# the kernel says runs as root (app/core/sign_in.py, local_root), and carries LOCAL_ROOT_CLAIM.
+LOCAL_ROOT_PREFIX = "root@"
+LOCAL_ROOT_CLAIM = "local_root"
+
+
+def local_root_name(node: str) -> str:
+    return LOCAL_ROOT_PREFIX + node
+
+
+def _reserved(username: str) -> bool:
+    """A name only root's ticket may carry: an account of a directory or an identity provider called so (LDAP and SSO
+    names may hold "@") would read as root of a node in the audit."""
+    return username.lower().startswith(LOCAL_ROOT_PREFIX)
+
+
+def _local_root(payload: dict):
+    """The account of a root ticket, when it names root of the node that signed it: this node for its own ticket, the
+    issuer of a peer ticket (app/core/peer_auth.py verified that issuer's signature). A ticket for root@n1 that n2
+    signed is refused."""
+    from app.core import admin_cli, self_node
+
+    node = payload.get("iss") or self_node.name()
+    if payload.get("sub") != local_root_name(node):
+        raise _credentials_exception()
+    # A session signed before the lockdown was turned on ends with it, not up to five minutes later.
+    if admin_cli.locked():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=admin_cli.REASON)
+    return {
+        "id": None,
+        "username": payload["sub"],
+        "role": "admin",
+        "hashed_password": "",
+        "totp_secret": None,
+        "totp_enabled": 0,
+        "auth_source": LOCAL_ROOT_CLAIM,
+        "must_change_password": 0,
+        LOCAL_ROOT_CLAIM: True,
+    }
+
+
 def _session_user(payload: dict, pending_ok: bool = False):
     """pending_ok: the endpoint stays open while the account must change its password (who am I, change it)."""
     username = payload.get("sub")
     # 2fa_pending: intermediate token (see create_preauth_token). It proves the
-    # password purpose not the second factor, and must never be accepted as a normal
+    # password but not the second factor, and must never be accepted as a normal
     # session token.
     if username is None or payload.get("2fa_pending"):
         raise _credentials_exception()
     if _session_revoked(payload.get("jti")):
+        raise _credentials_exception()
+    if payload.get(LOCAL_ROOT_CLAIM) is True:
+        return _local_root(payload)
+    if _reserved(username):
         raise _credentials_exception()
     user = get_user(username)
     if user is None:
@@ -272,7 +318,7 @@ def _current_user(token: str, pending_ok: bool):
     )
 
     user = verify_token(token)
-    if user is None:
+    if user is None or _reserved(user["username"]):
         raise _credentials_exception()
     # The same rule as a session: an account whose password must be changed can do nothing else, including
     # through a script's token.
@@ -292,7 +338,7 @@ async def get_current_user_pending_ok(token: str = Depends(oauth2_scheme)):
 
 
 def _session_only(token: str, pending_ok: bool):
-    """Like get_current_user, purpose only for a signed-in person (a session token), never an API token: an API
+    """Like get_current_user, but only for a signed-in person (a session token), never an API token: an API
     token that leaked from a script must not be able to take the account over (e.g. by changing its
     password)."""
     payload = _decode_session(token)
@@ -305,7 +351,11 @@ def _session_only(token: str, pending_ok: bool):
                 detail="Not allowed with an API token: sign in to the dashboard",
             )
         raise _credentials_exception()
-    return _session_user(payload, pending_ok)
+    user = _session_user(payload, pending_ok)
+    # What a person does for their own account (a password, a second factor, an API token): root of a node has none.
+    if user.get(LOCAL_ROOT_CLAIM):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not for root of a node: use an account")
+    return user
 
 
 async def get_session_user(token: str = Depends(oauth2_scheme)):
@@ -330,7 +380,7 @@ def require_role(*roles):
 
 
 def require_vm_privilege(privilege):
-    """Like require_role, purpose checks a privilege scoped to the target VM (see
+    """Like require_role, but checks a privilege scoped to the target VM (see
     app/core/permissions.py) instead of a global role: an admin always passes,
     an observer keeps global vm.view access, and a user or group with an ACL on
     that VM (or on a pool containing it) gets the privileges of the scoped
@@ -377,7 +427,7 @@ def required_user(request):
 
 def optional_user(request):
     """The user behind the request's bearer token, or None for an anonymous or invalid
-    one. For the few endpoints that answer everyone purpose tell a signed-in user more."""
+    one. For the few endpoints that answer everyone but tell a signed-in user more."""
     scheme, _, token = (request.headers.get("Authorization") or "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
         return None

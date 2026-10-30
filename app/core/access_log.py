@@ -2,7 +2,7 @@
 
 uvicorn wrote one line per request into the service journal: the client's address, which the GDPR counts as personal
 data, kept as long as the system keeps its journal, which Hyperlite does not decide. The lines now go to
-/var/log/hyperlite/access.log instead (root and the adm group), one file per day, each removed after days() days:
+/var/log/hyperlite/access.log instead (the API's user and the adm group), one file per day, each removed after days() days:
 Activity > Audit log > Retention, 30 by default, 0 for no access log at all. The setting is the cluster's; every node
 applies it within REFRESH_S. Query strings are left out: they only carry one-time tickets, which have no place in a log.
 """
@@ -12,9 +12,12 @@ import grp
 import logging
 import logging.handlers
 import os
+import pwd
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+from app.core import api_group
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +68,26 @@ class _WithoutQuery(logging.Filter):
         return True
 
 
+def _owners():
+    """(uid, gid) the log's files and directory belong to: the API's user, which writes them (www-data from 4e), and
+    the adm group, which reads /var/log; None when this process may not give them (it is not root) or they are missing."""
+    if os.geteuid() != 0:
+        return None
+    try:
+        return pwd.getpwnam(api_group.NAME).pw_uid, grp.getgrnam("adm").gr_gid
+    except KeyError:
+        return None
+
+
 class _PrivateFileHandler(logging.handlers.TimedRotatingFileHandler):
-    """Daily files readable by root and the adm group only, as /var/log's own."""
+    """Daily files readable by their writer and the adm group only, as /var/log's own. The directory is setgid adm, so
+    a file the API makes as www-data is adm's too."""
 
     def _open(self):
-        fd = os.open(self.baseFilename, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o640)
-        with contextlib.suppress(KeyError, OSError):
-            os.fchown(fd, 0, grp.getgrnam("adm").gr_gid)
+        fd = os.open(self.baseFilename, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o640)
+        if owners := _owners():
+            with contextlib.suppress(OSError):
+                os.fchown(fd, *owners)
         return os.fdopen(fd, "a", encoding=self.encoding or "utf-8")
 
 
@@ -109,6 +125,10 @@ def apply():
             if _handler is None:
                 folder = log_dir()
                 folder.mkdir(parents=True, exist_ok=True, mode=0o750)
+                if owners := _owners():  # installer/hyperlite.tmpfiles makes it so at boot
+                    with contextlib.suppress(OSError):
+                        os.chown(folder, *owners)
+                        os.chmod(folder, 0o2750)  # noqa: S103 (setgid adm; nobody else reads it)
                 _handler = _PrivateFileHandler(folder / FILE_NAME, when="midnight", backupCount=keep, utc=True)
                 _handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
                 _handler.addFilter(_WithoutQuery())

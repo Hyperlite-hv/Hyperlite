@@ -189,9 +189,10 @@ def test_a_device_another_vm_has_is_refused_also_through_its_group(host):
 
 
 @pytest.fixture()
-def api(host, client, auth_headers, monkeypatch):
+def api(host, client, auth_headers, monkeypatch, daemon_libvirt):
     conn = Conn()
     monkeypatch.setattr(devices, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon gives and takes back the devices, in this process in the tests
     monkeypatch.setattr(host_router, "open_conn", lambda *a, **k: conn)
     return {"client": client, "headers": auth_headers("admin1"), "conn": conn}
 

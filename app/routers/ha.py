@@ -1,12 +1,14 @@
 """High-availability endpoints. Logic lives in app/core/ha.py (protection, manual recovery), ha_fencing.py (per-node
-fencing settings, status test only) and ha_watch.py (the dry-run watcher). Recovery stays manual: the watcher only
-says what automatic HA would have done (see docs/design/ha-automatic.md)."""
+fencing settings, power off through a BMC), ha_recovery.py (in a cluster, the leader restarts the HA VMs of a lost
+member once it is fenced) and ha_watch.py (the dry run of hosts driven over SSH). See docs/design/ha-automatic.md."""
+
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import ha, ha_fencing, ha_watch, maintenance
+from app.core import ha, ha_admission, ha_fencing, ha_watch, maintenance
 from app.core.audit import log_action
 from app.core.listing import item, listing
 from app.core.security import get_current_user, require_role
@@ -21,21 +23,47 @@ async def list_protected(user: dict = Depends(get_current_user)):
 
 
 async def _protected():
-    rows = await run_in_threadpool(ha.list_protected)
+    rows = await run_in_threadpool(lambda: [_with_policy(r) for r in ha.list_protected()])
     return [{**row, "node_status": await node_service.status(row["node"])} for row in rows]
 
 
 class EnableRequest(BaseModel):
     node: str | None = None
+    # The order automatic HA restarts the VMs of a lost member in, and where it tries first (4.3).
+    priority: Literal["high", "medium", "low"] = "medium"
+    preferred_nodes: list[str] = Field(default_factory=list, max_length=16)
+    # VM monitoring (4.9): reset in place when its guest agent stops answering and it does no I/O. Off by default.
+    monitoring: bool = False
+
+
+class PolicyRequest(BaseModel):
+    priority: Literal["high", "medium", "low"] = "medium"
+    preferred_nodes: list[str] = Field(default_factory=list, max_length=16)
+
+
+class MonitoringRequest(BaseModel):
+    enabled: bool
+
+
+def _with_policy(row):
+    if not row:
+        return row
+    policy = {k: v for k, v in ha.policy(row["vm_name"]).items() if k != "auto_restarts"}
+    return {**row, **policy, "monitoring": ha.monitoring(row["vm_name"])["enabled"]}
 
 
 @router.post("/{vm_name}/enable", status_code=201)
 def enable(vm_name: str, payload: EnableRequest, user: dict = Depends(require_role("admin"))):
     try:
-        ha.enable_protection(vm_name, payload.node, user["username"])
+        admission = ha.enable_protection(vm_name, payload.node, user["username"])
+        ha.set_policy(vm_name, payload.priority, payload.preferred_nodes)
+        ha.set_monitoring(vm_name, payload.monitoring)
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    return ha.get_protected(vm_name)
+    out = _with_policy(ha.get_protected(vm_name))
+    if admission and admission["detail"]:
+        out["admission"] = admission  # under "warn": accepted, and said
+    return out
 
 
 @router.delete("/{vm_name}")
@@ -44,6 +72,31 @@ def disable(vm_name: str, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
     ha.disable_protection(vm_name, user["username"])
     return {"message": f"HA protection disabled for '{vm_name}'"}
+
+
+@router.put("/{vm_name}/policy")
+def set_policy(vm_name: str, payload: PolicyRequest, user: dict = Depends(require_role("admin"))):
+    """An HA VM's restart priority and preferred nodes, changed without turning its protection off (4.3)."""
+    if not ha.get_protected(vm_name):
+        raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
+    try:
+        ha.set_policy(vm_name, payload.priority, payload.preferred_nodes)
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    detail = f"priority={payload.priority} preferred={','.join(payload.preferred_nodes) or '-'}"
+    log_action(user["username"], "ha_policy", vm_name, "success", detail)
+    return _with_policy(ha.get_protected(vm_name))
+
+
+@router.put("/{vm_name}/monitoring")
+def set_monitoring(vm_name: str, payload: MonitoringRequest, user: dict = Depends(require_role("admin"))):
+    """VM monitoring of an HA VM on or off (docs/design/ha-automatic.md, 4.9): it needs qemu-guest-agent in the guest;
+    a VM whose agent never answered is never reset."""
+    if not ha.get_protected(vm_name):
+        raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
+    ha.set_monitoring(vm_name, payload.enabled)
+    log_action(user["username"], "ha_monitoring", vm_name, "success", "on" if payload.enabled else "off")
+    return _with_policy(ha.get_protected(vm_name))
 
 
 class RecoverRequest(BaseModel):
@@ -65,7 +118,38 @@ def recover(vm_name: str, payload: RecoverRequest, user: dict = Depends(require_
 
 @router.get("/status")
 def watch_status(user: dict = Depends(get_current_user)):
-    return ha_watch.status()
+    """The HA page's state: in a cluster, automatic HA (the leader restarts the HA VMs of a lost member) with every
+    member's state; outside one, the dry run of ha_watch."""
+    from app import ha_services
+    from app.core import cluster_lead, ha_recovery
+
+    automatic = cluster_lead.in_cluster()
+    return {
+        **ha_watch.status(),
+        "admission": ha_admission.check(),
+        "automatic": automatic,
+        "leading": automatic and ha_services.crm_leads(),  # the CRM's lead (app/ha_services), not the API's
+        "members": ha_recovery.members_view() if automatic else [],
+    }
+
+
+@router.get("/history")
+async def history(limit: int = 50, user: dict = Depends(require_role("admin"))):
+    """The latest HA events of this node's audit log (lost, fenced, restarted, reset by monitoring...), newest first."""
+    from app.services import audit_service
+
+    return listing(await audit_service.query({"action_prefix": "ha_"}, max(1, min(limit, 200))))
+
+
+class AdmissionPolicy(BaseModel):
+    policy: Literal["warn", "strict", "off"]
+
+
+@router.put("/admission")
+def put_admission(payload: AdmissionPolicy, user: dict = Depends(require_role("admin"))):
+    ha_admission.set_policy(payload.policy)
+    log_action(user["username"], "ha_admission", "ha", "success", f"policy={payload.policy}")
+    return ha_admission.check()
 
 
 class HaSettings(BaseModel):

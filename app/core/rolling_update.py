@@ -116,6 +116,28 @@ def _peer_api(node, username, method, path, body=None, timeout=60, connect_timeo
         "timeout": timeout,
         "token": token,
     }
+    # Over SSH with the cluster's key, which only hyperlite-daemon reads (node.peer_call): the request still carries
+    # the user's ticket, so the member checks its rights as for any call.
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        answer = privileged.run(
+            "node.peer_call",
+            user=username,
+            node=node["name"],
+            request=request,
+            connect_timeout=connect_timeout,
+            timeout=timeout + 30 + connect_timeout,
+        )
+    except DaemonError as e:
+        raise PeerUnreachable(e.detail) from None
+    return answer["status"], answer["body"]
+
+
+def call_over_ssh(node, request, connect_timeout=10):
+    """hyperlite-daemon's part of _peer_api's fallback: the fixed script on the member calls its own local API with the
+    request (the user's ticket in it). (status, decoded body); PeerUnreachable when it cannot be done."""
     try:
         # One argument: ssh joins its arguments with spaces into one command line for the remote shell, which would
         # split the script.
@@ -124,7 +146,7 @@ def _peer_api(node, username, method, path, body=None, timeout=60, connect_timeo
             node,
             [command],
             stdin=json.dumps(request),
-            timeout=timeout + 20 + connect_timeout,
+            timeout=request["timeout"] + 20 + connect_timeout,
             connect_timeout=connect_timeout,
         )
     except Exception as e:  # ssh missing, timed out: the node is not reachable
@@ -147,8 +169,29 @@ def _detail(body):
 
 
 def _boot_id(node):
-    r = _ssh(node, ["cat", "/proc/sys/kernel/random/boot_id"], timeout=30)
-    return r.stdout.strip() if r.returncode == 0 else None
+    return _facts(node)["boot_id"]
+
+
+def _facts(node):
+    """A member's boot id and host name, read over SSH by hyperlite-daemon (node.facts); None each when unreadable."""
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        return privileged.run("node.facts", node=node["name"])
+    except DaemonError as e:
+        logger.warning("%s not read over SSH: %s", node["name"], e.detail)
+        return {"boot_id": None, "hostname": None}
+
+
+def read_facts(node):
+    """hyperlite-daemon's part of _facts."""
+    boot = _ssh(node, ["cat", "/proc/sys/kernel/random/boot_id"], timeout=30)
+    host = _ssh(node, ["hostname"], timeout=30)
+    return {
+        "boot_id": boot.stdout.strip() or None if boot.returncode == 0 else None,
+        "hostname": host.stdout.strip() or None if host.returncode == 0 else None,
+    }
 
 
 def peers():
@@ -292,7 +335,7 @@ class _LockKeeper:
     def _client(self):
         from app.repositories.cfs import shadow
 
-        return shadow._get_client()
+        return shadow.writer()  # hyperlite-daemon's, once the API is not root
 
     def __enter__(self):
         from app.core.cfs_client import Locked
@@ -447,7 +490,7 @@ def _update_peer_to_1_0(task_id, username, node, check):
 def _reboot_peer(task_id, username, node):
     name = node["name"]
     before = _boot_id(node)
-    hostname = _ssh(node, ["hostname"], timeout=30).stdout.strip()
+    hostname = _facts(node)["hostname"] or ""
     task_log(task_id, f"{name}: rebooting")
     status, body = peer_api(
         node, username, "POST", "/host/system/power",

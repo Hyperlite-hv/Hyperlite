@@ -14,7 +14,6 @@ The local password of such an account is a random secret nobody knows: it can on
 
 import logging
 import re
-import secrets
 import ssl
 
 from ldap3 import NONE, SUBTREE, Connection, Server, Tls
@@ -136,7 +135,7 @@ def set_config(fields):
     password = clean.pop("bind_password", None)
     clean = {k: (1 if v else 0) if k in ("enabled", "starttls", "verify_tls") else (v or "") for k, v in clean.items()}
     if password:
-        clean["bind_password"] = secrets_crypto.encrypt(password)
+        clean["bind_password"] = password  # sealed by hyperlite-daemon, which writes it (step 4b)
     cols = [c for c in CONFIG_COLUMNS if c in clean]
     _store().save_ldap_config({c: clean[c] for c in cols})
     return public_config()
@@ -247,10 +246,9 @@ def role_for(cfg, groups):
 
 
 def provision(username, dn, role):
-    from app.core.security import hash_password  # security imports this module for the sign-in
     from app.repositories.sqlite import identity
 
-    outcome, row = _store().provision_ldap_user(username, dn, role, lambda: hash_password(secrets.token_hex(32)))
+    outcome, row = _store().provision_ldap_user(username, dn, role)
     if outcome == identity.LOCAL_ACCOUNT:
         raise LocalAccountConflict(row["username"])
     return row

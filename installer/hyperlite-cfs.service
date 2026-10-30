@@ -13,7 +13,9 @@ StartLimitIntervalSec=0
 Type=simple
 Environment=HYPERLITE_CFS_MODE=
 EnvironmentFile=-/etc/default/hyperlite-cfs
-ExecStart=/usr/lib/hyperlite/hyperlite-cfs $HYPERLITE_CFS_MODE --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket
+# The socket's group is the API's (www-data from 4e), which reads the replicated configuration; only root changes it,
+# as /etc/pve for www-data on Proxmox VE (docs/design/privilege-separation.md, section 14.7).
+ExecStart=/usr/lib/hyperlite/hyperlite-cfs $HYPERLITE_CFS_MODE --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0660 --socket-group www-data
 StateDirectory=hyperlite-cfs
 StateDirectoryMode=0700
 RuntimeDirectory=hyperlite-cfs

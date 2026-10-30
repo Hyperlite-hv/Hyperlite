@@ -1,6 +1,7 @@
 # Design: VLANs, bonds and host network settings
 
-Status: **proposal, waiting for the maintainer's decision.** No code is written before it is accepted.
+Status: **steps 1 and 2 decided** (step 2 "as Proxmox VE does", parts 1 and 2: section 7). Steps 3 to 5 wait for the
+maintainer's decision.
 
 ## 1. Where we are
 
@@ -85,3 +86,72 @@ enabled.
 3. Is changing the host network from the dashboard wanted at all, or should Hyperlite only use bridges an
    administrator made (steps 1 to 3 only)?
 4. Host firewall: wanted now, or later?
+
+## 7. Step 2: VLANs on a VLAN-aware Linux bridge
+
+Decided by the maintainer: both parts, as Proxmox VE (`tag` and `trunks` of a network device on a "VLAN aware"
+bridge).
+
+**Part 1, a VM's VLANs on a bridge that already filters VLANs** (`app/core/bridge_vlan.py`):
+
+- A bridge network is VLAN-capable when its host bridge has `vlan_filtering` on; `GET /networks` says so (`vlan`, and
+  `vlan_mode`: `native` for Open vSwitch and SR-IOV, `bridge` for a VLAN-aware Linux bridge).
+- libvirt refuses `<vlan>` on a Linux bridge even when it filters VLANs, so the interface's access VLAN and trunk
+  VLANs are kept in the VM's own metadata (`urn:hyperlite:vlan:1`, one `<port>` per MAC address). They travel with the
+  definition (migration, export) and follow a clone's new MAC addresses.
+- Hyperlite sets them on the VM's bridge port with `bridge vlan`, as Proxmox VE's tap script does: the access VLAN as
+  the port's PVID, untagged (VLAN 1 without one), the trunk VLANs tagged. It does so:
+  - when the VM starts or arrives by migration: libvirt's qemu hook (`/etc/libvirt/hooks/qemu.d/hyperlite-vlan`,
+    installed by the package) runs on `started` with the live definition, which names each tap and its bridge;
+  - when an interface is added or changed on a running VM (the API);
+  - when the service starts, for the VMs already running.
+- A port whose VLANs cannot be set carries no traffic at all, rather than the bridge's untagged VLAN, and the reason is
+  in the journal (`journalctl -t hyperlite-vlan`): libvirt keeps a hook's output only when the hook fails, and this
+  hook never fails the VM.
+- Known window: libvirt runs `started` once QEMU runs, so the tap sits on VLAN 1 for that moment (the firmware has
+  not sent anything yet in practice). Proxmox VE sets the port before QEMU starts the guest.
+
+Checked in the lab (Ubuntu 24.04, Linux 6.8, libvirt 10.0; a VLAN-aware bridge whose uplink is a trunk to a namespace
+holding VLANs 20, 30 and 50):
+
+| What | Result |
+|---|---|
+| libvirt's `<vlan>` on a VLAN-aware Linux bridge | Refused at start: "vlan tag not supported for this connection type" |
+| The qemu.d hook | Runs on `prepare`, `start`, `started`, `stopped`, `release`; on `started` its input names the tap (`vnet0`), its bridge and the VM's metadata |
+| A hook added while libvirt runs | **Never called**: libvirt finds its hooks when it starts, so the package restarts it once (running VMs keep running, networks stay active) |
+| A new tap port | VLAN 1, PVID, untagged |
+| A VM started with tag 20 and trunks 30, 40-42 | The hook sets its port: 20 untagged, 30 and 40-42 tagged |
+| A port set by `apply_port` (tag 20, trunk 30), real frames | Reaches VLAN 20 untagged and VLAN 30 tagged; VLAN 50, not in its trunk, unreachable |
+| An access VLAN inside a trunk range (20 in 18-22) | 20 untagged, 18-19 and 21-22 tagged |
+| A live change, a change made by hand then the service's start-up pass | The port follows the API; the start-up pass sets a port changed by hand back |
+| A VLAN recorded for a VM on a bridge that does not filter | The hook leaves its port with no VLAN at all, and the reason is in `journalctl -t hyperlite-vlan` (libvirt's own log has nothing: the hook exits 0) |
+| The hook given a broken definition, or any event but `started` | Exits 0 at once, saying why for the former |
+| `vlan_filtering` turned off and on again | The ports keep their VLANs |
+
+**Part 2, making a bridge VLAN-aware from the dashboard** (`app/core/bridge_vlan.py`, `POST/DELETE
+/networks/{name}/vlan-aware`), as Proxmox VE's `bridge-vlan-aware yes` with `bridge-vids 2-4094`:
+
+- On: `vlan_filtering` on the bridge, VLANs 2-4094 tagged on its uplinks (its NICs, bonds and VLAN interfaces, never
+  a VM's tap or a container's veth) and on the bridge itself, so that a VLAN interface on top of the bridge
+  (`br0.10`) still works. What is untagged (the host's own address, the VMs, the containers) stays on VLAN 1.
+- A trial first: the API answers with a token and undoes the change by itself after 60 seconds unless the token comes
+  back (`POST .../vlan-aware/confirm`). The dashboard sends it a few seconds later, from a new request: if the change
+  cut the administrator off, the confirmation never arrives and the host is put back.
+- Kept, the bridge is listed in `/etc/hyperlite/local/vlan-aware-bridges`; at boot,
+  `hyperlite-vlan-bridges.service` (after the network, before libvirt) makes it VLAN-aware again, whatever manages the
+  host's network (ifupdown, systemd-networkd, NetworkManager): Hyperlite does not rewrite their files. The service's
+  start-up does the same, for a node where the unit has not run yet.
+- Off (`DELETE`): only on a bridge Hyperlite made VLAN-aware, and refused while a VM keeps VLANs on it.
+
+Checked in the lab (a bridge whose uplink is a bond, the host's address untagged on the bridge and on `br0.10`, a
+"switch" namespace on the other end of the bond):
+
+| What | Result |
+|---|---|
+| The bridge's uplinks | The bond only: not the bond's own slave, not `br0.10` |
+| A trial | The bridge filters, the bond and the bridge carry 2-4094; the host is still reached untagged and on VLAN 10; a second trial is refused |
+| Not confirmed | Undone after the delay; the host reached as before; a late confirmation refused |
+| Confirmed (a wrong token refused first) | Kept after the delay, listed for the boot |
+| A VM with tag 10 on the bridge made VLAN-aware | Its port is on VLAN 10 |
+| Filtering lost, as after a reboot | `python -m app.core.bridge_vlan boot`, then the unit, make it VLAN-aware again; the unit is ordered after `network.target` and before `libvirtd.service` |
+| Turned off | No filtering, no longer listed; the host still reached |

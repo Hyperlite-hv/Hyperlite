@@ -100,7 +100,10 @@ export default function ActivityPage({ selection, embedded = false }) {
   // Every matching task, from the server: the page itself only holds the 200 most recent.
   const download = async () => {
     setExporting(true);
-    try { await downloadTasksCsv({ ...filters(), status: view === "failed" ? "failed" : view === "running" ? "running" : "" }); }
+    try {
+      const { unreachable: missed } = await downloadTasksCsv({ ...filters(), status: view === "failed" ? "failed" : view === "running" ? "running" : "" });
+      if (missed.length) pushToast({ kind: "error", title: t("act.exportPartial"), message: t("act.exportMissed", { nodes: missed.join(", ") }) });
+    }
     catch (e) { pushToast({ kind: "error", title: t("act.exportFailed"), message: errorMessage(e) }); }
     finally { setExporting(false); }
   };

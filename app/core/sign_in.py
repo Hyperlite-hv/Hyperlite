@@ -15,8 +15,9 @@ from datetime import timedelta
 
 from app.core import tickets
 
-OPERATIONS = ("password", "totp", "webauthn", "sso", "change_password")
+OPERATIONS = ("password", "totp", "webauthn", "sso", "change_password", "sso_start", "sso_callback")
 PREAUTH_LIFETIME_S = 5 * 60  # enough to type a code
+LOCAL_ROOT_LIFETIME_S = 5 * 60
 
 
 def ask(op, log_user=None, **args):
@@ -54,6 +55,30 @@ def _session(user, remember, must_change=None):
     )
     token = _sign({"sub": user["username"], "role": user["role"]}, lifetime)
     return {"result": "session", "token": token, "user": _public(user, must_change)}
+
+
+def _signed_in(user, remember, must_change=None):
+    """_session() for a sign-in (not a password change's fresh token), its time recorded here: the accounts are the
+    daemon's to write (step 4b), and the API, which signs nobody in, never writes them."""
+    from datetime import UTC, datetime
+
+    from app.repositories import registry
+
+    registry.accounts().sync.record_login(user["username"], datetime.now(UTC).isoformat())
+    return _session(user, remember, must_change)
+
+
+def local_root():
+    """root's session on this node, for hyperlite-admin (docs/design/admin-cli.md): what hyperlite-daemon signs once the
+    kernel told it the caller runs as root (app/daemon/ops/auth.py). Short, so a ticket left in a process's memory soon
+    proves nothing; the CLI asks again during a long wait."""
+    from app.core import admin_cli, security, self_node
+
+    if admin_cli.locked():
+        raise PermissionError(admin_cli.REASON)
+    claims = {"sub": security.local_root_name(self_node.name()), "role": "admin", security.LOCAL_ROOT_CLAIM: True}
+    token = _sign(claims, timedelta(seconds=LOCAL_ROOT_LIFETIME_S))
+    return {"token": token, "expires_in_s": LOCAL_ROOT_LIFETIME_S}
 
 
 def _second_factor_methods(user):
@@ -97,7 +122,9 @@ def password(username, password, remember=False):
         flag_weak_password(user["username"])
     must_change = bool(user.get("must_change_password")) or weak
     answer = (
-        _preauth(user, remember, must_change) if _second_factor_methods(user) else _session(user, remember, must_change)
+        _preauth(user, remember, must_change)
+        if _second_factor_methods(user)
+        else _signed_in(user, remember, must_change)
     )
     answer["weak_flagged"] = newly_weak
     return answer
@@ -123,7 +150,7 @@ def totp(preauth_token, code):
     user, claims = pending
     if not verify_code(user["username"], user["totp_secret"], code):
         return {"result": "invalid", "user": _public(user)}
-    return _session(user, bool(claims.get("remember")))
+    return _signed_in(user, bool(claims.get("remember")))
 
 
 def webauthn(preauth_token, origin, credential):
@@ -139,7 +166,7 @@ def webauthn(preauth_token, origin, credential):
         return {"result": "refused", "status": e.status, "detail": e.message, "user": _public(user)}
     if not ok:
         return {"result": "invalid", "user": _public(user)}
-    return _session(user, bool(claims.get("remember")))
+    return _signed_in(user, bool(claims.get("remember")))
 
 
 def sso(handoff):
@@ -152,7 +179,7 @@ def sso(handoff):
     user = get_user(username) if username else None
     if user is None:
         return {"result": "expired"}
-    return _preauth(user, False) if _second_factor_methods(user) else _session(user, False)
+    return _preauth(user, False) if _second_factor_methods(user) else _signed_in(user, False)
 
 
 def change_password(token, current_password, new_password, code=None):
@@ -194,3 +221,84 @@ def change_password(token, current_password, new_password, code=None):
     answer = _session({**user, "must_change_password": 0}, remember, must_change=False)
     answer["revoked_tokens"] = revoked
     return answer
+
+
+# --- SSO: the sign-in's start and the identity provider's callback (app/routers/sso.py) ---
+#
+# Both need the client secret, which only the daemon opens, and the callback makes or updates the account: the daemon's
+# to write. The API keeps the browser's side (the redirects, the cookies) and the audit log.
+
+
+def sso_start():
+    """{"result": "redirect", "url", "binding"}: where the browser goes, and the value its HttpOnly cookie binds the
+    callback to; or {"result": "refused", "status", "detail"}."""
+    import logging
+
+    from app.core import sso as core
+
+    config = core.get_config()
+    if not config or not config["enabled"]:
+        return {"result": "refused", "status": 400, "detail": "SSO is not enabled"}
+    if config.get("client_secret_unreadable"):
+        return {
+            "result": "refused",
+            "status": 503,
+            "detail": "The stored SSO client secret cannot be decrypted (the encryption key changed): enter it again",
+        }
+    if not (config["issuer"] and config["client_id"] and config["client_secret"] and config["redirect_uri"]):
+        return {"result": "refused", "status": 400, "detail": "Incomplete SSO configuration"}
+    try:
+        doc = core.discover(config["issuer"])
+    except Exception as e:
+        # Asked without any session: the error's own words (an internal address, TLS details) go to the log only.
+        logging.getLogger(__name__).warning("SSO discovery of %s failed: %s", config["issuer"], e)
+        return {"result": "refused", "status": 502, "detail": "The identity provider cannot be reached"}
+    state, nonce, binding = core.create_state()
+    return {"result": "redirect", "url": core.build_authorize_url(config, doc, state, nonce), "binding": binding}
+
+
+def _sso_refused(detail, log=None, log_user="system"):
+    return {"result": "refused", "detail": detail, "log": log, "log_user": log_user}
+
+
+def sso_callback(state, binding, code):
+    """The identity provider's answer checked (state bound to this browser, code exchanged, identity token
+    validated), the account made or updated, and a one-time handoff code for the dashboard's exchange:
+    {"result": "handoff", "handoff", "username"}; or {"result": "refused", "detail" (for the browser), "log" (for the
+    audit log, or None), "log_user"}."""
+    from jwt import PyJWTError
+
+    from app.core import sso as core
+
+    nonce = core.consume_state(state, binding)
+    if nonce is None:
+        # Expired, replayed, or started from another browser (a callback link someone sent).
+        return _sso_refused("Login session expired, try again", "SSO: unknown, expired or foreign sign-in state")
+    config = core.get_config()
+    if not config or not config["enabled"]:
+        return _sso_refused("SSO is disabled")
+    try:
+        doc = core.discover(config["issuer"])
+        tokens = core.exchange_code(config, doc, code)
+        claims = core.validate_id_token(config, doc, tokens["id_token"], nonce)
+    except (PyJWTError, KeyError) as e:
+        return _sso_refused("Invalid identity token", f"SSO: invalid identity token ({e})")
+    except Exception as e:
+        return _sso_refused("Unable to contact the IdP", f"SSO: IdP unreachable or invalid response ({e})")
+    username = core.resolve_username(claims)
+    if not username:
+        return _sso_refused("The IdP provided no usable identifier")
+    role = core.resolve_role(config, claims)
+    try:
+        row = core.provision_user(username, role, subject=claims.get("sub"))
+    except core.LocalAccountConflict:
+        return _sso_refused(
+            "This username already matches a local account", "SSO: this name already matches a local account", username
+        )
+    except core.SubjectConflict:
+        return _sso_refused(
+            "This username belongs to another identity: ask an administrator",
+            "SSO: this name belongs to another identity of the provider",
+            username,
+        )
+    return {"result": "handoff", "handoff": core.create_handoff(row["username"]), "username": row["username"]}

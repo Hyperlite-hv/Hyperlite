@@ -46,6 +46,9 @@ ALL_PRIVILEGES = {
     "container.power": "Start / stop",
     "container.console": "Console log (the web terminal is for administrators)",
     "container.options": "Options (notes and tags)",
+    # Another cluster's copy of a backup store pulls it with this (as Proxmox Backup Server's DatastoreReader): a
+    # dedicated account's API token reads the store's chunks and indexes, nothing else, and deletes nothing.
+    "backup_store.read": "Read a backup store, to copy it from another site (assigned on that store)",
 }
 
 # Predefined, scoped roles that can be assigned through an ACL (distinct from
@@ -88,11 +91,16 @@ ROLES = {
             "container.options",
         },
     },
+    "store_reader": {
+        "label": "Backup store reader",
+        "description": "Reads the assigned backup store to copy it from another site; nothing else, and deletes nothing.",
+        "privileges": {"backup_store.read"},
+    },
 }
 
 
 # ---- Custom roles ----
-# Same principle as the predefined roles above, purpose the privilege set is chosen
+# Same principle as the predefined roles above, but the privilege set is chosen
 # freely (see ALL_PRIVILEGES). They are identified in acl.role by the string
 # "custom:<id>" so they can never collide with the keys of the predefined roles.
 
@@ -236,8 +244,8 @@ def remove_vm_from_all_pools(vm_name):
 
 # ---- ACL ----
 
-# What an assignment can be given on: a VM, a pool of VMs, a container, a storage pool, a network.
-RESOURCE_TYPES = ("vm", "pool", "container", "storage", "network")
+# What an assignment can be given on: a VM, a pool of VMs, a container, a storage pool, a network, a backup store.
+RESOURCE_TYPES = ("vm", "pool", "container", "storage", "network", "backup_store")
 
 
 def list_acl():

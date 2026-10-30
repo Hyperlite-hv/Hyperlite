@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
-from app.core import lvm_storage
+from app.core import lvm_storage, vm_snapshots
 
 LVS = {
     "report": [
@@ -207,11 +207,12 @@ class _Conn:
 
 
 @pytest.fixture()
-def storage_api(monkeypatch, lvm):
+def storage_api(monkeypatch, lvm, daemon_libvirt):
     from app.routers import storage
 
     conn = _Conn()
     monkeypatch.setattr(storage, "open_conn", lambda *a, **k: conn)
+    daemon_libvirt(conn)  # this node's pools are hyperlite-daemon's, in this process in the tests
     monkeypatch.setattr(storage.zfs_storage, "pool_exists", lambda name: False)
     monkeypatch.setattr(storage.shutil, "which", lambda cmd: f"/usr/sbin/{cmd}")
     monkeypatch.setattr(storage, "get_disk_paths_in_use", lambda conn: set())
@@ -337,7 +338,7 @@ def test_a_logical_volume_disk_is_grown_with_lvextend(monkeypatch, lvm):
 
 
 def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
-    from app.routers.vms import lifecycle
+    from app.core import vm_delete
 
     deleted = []
 
@@ -373,6 +374,12 @@ def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
 
             return [LogicalPool()]
 
+        def lookupByName(self, name):
+            return Domain()
+
+        def listAllDomains(self, flags=0):
+            return []
+
     disks = ["/dev/hlvg/web", "/dev/hlvg/web-2", "/dev/disk/by-path/ip-lun-1", "/dev/othervg/root"]
 
     class Domain:
@@ -383,14 +390,14 @@ def test_a_deleted_vm_takes_its_logical_volumes_and_nothing_else(monkeypatch):
             )
             return f"<domain><name>web</name><devices>{body}</devices></domain>"
 
+        def isActive(self):
+            return False
+
         def undefineFlags(self, flags):
             pass
 
-    monkeypatch.setattr(lifecycle.vm_records, "reservations", lambda root: [])
-    monkeypatch.setattr(lifecycle.vm_records, "release_addresses", lambda conn, ifaces: None)
-    monkeypatch.setattr(lifecycle.vm_records, "forget", lambda name, node=None: None)
-    monkeypatch.setattr(lifecycle, "refresh_pools_for_paths", lambda conn, paths: None)
-    lifecycle._perform_vm_deletion(Conn(), Domain(), "web")
+    monkeypatch.setattr(vm_delete.vm_records, "release_addresses", lambda conn, ifaces: None)
+    vm_delete.delete(Conn(), "web")
     assert deleted == ["/dev/hlvg/web", "/dev/hlvg/web-2"], "an iSCSI LUN or a group outside a pool stays"
 
 
@@ -630,8 +637,10 @@ def test_an_lvm_thin_pool_is_made_with_its_pool_or_the_pool_is_not(client, auth_
     admin = auth_headers("root")
     made = []
     monkeypatch.setattr(lvm_storage, "ensure_thin_pool", lambda vg, name, node=None: made.append((vg, name, node)))
+    # What hyperlite-daemon's LVM report says of the group (storage.lvm_volumes): the pool's thin pool, a quarter full.
+    thin_pool = {"name": "vmthin", "size": 8 * 2**30, "data_percent": 25.0, "kind": "thin_pool"}
     monkeypatch.setattr(
-        lvm_storage, "thin_pool_of", lambda vg, node=None: {"name": "vmthin", "size": 8 * 2**30, "data_percent": 25.0}
+        lvm_storage, "logical_volumes", lambda vg, node=None: [{**thin_pool, "tags": [lvm_storage.THIN_TAG]}]
     )
     r = client.post(
         "/storage",
@@ -661,7 +670,7 @@ def test_an_lvm_thin_pool_is_made_with_its_pool_or_the_pool_is_not(client, auth_
 
 
 @pytest.fixture()
-def vm_api(monkeypatch, thin):
+def vm_api(monkeypatch, thin, daemon_libvirt):
     from app.routers.vms import snapshots
 
     class Domain:
@@ -693,8 +702,8 @@ def vm_api(monkeypatch, thin):
             pass
 
     monkeypatch.setattr(snapshots, "open_conn", lambda *a, **k: Conn())
-    monkeypatch.setattr(snapshots, "_zvol_disks_of_domain", lambda domain: [])
-    monkeypatch.setattr(snapshots.iscsi, "refuse_if_iscsi", lambda domain, what: None)
+    daemon_libvirt(Conn())  # hyperlite-daemon takes, restores and deletes the snapshots
+    monkeypatch.setattr(vm_snapshots.iscsi, "iscsi_disks_of_domain", lambda domain: [])
     return domains
 
 

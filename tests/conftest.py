@@ -5,6 +5,7 @@ before any `app.*` module is imported. Nothing in the test suite may write
 to the repository (in particular no `.env`, no `hyperlite.db`).
 """
 
+import contextlib
 import os
 import shutil
 import tempfile
@@ -32,6 +33,8 @@ os.environ["HYPERLITE_ACCESS_LOG_DIR"] = tempfile.mkdtemp(prefix="hyperlite-acce
 # goes to directories of its own.
 os.environ["HYPERLITE_VAR_DIR"] = tempfile.mkdtemp(prefix="hyperlite-var-tests-")
 os.environ["HYPERLITE_ETC_DIR"] = tempfile.mkdtemp(prefix="hyperlite-etc-tests-")
+# Nor /run/lock/hyperlite: each worker's claims on VMs are its own (app/core/shared_claims.py).
+os.environ["HYPERLITE_LOCK_DIR"] = tempfile.mkdtemp(prefix="hyperlite-lock-tests-")
 # No hyperlite-daemon runs here: sessions are signed in this process, with keys under HYPERLITE_ETC_DIR
 # (app/core/tickets.py).
 os.environ["HYPERLITE_AUTH_SIGNING"] = "local"
@@ -115,12 +118,13 @@ def auth_headers(client, make_user):
 def cluster(database, tmp_path, monkeypatch):
     """Registered remote nodes simulated by one directory each: ssh and scp are replaced by fakes that act on
     those directories, so ISO sharing is tested without any real host."""
-    from app.core import iso_share
+    from app.core import disk_library, iso_share
     from app.routers import isos
 
     local = tmp_path / "local"
     local.mkdir()
     monkeypatch.setattr(isos, "ISOS_DIR", local)
+    monkeypatch.setattr(disk_library, "ISOS", local)  # the library hyperlite-daemon writes
     roots = {}
 
     def add_node(name, hostname, reachable=True, library=True, layout="old"):
@@ -230,15 +234,35 @@ def _fresh_inventory():
 
 
 @pytest.fixture(autouse=True)
+def _no_credential_left():
+    """A request's credential (peer_auth.CREDENTIAL) never carries over from one test: one remembered by a test went
+    with the next test's calls to hyperlite-daemon, which, checking each proof since step 4d, refused a token of
+    another test's database."""
+    from app.core import peer_auth
+
+    token = peer_auth.CREDENTIAL.set(None)
+    yield
+    peer_auth.CREDENTIAL.reset(token)
+
+
+@pytest.fixture(autouse=True)
+def _no_libvirt_error_left():
+    """libvirtError(msg) takes the thread's last libvirt error over `msg`: a real one left by an earlier test of the
+    same worker replaced a fake error's message, and a test reading it failed on and off (found by multi-cluster)."""
+    import libvirt
+
+    libvirt.virResetLastError()
+
+
+@pytest.fixture(autouse=True)
 def _no_vm_claim_left():
-    """The claims on VMs (app/core/vm_locks.py) never carry over from one test: a test that replaced the thread which
-    releases one (a snapshot's, a backup's) left the VM busy for every later test of its worker, which then answered
-    409 where it expected its own refusal."""
-    from app.core import vm_locks
+    """The claims on VMs and containers (app/core/shared_claims.py) never carry over from one test: a test that replaced
+    the thread which releases one (a snapshot's, a backup's) left the VM busy for every later test of its worker, which
+    then answered 409 where it expected its own refusal."""
+    from app.core import shared_claims
 
     yield
-    with vm_locks._registry_lock:
-        vm_locks._held.clear()
+    shared_claims.release_all()
 
 
 def agent_answer(addresses):
@@ -267,3 +291,37 @@ def fake_agent(monkeypatch):
         "libvirt_qemu",
         types.SimpleNamespace(qemuAgentCommand=lambda domain, command, timeout, flags: domain.agent_reply(command)),
     )
+
+
+@pytest.fixture()
+def daemon_libvirt(monkeypatch):
+    """The libvirt hyperlite-daemon's operations open (libvirt_utils.local_conn), in this process in the tests: call it
+    with the fake connection they get. The API's own connection (open_conn) is faked apart."""
+    from app.core import libvirt_utils
+
+    def use(conn, nodes=None):
+        """`nodes`: {name: fake} of the nodes registered over SSH only, as the daemon opens them with the cluster's
+        key (libvirt_utils.node_conn); any other node gets `conn` too."""
+        monkeypatch.setattr(libvirt_utils, "local_conn", lambda: contextlib.nullcontext(conn))
+        monkeypatch.setattr(libvirt_utils, "open_local", lambda: conn)
+        monkeypatch.setattr(
+            libvirt_utils,
+            "node_conn",
+            lambda node=None: contextlib.nullcontext((nodes or {}).get(node, conn) if node else conn),
+        )
+        return conn
+
+    return use
+
+
+@pytest.fixture()
+def daemon_lxc(monkeypatch):
+    """The LXC driver hyperlite-daemon's container operations open (libvirt_utils.local_lxc_conn), in this process
+    in the tests: call it with the fake connection they get. The API's own (open_lxc_conn) is faked apart."""
+    from app.core import libvirt_utils
+
+    def use(conn):
+        monkeypatch.setattr(libvirt_utils, "local_lxc_conn", lambda: contextlib.nullcontext(conn))
+        return conn
+
+    return use

@@ -112,3 +112,19 @@ def test_the_client_says_when_the_daemon_is_not_running(tmp_path, monkeypatch):
 def test_an_operation_name_is_registered_once():
     with pytest.raises(ValueError):
         operation("system.ping")(lambda args, ctx: None)
+
+
+def test_the_daemon_tells_systemd_once_its_socket_answers(tmp_path, monkeypatch):
+    """Type=notify: hyperlite.service, ordered after it, writes the accounts through it from its first start."""
+    import socket
+
+    from app.daemon import server
+
+    address = str(tmp_path / "notify")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as systemd:
+        systemd.bind(address)
+        monkeypatch.setenv("NOTIFY_SOCKET", address)
+        server.notify_ready()
+        assert systemd.recv(64) == b"READY=1"
+    monkeypatch.delenv("NOTIFY_SOCKET")
+    server.notify_ready()  # run by hand: nothing to tell

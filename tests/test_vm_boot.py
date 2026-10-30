@@ -40,10 +40,11 @@ class _Conn:
 
 
 @pytest.fixture()
-def host(database, monkeypatch):
+def host(database, monkeypatch, daemon_libvirt):
     conn = _Conn([_Domain("db"), _Domain("app"), _Domain("web", active=True), _Domain("broken", fails=True)])
     opened = []
-    monkeypatch.setattr(vm_boot, "open_conn", lambda node=None: opened.append(node) or conn)
+    monkeypatch.setattr(vm_boot, "open_conn", lambda node=None, **_k: opened.append(node) or conn)
+    daemon_libvirt(conn)  # hyperlite-daemon starts this node's VMs, in this process in the tests
     conn.opened = opened
     return conn
 
@@ -106,11 +107,14 @@ def test_the_setting_follows_a_migration(database):
     assert vm_boot.follow_migration("nothing", None, "n2") is False
 
 
-def test_the_api_reads_and_writes_the_setting_and_takes_over_libvirt_autostart(client, auth_headers, monkeypatch):
+def test_the_api_reads_and_writes_the_setting_and_takes_over_libvirt_autostart(
+    client, auth_headers, monkeypatch, daemon_libvirt
+):
     from app.routers.vms import settings
 
     conn = _Conn([_Domain("db", autostart=True)])
-    monkeypatch.setattr(settings, "open_conn", lambda node=None: conn)
+    monkeypatch.setattr(settings, "open_conn", lambda node=None, **_k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon turns libvirt's flag off, in this process in the tests
     admin = auth_headers("admin")
     r = client.get("/vms/db/boot", headers=admin)
     assert r.status_code == 200

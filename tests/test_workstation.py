@@ -125,7 +125,7 @@ def test_tunnel_ticket_checks_port_privilege_and_state(client, auth_headers, mon
 
     admin = auth_headers("alice")
     observer = auth_headers("bob", role="viewer")
-    monkeypatch.setattr(tunnel, "open_conn", lambda: _Conn(_Domain()))
+    monkeypatch.setattr(tunnel, "open_conn", lambda **_k: _Conn(_Domain()))
     assert client.post("/vms/vm1/tunnel-ticket", json={"port": 22}, headers=observer).status_code == 403
     assert client.post("/vms/vm1/tunnel-ticket", json={"port": 25}, headers=admin).status_code == 403
     ok = client.post("/vms/vm1/tunnel-ticket", json={"port": 22}, headers=admin).json()
@@ -133,7 +133,7 @@ def test_tunnel_ticket_checks_port_privilege_and_state(client, auth_headers, mon
     assert entry["ip"] == "192.168.122.50" and entry["port"] == 22
     assert workstation.take_tunnel_ticket(ok["ticket"], "vm1") is None  # single use
 
-    monkeypatch.setattr(tunnel, "open_conn", lambda: _Conn(_Domain(active=False)))
+    monkeypatch.setattr(tunnel, "open_conn", lambda **_k: _Conn(_Domain(active=False)))
     assert client.post("/vms/vm1/tunnel-ticket", json={"port": 22}, headers=admin).status_code == 409
     monkeypatch.setenv("HYPERLITE_TUNNEL_PORTS", "")
     refused = client.post("/vms/vm1/tunnel-ticket", json={"port": 22}, headers=admin)
@@ -241,7 +241,7 @@ def test_access_says_whether_the_vm_is_directly_reachable(client, auth_headers, 
     from app.routers.vms import tunnel
 
     headers = auth_headers("alice")
-    monkeypatch.setattr(tunnel, "open_conn", lambda: _AccessConn(_AccessDomain(iface), mode))
+    monkeypatch.setattr(tunnel, "open_conn", lambda **_k: _AccessConn(_AccessDomain(iface), mode))
     monkeypatch.setattr(tunnel, "get_vm_ssh_user", lambda name: "debian")
     info = client.get("/vms/vm1/access", headers=headers).json()
     assert info == {"ip": "192.168.122.50", "direct": direct, "ssh_user": "debian", "tunnel_ports": [22, 3389]}

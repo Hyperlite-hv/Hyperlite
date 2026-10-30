@@ -1,0 +1,35 @@
+[Unit]
+Description=Hyperlite HA local resource manager (the watchdog, the node's HA VMs and heartbeat)
+Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/privilege-separation.md
+# Every node: the watchdog (/dev/watchdog), the monitoring of its own HA VMs, the node's heartbeat and the load-balancing
+# moves asked of it (app/ha_services), as Proxmox VE's pve-ha-lrm. A normal stop disarms the watchdog; a crash or a
+# hang stops its feeding, and the node is reset, as Proxmox's.
+# After hyperlite-daemon and the API; PartOf: a restart or a stop of the API (an update) restarts or stops it too, so
+# they run the same version, as the scheduler.
+After=hyperlite-daemon.service hyperlite-cfs.service hyperlite.service
+Wants=hyperlite-daemon.service
+PartOf=hyperlite.service
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/lib/hyperlite
+EnvironmentFile=-/etc/hyperlite/priv/env
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/root
+# The tools' output read in English, as the API's (installer/hyperlite.service).
+Environment=LC_ALL=C.UTF-8
+Environment=TMPDIR=/var/lib/hyperlite/tmp
+# Its tasks' runner (app/core/tasks.py); HA runs here, not in the API.
+Environment=HYPERLITE_SERVICE=ha-lrm
+Environment=HYPERLITE_HA_SERVICE=1
+Environment=HYPERLITE_SCHEDULER_SERVICE=1
+ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.ha_services lrm
+# A normal stop disarms the watchdog at once (ha_selffence.stop, the magic close). One killed at this timeout would
+# skip it, and the node would reset after the watchdog's own timeout: the stop is short, keep it so.
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -83,6 +83,9 @@ def export_audit(
     resource: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    # In a cluster: every member's entries, merged newest first, with a last column "member" (the node that holds the
+    # entry); the members that did not answer are named in the Hyperlite-Unreachable header.
+    cluster: bool = False,
     user: dict = Depends(require_role("admin")),
 ):
     """EVERY entry matching the same filters as GET /audit, newest first, as CSV. The
@@ -100,14 +103,20 @@ def export_audit(
         }.items()
         if v
     }
-    log_action(user["username"], "export_audit", "audit_log", "success", str(filters) if filters else None)
+    detail = {**filters, "cluster": True} if cluster else filters
+    log_action(user["username"], "export_audit", "audit_log", "success", str(detail) if detail else None)
+    header = ("timestamp", "user", "action", "resource", "result", "error", "ip")
     rows = audit_service.export_rows(audit_service.filters(action, result, username, resource, since, until))
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    return StreamingResponse(
-        csv_lines(("timestamp", "user", "action", "resource", "result", "error", "ip"), rows),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="hyperlite-audit-{stamp}.csv"'},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="hyperlite-audit-{stamp}.csv"'}
+    if cluster:
+        # Each member records the export of its own entries in its own log.
+        exports, missing = cluster_view.gather_exports(user["username"], "/audit/export.csv", filters)
+        rows = cluster_view.merged_export(rows, exports, header, "timestamp")
+        header = (*header, "member")
+        if missing:
+            headers[cluster_view.UNREACHABLE_HEADER] = ", ".join(missing)
+    return StreamingResponse(csv_lines(header, rows), media_type="text/csv; charset=utf-8", headers=headers)
 
 
 class Retention(BaseModel):

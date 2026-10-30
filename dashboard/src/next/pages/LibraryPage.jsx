@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Disc3, HardDrive, Trash2, Upload } from "lucide-react";
+import { Copy, Disc3, HardDrive, PackageOpen, Trash2, Upload } from "lucide-react";
 import { fetchClusterIsos, deleteIso, fetchTemplates, fetchVmDisks, deleteVmDisk, renameIso } from "../../api/client";
 import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -15,6 +15,7 @@ import VmDiskUploadDropzone from "../../components/VmDiskUploadDropzone";
 import { ErrorState } from "../components/States";
 import TemplatesPanel from "./TemplatesPage";
 import CopyIsoDialog from "../components/CopyIsoDialog";
+import OvaImportDrawer from "../components/OvaImportDrawer";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 
 // Library: the ISO images (moved from Storage) and the templates, in two tabs. The historical ?tab=templates
@@ -138,6 +139,8 @@ function ImportedDisksPanel() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const [disks, setDisks] = useState(null);
   const [error, setError] = useState(null);
+  const [ova, setOva] = useState(null);
+  const caps = capabilities(useAuthStore((s) => s.role));
   const load = useCallback(async () => {
     try { const r = await fetchVmDisks(); setDisks(Array.isArray(r) ? r : []); setError(null); }
     catch (e) { setError(errorMessage(e)); }
@@ -164,7 +167,7 @@ function ImportedDisksPanel() {
                     <tr key={d.name}>
                       <th scope="row" className="nx-mono" style={{ fontWeight: 500 }}>{d.name}</th>
                       <td className="nx-num nx-mono">{formatSizeMb(d.size_mb, lang)}</td>
-                      <td><div className="nx-ra"><button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("lib.diskDeleteAria", { name: d.name })} title={t("vx.delete")} onClick={() => remove(d)}><Trash2 size={15} aria-hidden="true" /></button></div></td>
+                      <td><div className="nx-ra">{caps.admin && d.name.toLowerCase().endsWith(".ova") && <button type="button" className="nx-btn nx-btn--sm" onClick={() => setOva(d.name)}><PackageOpen size={14} aria-hidden="true" />{t("ova.open")}</button>}<button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("lib.diskDeleteAria", { name: d.name })} title={t("vx.delete")} onClick={() => remove(d)}><Trash2 size={15} aria-hidden="true" /></button></div></td>
                     </tr>
                   ))}
                 </tbody>
@@ -172,6 +175,7 @@ function ImportedDisksPanel() {
             </TableWrap>
           )}
       </div>
+      <OvaImportDrawer file={ova} onClose={() => setOva(null)} onDone={load} />
     </>
   );
 }

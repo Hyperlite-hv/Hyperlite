@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "path.h"
 
@@ -42,6 +43,7 @@ static int check_path(const char *path, bool allow_root, uid_t uid, char *reason
     }
     if (uid != 0 && cfs_path_is_private(path)) {
         snprintf(reason, cap, "%s is readable by root only", path);
+        fprintf(stderr, "hyperlite-cfs: refused %s to uid %u\n", path, (unsigned)uid);
         return CFS_FORBIDDEN;
     }
     return CFS_OK;
@@ -49,6 +51,16 @@ static int check_path(const char *path, bool allow_root, uid_t uid, char *reason
 
 int cfs_check(const cfs_request *req, uid_t uid, char *reason, size_t cap)
 {
+    /* Only root changes the configuration (and the user this daemon runs as: a test's): the API, which runs as another
+     * user and reads through the socket's group, could otherwise write rows that every member applies as root, its
+     * permissions among them. As /etc/pve is for www-data on Proxmox VE. Said in the log, as every refusal of a
+     * client's identity. */
+    if (cfs_op_changes(req->op) && uid != 0 && uid != geteuid()) {
+        snprintf(reason, cap, "only root changes the configuration");
+        fprintf(stderr, "hyperlite-cfs: refused a change (operation %u) from uid %u: %s\n", (unsigned)req->op,
+                (unsigned)uid, reason);
+        return CFS_FORBIDDEN;
+    }
     switch (req->op) {
     case CFS_OP_GET:
     case CFS_OP_PUT:

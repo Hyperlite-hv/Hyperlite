@@ -101,17 +101,19 @@ def node_tls(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def vm(monkeypatch):
-    state = {"conn": Conn(None), "nodes": []}
+def vm(monkeypatch, daemon_libvirt):
+    """The VM as the API reads it (read-only) and as hyperlite-daemon changes it: one fake for both."""
+    state = {"conn": daemon_libvirt(Conn(None)), "nodes": []}
 
-    def fake_open(node=None):
+    def fake_open(node=None, readonly=False):
+        assert readonly, "the API reads a VM's consoles, the daemon changes them"
         state["nodes"].append(node)
         return state["conn"]
 
     monkeypatch.setattr(console, "open_conn", fake_open)
 
     def set_vm(domain):
-        state["conn"] = Conn(domain)
+        state["conn"] = daemon_libvirt(Conn(domain))
         return state["conn"]
 
     state["set"] = set_vm
@@ -212,7 +214,7 @@ def test_a_running_vm_gets_a_vv_file_and_a_proxy_ticket(client, auth_headers, vm
     assert lines["proxy"] == f"http://testserver:{spice.PROXY_PORT}"
     assert lines["password"] == ET.fromstring(domain.updates[0][0]).get("passwd")
     assert spice_proxy.TICKETS[lines["host"]][:3] == ("web", None, 5901)
-    assert spice_proxy.admit(f"CONNECT {lines['host']}:5901 HTTP/1.0") == (None, 5901)
+    assert spice_proxy.admit(f"CONNECT {lines['host']}:5901 HTTP/1.0") == ("web", None, 5901)
 
 
 def test_no_ticket_for_a_stopped_vm_one_without_spice_or_an_unready_node(client, auth_headers, vm, node_tls):
@@ -259,6 +261,16 @@ def test_a_display_is_added_where_the_node_is_ready_by_the_hardware_privilege(cl
 # ---- The proxy ----
 
 
+@pytest.fixture()
+def spice_vm(daemon_libvirt):
+    """The running VM whose SPICE TLS port hyperlite-daemon reads, and connects to, for the proxy."""
+
+    def at(port):
+        daemon_libvirt(Conn(Domain(WITH_SPICE_LIVE.replace("tlsPort='5901'", f"tlsPort='{port}'"))))
+
+    return at
+
+
 async def _upstream():
     """A stand-in for QEMU's TLS port: echoes what it receives, prefixed."""
 
@@ -279,10 +291,11 @@ async def _connect(port, line):
     return reader, writer, status.decode()
 
 
-def test_the_proxy_admits_a_tickets_connections_and_nothing_else():
+def test_the_proxy_admits_a_tickets_connections_and_nothing_else(spice_vm):
     async def scenario():
         upstream = await _upstream()
         qemu_port = upstream.sockets[0].getsockname()[1]
+        spice_vm(qemu_port)
         server = await spice_proxy.start("127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
         try:
@@ -321,7 +334,7 @@ def test_the_proxy_admits_a_tickets_connections_and_nothing_else():
     asyncio.run(scenario())
 
 
-def test_the_proxy_says_when_the_vm_cannot_be_reached():
+def test_the_proxy_says_when_the_vm_cannot_be_reached(spice_vm):
     async def scenario():
         server = await spice_proxy.start("127.0.0.1", 0)
         port = server.sockets[0].getsockname()[1]
@@ -330,6 +343,7 @@ def test_the_proxy_says_when_the_vm_cannot_be_reached():
             dead_port = closed.sockets[0].getsockname()[1]
             closed.close()
             await closed.wait_closed()
+            spice_vm(dead_port)
             ticket = spice_proxy.issue("web", None, dead_port)
             _reader, writer, status = await _connect(port, f"CONNECT {ticket}:{dead_port} HTTP/1.0")
             assert status.startswith("HTTP/1.0 502")
@@ -341,13 +355,14 @@ def test_the_proxy_says_when_the_vm_cannot_be_reached():
 
 
 @pytest.mark.parametrize("loop", ["asyncio", "uvloop"])
-def test_an_open_session_does_not_hold_the_services_stop(loop):
+def test_an_open_session_does_not_hold_the_services_stop(loop, spice_vm):
     """On uvloop too: the service runs on it (uvicorn[standard]), and its server has no close_clients()."""
     import uvloop
 
     async def scenario():
         upstream = await _upstream()
         qemu_port = upstream.sockets[0].getsockname()[1]
+        spice_vm(qemu_port)
         server = await spice_proxy.start("127.0.0.1", 0)
         ticket = spice_proxy.issue("web", None, qemu_port)
         reader, _writer, status = await _connect(

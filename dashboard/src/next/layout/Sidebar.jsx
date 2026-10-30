@@ -13,12 +13,12 @@ import AccountSecurityModal from "../../components/AccountSecurityModal";
 import ChangePasswordDrawer from "../components/ChangePasswordDrawer";
 import PreferencesDrawer from "../components/PreferencesDrawer";
 import EnclaveMark from "../../components/EnclaveMark";
-import { Activity, Archive, Bell, Braces, Box, Boxes, Camera, Copy, Database, Disc3, Ellipsis, Heart, House, KeyRound, List, Monitor, Network, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
+import { Activity, Archive, Bell, Braces, Box, Boxes, Camera, Copy, Database, Disc3, Ellipsis, Globe, Heart, House, KeyRound, List, Monitor, Network, Scale, ScrollText, Server, Share, SquareCheck, Users, Zap } from "lucide-react";
 
 const ICONS = {
   overview: House, nodes: Server, vms: Monitor, containers: Box, kubernetes: Boxes, storage: Database, network: Network,
-  ha: Heart, compat: SquareCheck, backups: Archive, snapshots: Camera, exports: Share, library: Disc3,
-  tasks: List, audit: ScrollText, automation: Zap, users: Users, sso: KeyRound, notifications: Bell, metrics: Activity, api: Braces, cfs: Copy,
+  ha: Heart, drs: Scale, compat: SquareCheck, backups: Archive, snapshots: Camera, exports: Share, library: Disc3,
+  tasks: List, audit: ScrollText, automation: Zap, users: Users, sso: KeyRound, notifications: Bell, metrics: Activity, api: Braces, cfs: Copy, sites: Globe,
 };
 
 function NavItem({ icon, label, count, tone, active, onClick }) {
@@ -132,7 +132,9 @@ export default function Sidebar({ collapsed }) {
         </NavGroup>
         <NavGroup label={t("nav.group.cluster")}>
           {caps.admin && <NavItem icon="cfs" label={t("nav.cfs")} active={onDatacenterTab("cfs")} onClick={() => goto("cfs")} />}
+          {caps.admin && <NavItem icon="sites" label={t("nav.sites")} active={onDatacenterTab("sites")} onClick={() => goto("sites")} />}
           <NavItem icon="ha" label={t("nav.ha")} active={onDatacenterTab("ha")} onClick={() => goto("ha")} />
+          <NavItem icon="drs" label={t("nav.drs")} active={onDatacenterTab("drs")} onClick={() => goto("drs")} />
           <NavItem icon="compat" label={t("nav.compat")} active={onDatacenterTab("compat")} onClick={() => goto("compat")} />
         </NavGroup>
         <NavGroup label={t("nav.group.protection")}>

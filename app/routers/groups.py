@@ -1,5 +1,3 @@
-import sqlite3
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -8,6 +6,7 @@ from app.core import renaming
 from app.core.audit import log_action
 from app.core.listing import item, listing
 from app.core.security import require_role
+from app.domain.common import AlreadyExists
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -32,7 +31,7 @@ def create_group(payload: GroupCreate, user: dict = Depends(require_role("admin"
         raise HTTPException(status_code=422, detail="Group name required")
     try:
         group_id = perm.create_group(name)
-    except sqlite3.IntegrityError:
+    except AlreadyExists:  # the name is unique; hyperlite-daemon writes the groups (step 4b)
         raise HTTPException(status_code=422, detail=f"A group named '{name}' already exists") from None
     log_action(user["username"], "create_group", name, "success")
     return {"id": group_id, "name": name, "members": []}

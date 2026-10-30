@@ -35,8 +35,22 @@ def peer_credentials(sock):
 
 
 def _answer(handler, payload):
-    handler.wfile.write(json.dumps(payload, separators=(",", ":")).encode() + b"\n")
-    handler.wfile.flush()
+    fds = payload.pop("fds", None)
+    line = json.dumps(payload, separators=(",", ":")).encode() + b"\n"
+    if not fds:
+        handler.wfile.write(line)
+        handler.wfile.flush()
+        return
+    # The descriptors travel with the answer's first bytes, and leave the daemon: its copies are closed once sent
+    # (a pseudo-terminal then hangs up when the API closes its own).
+    try:
+        handler.wfile.flush()
+        sent = socket.send_fds(handler.request, [line], fds)
+        handler.request.sendall(line[sent:])
+    finally:
+        for fd in fds:
+            with contextlib.suppress(OSError):
+                os.close(fd)
 
 
 class Handler(socketserver.StreamRequestHandler):
@@ -62,7 +76,9 @@ class Handler(socketserver.StreamRequestHandler):
                 continue
             user = request.get("user") if isinstance(request.get("user"), str) else None
             rid = request.get("request_id") if isinstance(request.get("request_id"), str) else None
-            _answer(self, dispatch(request, Context(user=user, request_id=rid, peer_pid=pid, peer_uid=uid)))
+            proof = request.get("proof") if isinstance(request.get("proof"), str) else None
+            ctx = Context(user=user, request_id=rid, peer_pid=pid, peer_uid=uid, proof=proof)
+            _answer(self, dispatch(request, ctx))
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -70,10 +86,27 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     allowed_uids = staticmethod(allowed_uids)
 
 
+def notify_ready():
+    """Tell systemd the socket answers (Type=notify): hyperlite.service, ordered after this unit, starts only then.
+    The API writes the accounts through it from its first start (the admin account, step 4b)."""
+    address = os.environ.get("NOTIFY_SOCKET")
+    if not address:
+        return
+    if address.startswith("@"):  # an abstract socket
+        address = "\0" + address[1:]
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+        sock.connect(address)
+        sock.sendall(b"READY=1")
+
+
 def serve(path=None):
     """Listen on the socket until stopped: 0660, owned by root and the API's group when it exists."""
     import app.daemon.ops  # noqa: F401  (registers the operations)
+    from app.core.privileged import INPROCESS_ENV
 
+    # The daemon's own code that asks for an operation (another node's read-only connection opening its tunnel) runs
+    # it here, through the same registry, never through its own socket.
+    os.environ[INPROCESS_ENV] = "1"
     path = Path(path or os.environ.get(SOCKET_ENV) or DEFAULT_SOCKET)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.unlink(missing_ok=True)
@@ -85,6 +118,7 @@ def serve(path=None):
     os.chown(path, 0, gid)
     os.chmod(path, 0o660)
     logger.info("hyperlite-daemon listening on %s", path)
+    notify_ready()
     try:
         server.serve_forever()
     finally:

@@ -30,7 +30,7 @@ def test_each_boot_entry_gets_its_kernel_command_line():
         # kernel command line (it happened once).
         assert name in assigned, f"{name} is never set"
         used = [i for i, line in enumerate(lines) if f"${name}" in line]
-        assert used, f"{name} is set purpose no boot entry uses it"
+        assert used, f"{name} is set but no boot entry uses it"
         assert assigned[name][0] < min(used)
         # Twice: the BIOS (isolinux) entry and the UEFI (grub) one.
         assert len(used) >= 2, f"{name} is not used by both boot menus"

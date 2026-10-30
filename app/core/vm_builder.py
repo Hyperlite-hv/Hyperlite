@@ -222,14 +222,15 @@ def create_zvol_disk(zfs_pool, vm_name, index, disk_gb, blank=False, import_sour
     return dev_path
 
 
-def create_disk_from_import(vm_name, source_path, target_dir=None):
+def create_disk_from_import(vm_name, source_path, target_dir=None, index=0):
     """Create the system disk (index 0) of a VM from an already uploaded disk file
     (see app/routers/vm_disks.py) instead of the default Debian cloud image or
     a blank disk: this is the "import a VM from a disk" path of the creation
     form, an alternative to installing from an ISO. `qemu-img convert` detects the
     source format by itself (raw/vmdk/vdi/vhd/qcow2/...), nothing to tell it.
-    `target_dir`: see create_disk()."""
-    disk_path = _new_file(disk_file(target_dir or IMAGES_DIR, vm_name, 0))
+    `target_dir`: see create_disk(). `index`: a data disk imported too (the other disks of an OVA), named as
+    create_disk() names it."""
+    disk_path = _new_file(disk_file(target_dir or IMAGES_DIR, vm_name, index))
     subprocess.run(
         ["qemu-img", "convert", "-O", "qcow2", str(source_path), str(disk_path)],
         check=True,
@@ -409,7 +410,7 @@ def _compute_migratable_cpu_xml():
     host-model, the behaviour before this feature) as soon as only one node
     exists or the computation fails for ANY REASON, so it never blocks VM
     creation. A REAL ENVIRONMENT PROBLEM seen when testing with a real second
-    physical node: two Intel Skylake hosts, purpose DIFFERENT QEMU/libvirt VERSIONS
+    physical node: two Intel Skylake hosts, but DIFFERENT QEMU/libvirt VERSIONS
     ship different CPU model databases. The exact model returned by one
     ('Skylake-Client-v3') is simply UNKNOWN to the other, and `baselineCPU()`
     fails with 'Unknown CPU model'. It is a known limitation, documented rather
@@ -480,7 +481,7 @@ def _generic_portable_cpu_xml():
     'qemu64' model on this QEMU version, and it breaks startup on an Intel host
     unless explicitly disabled (seen when testing this workaround by hand before
     automating it here). `vmx` is disabled too for symmetry and caution: never
-    seen as a real problem, purpose disabling a feature that is already absent is a
+    seen as a real problem, but disabling a feature that is already absent is a
     harmless no-op."""
     return (
         "<cpu mode='custom' match='exact'>"

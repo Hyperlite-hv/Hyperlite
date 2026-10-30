@@ -1,0 +1,187 @@
+import { apiLogin, expect, PREFIX, test, uiLogin } from "../support/fixtures";
+
+// A backup store on the Backups page, against the real backend (docs/design/backup-store.md): made in a directory of
+// a storage pool of this node, offered as a backup job's destination, then removed. Backing up into a store runs on a
+// real QEMU in tests/test_backup_store_qemu.py.
+const stamp = Date.now().toString().slice(-6);
+const POOL = `${PREFIX}bst-${stamp}`;
+const STORE = `${PREFIX}store-${stamp}`;
+
+test("backup stores: one made on a pool, offered as a destination, then removed", async ({ page, request }) => {
+  const token = await apiLogin(request);
+  const auth = () => ({ Authorization: `Bearer ${token}` });
+  const created = await request.post("/storage", { headers: auth(), data: { name: POOL, type: "dir" } });
+  expect(created.ok(), await created.text()).toBe(true);
+  try {
+    await uiLogin(page);
+    await page.goto("/datacenter?tab=backups");
+    const main = page.getByRole("main");
+    await main.getByRole("button", { name: "Add a store" }).click();
+    const drawer = page.getByRole("dialog", { name: "Add a store" });
+    await drawer.getByLabel("Name", { exact: true }).fill("bad/name");
+    await expect(drawer.getByText("Letters, digits, '.', '-' and '_', 63 characters at most")).toBeVisible();
+    await drawer.getByLabel("Name", { exact: true }).fill(STORE);
+    await drawer.getByLabel("Storage pool").selectOption(POOL);
+    await drawer.getByRole("button", { name: "Create the store" }).click();
+    await expect(page.getByText("Backup store ready")).toBeVisible();
+
+    const row = main.getByRole("row", { name: new RegExp(`^${STORE} `) }); // not the encrypted test's store
+    await expect(row).toContainText(`${POOL}/hyperlite-store`);
+    await expect(row).toContainText("Never");
+    const listed = (await (await request.get("/backup-stores", { headers: auth() })).json()) as Array<{ name: string; available: boolean; backups: number }>;
+    expect(listed.find((s) => s.name === STORE)).toMatchObject({ available: true, backups: 0 });
+
+    // A backup job may back up into it, in place of a directory.
+    await main.getByRole("button", { name: "Add a backup job" }).click();
+    const job = page.getByRole("dialog", { name: "Add a backup job" });
+    await job.getByLabel("Destination").selectOption({ label: `Store ${STORE}` });
+    await expect(job.getByLabel("Backup directory")).toHaveCount(0);
+    await job.getByRole("button", { name: "Cancel" }).click();
+
+    await row.getByRole("button", { name: `Remove the store ${STORE}` }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+    await expect(page.getByText("Backup store removed")).toBeVisible();
+    await expect(main.getByRole("row", { name: new RegExp(`^${STORE} `) })).toHaveCount(0);
+  } finally {
+    await request.delete(`/backup-stores/${STORE}`, { headers: auth() }).catch(() => {});
+    await request.delete(`/storage/${POOL}?confirm=true&detach=true`, { headers: auth() }).catch(() => {});
+  }
+});
+
+test("an encrypted store: its keys are shown once and must be kept before the drawer closes", async ({ page, request }) => {
+  const token = await apiLogin(request);
+  const auth = () => ({ Authorization: `Bearer ${token}` });
+  const pool = `${POOL}-enc`;
+  const store = `${STORE}-enc`;
+  const created = await request.post("/storage", { headers: auth(), data: { name: pool, type: "dir" } });
+  expect(created.ok(), await created.text()).toBe(true);
+  try {
+    await uiLogin(page);
+    await page.goto("/datacenter?tab=backups");
+    const main = page.getByRole("main");
+    await main.getByRole("button", { name: "Add a store" }).click();
+    const drawer = page.getByRole("dialog", { name: "Add a store" });
+    await drawer.getByLabel("Name", { exact: true }).fill(store);
+    await drawer.getByLabel("Storage pool").selectOption(pool);
+    await drawer.getByLabel("Encrypt this store").check();
+    await drawer.getByLabel("Master recovery key").selectOption("generate");
+    await drawer.getByRole("button", { name: "Create the store" }).click();
+
+    const keys = page.getByRole("dialog", { name: `Keep the keys of ${store}` });
+    await expect(keys.getByText("Hyperlite shows these keys now and never again")).toBeVisible({ timeout: 30_000 });
+    await expect(keys.getByRole("textbox", { name: "Store key" })).toHaveValue(/^[A-Z2-7]{4}(-[A-Z2-7]{1,4})+$/);
+    await expect(keys.getByRole("img", { name: "QR code of the store key" })).toBeVisible();
+    await expect(keys.getByRole("button", { name: "Download the master recovery key" })).toBeVisible();
+    await expect(keys.getByRole("button", { name: "Done" })).toBeDisabled();
+    await keys.getByLabel("I saved these keys somewhere outside this cluster").check();
+    await keys.getByRole("button", { name: "Done" }).click();
+    await expect(keys).toHaveCount(0);
+
+    const row = main.getByRole("row", { name: new RegExp(store) });
+    await expect(row).toContainText("Encrypted");
+    const one = await (await request.get(`/backup-stores/${store}`, { headers: auth() })).json();
+    expect(one).toMatchObject({ encrypted: true, master_key: true, available: true });
+    expect(one.key_code).toBeUndefined();
+  } finally {
+    await request.delete(`/backup-stores/${store}`, { headers: auth() }).catch(() => {});
+    await request.delete(`/storage/${pool}?confirm=true&detach=true`, { headers: auth() }).catch(() => {});
+  }
+});
+
+test("off-site copies: a copy job from a store into its copy store, run, then deleted", async ({ page, request }) => {
+  const token = await apiLogin(request);
+  const auth = () => ({ Authorization: `Bearer ${token}` });
+  const here = `${POOL}-src`;
+  const there = `${POOL}-dst`;
+  const store = `${STORE}-src`;
+  const copy = `${STORE}-copy`;
+  const job = `${PREFIX}copy-${stamp}`;
+  for (const pool of [here, there]) {
+    const made = await request.post("/storage", { headers: auth(), data: { name: pool, type: "dir" } });
+    expect(made.ok(), await made.text()).toBe(true);
+  }
+  try {
+    expect((await request.post("/backup-stores", { headers: auth(), data: { name: store, pool: here } })).ok()).toBe(true);
+    const made = await request.post("/backup-stores", { headers: auth(), data: { name: copy, pool: there, copy_of: store } });
+    expect(made.ok(), await made.text()).toBe(true);
+
+    await uiLogin(page);
+    await page.goto("/datacenter?tab=backups");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("row", { name: new RegExp(`^${copy} `) })).toContainText(`Copy of ${store}`);
+    await main.getByRole("button", { name: "Add a copy job" }).click();
+    const drawer = page.getByRole("dialog", { name: "Add a copy job" });
+    await drawer.getByLabel("Name", { exact: true }).fill(job);
+    await drawer.getByLabel("Copy store").selectOption(copy);
+    await expect(drawer.getByText(`Copies the store ${store}`)).toBeVisible();
+    await drawer.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Copy job saved")).toBeVisible();
+
+    const row = main.getByRole("row", { name: new RegExp(job) });
+    await expect(row).toContainText(`${store} → ${copy}`);
+    await row.getByRole("button", { name: `Run the copy job ${job}` }).click();
+    await expect(page.getByText("Copy started")).toBeVisible();
+    await expect.poll(async () => {
+      const jobs = (await (await request.get("/backup-store-syncs", { headers: auth() })).json()) as Array<{ name: string; last_result: string | null }>;
+      return jobs.find((j) => j.name === job)?.last_result ?? "";
+    }, { timeout: 30_000 }).toContain("0 backups copied");
+
+    await row.getByRole("button", { name: `Delete ${job}` }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
+    await expect(main.getByRole("row", { name: new RegExp(job) })).toHaveCount(0);
+  } finally {
+    const jobs = (await (await request.get("/backup-store-syncs", { headers: auth() })).json().catch(() => [])) as Array<{ id: number; name: string }>;
+    for (const j of Array.isArray(jobs) ? jobs : []) if (j.name === job) await request.delete(`/backup-store-syncs/${j.id}`, { headers: auth() });
+    for (const name of [copy, store]) await request.delete(`/backup-stores/${name}`, { headers: auth() }).catch(() => {});
+    for (const pool of [here, there]) await request.delete(`/storage/${pool}?confirm=true&detach=true`, { headers: auth() }).catch(() => {});
+  }
+});
+
+test("a remote cluster: its certificate read, compared, then saved with a reader's token", async ({ page }) => {
+  // The other cluster is served by the test: the e2e backend has no second cluster to read.
+  const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
+  const remotes: Array<Record<string, unknown>> = [];
+  const fingerprint = "ab".repeat(32);
+  const sent: Array<Record<string, unknown>> = [];
+  await page.route(/\/backup-remotes\/probe$/, (r) => r.fulfill(json({ fingerprint })));
+  await page.route(/\/backup-remotes\/this-node$/, (r) => r.fulfill(json({ fingerprint: "cd".repeat(32) }))); // the e2e backend has no certificate
+  await page.route(/\/backup-remotes$/, (r) => {
+    if (r.request().method() === "POST") {
+      const body = r.request().postDataJSON() as Record<string, unknown>;
+      sent.push(body);
+      const made = { name: body.name, address: body.address, port: body.port, fingerprint: body.fingerprint, created_by: "admin", created_at: "2026-10-24T20:00:00+00:00" };
+      remotes.push(made);
+      return r.fulfill(json(made, 201));
+    }
+    return r.fulfill(json({ items: remotes, total: remotes.length }));
+  });
+  await uiLogin(page);
+  await page.goto("/datacenter?tab=backups");
+  const main = page.getByRole("main");
+  await expect(main.getByLabel("This node's certificate fingerprint")).toHaveText(/^[0-9a-f]{4}( [0-9a-f]{4}){15}$/);
+  await main.getByRole("button", { name: "Add a remote cluster" }).click();
+  const drawer = page.getByRole("dialog", { name: "Add a remote cluster" });
+  await drawer.getByLabel("Name", { exact: true }).fill("site-a");
+  await drawer.getByLabel("Address").fill("203.0.113.10");
+  await drawer.getByRole("button", { name: "Read its certificate" }).click();
+  await expect(drawer.getByLabel("Certificate fingerprint (SHA-256)")).toHaveValue(/^abab abab/);
+  await drawer.getByLabel("API token of the dedicated account").fill("hl_reader_token");
+  await expect(drawer.getByRole("button", { name: "Save" })).toBeDisabled(); // not compared yet
+  await drawer.getByLabel("It is the same as the other dashboard shows").check();
+  await drawer.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Remote cluster added")).toBeVisible();
+  expect(sent[0]).toMatchObject({ name: "site-a", address: "203.0.113.10", port: 8000, fingerprint, token: "hl_reader_token" });
+  await expect(main.getByRole("row", { name: /site-a/ })).toContainText("203.0.113.10:8000");
+});
+
+test("a backup store is offered as what a permission is given on", async ({ page }) => {
+  await uiLogin(page);
+  await page.goto("/datacenter?tab=permissions");
+  const main = page.getByRole("main");
+  await main.getByRole("tab", { name: /^Assignments/ }).click();
+  await main.getByRole("button", { name: "Assign a role" }).click();
+  const drawer = page.getByRole("dialog", { name: "Assign a role" });
+  await drawer.getByLabel("On", { exact: true }).selectOption("backup_store");
+  await expect(drawer.getByLabel("On", { exact: true })).toHaveValue("backup_store");
+  await expect(drawer.getByLabel("Role", { exact: true }).locator("option", { hasText: "Backup store reader" })).toHaveCount(1);
+});

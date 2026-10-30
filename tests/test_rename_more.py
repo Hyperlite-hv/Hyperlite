@@ -8,6 +8,8 @@ import xml.etree.ElementTree as ET
 import libvirt
 import pytest
 
+from app.core import libvirt_utils, storage_pools
+
 
 def _gone():
     e = libvirt.libvirtError("not found")
@@ -103,11 +105,12 @@ DIR_POOL = "<pool type='dir'><name>fast</name><uuid>1</uuid><target><path>/data/
 
 
 @pytest.fixture()
-def hosts(database, monkeypatch):
+def hosts(database, monkeypatch, daemon_libvirt):
     from app.routers import storage
 
     hosts = {"local": _Host()}
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: hosts[node or "local"])
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: hosts[node or "local"])
+    daemon_libvirt(hosts["local"], nodes=hosts)  # every node's pools are hyperlite-daemon's, in this process here
     monkeypatch.setattr(storage.zfs_storage, "pool_exists", lambda name: name == "tank")
     return hosts
 
@@ -163,7 +166,7 @@ def test_a_renamed_iscsi_pool_keeps_its_chap_secret_and_deleting_it_removes_that
     hosts["local"].add_pool(xml)
     storage._rename_on("san", "san2", None, {"username": "alice"})
     renamed = ET.fromstring(hosts["local"].pools["san2"].xml)
-    assert storage._chap_usage(renamed) == "hyperlite-iscsi-san"  # the secret is private: it cannot be copied
+    assert storage_pools.chap_usage(renamed) == "hyperlite-iscsi-san"  # the secret is private: it cannot be copied
 
 
 def test_a_shared_pool_is_renamed_on_every_node_and_its_definition_follows(client, auth_headers, hosts, database):
@@ -259,17 +262,22 @@ def _guest(name, net, active):
 
 
 @pytest.fixture()
-def nets(database, monkeypatch):
+def nets(database, monkeypatch, daemon_libvirt):
     from app.routers import network
 
     qemu, lxc = _NetHost(), _NetHost()
     qemu.nets["lab"] = _Net(qemu, "<network><name>lab</name><bridge name='virbr7'/><ip address='10.9.0.1'/></network>")
-    monkeypatch.setattr(network, "open_conn", lambda node=None: qemu)
+    monkeypatch.setattr(network, "open_conn", lambda node=None, **_k: qemu)
     monkeypatch.setattr(network, "open_lxc_conn_if_any", lambda: lxc)
+    # hyperlite-daemon renames the network with connections of its own, in this process in the tests.
+    daemon_libvirt(qemu)
+    monkeypatch.setattr(libvirt_utils, "open_lxc_conn_if_any", lambda: lxc)
     monkeypatch.setattr(network, "_network_summary", lambda net: {"name": net.name()})
-    monkeypatch.setattr(network, "remove_network_firewall", lambda conn, name: None)
+    monkeypatch.setattr(network, "remove_network_firewall", lambda name, user=None: None)
     applied = []
-    monkeypatch.setattr(network, "apply_network_firewall", lambda conn, name, config: applied.append((name, config)))
+    monkeypatch.setattr(
+        network, "apply_network_firewall", lambda name, config, user=None: applied.append((name, config))
+    )
     return qemu, lxc, applied
 
 
@@ -364,13 +372,14 @@ def test_an_api_token_is_renamed_by_its_owner_only(client, auth_headers):
 # ---- Files ----
 
 
-def test_a_template_takes_its_new_name(client, auth_headers, tmp_path, monkeypatch):
+def test_a_template_takes_its_new_name(client, auth_headers, tmp_path, monkeypatch, daemon_libvirt):
     from app.core import templates_store
     from app.routers import templates
 
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tmp_path)
     # A libvirt without VMs: no linked clone reads the template's disk, so its rename is allowed.
-    monkeypatch.setattr(templates, "open_conn", lambda node=None: _Host())
+    monkeypatch.setattr(templates, "open_conn", lambda node=None, **_k: _Host())
+    daemon_libvirt(_Host())  # hyperlite-daemon renames the files, in this process in the tests
     for ext, content in (("json", json.dumps({"name": "deb"})), ("xml", "<domain/>"), ("qcow2", "disk")):
         (tmp_path / f"deb.{ext}").write_text(content)
     headers = auth_headers("alice")
@@ -380,14 +389,15 @@ def test_a_template_takes_its_new_name(client, auth_headers, tmp_path, monkeypat
     assert client.post("/templates/nope/rename", json={"new_name": "x-y"}, headers=headers).status_code == 404
 
 
-def test_an_iso_is_renamed_unless_a_vm_has_it_in_its_drive(client, auth_headers, tmp_path, monkeypatch):
-    from app.core import iso_share
+def test_an_iso_is_renamed_unless_a_vm_has_it_in_its_drive(client, auth_headers, tmp_path, monkeypatch, daemon_libvirt):
+    from app.core import disk_library, libvirt_utils
     from app.routers import isos
 
-    monkeypatch.setattr(iso_share, "isos_dir", lambda: tmp_path)
-    monkeypatch.setattr(isos, "_refresh_iso_pool", lambda path: None)
+    monkeypatch.setattr(disk_library, "ISOS", tmp_path)
+    monkeypatch.setattr(libvirt_utils, "refresh_pools_for_paths", lambda conn, paths: None)
     host = _Host()
-    monkeypatch.setattr(isos, "open_conn", lambda node=None: host)
+    monkeypatch.setattr(isos, "open_conn", lambda node=None, **_k: host)
+    daemon_libvirt(host)  # hyperlite-daemon renames, and checks the CD-ROM drives again, in this process in the tests
     (tmp_path / "debian.iso").write_text("iso")
     (tmp_path / "used.iso").write_text("iso")
     host.domains.append(

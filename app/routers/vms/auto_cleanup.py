@@ -25,7 +25,7 @@ class AutoCleanupConfig(BaseModel):
 
 @router.get("/{name}/auto-cleanup")
 def get_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privilege("vm.hardware"))):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -43,7 +43,7 @@ def get_vm_auto_cleanup_route(name: str, user: dict = Depends(require_vm_privile
 def set_vm_auto_cleanup_route(
     name: str, payload: AutoCleanupConfig, user: dict = Depends(require_vm_privilege("vm.hardware"))
 ):
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             conn.lookupByName(name)
@@ -53,7 +53,7 @@ def set_vm_auto_cleanup_route(
     finally:
         conn.close()
     set_vm_auto_cleanup(name, payload.inactive_days)
-    log_action(user["username"], "set_auto_cleanup", name, "success", f"seuil {payload.inactive_days} jour(s)")
+    log_action(user["username"], "set_auto_cleanup", name, "success", f"threshold {payload.inactive_days} day(s)")
     return {"message": f"Automatic cleanup enabled ({payload.inactive_days} day(s) of inactivity)"}
 
 

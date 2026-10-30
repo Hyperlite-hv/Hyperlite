@@ -203,6 +203,12 @@ def parent_of(src_dir, manifest):
 def verify(src_dir, single_checksum=None, progress=lambda pct: None):
     """Check a backup directory, and for a point of a replication chain every point it depends on. Returns (status,
     problems, checked): status VERIFIED or CORRUPT, problems a list of sentences, checked the number of files."""
+    from app.core import backup_store_vm
+
+    if backup_store_vm.store_backup_of(src_dir):  # a backup in a store: its chunks are what is checked
+        status, problems, disks = backup_store_vm.verify(src_dir)
+        progress(100)
+        return status, problems, disks
     _status, problems, checked = _verify_one(src_dir, single_checksum, progress)
     seen = {Path(src_dir).name}
     current = Path(src_dir)

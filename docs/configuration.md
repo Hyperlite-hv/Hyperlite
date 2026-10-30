@@ -10,6 +10,9 @@ Hyperlite is configured through environment variables, normally set in `/etc/hyp
 | `HYPERLITE_VM_MAX_VCPU`, `HYPERLITE_VM_MAX_MEMORY_MB`, `HYPERLITE_VM_MAX_DISK_GB`, `HYPERLITE_VM_MAX_DISKS` | Optional caps on a VM's vCPU, memory (MB), disk size (GB) and disk count, for example on a small test machine. Hyperlite sets no ceiling of its own otherwise, like Proxmox or vSphere. | none (technical ceilings only) |
 | `HYPERLITE_AUTH_SIGNING` | `local`: the API signs sessions itself, for the tests and a development backend without hyperlite-daemon. Never on a node. | unset (hyperlite-daemon signs) |
 | `HYPERLITE_VAR_DIR`, `HYPERLITE_ETC_DIR` | Where the data and the node's secrets live (`app/core/paths.py`); changed only for development and tests. | `/var/lib/hyperlite`, `/etc/hyperlite` |
+| `HYPERLITE_LOCK_DIR` | Where the claims on VMs and containers are taken, shared by the API and the schedulers (`app/core/shared_claims.py`); changed only for development and tests. | `/run/lock/hyperlite` |
+| `HYPERLITE_SCHEDULER_SERVICE` | `1`: the schedulers (backups, replication, automatic deletion, update check, start at boot) run in `hyperlite-scheduler`, not in the API. Set by both services' units; leave unset in a development checkout, where the API runs them. | unset (in the API) |
+| `HYPERLITE_HA_SERVICE` | `1`: HA's watchdog, monitoring, recovery and load balancing run in `hyperlite-ha-lrm` and `hyperlite-ha-crm`, not in the API. Set by the services' units; leave unset in a development checkout, where the API runs them. | unset (in the API) |
 | `HYPERLITE_ENV_LABEL` | Label of a non-production installation (for example `DEV` or `STAGING`, 24 characters at most), shown in the dashboard's top bar, on the sign-in page and in the tab title. Leave unset in production. | none |
 | `HYPERLITE_API_DOCS` | `1` serves the interactive API documentation (`/docs`, `/redoc`, `/openapi.json`). They answer without authentication, so leave it off outside development: the accounts an administrator chose open it from Administration › API instead. | off |
 | `HYPERLITE_HSTS_MAX_AGE` | When set (seconds), HTTPS responses carry `Strict-Transport-Security`. Only with a certificate browsers trust: with a self-signed one, browsers would then refuse to let users past the certificate warning. | off |
@@ -30,7 +33,7 @@ Installer and build-time variables:
 | `HYPERLITE_APT_URL` | `installer/build-iso.sh`, `installer/postinstall.sh` | APT repository baked into the appliance ISO (default: the public mirror). |
 | `HYPERLITE_SKIP_RESTART` | package `postinst` | Set by the update endpoint so the package does not restart the service it is running inside. |
 
-Profile and policy names are French wire values (see [api.md](api.md)).
+Profile and policy names are the API's English wire values (see [api.md](api.md)).
 
 ## Files
 
