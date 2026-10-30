@@ -586,18 +586,27 @@ def running_guests():
 
 
 def stop_guests(guests, log, timeout_s=180, poll_s=3):
-    """Ask each running guest to shut down, then wait. Returns the names still running at the end."""
+    """Ask each running guest to shut down, through hyperlite-daemon (vm.power, container.stop), then wait, reading
+    them through read-only connections. Returns the names still running at the end."""
+    from app.core import privileged
+    from app.core.container_meta import get_container_app
     from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
+    from app.daemon.registry import DaemonError
 
-    conns = {"vm": open_conn(), "container": None}
+    conns = {"vm": open_conn(readonly=True), "container": None}
     try:
         conns["container"] = open_lxc_conn_if_any()
         for kind, name in guests:
             try:
-                conns[kind].lookupByName(name).shutdown()
+                if kind == "vm":
+                    privileged.run("vm.power", user="system", vm=name, action="shutdown")
+                else:
+                    privileged.run(
+                        "container.stop", user="system", container=name, application=bool(get_container_app(name))
+                    )
                 log(f"Shutdown requested: {name}")
-            except Exception as e:
-                log(f"Shutdown request failed for {name}: {e}")
+            except DaemonError as e:
+                log(f"Shutdown request failed for {name}: {e.detail}")
         waited = 0
         while True:
             left = []

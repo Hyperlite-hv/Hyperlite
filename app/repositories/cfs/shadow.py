@@ -182,29 +182,67 @@ def install_triggers(db):
     for (name,) in db.execute(
         "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'cfs!_%' ESCAPE '!'"
     ):
-        db.execute(f'DROP TRIGGER "{name}"')
+        db.execute(f'DROP TRIGGER main."{name}"')
+    main = {r[0] for r in db.execute("SELECT name FROM main.sqlite_master WHERE type = 'table'")}
     for name, (columns, pk) in _schema(db).items():
-        table = _Table(name, TABLES[name], columns, pk)
+        if name not in main:
+            continue  # the permission tables' file: TEMP triggers of each writer's connection (access_triggers)
+        for sql in _trigger_sql(_Table(name, TABLES[name], columns, pk), name):
+            db.execute(sql)
 
-        def record(alias, table=table, name=name):
-            keys = ", ".join(f'{alias}."{c}"' for c in table.pk)
-            # Rows that stay on each node (tables.py, local_rows) are not recorded at all.
-            local = " AND ".join(
-                f'{alias}."{c}" NOT IN ({", ".join(_quote(v) for v in values)})'
-                for c, values in table.local_rows.items()
-            )
-            # Table and column names come from tables.py and the schema, never from a request.
-            return f"INSERT INTO cfs_outbox (tbl, pk) SELECT '{name}', json_array({keys})" + (
-                f" WHERE {local};" if local else ";"
-            )
 
-        tracked = ", ".join(f'"{c}"' for c in table.columns)
-        db.execute(f'CREATE TRIGGER "cfs_{name}_ins" AFTER INSERT ON "{name}" BEGIN {record("NEW")} END')
-        db.execute(
-            f'CREATE TRIGGER "cfs_{name}_upd" AFTER UPDATE OF {tracked} ON "{name}" '
-            f"BEGIN {record('OLD')} {record('NEW')} END"
+def _trigger_sql(table, name, temp=False, schema=None):
+    """The three triggers that record `name`'s changes in the outbox."""
+
+    def record(alias):
+        keys = ", ".join(f'{alias}."{c}"' for c in table.pk)
+        # Rows that stay on each node (tables.py, local_rows) are not recorded at all.
+        local = " AND ".join(
+            f'{alias}."{c}" NOT IN ({", ".join(_quote(v) for v in values)})' for c, values in table.local_rows.items()
         )
-        db.execute(f'CREATE TRIGGER "cfs_{name}_del" AFTER DELETE ON "{name}" BEGIN {record("OLD")} END')
+        # Table and column names come from tables.py and the schema, never from a request.
+        return f"INSERT INTO cfs_outbox (tbl, pk) SELECT '{name}', json_array({keys})" + (
+            f" WHERE {local};" if local else ";"
+        )
+
+    kind = "TEMP TRIGGER IF NOT EXISTS" if temp else "TRIGGER"
+    target = f'{schema}."{name}"' if schema else f'"{name}"'
+    tracked = ", ".join(f'"{c}"' for c in table.columns)
+    return (
+        f'CREATE {kind} "cfs_{name}_ins" AFTER INSERT ON {target} BEGIN {record("NEW")} END',
+        f'CREATE {kind} "cfs_{name}_upd" AFTER UPDATE OF {tracked} ON {target} BEGIN {record("OLD")} {record("NEW")} END',
+        f'CREATE {kind} "cfs_{name}_del" AFTER DELETE ON {target} BEGIN {record("OLD")} END',
+    )
+
+
+_access_sql = []  # the TEMP triggers of the permission tables, made once per process (forget_access_triggers)
+
+
+def access_triggers(db):
+    """The TEMP triggers that record the permission tables' changes in this connection's outbox (database.py, ACCESS):
+    a trigger stored in their own file cannot reach the main file's outbox, so each writer's connection gets them."""
+    from app.core.database import ACCESS
+
+    if not db.execute("SELECT 1 FROM main.sqlite_master WHERE type = 'table' AND name = 'cfs_outbox'").fetchone():
+        return []
+    with _access_lock:
+        if not _access_sql:
+            here = {r[0] for r in db.execute(f"SELECT name FROM {ACCESS}.sqlite_master WHERE type = 'table'")}  # noqa: S608
+            for name, (columns, pk) in _schema(db).items():
+                if name in here:
+                    _access_sql.extend(
+                        _trigger_sql(_Table(name, TABLES[name], columns, pk), name, temp=True, schema=ACCESS)
+                    )
+        return list(_access_sql)
+
+
+_access_lock = threading.Lock()
+
+
+def forget_access_triggers():
+    """The permission tables' schema changed (database.init_db): their triggers are made again."""
+    with _access_lock:
+        _access_sql.clear()
 
 
 class _Stats:
@@ -436,10 +474,95 @@ class NotConfirmed(Exception):
     """The cluster did not take the request's changes in time, or refused them (no quorum): a fixed sentence."""
 
 
+def _here():
+    """Whether this process does the copy itself: hyperlite-daemon (its loops and operations, app/daemon/ops/cfs.py),
+    or the API when it runs the daemon's operations in process (the test suite, the e2e backend)."""
+    from app.core.privileged import INPROCESS_ENV
+    from app.daemon.registry import running_here
+
+    return running_here() or os.environ.get(INPROCESS_ENV) == "1"
+
+
+class _ThroughTheDaemon:
+    """The few writes to hyperlite-cfs a process that is not root's makes (the API, www-data from 4e), asked of
+    hyperlite-daemon: cfs refuses a change from anyone but root (docs/design/privilege-separation.md, section 14.7), so
+    no row the API wrote there reaches the other members' permissions."""
+
+    def next_id(self):
+        from app.core import privileged
+
+        return privileged.run("cfs.next_id")["id"]
+
+    def lock(self, name, owner, ttl=60):
+        from app.core import privileged
+        from app.core.cfs_client import LOCKED, Locked
+        from app.daemon.registry import DaemonError
+
+        try:
+            privileged.run("cfs.lock", name=name, ttl=ttl)
+        except DaemonError as e:
+            if e.kind == "in_use":
+                raise Locked(LOCKED, e.detail) from None
+            raise
+
+    def unlock(self, name, owner):
+        from app.core import privileged
+
+        privileged.run("cfs.unlock", name=name)
+
+
+def writer():
+    """The client to change hyperlite-cfs with: the daemon's socket for root's services, hyperlite-daemon for the API
+    once it is not root."""
+    return _get_client() if os.geteuid() == 0 or _here() else _ThroughTheDaemon()
+
+
+def catch_up():
+    """Before a request changes something (app/main.py): this node's changes out, the cluster's in. Done by the
+    daemon, which writes both (app/daemon/ops/cfs.py)."""
+    if _here():
+        return catch_up_here()
+    from app.core import privileged
+
+    privileged.run("cfs.catch_up")
+
+
+def catch_up_here():
+    from app.repositories.cfs import inbound  # imports this module
+
+    try:
+        drain()  # this node's own changes go out first, or nothing is applied (inbound.apply)
+        inbound.apply()
+    except Exception as e:  # the daemon does not answer: the change is refused or confirmed after, as the cluster says
+        logger.debug("The cluster's changes not applied before the request: %s", e)
+
+
 def confirm(wanted, timeout=None):
     """Copy the outbox entries `wanted` (a request's, confirm.py) and return once the cluster took them all. Raises
     Changed when it kept another node's version of one (that node changed it first), NotConfirmed when it could not
-    take them within `timeout` (CONFIRM_S) or refused them: they stay in the outbox, for the copy loop."""
+    take them within `timeout` (CONFIRM_S) or refused them: they stay in the outbox, for the copy loop. Done by
+    hyperlite-daemon, where the copy loop runs: one process copies, in the order SQLite made the changes."""
+    wanted = set(wanted)
+    if not wanted:
+        return
+    if _here():
+        return confirm_here(wanted, timeout)
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        answer = privileged.run(
+            "cfs.confirm", ids=sorted(wanted), timeout=(CONFIRM_S if timeout is None else timeout) + 10
+        )
+    except DaemonError as e:
+        raise NotConfirmed(
+            e.detail if e.kind == "unavailable" else "The cluster did not confirm the change: hyperlite-daemon failed"
+        ) from None
+    if answer["changed"]:
+        raise Changed(answer["changed"])
+
+
+def confirm_here(wanted, timeout=None):
     from app.repositories.cfs import inbound  # imports this module
 
     wanted = set(wanted)
@@ -618,9 +741,9 @@ def turn_on():
             break
         except (CfsError, OSError) as e:
             if time.monotonic() > deadline:
-                logger.warning("hyperlite-cfs started purpose does not answer: %s", e)
+                logger.warning("hyperlite-cfs started but does not answer: %s", e)
                 raise ShadowError(
-                    "hyperlite-cfs started purpose does not answer: see journalctl -u hyperlite-cfs"
+                    "hyperlite-cfs started but does not answer: see journalctl -u hyperlite-cfs"
                 ) from None
             time.sleep(0.2)
     _settings().set_app_setting(SETTING, "1")
@@ -628,7 +751,7 @@ def turn_on():
         return seed()
     except (CfsError, OSError) as e:
         logger.warning("hyperlite-cfs shadow: first copy failed: %s", e)
-        raise ShadowError(f"Shadow mode is on, purpose the first copy did not complete: {describe(e)}") from None
+        raise ShadowError(f"Shadow mode is on, but the first copy did not complete: {describe(e)}") from None
 
 
 def turn_off():
@@ -640,7 +763,7 @@ def turn_off():
     _settings().set_app_setting(SETTING, "0")
     if not _systemctl("disable", "--now"):
         raise ShadowError(
-            "Shadow mode is off, purpose the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
+            "Shadow mode is off, but the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"
         )
 
 

@@ -177,5 +177,5 @@ test("French labels and no overflow on a phone", async ({ page }) => {
   await page.getByRole("main").getByRole("tab", { name: /^Attributions/ }).click();
   await page.getByRole("main").getByRole("button", { name: "Attribuer un rôle", exact: true }).click();
   const on = page.getByRole("dialog", { name: "Attribuer un rôle" }).getByLabel("Sur", { exact: true });
-  await expect(on.locator("option")).toHaveText(["Une VM", "Un pool", "Un conteneur", "Un stockage", "Un réseau"]);
+  await expect(on.locator("option")).toHaveText(["Une VM", "Un pool", "Un conteneur", "Un stockage", "Un réseau", "Un magasin de sauvegardes"]);
 });

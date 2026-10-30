@@ -49,12 +49,12 @@ def test_schedules(repo):
 
 def test_grouped_jobs(repo):
     store = repo.sync
-    values = ["all", "all", None, ["db"], "daily", "01:00", "/b", 7, None, None, None, True]
+    values = ["all", "all", None, ["db"], "daily", "01:00", "/b", 7, None, None, None, True, None]
     job_id = store.save_group_job(values, "2026-10-01T01:00:00")
     assert store.group_name_taken("all") and not store.group_name_taken("all", job_id)
     job = store.get_group_job(job_id)
     assert (job["excluded"], job["active"]) == ('["db"]', 1)
-    store.save_group_job([*values[:11], False], "2026-10-02T01:00:00", job_id)
+    store.save_group_job([*values[:11], False, None], "2026-10-02T01:00:00", job_id)
     assert store.get_group_job(job_id)["active"] == 0 and store.due_group_jobs("2026-12-01T00:00:00") == []
     assert store.delete_group_job(job_id) and not store.delete_group_job(job_id)
 

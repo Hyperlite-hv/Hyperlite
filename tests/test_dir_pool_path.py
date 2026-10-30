@@ -69,9 +69,10 @@ class _Conn:
 
 
 @pytest.fixture()
-def conn(database, monkeypatch):
+def conn(database, monkeypatch, daemon_libvirt):
     c = _Conn()
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: c)
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: c)
+    daemon_libvirt(c)  # this node's pools are hyperlite-daemon's, in this process in the tests
     return c
 
 

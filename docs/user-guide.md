@@ -124,7 +124,8 @@ Tabs:
   - *Advanced*: per disk the cache mode, discard (TRIM), I/O mode, I/O thread and IOPS / MB/s limits (limits apply at
     once, the rest at the next start; **What these settings do** explains each one); the **boot order** across disks and
     network cards; **memory ballooning** with a minimum; updating the **machine type** to the current version of its
-    family (VM stopped).
+    family (VM stopped); the **hook script** (administrators): a script from the node's library run as root at the
+    VM's pre-start, post-start, pre-stop and post-stop, with its last runs (see below).
   - *Options and limits*: **start at boot** (with an order and a pause before the next VM; run once per boot of the
     node), resources, CPU and I/O priorities, CPU affinity.
   - *Cloud-init* (cloud-image VMs): change the user's SSH keys and password; applied at the next boot, the password is
@@ -136,6 +137,33 @@ Tabs:
 
 Pages that manage the local host's files only (Hardware, Network, Backups, Snapshots…) explain themselves for a VM on
 another node: open that node's own Hyperlite for them.
+
+### Hook scripts
+
+As Proxmox VE's hookscripts: a script attached to a VM runs as root on its node with two arguments, the VM's name and
+the phase (`pre-start`, `post-start`, `pre-stop`, `post-stop`), also given as `HYPERLITE_VM` and `HYPERLITE_PHASE`,
+the VM's XML on its standard input, for at most 300 s.
+
+- Only root places scripts, in `/var/lib/hyperlite/snippets/` on each node the VM may run on (copy them to every node
+  of a cluster). A script is used only if it is a plain executable file owned by root and writable by root alone; the
+  dashboard never uploads one, so an administrator's web account is not a way to run code as root.
+- An administrator attaches one in *Hardware > Advanced > Hook script* (`PUT /vms/{name}/hookscript`). It is kept in
+  the VM's definition, so it follows a migration and a clone (a backup restored as a new VM gets none: attach it again).
+- **pre-start**, **post-start** and **post-stop** run for every start and stop, whoever asks (the dashboard, the start
+  at boot, HA, `virsh`). A failing pre-start refuses the start with the script's output. A VM whose start was refused
+  gets no post-stop.
+- **pre-stop** runs before a shutdown, a stop or a forced restart asked through Hyperlite; a failing one refuses the
+  shutdown or the stop, but a forced stop runs it and stops the VM anyway. A guest that powers itself off gets no
+  pre-stop, as in Proxmox VE.
+- The output goes into the task's log of a start or stop asked through Hyperlite; the last runs are on the VM's card
+  and in the journal (`journalctl -t hyperlite-hookscript`).
+
+```sh
+#!/bin/sh
+# /var/lib/hyperlite/snippets/maintenance.sh: refuse to start a VM while /etc/maintenance exists.
+[ "$2" = pre-start ] && [ -e /etc/maintenance ] && { echo "maintenance in progress"; exit 1; }
+exit 0
+```
 
 ### The console
 
@@ -234,9 +262,21 @@ pools are marked in the list; deleting one removes it from every node that has i
 - **Bridge**: VMs sit on the host's network (an existing bridge, or a network card, bond or VLAN interface through
   macvtap).
 
-A VM interface takes a **VLAN tag** only on a network that can carry one (an Open vSwitch bridge or an SR-IOV
-network); libvirt refuses to start a VM with a tag on any other network, so the field is disabled there. To put a VM on
-a VLAN today, create a **Bridge** network on the VLAN interface (`bond0.20`, `eno1.20`) or on a bridge over it.
+A VM interface takes a **VLAN tag** on a network that can carry one, and the field is disabled on the others:
+
+- a **Bridge** network on a **VLAN-aware** Linux bridge (`vlan_filtering` on, Proxmox VE's "VLAN aware" bridge, whose
+  uplink is a trunk from the switch): the tag is the VM's access VLAN, untagged inside the VM, and **Trunk VLANs**
+  (`10,20-30`) are the ones it sees tagged, for a router or a nested hypervisor. Hyperlite sets them on the VM's port
+  of the bridge when it starts, moves or is changed. Without a tag, the VM is on the bridge's default VLAN (1);
+- an Open vSwitch bridge or an SR-IOV network: libvirt sets the tag itself.
+
+A **Bridge** network on a Linux bridge has a **VLANs** section in its details: **Make the bridge VLAN-aware**
+(administrators) turns VLAN filtering on, with VLANs 2 to 4094 tagged on the bridge's uplink, as Proxmox VE's "VLAN
+aware"; the switch port should be a trunk. Untagged traffic (the host's own address, the VMs) is not changed. The
+dashboard confirms the change from a new request a few seconds later: if the host can no longer be reached, it undoes
+the change by itself within 60 seconds. Kept, it is set again at every boot. **Stop filtering VLANs** undoes it,
+refused while a VM keeps VLANs on the bridge. Otherwise, create a **Bridge** network on the VLAN interface
+(`bond0.20`, `eno1.20`).
 
 A network's **Details**:
 
@@ -256,7 +296,10 @@ network still used by a VM cannot be deleted).
 
 - **ISO images**: upload an ISO, or share one with other nodes. VMs can install from an ISO of another node.
 - **Templates**: deploy a new VM from a template (made with a VM's **Convert to template**).
-- **Imported disks**: disks uploaded to create VMs from ([section 3](#create-a-vm)).
+- **Imported disks**: disks uploaded to create VMs from ([section 3](#create-a-vm)), and VMs exported from VMware as
+  an **OVA** (ESXi, vCenter, Workstation): **Create a VM** on its row reads its settings (vCPUs, memory, disks, BIOS or
+  UEFI, the system's family), copies its disks out, checked against its manifest, and creates the VM, stopped. A VM
+  with several network cards gets the first on the chosen network: add the others in its **Network** tab.
 
 ## 9. Snapshots, backups and restores
 
@@ -389,6 +432,33 @@ covers the need.
 **Automation** runs jobs: ordered shell steps on the host or on VMs (installing a web server, configuring a load
 balancer…). A dry run only previews; a real run shows the exact commands first. Runs appear in **Tasks** with their
 output and can be cancelled.
+
+### From a node's shell: `hyperlite-admin`
+
+Every node has `hyperlite-admin`, which drives the node and the cluster through the same API as the dashboard, as
+`qm`, `pct` and `pvesh` do on Proxmox VE: the same rights, the same tasks, the same audit log.
+
+```bash
+hyperlite-admin vm list --cluster                 # every member's VMs
+hyperlite-admin vm start web1 --node node2        # node2 starts it; the command waits for its task
+hyperlite-admin vm snapshot create web1 before-upgrade
+hyperlite-admin vm migrate web1 node3
+hyperlite-admin task list status==running
+hyperlite-admin get /storage/default/volumes      # any route of the API, as pvesh does
+hyperlite-admin api /vms/web1/migrate             # what that route takes
+```
+
+- As root it needs no password or token: the node signs it in as `root@<node>`, an administrator named after the node,
+  which is what the audit log shows. To act as an account instead, with its rights, give one of its API tokens with
+  `--token-file` or `HYPERLITE_TOKEN`.
+- `hyperlite-admin <group>` lists a group's commands (`vm`, `ct`, `storage`, `network`, `backup`, `task`, `cluster`,
+  `node`). Fields a command does not name are given as `key=value` (text), `key:=json` (a number, `true`, a list) or
+  `key==value` (a query parameter).
+- A long operation waits for its task and prints its log; `--no-wait` prints the task instead, and `--timeout 10m`
+  stops waiting without stopping the task.
+- A deletion, a restore, a network stopped, a maintenance or an update asks first; a script adds `--yes`.
+- `--json` prints the API's answer as it is, for `jq`. Exit codes: 0 done, 1 refused or failed, 2 wrong usage, 3 the
+  task failed, 4 still running at `--timeout`.
 
 ## 14. Users, roles and permissions
 

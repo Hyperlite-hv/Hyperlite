@@ -142,13 +142,13 @@ def test_only_the_family_default_machine_is_offered_on_a_stopped_vm():
         opts.set_machine(running, running.domain, "pc-q35-9.0")
 
 
-def test_the_api_applies_under_the_vm_lock_with_the_right_privileges(client, auth_headers, monkeypatch):
+def test_the_api_applies_under_the_vm_lock_with_the_right_privileges(client, auth_headers, monkeypatch, daemon_libvirt):
     from app.core import vm_locks
     from app.routers.vms import hardware_opts
 
     conn = Conn()
 
-    def open_conn(node=None):
+    def open_conn(node=None, **_k):
         conn.lookupByName = lambda name: (
             conn.domain if name == "web" else (_ for _ in ()).throw(libvirt.libvirtError("no"))
         )
@@ -156,6 +156,7 @@ def test_the_api_applies_under_the_vm_lock_with_the_right_privileges(client, aut
         return conn
 
     monkeypatch.setattr(hardware_opts, "open_conn", open_conn)
+    daemon_libvirt(open_conn())  # hyperlite-daemon writes the change, in this process in the tests
     admin = auth_headers("admin")
     r = client.get("/vms/web/hardware-options", headers=admin)
     assert r.status_code == 200 and r.json()["newer_machines"] == ["pc-q35-9.0"]

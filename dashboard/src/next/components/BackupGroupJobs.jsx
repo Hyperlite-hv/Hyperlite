@@ -11,9 +11,10 @@ import { isRemoteVm } from "../lib/vmId";
 import { ErrorState } from "./States";
 import RetentionFields, { describeRetention, retentionForm, retentionPayload, retentionProblems } from "./RetentionFields";
 import { Card, Chip, Empty, Field, Loading, SideDrawer, TableWrap } from "./ui";
+import { DestinationField } from "./BackupStores";
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const EMPTY = { id: null, name: "", selection: "all", value: "", excluded: [], frequency: "daily", time: "02:00", target_dir: "", active: true, ...retentionForm(null) };
+const EMPTY = { id: null, name: "", selection: "all", value: "", excluded: [], frequency: "daily", time: "02:00", target_dir: "", store: null, active: true, ...retentionForm(null) };
 
 // Grouped backup jobs: one schedule for all of this node's VMs, those of a tag or of a pool, resolved at each run.
 export default function BackupGroupJobs({ onChange }) {
@@ -44,7 +45,7 @@ export default function BackupGroupJobs({ onChange }) {
   async function save() {
     setBusy(true);
     const payload = { name: form.name.trim(), selection: form.selection, value: form.selection === "all" ? null : form.value, excluded: form.excluded,
-      frequency: form.frequency, time: form.time, target_dir: form.target_dir.trim() || null, active: form.active, ...retentionPayload(form) };
+      frequency: form.frequency, time: form.time, target_dir: form.store ? null : form.target_dir.trim() || null, store: form.store || null, active: form.active, ...retentionPayload(form) };
     try {
       await (form.id ? updateBackupGroup(form.id, payload) : createBackupGroup(payload));
       pushToast({ kind: "success", title: t("bg.saved"), message: payload.name });
@@ -113,7 +114,8 @@ export default function BackupGroupJobs({ onChange }) {
             <Field label={t("vb.frequency")}>{(p) => <select {...p} className="nx-inp" value={form.frequency} onChange={set("frequency")}><option value="daily">{t("vb.f.daily")}</option><option value="weekly">{t("vb.f.weekly")}</option><option value="monthly">{t("vb.f.monthly")}</option></select>}</Field>
             <Field label={t("vb.time")} hint={t("vb.utc")} error={bad.time ? t("vb.timeRule") : null}>{(p) => <input {...p} className="nx-inp nx-mono" type="time" value={form.time} onChange={set("time")} />}</Field>
           </div>
-          <Field label={t("bg.target")} hint={t("bg.targetHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.target_dir} placeholder="/var/lib/hyperlite/dump" onChange={set("target_dir")} />}</Field>
+          <DestinationField value={form.store} onChange={(store) => setForm((f) => ({ ...f, store }))} />
+          {!form.store && <Field label={t("bg.target")} hint={t("bg.targetHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.target_dir} placeholder="/var/lib/hyperlite/dump" onChange={set("target_dir")} />}</Field>}
           <RetentionFields value={form} onChange={(v) => setForm((f) => ({ ...f, ...v }))} />
           <label className="nx-check"><input type="checkbox" checked={form.active} onChange={set("active")} /> {t("bg.active")}</label>
         </>}

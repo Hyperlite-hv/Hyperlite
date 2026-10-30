@@ -63,8 +63,8 @@ defines carries a random, already expired password; and each node's `qemu.conf` 
   Answers the `.vv` content (`type=spice`, `host=<ticket>`, `tls-port`, `password`, `proxy=http://<the address the
   browser used>:3128`, `ca`, `host-subject`, `delete-this-file=1`, `secure-channels=all`).
 - **Proxy** (a listener on 3128 inside the service): accepts `CONNECT <ticket>:<port>` only for a valid ticket and its
-  own port, and relays to the VM's TLS port on 127.0.0.1, or on its node through the cluster's SSH connection, as the
-  noVNC console does. Anything else gets 403 and is logged. The proxy sees TLS only.
+  own port, and relays to the VM's TLS port on 127.0.0.1 of its node, which hyperlite-daemon connects to (`ssh -W`
+  with the cluster's key for another node) and hands over, as for the noVNC console (`console.display`). Anything else gets 403 and is logged. The proxy sees TLS only.
 - **Dashboard**: the VM console's SPICE menu: "Open in virt-viewer" downloads the `.vv` (never shown), "Add a SPICE
   display" adds one for the VM's next start. Their outcome is said in the console itself: the console's own window
   has no toasts or dialogs.

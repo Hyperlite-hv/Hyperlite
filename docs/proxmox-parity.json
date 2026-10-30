@@ -1,7 +1,7 @@
 {
   "about": "Hyperlite compared with Proxmox VE 9.2, feature by feature. docs/proxmox-parity.html shows it, with the live state of each issue (a closed issue shows as done). Update a row, and checked, in the PR that changes it: it is the project's reference, and tests/test_proxmox_parity.py refuses a release that cites a tracked issue the file was not reviewed for. status: ahead, parity, partial, missing.",
   "proxmox_version": "9.2",
-  "checked": "2026-10-23",
+  "checked": "2026-10-30",
   "categories": [
     {
       "id": "cluster",
@@ -11,13 +11,18 @@
         {"fr": "Configuration répliquée et quorum", "en": "Replicated configuration and quorum", "status": "parity", "pve": "pmxcfs on Corosync, read-only without quorum", "hl": "hyperlite-cfs on Corosync, read-only without quorum, primary node for two-node clusters"},
         {"fr": "Gérer depuis n'importe quel nœud", "en": "Manage from any node", "status": "parity", "pve": "Any node serves the API and the GUI", "hl": "Any node serves the dashboard and API v1, same accounts and sessions, and acts on any member's VMs, templates, networks, storage and ISO images (?node=, done by that member); a node that is down never holds a list or a call"},
         {"fr": "Statut des invités diffusé", "en": "Guest status broadcast", "status": "parity", "pve": "pvestatd", "hl": "Every node sends its VMs' summary every 10 s and at once after a change"},
-        {"fr": "Configuration répliquée, seule source de vérité", "en": "Replicated configuration as the only source of truth", "status": "partial", "issue": 416, "pve": "Everything in /etc/pve", "hl": "Most configuration in hyperlite-cfs; hosts driven over SSH still depend on one controller"},
-        {"fr": "HA automatique (redémarrage ailleurs)", "en": "Automatic HA (restart elsewhere)", "status": "partial", "issue": 333, "pve": "ha-manager restarts guests on another node", "hl": "Dry run only: shows what it would do, recovery is manual"},
-        {"fr": "Fencing", "en": "Fencing", "status": "partial", "issue": 333, "pve": "Watchdog self-fencing", "hl": "Watchdog self-fencing of a node cut off; IPMI/Redfish/AMT tested read-only"},
-        {"fr": "Répartition de charge (DRS)", "en": "Load balancing (DRS)", "status": "missing", "issue": 334, "pve": "Dynamic balancer for HA guests (9.2)", "hl": "None"},
+        {"fr": "Configuration répliquée, seule source de vérité", "en": "Replicated configuration as the only source of truth", "status": "parity", "issue": 416, "pve": "Everything in /etc/pve", "hl": "The cluster's configuration in hyperlite-cfs, applied by every node in one order, read-only without quorum; tasks, audit log, backups and their CSV exports of every node from any node; no controller (hosts driven over SSH: deprecated, gone with API v2)"},
+        {"fr": "HA automatique (redémarrage ailleurs)", "en": "Automatic HA (restart elsewhere)", "status": "parity", "issue": 333, "pve": "ha-manager restarts guests on another node", "hl": "The leader restarts a lost member's HA VMs once it is fenced, by priority and where they fit, with admission control and VM monitoring (restarted 80 s after its node was cut, in the lab)"},
+        {"fr": "Fencing", "en": "Fencing", "status": "parity", "issue": 333, "pve": "Watchdog self-fencing", "hl": "Watchdog self-fencing of a node cut off, and a BMC power-off (IPMI, Redfish) confirmed before a restart; AMT power control still read-only"},
+        {"fr": "Verrous des disques sur le stockage partagé", "en": "Disk locks on the shared storage", "status": "parity", "issue": 333, "pve": "QEMU's image locks (vSphere: locks on VMFS and NFS)", "hl": "QEMU's image locks refuse a disk another node runs (checked on NFS 4.2, released 94 s after the node died); HA refused on a share whose locks stay on one node (NFS nolock or local_lock, SMB nobrl)"},
+        {"fr": "Priorité de redémarrage HA", "en": "HA restart priority", "status": "parity", "issue": 333, "pve": "None (vSphere: VM restart priority)", "hl": "High, medium, low per VM, with preferred nodes"},
+        {"fr": "Contrôle d'admission HA", "en": "HA admission control", "status": "parity", "issue": 333, "pve": "None (vSphere: admission control)", "hl": "The loss of any one member must leave room for its HA VMs on the others: warn (default), strict or off"},
+        {"fr": "Surveillance des VM (invité figé)", "en": "VM monitoring (hung guest)", "status": "parity", "issue": 333, "pve": "None (vSphere: VM monitoring through VMware Tools)", "hl": "A guest that stops answering the QEMU guest agent, with no disk or network I/O, is reset in place by its node (at most three times an hour)"},
+        {"fr": "Répartition de charge (DRS)", "en": "Load balancing (DRS)", "status": "ahead", "issue": 334, "pve": "Dynamic balancer for HA guests (9.2)", "hl": "As vSphere DRS, for the VMs on shared storage: off, manual or automatic, threshold 1 to 5, VMs together, apart, on or never on members (must or should, binding HA), per-VM exceptions, a drain that spreads the VMs, \"Auto\" placement of a new VM; moved in the lab 24 s after two VMs loaded their node"},
         {"fr": "Mode maintenance", "en": "Maintenance mode", "status": "parity", "pve": "Node maintenance with migration", "hl": "Drain by live migration, the VMs that stay listed with their reason"},
         {"fr": "Mise à jour d'un cluster", "en": "Cluster update", "status": "ahead", "pve": "Node by node, by hand", "hl": "Rolling update: plan, maintenance, migration, update, reboot, one node after the other"},
-        {"fr": "Deux sites", "en": "Two sites", "status": "ahead", "pve": "Storage replication (ZFS)", "hl": "Incremental replication to the other site every few minutes, guided recovery"}
+        {"fr": "Deux sites", "en": "Two sites", "status": "ahead", "pve": "Storage replication (ZFS)", "hl": "Incremental replication to the other site every few minutes, guided recovery"},
+        {"fr": "Plusieurs clusters et sites depuis une seule vue", "en": "Several clusters and sites from one view", "status": "parity", "issue": 656, "pve": "Proxmox Datacenter Manager: the clusters and single nodes of every site over their API, each site autonomous when the link is cut", "hl": "Every cluster views the others (Sites page): their state, nodes and problems, a search through all their VMs, power actions and moves between a remote's nodes with a manage token; VMs moved between clusters offline or live (as qm remote-migrate --online, the target's libvirt behind a filtering relay), over pinned HTTPS, served by any node"}
       ]
     },
     {
@@ -40,7 +45,7 @@
       "en": "Network",
       "rows": [
         {"fr": "Réseaux NAT, isolés, bridge, DHCP", "en": "NAT, isolated, bridged networks, DHCP", "status": "parity", "pve": "Bridges and SDN", "hl": "libvirt networks, DHCP ranges and reservations"},
-        {"fr": "VLAN sur bridges Linux", "en": "VLAN-aware Linux bridges", "status": "partial", "issue": 345, "pve": "Yes", "hl": "VLAN tags on Open vSwitch or SR-IOV only"},
+        {"fr": "VLAN sur bridges Linux", "en": "VLAN-aware Linux bridges", "status": "parity", "issue": 345, "pve": "Yes", "hl": "VLAN-aware Linux bridges made from the dashboard (with a 60 s rollback, set again at boot); VLAN tag and trunks per VM, set on the bridge port at start, migration and change"},
         {"fr": "Interfaces de l'hôte (bridges, bonds)", "en": "Host interfaces (bridges, bonds)", "status": "missing", "issue": 512, "pve": "Edited and applied live", "hl": "Listed only"},
         {"fr": "Pare-feu du cluster et de l'hôte", "en": "Cluster and host firewall", "status": "partial", "issue": 422, "pve": "Datacenter, node and guest levels, security groups, IP sets", "hl": "Per VM (nwfilter) and per network only"},
         {"fr": "SDN (VXLAN, EVPN, IPAM)", "en": "SDN (VXLAN, EVPN, IPAM)", "status": "missing", "issue": 421, "pve": "Yes", "hl": "None"}
@@ -58,8 +63,8 @@
         {"fr": "vGPU et périphériques médiés", "en": "vGPU and mediated devices", "status": "missing", "issue": 514, "pve": "Yes", "hl": "None"},
         {"fr": "Consoles", "en": "Consoles", "status": "parity", "issue": 518, "pve": "noVNC, SPICE, xterm.js", "hl": "noVNC, serial console, terminals, and SPICE in virt-viewer through a proxy (TLS, a ticket valid 30 s); no SPICE audio or USB redirection yet"},
         {"fr": "Console série dans le navigateur", "en": "Serial console in the browser", "status": "parity", "issue": 425, "pve": "xterm.js", "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"},
-        {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "Disk import (vmdk and others), no ESXi or OVA wizard"},
-        {"fr": "Hookscripts", "en": "Hook scripts", "status": "missing", "issue": 515, "pve": "Per guest", "hl": "None"},
+        {"fr": "Import depuis VMware ESXi", "en": "Import from VMware ESXi", "status": "partial", "issue": 426, "pve": "ESXi import wizard", "hl": "OVA/OVF exported from VMware imported from the dashboard (settings mapped, disks checked against the manifest); disk import (vmdk and others); no live ESXi connection yet"},
+        {"fr": "Hookscripts", "en": "Hook scripts", "status": "parity", "issue": 515, "pve": "Per guest", "hl": "Per VM: pre-start, post-start, pre-stop and post-stop, a script placed by root on the node and attached by an administrator; a failing pre-start or pre-stop refuses the action; output in the task log"},
         {"fr": "Identifiants numériques (VMID)", "en": "Numeric identifiers (VMID)", "status": "missing", "issue": 517, "pve": "Yes", "hl": "Node and name"},
         {"fr": "Conteneurs LXC", "en": "LXC containers", "status": "parity", "issue": 424, "pve": "With snapshots", "hl": "Yes, with snapshots of the stopped container (a copy of its directory, each one keeping only what changed)"},
         {"fr": "Images OCI / Docker", "en": "OCI / Docker images", "status": "ahead", "pve": "Application containers (9.x, preview)", "hl": "Any OCI image, no Docker daemon"},
@@ -73,8 +78,8 @@
       "rows": [
         {"fr": "Planification, rétention, vérification", "en": "Schedules, retention, verification", "status": "parity", "pve": "vzdump and PBS", "hl": "Per VM, tag or pool; GFS retention; weekly verification"},
         {"fr": "Restauration de fichiers", "en": "File restore", "status": "ahead", "pve": "Needs Proxmox Backup Server", "hl": "Built in, no backup server"},
-        {"fr": "Sauvegardes incrémentales", "en": "Incremental backups", "status": "missing", "issue": 337, "pve": "With PBS (dirty bitmaps)", "hl": "Full backups; ZFS, iSCSI and LVM disks refused"},
-        {"fr": "Déduplication et chiffrement", "en": "Deduplication and encryption", "status": "missing", "issue": 420, "pve": "Proxmox Backup Server", "hl": "None"},
+        {"fr": "Sauvegardes incrémentales", "en": "Incremental backups", "status": "parity", "issue": 337, "pve": "With PBS (dirty bitmaps)", "hl": "Every disk type (qcow2, raw, ZFS, LVM, iSCSI) into a backup store; a running VM's qcow2 disks read only where the guest wrote since the last backup (dirty bitmaps); every backup a complete image, never a chain"},
+        {"fr": "Déduplication et chiffrement", "en": "Deduplication and encryption", "status": "parity", "issue": 420, "pve": "Proxmox Backup Server", "hl": "A chunk store as PBS's: 4 MiB chunks held once across every VM, optional client-side AES-256-GCM with a master recovery key, verification, garbage collection, off-site copies pulled by the other site (another store or another cluster, a read-only account, no key there) with their own retention"},
         {"fr": "Restauration à chaud", "en": "Live restore", "status": "missing", "issue": 513, "pve": "Yes", "hl": "None"}
       ]
     },
@@ -90,7 +95,7 @@
         {"fr": "Métriques et notifications", "en": "Metrics and notifications", "status": "parity", "pve": "InfluxDB, Graphite; notification targets", "hl": "Prometheus, InfluxDB, Graphite; webhook, SMTP"},
         {"fr": "API versionnée", "en": "Versioned API", "status": "parity", "pve": "API v2", "hl": "API v1, its contract checked in CI"},
         {"fr": "Infrastructure as code (Terraform / OpenTofu)", "en": "Infrastructure as code (Terraform / OpenTofu)", "status": "ahead", "issue": 330, "pve": "Community providers only (bpg/proxmox, Telmate/proxmox)", "hl": "Official provider, published on the Terraform and OpenTofu registries and tested on a real Hyperlite (VMs, templates, networks, storage, ISO images, snapshots, backups, HA, rights); every member's objects through one node (node), as vSphere's official one does for its hosts"},
-        {"fr": "CLI d'administration", "en": "Administration CLI", "status": "missing", "issue": 516, "pve": "qm, pct, pvesh", "hl": "Workstation client only"},
+        {"fr": "CLI d'administration", "en": "Administration CLI", "status": "parity", "issue": 516, "pve": "qm, pct, pvesh", "hl": "hyperlite-admin: any route of API v1 (as pvesh) and short commands for VMs, containers, storage, networks, backups, tasks and the cluster; root of a node signed in as root@<node>, with no token"},
         {"fr": "Mises à jour", "en": "Updates", "status": "ahead", "pve": "apt from the GUI", "hl": "Release notes, channels, offline signed file, nightly security updates; a failed update rolls back by itself, by reinstalling the previous package"},
         {"fr": "Accès depuis le poste", "en": "Workstation access", "status": "ahead", "pve": "None", "hl": "SSH and remote desktop through an HTTPS tunnel, SSO and 2FA"}
       ]

@@ -4,7 +4,7 @@
 Standard library only: it must run on a BARE machine, before the venv exists.
 Each check returns one of these statuses:
   ok         -- satisfied
-  warning    -- usable purpose degraded / worth watching
+  warning    -- usable but degraded / worth watching
   disabled   -- one specific feature will be unavailable (the rest works)
   blocking   -- the installation must not continue
 
@@ -222,7 +222,7 @@ def check_system(offline=False):
             _c(
                 "hardware_virtualization",
                 DISABLED,
-                "CPU is capable purpose /dev/kvm is missing (kvm module not loaded or disabled in the BIOS)",
+                "CPU is capable but /dev/kvm is missing (kvm module not loaded or disabled in the BIOS)",
                 feature=feat,
                 action="modprobe kvm_intel / kvm_amd, check the BIOS",
             )
@@ -258,7 +258,7 @@ def check_system(offline=False):
             _c(
                 "memory",
                 WARNING,
-                f"{ram} MB of RAM: usable, purpose little headroom for VMs (recommended {MIN_RAM_MB_WARNING} MB)",
+                f"{ram} MB of RAM: usable, but little headroom for VMs (recommended {MIN_RAM_MB_WARNING} MB)",
             )
         )
     else:
@@ -397,7 +397,7 @@ print(json.dumps(res))
 
 def probe_python(python=None):
     """REAL import of each module in the target interpreter (not a simple
-    find_spec: a module that is present purpose broken, e.g. libvirt without its
+    find_spec: a module that is present but broken, e.g. libvirt without its
     .so files, must be detected). python=None: the current interpreter,
     in-process."""
     mods = [m[0] for m in PYTHON_MODULES]

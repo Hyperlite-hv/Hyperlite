@@ -124,7 +124,7 @@ def container_rootfs_path(name):
 # into a usable filesystem). Verified in practice on this host: the official
 # "debian:12" image from the Hub, once unpacked, does NOT have systemd (no
 # /sbin/init, since Docker images are designed for a single process, not a full
-# OS) purpose DOES have a real package manager (apt-get), which is enough to install
+# OS) but DOES have a real package manager (apt-get), which is enough to install
 # systemd/ssh/sudo afterwards, exactly like for the local debootstrap base.
 # REALLY minimal images (scratch, distroless, without a package manager) are not
 # supported: bootstrap_os_container raises an explicit error rather than
@@ -168,7 +168,7 @@ def pull_image_rootfs(image_ref):
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     if not rootfs.exists():
-        raise ValueError(f"Image '{image_ref}' fetched purpose the unpacking is invalid (no rootfs/)")
+        raise ValueError(f"Image '{image_ref}' fetched but the unpacking is invalid (no rootfs/)")
     _ensure_dev_nodes(rootfs)
     return rootfs
 
@@ -301,7 +301,7 @@ def bootstrap_os_container(rootfs):
             # EXPLICIT openrc: the official "alpine" image from Docker Hub does NOT have
             # openrc preinstalled (verified in real testing: /etc/init.d/ was empty after
             # configuration, "sshd"/"networking" stayed broken symlinks pointing to scripts
-            # that do not exist, and the container booted as far as getty purpose with no network
+            # that do not exist, and the container booted as far as getty but with no network
             # and no sshd). A minimal Docker image only has busybox + apk. Also
             # shadow/bash: BusyBox provides "adduser" (not "useradd") and no bash by default.
             # They are installed so that configure_container_rootfs (useradd/chpasswd -e/bash)
@@ -323,7 +323,7 @@ def bootstrap_os_container(rootfs):
             )
     finally:
         # Restored to the image's original resolv.conf (or removed if there was none):
-        # configure_container_rootfs sets its own right afterwards anyway, purpose there is no
+        # configure_container_rootfs sets its own right afterwards anyway, but there is no
         # reason to leave a leak of the HOST's resolv.conf in the final rootfs by accident.
         if original_resolv is not None:
             target_resolv.write_bytes(original_resolv)
@@ -333,7 +333,7 @@ def bootstrap_os_container(rootfs):
     return family
 
 
-def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
+def create_container_rootfs(name, image=None, bootstrap=True, home=None):
     """Fast clone (local copy, no network) of the base image, either the local one
     (debootstrap, the default) or one pulled from an external registry
     (`image`, e.g. "ubuntu:22.04", "alpine:3.19", "ghcr.io/foo/bar:tag"), for a
@@ -341,6 +341,7 @@ def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
     reimplementing a faithful recursive copy (permissions, symbolic links,
     special /dev devices) by hand in Python.
 
+    `home`: the directory it goes in (app/core/container_create.py), the default one when None.
     Returns (rootfs_path, family): the family ("apt" or "apk") is passed as is
     to configure_container_rootfs, which needs it for the network/service
     configuration (systemd vs OpenRC)."""
@@ -358,13 +359,9 @@ def create_container_rootfs(name, image=None, bootstrap=True, storage=None):
         base = ensure_base_rootfs()
         family = "apt"
 
-    if storage:
-        # storage: {"pool": name, "base_dir": directory}, see resolve_container_storage in the containers router.
-        from app.core.container_meta import set_container_storage
-
-        Path(storage["base_dir"]).mkdir(mode=0o711, parents=True, exist_ok=True)
-        set_container_storage(name, storage["pool"], storage["base_dir"])
-    dest = container_rootfs_path(name)
+    home = Path(home) if home else CONTAINERS_DIR
+    home.mkdir(mode=0o711, parents=True, exist_ok=True)
+    dest = safe_child(home, name)
     if dest.exists():
         raise ValueError(f"Container '{name}' already has a filesystem on disk")
     subprocess.run(["cp", "-a", str(base), str(dest)], check=True, capture_output=True, text=True)
@@ -386,35 +383,25 @@ def delete_container_rootfs(name):
 # container being a plain directory, not a virtual disk:
 # - clone_container_rootfs(): a complete copy (the equivalent of VM cloning),
 #   which requires the container to be STOPPED (the same rule as VM cloning).
-# - backup/restore: a tar archive (the equivalent of VM backups, purpose file by file
+# - backup/restore: a tar archive (the equivalent of VM backups, but file by file
 #   rather than a qcow2 disk).
 
 
-def clone_container_rootfs(name, new_name):
-    """Complete copy of the rootfs (cp -a, with the same guarantees as
+def clone_container_rootfs(src, dest):
+    """Complete copy of the filesystem `src` to `dest` (cp -a, with the same guarantees as
     create_container_rootfs: permissions, symbolic links, special devices), THEN
     reset whatever must never be shared between original and clone, the same
     reasoning as VM cloning: SSH host keys and machine-id identical between the
     two as long as nothing forces their regeneration. It does keep the existing
     user account and password (the copied rootfs already has them), exactly as
     VM cloning does not recreate the account either."""
-    from app.core.container_meta import get_container_storage, set_container_storage
-
-    src = container_rootfs_path(name)
+    src, dest = Path(src), Path(dest)
     if not src.exists():
-        raise ValueError(f"Filesystem of container '{name}' not found")
-    storage = get_container_storage(name)
-    if storage:  # a clone stays in its source's storage pool
-        set_container_storage(new_name, storage["pool"], storage["base_dir"])
-    dest = container_rootfs_path(new_name)
-    if dest.exists():
-        if storage:
-            from app.core.container_meta import delete_container_storage
-
-            delete_container_storage(new_name)
-        raise ValueError(f"Container '{new_name}' already has a filesystem on disk")
+        raise ValueError(f"Filesystem of container '{src.name}' not found")
+    if os.path.lexists(dest):
+        raise ValueError(f"Container '{dest.name}' already has a filesystem on disk")
     subprocess.run(["cp", "-a", str(src), str(dest)], check=True, capture_output=True, text=True)
-    _reset_container_identity(dest, new_name)
+    _reset_container_identity(dest, dest.name)
     return dest
 
 
@@ -444,7 +431,7 @@ def _reset_container_identity(rootfs, new_hostname):
             key_file.unlink(missing_ok=True)
         _chroot_run(rootfs, "ssh-keygen", "-A", check=True, capture_output=True, text=True)
 
-    # Empty machine-id (NOT removed: systemd wants it present purpose empty to trigger a
+    # Empty machine-id (NOT removed: systemd wants it present but empty to trigger a
     # regeneration at first boot, see machine-id(5)): avoids D-Bus/journald identifiers
     # shared between the two.
     machine_id = rootfs / "etc" / "machine-id"
@@ -471,7 +458,7 @@ def set_container_hostname(rootfs, hostname):
 
 
 def backup_container_rootfs(name, dest_tar_path):
-    """Complete tar archive of the rootfs: the equivalent of VM backups purpose file by
+    """Complete tar archive of the rootfs: the equivalent of VM backups but file by
     file (there is no qcow2 disk to copy for a container). The container must be
     STOPPED, which the caller ensures (consistency of the archived content, the
     same rule as cloning); it is not revalidated here."""
@@ -498,7 +485,7 @@ def restore_container_rootfs(tar_path, name, original_name=None):
     container kept the OLD hostname/SSH host keys inside the rootfs (confirmed
     over SSH: `hostname` still returned the old name), inconsistent with its new
     libvirt domain name. It applies the same reset as clone_container_rootfs(),
-    purpose ONLY if the name really changes (an "in place" restore under the SAME
+    but ONLY if the name really changes (an "in place" restore under the SAME
     name does not need it, the identity is already correct for that name)."""
     dest = container_rootfs_path(name)
     if dest.exists():
@@ -538,7 +525,7 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
         # udhcpc/classic ifupdown, with no separate dhclient (the binary specifically
         # affected by the AppArmor block seen on this host for the Kali VMs, see
         # unattended_install.py; busybox udhcpc is a different binary and path, not subject
-        # to the same Debian AppArmor profile, purpose not explicitly verified here).
+        # to the same Debian AppArmor profile, but not explicitly verified here).
         net_dir = rootfs / "etc" / "network"
         net_dir.mkdir(parents=True, exist_ok=True)
         (net_dir / "interfaces").write_text("auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n")
@@ -590,7 +577,7 @@ def configure_container_rootfs(rootfs, hostname, username, password, ssh_pubkey,
 
     # sudo WITHOUT a password for this account: membership of the "sudo" group alone
     # is not enough (the default Debian policy requires a password), seen in testing
-    # (the web terminal could connect over SSH purpose `sudo` stayed blocked there). The
+    # (the web terminal could connect over SSH but `sudo` stayed blocked there). The
     # same posture as the cloud-init of the VMs (`sudo: ALL=(ALL) NOPASSWD:ALL`).
     sudoers_dropin = rootfs / "etc" / "sudoers.d" / "hyperlite-automation"
     sudoers_dropin.write_text(f"{username} ALL=(ALL) NOPASSWD:ALL\n")
@@ -787,11 +774,11 @@ def build_container_xml(name, vcpu, memory_mb, rootfs, network="default", mac=No
   <devices>
     <console type='pty'/>
     <filesystem type='mount' accessmode='passthrough'>
-      <source dir='{rootfs}'/>
+      <source dir={quoteattr(str(rootfs))}/>
       <target dir='/'/>
     </filesystem>
     <interface type='network'>
-      <source network='{network}'/>{mac_xml}{ip_xml}
+      <source network={quoteattr(network)}/>{mac_xml}{ip_xml}
     </interface>
   </devices>
 </domain>

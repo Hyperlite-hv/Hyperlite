@@ -46,7 +46,8 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
     };
     await confirmDeletion(page, trigger, name, /^Delete$/);
     await expect(page.getByRole("button", { name: `Delete group ${name}` })).toHaveCount(0);
-    expect(await listNames(request, "/groups", "name")).not.toContain(name);
+    // The list reloads after the confirmation, its buttons gone for a moment before the deletion is done: asked until.
+    await expect.poll(() => listNames(request, "/groups", "name"), { timeout: 20_000 }).not.toContain(name);
   });
 
   test("notification channel: confirmation, then removal from the backend", async ({ page, request }) => {
@@ -61,7 +62,8 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
     };
     await confirmDeletion(page, trigger, name, /^Delete$/);
     await expect(page.getByRole("button", { name: `Delete channel ${name}` })).toHaveCount(0);
-    expect(await listNames(request, "/notifications/channels", "name")).not.toContain(name);
+    // The list reloads after the confirmation, its buttons gone for a moment before the deletion is done: asked until.
+    await expect.poll(() => listNames(request, "/notifications/channels", "name"), { timeout: 20_000 }).not.toContain(name);
   });
 
   test("ISO image: upload, list, cancel deletion, confirm deletion", async ({ page, request }) => {
@@ -79,7 +81,8 @@ test.describe("Destructive actions always ask for a confirmation naming the reso
     };
     await confirmDeletion(page, trigger, file, /^Delete$/);
     await expect(page.getByRole("button", { name: `Delete ISO ${file}` })).toHaveCount(0);
-    expect(await listNames(request, "/isos", "name")).not.toContain(file);
+    // The list reloads after the confirmation, its buttons gone for a moment before the deletion is done: asked until.
+    await expect.poll(() => listNames(request, "/isos", "name"), { timeout: 20_000 }).not.toContain(file);
   });
 });
 

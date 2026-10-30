@@ -1,0 +1,675 @@
+"""A VM backed up into a backup store, and restored from one (docs/design/backup-store.md, step 1).
+
+Every disk type takes the same path: files (qcow2, raw) and block devices (ZFS zvols, LVM volumes, iSCSI LUNs).
+
+- **A running VM**: libvirt's backup API in pull mode. QEMU exports each disk, frozen as it was when the job began,
+  as a read-only NBD export on a Unix socket while the VM runs; the guest agent freezes the file systems while the
+  job starts. Writes the guest makes meanwhile go on as usual: QEMU keeps the blocks they replace in a scratch file
+  until they are read. The job ends when Hyperlite has read every disk (abortJob, as libvirt's pull mode wants).
+- **A stopped VM**: each disk served the same way by `qemu-nbd`, read-only (the caller holds the VM's lock, so it is
+  not started meanwhile).
+- **Reading**: `nbdcopy` (libnbd) streams each export to a pipe, which is cut into the store's chunks, a few chunks
+  digested, compressed and written at once.
+- **Restoring**: `qemu-nbd` opens the disk to write (a new qcow2 or raw file, or a block device) and `nbdcopy`
+  writes into it what Hyperlite reads from the store, zero chunks skipped on a new file.
+"""
+
+import contextlib
+import json
+import logging
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import libvirt
+
+from app.core import backup_integrity, backup_store, checkpoints, guest_agent, nfs_permissions, paths
+
+logger = logging.getLogger(__name__)
+
+WORKERS = 4  # chunks digested, compressed and written at once
+READY_TIMEOUT_S = 30  # for an export's socket to appear
+# Where QEMU binds a running VM's export: a fixed place, which the QEMU AppArmor rule installed with the package
+# allows (scripts/ensure-backup-apparmor.sh); libvirt adds the scratch files to a VM's profile, not this socket.
+SOCKETS = Path("/run/hyperlite/backup")
+# Incremental reading (step 2): a running VM's qcow2 disks keep a dirty bitmap from one backup into a store to the next,
+# a libvirt checkpoint named after the store; only the chunks with a changed block are read again.
+BITMAP = "dirty-{dev}"
+CHECKPOINT_PREFIX = "hl-store-"
+FULL_EVERY_DAYS = 7  # a whole read at least this often: whatever wrote a disk outside QEMU is caught there
+NBD_READ = Path(__file__).with_name("backup_store_nbd_read.py")
+SYSTEM_PYTHON = "/usr/bin/python3"
+
+
+class BackupFailed(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Disk:
+    dev: str  # the guest's name for it (vda, sdb...): the export's and the index's name
+    source: str  # a file or a block device
+    format: str  # qcow2 or raw, as QEMU opens it
+
+    @property
+    def block(self):
+        return not Path(self.source).is_file()
+
+
+def disks_of(domain):
+    """The VM's disks that a backup copies: every disk device with a source, file or block (CD-ROMs are not)."""
+    root = ET.fromstring(domain.XMLDesc(0))
+    out = []
+    for disk in root.findall("devices/disk"):
+        if disk.get("device") != "disk":
+            continue
+        target, source, driver = disk.find("target"), disk.find("source"), disk.find("driver")
+        path = None if source is None else source.get("file") or source.get("dev")
+        if target is None or not path:
+            continue
+        out.append(Disk(target.get("dev"), path, (driver.get("type") if driver is not None else None) or "raw"))
+    return out
+
+
+def _wait_for(path, process=None):
+    deadline = time.monotonic() + READY_TIMEOUT_S
+    while not Path(path).exists():
+        if process is not None and process.poll() is not None:
+            raise BackupFailed(f"the export stopped before it served: {process.stderr.read().strip()[:300]}")
+        if time.monotonic() > deadline:
+            raise BackupFailed("the disk export did not start in time")
+        time.sleep(0.1)
+
+
+def _base():
+    """Where the jobs' private directories and temporary files go."""
+    base = paths.TMP / "backup-store"
+    base.mkdir(parents=True, exist_ok=True)
+    os.chmod(base, 0o711)  # noqa: S103 - traversable, not listable: QEMU reaches its own job's directory
+    return base
+
+
+def _workdir(for_qemu=False):
+    """A private directory for one job, which the job removes. for_qemu: QEMU writes its export's socket and scratch
+    files there, so it belongs to the user QEMU runs as, and is reachable by it (the service's TMP is 0755)."""
+    directory = Path(tempfile.mkdtemp(prefix="job-", dir=_base()))
+    if for_qemu:
+        uid, gid, _ = nfs_permissions.qemu_identity()
+        os.chown(directory, uid, gid)
+        os.chmod(directory, 0o770)  # noqa: S103 - QEMU's user and group only
+    return directory
+
+
+def _pull_xml(disks, socket, scratch, skipped, since=None, full=()):
+    """since: the checkpoint the changed blocks are counted from; each disk not in `full` then exports its dirty
+    bitmap too (BITMAP), the others are read whole."""
+    root = ET.Element("domainbackup", mode="pull")
+    if since:
+        ET.SubElement(root, "incremental").text = since
+    ET.SubElement(root, "server", transport="unix", socket=str(socket))
+    container = ET.SubElement(root, "disks")
+    for disk in disks:
+        attrs = {"name": disk.dev, "backup": "yes", "type": "file", "exportname": disk.dev}
+        if since and disk.dev in full:
+            attrs["backupmode"] = "full"
+        elif since:
+            attrs["exportbitmap"] = BITMAP.format(dev=disk.dev)
+        entry = ET.SubElement(container, "disk", **attrs)
+        ET.SubElement(entry, "scratch", file=str(scratch / f"{disk.dev}.scratch"))
+    for dev in skipped:
+        ET.SubElement(container, "disk", name=dev, backup="no")
+    return ET.tostring(root, encoding="unicode")
+
+
+def _checkpoint_xml(name, disks, tracked):
+    """A checkpoint `name` with a bitmap on the disks in `tracked` (qcow2 files keep one), none on the others."""
+    root = ET.Element("domaincheckpoint")
+    ET.SubElement(root, "name").text = name
+    container = ET.SubElement(root, "disks")
+    for disk in disks:
+        ET.SubElement(container, "disk", name=disk.dev, checkpoint="bitmap" if disk.dev in tracked else "no")
+    return ET.tostring(root, encoding="unicode")
+
+
+@contextlib.contextmanager
+def exported_running(domain, disks, workdir, since=None, full=(), checkpoint=None):
+    """{dev: NBD URI} of a running VM's disks, frozen as they were when the job began, for as long as the block runs.
+    since/full: see _pull_xml. checkpoint: (name, the disks it tracks), made as the job begins, for the next backup."""
+    SOCKETS.mkdir(parents=True, exist_ok=True)
+    uid, gid, _ = nfs_permissions.qemu_identity()
+    os.chown(SOCKETS, uid, gid)
+    os.chmod(SOCKETS, 0o770)  # noqa: S103 - QEMU's user and group only
+    socket = SOCKETS / f"{workdir.name}.sock"
+    others = [d.dev for d in disks_of(domain) if d.dev not in {x.dev for x in disks}]
+    frozen = False
+    if guest_agent.state(domain) == guest_agent.CONNECTED and guest_agent.bound(domain):
+        try:
+            domain.fsFreeze()
+            frozen = True
+        except libvirt.libvirtError:
+            logger.info("The guest agent of %s did not freeze its file systems", domain.name(), exc_info=True)
+    try:
+        domain.backupBegin(
+            _pull_xml(disks, socket, workdir, others, since, full),
+            _checkpoint_xml(checkpoint[0], disks, checkpoint[1]) if checkpoint else None,
+            0,
+        )
+    finally:
+        # The export holds the disks as they were when the job began: the guest only needs to be frozen that long.
+        if frozen:
+            try:
+                domain.fsThaw()
+            except libvirt.libvirtError:
+                logger.warning("Could not thaw the file systems of %s", domain.name(), exc_info=True)
+    try:
+        _wait_for(socket)
+        yield {d.dev: f"nbd+unix:///{d.dev}?socket={socket}" for d in disks}
+    finally:
+        with contextlib.suppress(libvirt.libvirtError):  # a pull-mode job ends when its reader says so
+            domain.abortJob()
+        with contextlib.suppress(FileNotFoundError):
+            socket.unlink()
+
+
+@contextlib.contextmanager
+def exported_stopped(disks, workdir):
+    """{dev: NBD URI} of a stopped VM's disks, each served read-only by qemu-nbd."""
+    servers, uris = [], {}
+    try:
+        for disk in disks:
+            socket = workdir / f"{disk.dev}.sock"
+            process = subprocess.Popen(
+                ["qemu-nbd", "--read-only", "--persistent", "--shared=4", "--cache=none", "--aio=threads",
+                 f"--format={disk.format}", f"--socket={socket}", f"--export-name={disk.dev}", disk.source],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            )  # fmt: skip
+            servers.append(process)
+            _wait_for(socket, process)
+            uris[disk.dev] = f"nbd+unix:///{disk.dev}?socket={socket}"
+        yield uris
+    finally:
+        for process in servers:
+            process.terminate()
+        for process in servers:
+            try:
+                process.wait(10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+
+def export_size(uri):
+    r = subprocess.run(["nbdinfo", "--size", uri], capture_output=True, text=True, timeout=60, check=False)
+    if r.returncode != 0:
+        raise BackupFailed(f"the export cannot be read: {r.stderr.strip()[:300]}")
+    return int(r.stdout.strip())
+
+
+def _read_full(stream, n):
+    buf = bytearray(n)
+    view, got = memoryview(buf), 0
+    while got < n:
+        k = stream.readinto(view[got:])
+        if not k:
+            raise BackupFailed(f"the disk ended early: {got} of {n} bytes")
+        got += k
+    return bytes(buf)
+
+
+def read_into_store(store, uri, size, progress=None):
+    """Every byte of the export `uri` (`size` bytes) cut into the store's chunks; returns the disk's Index.
+    `progress(done_bytes)` is called as chunks are stored."""
+    process = subprocess.Popen(
+        ["nbdcopy", "--", uri, "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0
+    )  # fmt: skip
+    digests = []
+    try:
+        with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+            pending = []
+            for offset in range(0, size, store.chunk_size):
+                content = _read_full(process.stdout, min(store.chunk_size, size - offset))
+                pending.append(pool.submit(store.put, content))
+                while len(pending) > 2 * WORKERS:  # memory bounded: a few chunks in flight
+                    digests.append(pending.pop(0).result())
+                    if progress:
+                        progress(len(digests) * store.chunk_size)
+            digests += [f.result() for f in pending]
+        if process.stdout.read(1):
+            raise BackupFailed("the disk is larger than its export said")
+    finally:
+        process.stdout.close()
+        try:
+            returncode = process.wait(60)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            returncode = process.wait()
+    if returncode != 0:
+        raise BackupFailed(f"reading the disk failed: {process.stderr.read().decode(errors='replace').strip()[:300]}")
+    return backup_store.Index(size, store.chunk_size, tuple(digests))
+
+
+def changed_chunks(uri, dev, size, chunk_size):
+    """The indexes of the chunks of the export `uri` with a block changed since the job's checkpoint, from its dirty
+    bitmap (an NBD meta context libvirt exports)."""
+    context = f"qemu:dirty-bitmap:{BITMAP.format(dev=dev)}"
+    r = subprocess.run(
+        ["nbdinfo", f"--map={context}", "--json", uri], capture_output=True, text=True, timeout=600, check=False
+    )
+    if r.returncode != 0:
+        raise BackupFailed(f"the changed blocks of {dev} cannot be read: {r.stderr.strip()[:300]}")
+    changed = set()
+    for extent in json.loads(r.stdout):
+        if extent["type"] & 1:  # dirty
+            first = extent["offset"] // chunk_size
+            last = (min(extent["offset"] + extent["length"], size) - 1) // chunk_size
+            changed.update(range(first, last + 1))
+    return changed
+
+
+def _read_ranges(uri, ranges):
+    """A process streaming the bytes of `ranges` [(offset, length)] of the export, in order (backup_store_nbd_read)."""
+    fd, listing = tempfile.mkstemp(suffix=".ranges", dir=_base())
+    with os.fdopen(fd, "w") as f:
+        f.writelines(f"{offset} {length}\n" for offset, length in ranges)
+    process = subprocess.Popen(
+        [SYSTEM_PYTHON, "-I", str(NBD_READ), uri, listing],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+    )
+    return process, Path(listing)
+
+
+def read_changed_into_store(store, uri, size, base, changed, progress=None):
+    """The export `uri` as an Index built on `base` (the previous backup's index of the same disk): the chunks in
+    `changed` read and stored, every other one taken from `base`, touched so garbage collection keeps it. A base chunk
+    the store lost is read again. Returns (Index, the number of chunks read)."""
+    count = -(-size // store.chunk_size)
+    digests = list(base.digests)
+    to_read = set(changed)
+    for i in range(count):
+        if i not in to_read:
+            try:
+                store.touch(digests[i])
+            except backup_store.MissingChunk:
+                to_read.add(i)
+    order = sorted(to_read)
+    ranges = [(i * store.chunk_size, min(store.chunk_size, size - i * store.chunk_size)) for i in order]
+    process, listing = _read_ranges(uri, ranges)
+    try:
+        with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+            pending, stored = [], 0
+            for i, (_offset, length) in zip(order, ranges, strict=True):
+                pending.append((i, pool.submit(store.put, _read_full(process.stdout, length))))
+                while len(pending) > 2 * WORKERS:
+                    j, future = pending.pop(0)
+                    digests[j] = future.result()
+                    stored += 1
+                    if progress:
+                        progress(stored * size // len(order))
+            for j, future in pending:
+                digests[j] = future.result()
+    finally:
+        process.stdout.close()
+        try:
+            returncode = process.wait(60)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            returncode = process.wait()
+        listing.unlink(missing_ok=True)
+    if returncode != 0:
+        raise BackupFailed(
+            f"reading the changed blocks failed: {process.stderr.read().decode(errors='replace').strip()[:300]}"
+        )
+    return backup_store.Index(size, store.chunk_size, tuple(digests)), len(order)
+
+
+def _checkpoint_name(store, stamp):
+    return f"{CHECKPOINT_PREFIX}{store.id[:12]}-{stamp.replace(':', '').replace('-', '')}"
+
+
+def _incremental_base(domain, store):
+    """(the previous backup's time, its manifest) when this backup can read only the changed blocks: the VM runs, the
+    last backup of it in this store left a checkpoint the VM still has, and its last whole read is recent; else None."""
+    if not domain.isActive():
+        return None
+    try:
+        previous = store.backups(domain.UUIDString())
+    except FileNotFoundError:
+        return None
+    # The last backup made with a checkpoint: a backup of the stopped VM since made none, and the disk did not change
+    # meanwhile (Hyperlite's own offline changes, a restore or a move, drop the checkpoints).
+    made = [(stamp, manifest) for _vm, stamp, manifest in previous if manifest.get("checkpoint")]
+    if not made:
+        return None
+    stamp, manifest = made[-1]
+    if manifest["checkpoint"] not in checkpoints.names(domain):
+        return None
+    limit = (datetime.now(UTC) - timedelta(days=FULL_EVERY_DAYS)).isoformat()
+    if (manifest.get("full_at") or "") < limit:
+        return None
+    return stamp, manifest
+
+
+def _drop_checkpoints(domain, store, keep):
+    """This store's checkpoints of the VM but `keep` (the one the next backup starts from): libvirt merges each one's
+    bitmap into the one before, so those of other stores and of replication keep counting right."""
+    prefix = f"{CHECKPOINT_PREFIX}{store.id[:12]}-"
+    for name in checkpoints.names(domain):
+        if name.startswith(prefix) and name != keep:
+            try:
+                domain.checkpointLookupByName(name).delete(0)
+            except libvirt.libvirtError:
+                logger.info("Checkpoint %s of %s not deleted yet", name, domain.name(), exc_info=True)
+
+
+def _firmware_files(domain):
+    """The VM's NVRAM and TPM state, as files kept whole in the backup (they are small)."""
+    with tempfile.TemporaryDirectory(dir=_base()) as tmp:
+        names = backup_integrity.save_firmware_state(domain, Path(tmp))
+        return {name: (Path(tmp) / name).read_bytes() for name in names}
+
+
+def backup_vm(domain, store, mode="live", disks=None, progress=None, files=None, manifest_extra=None):
+    """Back the VM up into `store`: every disk (or `disks`, a subset of disks_of), its definition, its firmware state
+    and `files` ({name: bytes}, kept whole). Returns the backup's directory. A running VM keeps running; a stopped one
+    must stay stopped meanwhile (the caller holds its lock)."""
+    disks = disks if disks is not None else disks_of(domain)
+    if not disks:
+        raise BackupFailed("This VM has no disk to back up")
+    stamp = _free_stamp(domain, store)
+    running = domain.isActive()
+    workdir = _workdir(for_qemu=running)
+    # The qcow2 files keep a dirty bitmap from one backup to the next; other disks are read whole each time.
+    tracked = {d.dev for d in disks if not d.block and d.format == "qcow2"}
+    base = _incremental_base(domain, store) if tracked else None
+    base_disks = base[1]["disks"] if base else {}
+    incremental = {dev for dev in tracked if dev in base_disks}
+    checkpoint = (_checkpoint_name(store, stamp), tracked) if running and tracked else None
+    reads, read_chunks = {}, {}
+    try:
+        if running:
+            exported = exported_running(
+                domain, disks, workdir, since=base and base[1]["checkpoint"],
+                full={d.dev for d in disks} - incremental, checkpoint=checkpoint,
+            )  # fmt: skip
+        else:
+            exported = exported_stopped(disks, workdir)
+        indexes, total, done = {}, 0, 0
+        with exported as uris:
+            sizes = {dev: export_size(uri) for dev, uri in uris.items()}
+            total = sum(sizes.values()) or 1
+            for disk in disks:
+                start = done
+
+                def step(n, start=start):
+                    if progress:
+                        progress(min(99, int(100 * (start + n) / total)))
+
+                dev, size = disk.dev, sizes[disk.dev]
+                previous = (
+                    store.index_of(domain.UUIDString(), base[0], dev)
+                    if dev in incremental and base_disks[dev]["size"] == size
+                    else None
+                )
+                if previous is not None:
+                    changed = changed_chunks(uris[dev], dev, size, store.chunk_size)
+                    indexes[dev], read_chunks[dev] = read_changed_into_store(
+                        store, uris[dev], size, previous, changed, step
+                    )
+                    reads[dev] = "incremental"
+                else:  # no base, a disk resized or added, or not tracked
+                    indexes[dev] = read_into_store(store, uris[dev], size, step)
+                    read_chunks[dev] = len(indexes[dev].digests)
+                    reads[dev] = "full"
+                done += size
+        files = {**(files or {}), **_firmware_files(domain)}
+        files["domain.xml"] = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE | libvirt.VIR_DOMAIN_XML_SECURE).encode()
+        whole = all(reads[d] == "full" for d in tracked) or not base
+        manifest = {
+            **(manifest_extra or {}),
+            "vm": domain.name(),
+            "mode": mode,
+            "running": bool(running),
+            "formats": {d.dev: d.format for d in disks},
+            "block": sorted(d.dev for d in disks if d.block),
+            "read": reads,
+            "chunks_read": read_chunks,
+            # When every tracked disk was last read whole: an incremental chain of reads never outlives FULL_EVERY_DAYS.
+            "full_at": _now_iso() if whole else base[1].get("full_at"),
+        }
+        if checkpoint:
+            manifest["checkpoint"] = checkpoint[0]
+        directory = store.write_backup(domain.UUIDString(), stamp, indexes, manifest, files)
+    except BaseException:
+        if checkpoint and running:  # made as the job began, for a backup that is not there: never a base
+            with contextlib.suppress(libvirt.libvirtError):
+                domain.checkpointLookupByName(checkpoint[0]).delete(0)
+        raise
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+    if running:
+        _drop_checkpoints(domain, store, checkpoint[0] if checkpoint else None)
+    return directory
+
+
+def _free_stamp(domain, store):
+    """The backup's time, to the second, as its directory and its checkpoint are named: a second backup of the VM
+    within the same second (an unchanged VM's incremental takes less) waits for the next one rather than collide with
+    the first."""
+    while True:
+        stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        taken = store.backup_dir(domain.UUIDString(), stamp).exists() or _checkpoint_name(store, stamp) in (
+            checkpoints.names(domain) if domain.isActive() else []
+        )
+        if not taken:
+            return stamp
+        time.sleep(1.05 - datetime.now(UTC).microsecond / 1e6)
+
+
+def _now_iso():
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _device_size(path):
+    r = subprocess.run(["blockdev", "--getsize64", str(path)], capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        raise BackupFailed(f"{path}: its size cannot be read: {r.stderr.strip()[:200]}")
+    return int(r.stdout.strip())
+
+
+def restore_disk(store, vm_uuid, stamp, dev, target, target_format="qcow2", progress=None):
+    """Write a backup's disk `dev` to `target`: a new file (qcow2 or raw, created here at the disk's size) or an
+    existing block device at least that large (a zvol, an LVM volume, a LUN), written into. A damaged or missing chunk
+    stops the restore with an error: a disk is never written with a wrong block in it."""
+    index = store.index_of(vm_uuid, stamp, dev)  # refused here, with a clear error, before any process starts
+    target = Path(target)
+    block = target.exists() and not target.is_file()
+    if block:
+        if _device_size(target) < index.size:
+            raise BackupFailed(f"{target} is smaller than the disk to restore ({index.size} bytes)")
+        fmt = "raw"
+    else:
+        if target.exists():
+            raise BackupFailed(f"{target} already exists")
+        fmt = target_format
+        subprocess.run(["qemu-img", "create", "-q", "-f", fmt, str(target), str(index.size)], check=True)
+    workdir = _workdir()
+    socket = workdir / "target.sock"
+    server = subprocess.Popen(
+        ["qemu-nbd", f"--format={fmt}", "--cache=none", "--aio=threads", "--discard=unmap", "--detect-zeroes=unmap",
+         f"--socket={socket}", str(target)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )  # fmt: skip
+    try:
+        _wait_for(socket, server)
+        # A new file reads as zeros: its zero chunks are skipped. A device's are written, it may hold anything.
+        copy = ["nbdcopy", *([] if block else ["--target-is-zero"]), "--", "-", f"nbd+unix:///?socket={socket}"]
+        writer = subprocess.Popen(copy, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+                pending = []
+
+                def read(i):
+                    return store.get(index.digests[i], min(index.chunk_size, index.size - i * index.chunk_size))
+
+                for i in range(len(index.digests)):
+                    pending.append(pool.submit(read, i))
+                    while len(pending) > 2 * WORKERS or (pending and i == len(index.digests) - 1):
+                        writer.stdin.write(pending.pop(0).result())
+                        if progress:
+                            progress(min(99, int(100 * (i + 1 - len(pending)) / max(1, len(index.digests)))))
+        except BaseException:
+            writer.kill()
+            raise
+        finally:
+            with contextlib.suppress(BrokenPipeError):
+                writer.stdin.close()
+            returncode = writer.wait()
+        if returncode != 0:
+            raise BackupFailed(f"writing {dev} failed: {writer.stderr.read().decode(errors='replace').strip()[:300]}")
+    except BaseException:
+        if not block:
+            target.unlink(missing_ok=True)  # a half-written new disk is no disk
+        raise
+    finally:
+        server.terminate()
+        try:
+            server.wait(30)
+        except subprocess.TimeoutExpired:
+            server.kill()
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def store_backup_of(path):
+    """(Store, vm uuid, time) when `path` is a backup in a store (<store>/vm/<uuid>/<time>), else None. An encrypted
+    store is opened with its key from the cluster's secrets."""
+    from app.core import backup_stores
+
+    path = Path(path)
+    if len(path.parents) < 3 or not (path.parents[2] / backup_store.CONFIG).is_file():
+        return None
+    return backup_stores.open_root(path.parents[2]), path.parent.name, path.name
+
+
+@contextlib.contextmanager
+def files_of(found):
+    """A temporary directory holding a store backup's files decrypted (vm-config.json, the NVRAM, the TPM state), as
+    a directory backup holds them: what the restore reads."""
+    store, vm_uuid, stamp = found
+    manifest = json.loads((store.backup_dir(vm_uuid, stamp) / "manifest.json").read_text())
+    with tempfile.TemporaryDirectory(dir=_base()) as tmp:
+        names = manifest.get("files") or {
+            p.name: {}
+            for p in store.backup_dir(vm_uuid, stamp).iterdir()
+            if p.suffix != ".fidx" and p.name != "manifest.json"
+        }
+        for name in names:
+            (Path(tmp) / name).write_bytes(store.read_file(vm_uuid, stamp, name))
+        yield Path(tmp)
+
+
+def verify(path):
+    """(status, problems, disks checked) of a backup in a store, in backup_integrity's terms."""
+    store, vm_uuid, stamp = store_backup_of(path)
+    try:
+        manifest = json.loads((Path(path) / "manifest.json").read_text())
+        disks = len(manifest["disks"])
+        bad = store.verify(vm_uuid, stamp)
+    except (OSError, ValueError, KeyError) as e:
+        return backup_integrity.CORRUPT, [f"The backup cannot be read: {e}"], 0
+    problems = [f"chunk {d.hex()[:16]}... is damaged or missing" for d in bad]
+    for name in manifest.get("files") or {}:
+        try:
+            store.read_file(vm_uuid, stamp, name)
+        except (OSError, backup_store.DamagedChunk) as e:
+            problems.append(f"{name}: {e}")
+    return (backup_integrity.CORRUPT if problems else backup_integrity.VERIFIED), problems, disks
+
+
+def _directory_disks(src_dir):
+    """[(target dev, image Path)] of a backup in today's format, as its manifest lists them (or, before manifests, its
+    images named after their target)."""
+    manifest = backup_integrity.read_manifest(src_dir)
+    if manifest:
+        return [
+            (e["target"], Path(src_dir) / Path(str(e["name"])).name)
+            for e in manifest.get("files") or []
+            if e.get("role") == "disk" and e.get("target")
+        ]
+    return [(p.stem, p) for p in sorted(Path(src_dir).glob("*.qcow2"))]
+
+
+def _stamp_of(created_at):
+    try:
+        moment = datetime.fromisoformat((created_at or "").replace("Z", "+00:00"))
+    except ValueError:
+        moment = datetime.now(UTC)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def import_directory_backup(src_dir, created_at, vm_name, store, vm_uuid, progress=None):
+    """Copy a backup of today's format (its own directory, qcow2 images, a point of a replication chain included)
+    into `store`: each image read through qemu-nbd, which follows its chain, cut into the store's chunks; its
+    vm-config.json, NVRAM and TPM state kept with it. The backup is verified first; it is left as it is. Returns the
+    new backup's directory (the existing one when it was imported before)."""
+    from app.core import disk_images
+
+    src_dir = Path(src_dir)
+    status, problems, _ = backup_integrity.verify(src_dir, None)
+    if status != backup_integrity.VERIFIED:
+        raise BackupFailed("The backup failed its integrity check, nothing was imported: " + "; ".join(problems[:3]))
+    stamp = _stamp_of(created_at)
+    if (store.backup_dir(vm_uuid, stamp) / "manifest.json").exists():
+        return store.backup_dir(vm_uuid, stamp)
+    disks = []
+    for dev, image in _directory_disks(src_dir):
+        try:
+            # Its chain stays in the backup's own directory and its VM's points: nothing it names is read elsewhere.
+            fmt = disk_images.check(image, within=image.parent.parent)
+        except disk_images.UnsafeImage as e:
+            raise BackupFailed(str(e)) from None
+        disks.append(Disk(dev, str(image), fmt))
+    if not disks:
+        raise BackupFailed("This backup has no disk image left to import")
+    workdir = _workdir()
+    try:
+        indexes = {}
+        with exported_stopped(disks, workdir) as uris:
+            sizes = {dev: export_size(uri) for dev, uri in uris.items()}
+            total, done = sum(sizes.values()) or 1, 0
+            for disk in disks:
+                start = done
+
+                def step(n, start=start):
+                    if progress:
+                        progress(min(99, int(100 * (start + n) / total)))
+
+                indexes[disk.dev] = read_into_store(store, uris[disk.dev], sizes[disk.dev], step)
+                done += sizes[disk.dev]
+        files = {
+            name: (src_dir / name).read_bytes()
+            for name in (backup_integrity.NVRAM_FILE, backup_integrity.TPM_FILE, "vm-config.json")
+            if (src_dir / name).is_file()
+        }
+        manifest = {
+            "vm": vm_name,
+            "mode": (backup_integrity.read_manifest(src_dir) or {}).get("mode") or "cold",
+            "running": False,
+            "formats": {d.dev: d.format for d in disks},
+            "block": [],
+            "read": {d.dev: "full" for d in disks},
+            "full_at": _now_iso(),
+            "imported_from": str(src_dir),
+        }
+        return store.write_backup(vm_uuid, stamp, indexes, manifest, files)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)

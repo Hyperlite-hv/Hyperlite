@@ -1,14 +1,18 @@
 """The console of a VM on a remote node is relayed through that node's SSH connection (checked host key), not
-opened on the local host."""
+opened on the local host: hyperlite-daemon runs `ssh -W` with the cluster's key and hands the API its socket."""
 
 import asyncio
+import shutil
 import threading
 
 import asyncssh
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
+from app.core import cluster
 from app.routers.vms import console, runtime
+
+pytestmark = pytest.mark.skipif(shutil.which("ssh") is None, reason="hyperlite-daemon relays through OpenSSH's ssh")
 
 
 class _Node:
@@ -30,6 +34,7 @@ class _Node:
         host_key = asyncssh.generate_private_key("ssh-ed25519")
         self.client_key = asyncssh.generate_private_key("ssh-ed25519")
         (self.tmp_path / "id").write_bytes(self.client_key.export_private_key())
+        (self.tmp_path / "id").chmod(0o600)
         (self.tmp_path / "known_hosts").write_text(
             f"[127.0.0.1]:{{port}} {host_key.export_public_key().decode().strip()}\n"
         )
@@ -64,24 +69,53 @@ class _Node:
         self.loop.call_soon_threadsafe(self.loop.stop)
 
 
+class _Domain:
+    def __init__(self, port):
+        self.port = port
+
+    def isActive(self):
+        return True
+
+    def XMLDesc(self, flags=0):
+        return f"<domain><devices><graphics type='vnc' port='{self.port}'/></devices></domain>"
+
+
+class _Conn:
+    def __init__(self, port):
+        self.domain = _Domain(port)
+
+    def lookupByName(self, name):
+        if name != "web":
+            raise console.libvirt.libvirtError("no domain")
+        return self.domain
+
+
 @pytest.fixture()
-def node(tmp_path, monkeypatch):
+def node(tmp_path, monkeypatch, daemon_libvirt):
     n = _Node(tmp_path).start()
+    registered = {"name": "node-b", "hostname": "127.0.0.1", "ssh_port": n.ssh_port, "ssh_user": "root"}
+    monkeypatch.setattr(cluster, "get_node", lambda name: dict(registered) if name == "node-b" else None)
+    # The cluster's key and root's known_hosts, here the test's own.
     monkeypatch.setattr(
-        console,
-        "get_node",
-        lambda name: (
-            {"hostname": "127.0.0.1", "ssh_port": n.ssh_port, "ssh_user": "root"} if name == "node-b" else None
-        ),
+        cluster,
+        "node_ssh_options",
+        lambda extra=None: [
+            "-i",
+            str(tmp_path / "id"),
+            "-o",
+            f"UserKnownHostsFile={tmp_path / 'known_hosts'}",
+            "-o",
+            "BatchMode=yes",
+            *(extra or []),
+        ],
     )
-    monkeypatch.setattr(console, "get_cluster_private_key_path", lambda: tmp_path / "id")
-    monkeypatch.setattr(console, "KNOWN_HOSTS", tmp_path / "known_hosts")
+    daemon_libvirt(None, nodes={"node-b": _Conn(n.vnc_port)})
     yield n
     n.stop()
 
 
 def test_the_console_of_a_remote_vm_goes_through_its_node(client, node):
-    runtime.CONSOLE_TICKETS["t1"] = ("web", node.vnc_port, 10**12, "node-b")
+    runtime.CONSOLE_TICKETS["t1"] = ("web", node.vnc_port, 10**12, "node-b", "alice")
     with client.websocket_connect("/api/v1/vms/web/console?ticket=t1") as ws:
         ws.send_bytes(b"hello")
         assert ws.receive_bytes() == b"VNC:hello"
@@ -89,7 +123,7 @@ def test_the_console_of_a_remote_vm_goes_through_its_node(client, node):
 
 def test_an_unknown_host_key_is_refused(client, node, tmp_path):
     (tmp_path / "known_hosts").write_text("")  # the node's key was never recorded
-    runtime.CONSOLE_TICKETS["t2"] = ("web", node.vnc_port, 10**12, "node-b")
+    runtime.CONSOLE_TICKETS["t2"] = ("web", node.vnc_port, 10**12, "node-b", "alice")
     with (
         pytest.raises(WebSocketDisconnect) as closed,
         client.websocket_connect("/api/v1/vms/web/console?ticket=t2") as ws,
@@ -99,7 +133,7 @@ def test_an_unknown_host_key_is_refused(client, node, tmp_path):
 
 
 def test_a_ticket_is_bound_to_its_vm(client):
-    runtime.CONSOLE_TICKETS["t3"] = ("other", 5900, 10**12, None)
+    runtime.CONSOLE_TICKETS["t3"] = ("other", 5900, 10**12, None, "alice")
     with (
         pytest.raises(WebSocketDisconnect) as closed,
         client.websocket_connect("/api/v1/vms/web/console?ticket=t3") as ws,
@@ -118,7 +152,8 @@ def test_the_ticket_endpoint_looks_the_vm_up_on_the_requested_node(client, auth_
         def close(self):
             pass
 
-    def fake_open(node=None):
+    def fake_open(node=None, readonly=False):
+        assert readonly
         seen.append(node)
         return Conn()
 

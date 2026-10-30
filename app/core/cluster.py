@@ -82,6 +82,21 @@ def get_cluster_pubkey():
     return pub.read_text().strip()
 
 
+def public_key():
+    """The cluster's public key, asked of hyperlite-daemon, which alone reads the key pair (app/daemon/ops/cluster.py)."""
+    from app.core import privileged
+
+    return privileged.run("cluster.pubkey")["public_key"]
+
+
+def test_from_daemon(hostname, ssh_user, ssh_port, user="system"):
+    """test_node_connection, run by hyperlite-daemon with the cluster's key: (ok, libvirt's raw reason)."""
+    from app.core import privileged
+
+    found = privileged.run("cluster.test_node", user=user, hostname=hostname, ssh_user=ssh_user, ssh_port=ssh_port)
+    return found["ok"], found["detail"]
+
+
 def get_cluster_private_key_path():
     priv, _ = _ensure_cluster_keypair()
     return priv
@@ -106,6 +121,9 @@ def node_ssh_options(extra=None):
         *(extra or []),
     ]
 
+
+# A registered node's name: also a part of its reverse key's file names (REVERSE_KEY_DIR).
+NODE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$")
 
 # A host name or an IPv4/IPv6 address, and a Unix user name: nothing ssh could read as an option, nor libvirt as a part
 # of its URI (GHSA-x3f5-r8vr-pvgw). Checked before any connection to a node, whatever registered it.
@@ -262,7 +280,7 @@ def ensure_reverse_trust(node):
     address: a key stolen from one node can only be reused from that same
     node's address, not from anywhere.
 
-    Fully best-effort: called automatically when a node is registered, purpose a
+    Fully best-effort: called automatically when a node is registered, but a
     failure here must NEVER make the registration itself fail (the local host ->
     node direction, by far the most used, keeps working independently)."""
     REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -368,7 +386,7 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
         check_address(hostname, ssh_user)
     except ValueError as e:
         raise RuntimeError(str(e)) from None
-    ok, message = test_node_connection(hostname, ssh_user, ssh_port)
+    ok, message = test_from_daemon(hostname, ssh_user, ssh_port, username)
     if not ok:
         raise RuntimeError(
             f"Connection failed: {message}. Check that the cluster public key is "
@@ -385,28 +403,35 @@ def register_node(name, hostname, ssh_user, ssh_port, username):
         raise RuntimeError(f"A node '{name}' already exists") from None
     log_action(username, "register_node", name, "success", f"{ssh_user}@{hostname}:{ssh_port}")
     node = get_node(name)
-    # Best-effort (see the ensure_reverse_trust docstring): migration from a remote
-    # node to the local host is a secondary feature and must never make the node
-    # registration itself fail.
+    # Its host key recorded and the reverse trust given by hyperlite-daemon, which holds the keys. The reverse trust is
+    # best-effort (see the ensure_reverse_trust docstring): migration from a remote node to the local host is a
+    # secondary feature and must never make the node registration itself fail.
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
     try:
-        ensure_reverse_trust(node)
-    except Exception as e:
+        reverse_error = privileged.run("cluster.trust", user=username, node=name)["reverse_error"]
+    except DaemonError as e:
+        reverse_error = e.detail
+    if reverse_error:
         log_action(
             username,
             "register_node",
             name,
             "success",
-            f"Reverse SSH trust not established (node -> local host migration unavailable): {e}",
+            f"Reverse SSH trust not established (node -> local host migration unavailable): {reverse_error}",
         )
     return node
 
 
 def remove_node(name, username):
-    node = get_node(name)
+    """Its recorded host key and its reverse trust dropped by hyperlite-daemon while it is still registered (the
+    daemon reads its address there), then its record."""
+    from app.core import privileged
+
+    if get_node(name):
+        privileged.run("cluster.forget", user=username, node=name)
     _nodes().delete(name)
-    if node:
-        forget_known_host(node)
-    revoke_reverse_trust(name)
     log_action(username, "remove_node", name, "success")
 
 
@@ -414,17 +439,20 @@ def node_summary(node_name):
     """CPU/RAM/storage/VMs of the node, in the same shape as the local
     GET /dashboard (app/routers/dashboard.py), so the frontend can reuse the
     same rendering whichever node is shown."""
-    from app.core.libvirt_utils import ensure_default_pool, open_conn
+    from app.core import privileged
+    from app.core.libvirt_utils import open_conn
+    from app.daemon.registry import DaemonError
 
-    conn = open_conn(node_name)
+    conn = open_conn(node_name, readonly=True)
     try:
         domains = conn.listAllDomains()
         active = sum(1 for d in domains if d.isActive())
         try:
-            pool = ensure_default_pool(conn)
-            pool.refresh(0)
-            _, capacity, _allocation, available = pool.info()
-        except libvirt.libvirtError:
+            # Its 'default' pool made where it is missing and read again by hyperlite-daemon, with the cluster's key.
+            privileged.run("storage.ensure_default_pool", node=node_name)
+            privileged.run("storage.pool_refresh", pool="default", node=node_name)
+            _, capacity, _allocation, available = conn.storagePoolLookupByName("default").info()
+        except (libvirt.libvirtError, DaemonError):
             capacity = available = None
         return {
             "hostname": conn.getHostname(),
@@ -479,11 +507,23 @@ def _report_down(name):
         print(f"[cluster] HA alert failed for {name}: {ha_exc!r}", flush=True)
 
 
+def _poll_test(node):
+    """A node's check by hyperlite-daemon; a daemon that does not answer leaves the node as it was, never down."""
+    from app.daemon.registry import DaemonError
+
+    try:
+        return test_from_daemon(node["hostname"], node["ssh_user"], node["ssh_port"])
+    except DaemonError as e:
+        if e.kind == "unavailable":
+            return node.get("status") == "online", e.detail
+        return False, e.detail
+
+
 def _poll_once():
     """Check every registered node; returns whether one of them is down."""
     down = False
     for node in list_nodes():
-        ok, _ = test_node_connection(node["hostname"], node["ssh_user"], node["ssh_port"])
+        ok, _ = _poll_test(node)
         new_statut = "online" if ok else "offline"
         prev = _nodes().update_status(node["id"], new_statut, datetime.now(UTC).isoformat())
         if ok and not cluster_lead.in_cluster():  # a member of a cluster starts its own VMs
@@ -504,9 +544,13 @@ def _poll_once():
     # HA: resynchronize the cache of protected VMs while their node is reachable. Same cadence as the node poll
     # (POLL_INTERVAL_S), no need for a separate dedicated loop.
     try:
-        from app.core.ha import sync_protected_vms
+        from app.core.ha import forget_moved, sync_protected_vms
 
         sync_protected_vms()
+        # A node back before HA moved its VMs elsewhere (its watchdog reset it, and it rejoined early) undefines them
+        # here, once the move is done; only with the quorum, when the records it reads are the cluster's.
+        if cluster_lead.in_cluster() and not cluster_lead.read_only_reason():
+            forget_moved()
     except Exception as ha_exc:
         print(f"[cluster] HA resynchronization failed: {ha_exc!r}", flush=True)
     return down

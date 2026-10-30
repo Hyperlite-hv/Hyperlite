@@ -52,7 +52,10 @@ export default function JournalPage({ embedded = false }) {
   // The whole filtered log, from the server: the page itself only holds the most recent entries.
   const download = async () => {
     setExporting(true);
-    try { await downloadAuditCsv(filters(applied)); }
+    try {
+      const { unreachable: missed } = await downloadAuditCsv(filters(applied));
+      if (missed.length) pushToast({ kind: "error", title: t("jr.exportPartial"), message: t("jr.exportMissed", { nodes: missed.join(", ") }) });
+    }
     catch (e) { pushToast({ kind: "error", title: t("act.exportFailed"), message: errorMessage(e) }); }
     finally { setExporting(false); }
   };

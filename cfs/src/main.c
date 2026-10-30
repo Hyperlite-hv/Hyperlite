@@ -4,6 +4,7 @@
  * quorate. Cluster mode (--cluster) joins the local Corosync's process group: changes are applied by every member in
  * the order Corosync agreed, and refused without quorum. */
 
+#include <grp.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -35,12 +36,13 @@ static int loop_send(void *arg, const uint8_t *msg, size_t len)
 
 static void usage(FILE *f)
 {
-    fprintf(f, "usage: hyperlite-cfs [--cluster] [--db PATH] [--socket PATH] [--socket-mode OCTAL]\n"
+    fprintf(f, "usage: hyperlite-cfs [--cluster] [--db PATH] [--socket PATH] [--socket-mode OCTAL] [--socket-group NAME]\n"
                "       hyperlite-cfs expected-votes VOTES [--confirm CLUSTER_NAME]\n"
                "  --cluster      replicate through the local Corosync (default: local mode, one node)\n"
                "  --db           database file (default " DEFAULT_DB ")\n"
                "  --socket       Unix socket (default " DEFAULT_SOCKET ")\n"
                "  --socket-mode  permissions of the socket (default 0600: root only)\n"
+               "  --socket-group group of the socket (the API's, which reads; only root changes anything)\n"
                "  expected-votes make a partition that lost the quorum writable again (see --help after it)\n");
 }
 
@@ -49,6 +51,7 @@ int main(int argc, char **argv)
     const char *db = DEFAULT_DB;
     const char *sock = DEFAULT_SOCKET;
     unsigned mode = 0600;
+    gid_t group = (gid_t)-1;
     bool cluster = false;
     if (argc > 1 && strcmp(argv[1], "expected-votes") == 0)
         return cfs_expected_main(argc - 1, argv + 1);
@@ -67,6 +70,13 @@ int main(int argc, char **argv)
                 return 2;
             }
             mode = (unsigned)m;
+        } else if (strcmp(argv[i], "--socket-group") == 0 && i + 1 < argc) {
+            const struct group *g = getgrnam(argv[++i]);
+            if (!g) {
+                fprintf(stderr, "hyperlite-cfs: no group %s\n", argv[i]);
+                return 2;
+            }
+            group = g->gr_gid;
         } else if (strcmp(argv[i], "--help") == 0) {
             usage(stdout);
             return 0;
@@ -116,7 +126,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "hyperlite-cfs: local mode, database %s, socket %s\n", db, sock);
     }
     if (rc == 0)
-        rc = cfs_serve(&node, sock, mode, sources, nsources, &stop_requested);
+        rc = cfs_serve(&node, sock, mode, group, sources, nsources, &stop_requested);
     cfs_corosync_close(cs);
     cfs_node_free(&node);
     cfs_store_close(store);

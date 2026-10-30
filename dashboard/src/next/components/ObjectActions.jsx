@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-  ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Heart, LayoutTemplate, Link, MoveHorizontal, PencilLine, Play, Plus, Power, RefreshCw,
+  ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Globe, Heart, LayoutTemplate, Link, MoveHorizontal, PencilLine, Play, Plus, Power, RefreshCw,
   RotateCcw, RotateCw, Share, Square, SquareTerminal, Trash2, Wrench,
 } from "lucide-react";
 import {
@@ -22,6 +22,7 @@ import Menu, { MenuItem } from "./Menu";
 import ContextMenu from "./ContextMenu";
 import { selectionToPath } from "../lib/urls";
 import MigrateDialog from "./MigrateDialog";
+import SiteMoveDialog from "./SiteMoveDialog";
 import { leaveMaintenance } from "./MaintenanceDialog";
 import { SideDrawer, Field } from "./ui";
 
@@ -82,6 +83,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   const { nodes, pushToast, refreshAll } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, pushToast: s.pushToast, refreshAll: s.refreshAll })));
   const vmActions = useVmActions();
   const [migrate, setMigrate] = useState(false);
+  const [siteMove, setSiteMove] = useState(false);
   // undefined while loading, null when the load failed: an unknown state must never read as "off",
   // or the HA entry would offer to protect a VM that already is (and the toggle would do the opposite).
   const [cleanup, setCleanup] = useState(undefined);
@@ -161,7 +163,12 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   }
   async function remove() {
     if (!(await confirmAction({ title: t("vx.deleteTitle", { name: vm.name }), message: t("vx.deleteMsg"), confirmLabel: t("vx.delete"), danger: true }))) return;
-    try { await useInfraStore.getState().runVMAction(vmKey(vm), "delete"); onDeleted?.(); }
+    try {
+      const taskId = await useInfraStore.getState().runVMAction(vmKey(vm), "delete");
+      const kept = Object.entries(useInfraStore.getState().tasks.find((x) => x.id === taskId)?.keptDisks || {});
+      if (kept.length) pushToast({ kind: "info", title: t("vx.keptDisks", { count: kept.length }), message: kept.map(([path, why]) => `${path} (${why})`).join("; ") });
+      onDeleted?.();
+    }
     catch { /* the store already shows the error */ }
   }
   function snapshot() {
@@ -198,6 +205,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       {item("rename", PencilLine, t("vx.renameMenu"), admin(stopped), rename)}
       {item("clone", CopyPlus, t("vx.cloneMenu"), localOnly(admin(stopped)), clone)}
       {item("migrate", MoveHorizontal, t("head.migrate"), mig, () => setMigrate(true))}
+      {item("site-move", Globe, t("smv.menu"), localOnly(admin()), () => setSiteMove(true))}
       {item("template-copy", LayoutTemplate, t("vx.tplCopyMenu"), localOnly(admin(stopped)), copyToTemplate)}
       {item("template", LayoutTemplate, t("vx.tplMenu"), localOnly(admin(stopped)), toTemplate)}
       {item("export", Share, t("vx.exportMenu"), localOnly(admin()), doExport)}
@@ -212,10 +220,11 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   const dialogs = (
     <>
       {migrate && <MigrateDialog vm={vm} targets={targets} onClose={() => { setMigrate(false); onDialogClose?.(); }} />}
+      {siteMove && <SiteMoveDialog vm={vm} onClose={() => { setSiteMove(false); onDialogClose?.(); }} />}
       {cleanupOpen && <CleanupDrawer vm={vm} state={cleanup} onClose={() => { setCleanupOpen(false); onDialogClose?.(); }} onSaved={setCleanup} />}
     </>
   );
-  return { items, dialogs, dialogOpen: migrate || cleanupOpen };
+  return { items, dialogs, dialogOpen: migrate || siteMove || cleanupOpen };
 }
 
 // VM header: the contextual primary (Console when running, Start when stopped), Stop, and ONE grouped Actions

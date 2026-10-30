@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from app.core import paths, smb_storage
+from app.core import paths, smb_storage, storage_pools
 from app.routers import storage
 from tests.test_shared_pools import _Host
 
@@ -32,7 +32,7 @@ def _options(xml):
 
 def test_the_pool_is_a_netfs_cifs_pool_naming_a_credentials_file():
     payload = storage.PoolCreate(**SMB)
-    xml = storage._build_pool_xml(payload, "/var/lib/libvirt/hyperlite-pools/nas", "/etc/hyperlite/priv/smb/x.cred")
+    xml = storage_pools.pool_xml(payload, "/var/lib/libvirt/hyperlite-pools/nas", "/etc/hyperlite/priv/smb/x.cred")
     root = ET.fromstring(xml)
     assert root.get("type") == "netfs"
     assert root.find("source/host").get("name") == "192.168.1.30"
@@ -54,7 +54,7 @@ def test_the_pool_is_a_netfs_cifs_pool_naming_a_credentials_file():
 
 def test_a_fixed_version_is_passed_to_mount():
     payload = storage.PoolCreate(**SMB, smb_version="3.0")
-    xml = storage._build_pool_xml(payload, "/p", "/etc/hyperlite/priv/smb/x.cred")
+    xml = storage_pools.pool_xml(payload, "/p", "/etc/hyperlite/priv/smb/x.cred")
     assert _options(xml)[1] == "vers=3.0"
     assert smb_storage.version_of(ET.fromstring(xml)) == "3.0"
 
@@ -101,14 +101,15 @@ def _no_credentials_left():
 
 
 @pytest.fixture()
-def hosts(database, monkeypatch):
+def hosts(database, monkeypatch, daemon_libvirt):
     with database.get_conn() as db:
         db.execute(
             "INSERT INTO nodes (name, hostname, ssh_user, ssh_port, added_at) VALUES ('n2', 'n2.lan', 'root', 22, 'now')"
         )
         db.commit()
     hosts = {"local": _Host(), "n2": _Host()}
-    monkeypatch.setattr(storage, "open_conn", lambda node=None: hosts[node or "local"])
+    monkeypatch.setattr(storage, "open_conn", lambda node=None, **_k: hosts[node or "local"])
+    daemon_libvirt(hosts["local"], nodes=hosts)  # every node's pools are hyperlite-daemon's, in this process here
     monkeypatch.setattr(storage.shutil, "which", lambda name: f"/sbin/{name}")
     monkeypatch.setattr(storage.smb_storage, "check", lambda path: {"ok": True, "message": None})
     sent = []
@@ -121,9 +122,11 @@ def hosts(database, monkeypatch):
     return hosts
 
 
-def test_a_pool_on_this_host_writes_its_credentials_root_only(client, auth_headers, hosts):
-    r = client.post("/storage", json=SMB, headers=auth_headers("root"))
+@pytest.mark.parametrize("query", ["", "?node=local"])  # "local" names this host, never a node reached over SSH
+def test_a_pool_on_this_host_writes_its_credentials_root_only(client, auth_headers, hosts, query):
+    r = client.post(f"/storage{query}", json=SMB, headers=auth_headers("root"))
     assert r.status_code == 201, r.text
+    assert hosts["ssh"] == []
     cred = paths.PRIV / "smb" / "nas.cred"
     assert cred.read_text() == "username=vmstore\npassword=S3cr&t, p@ss!\ndomain=LAB\n"
     assert stat.S_IMODE(cred.stat().st_mode) == 0o600

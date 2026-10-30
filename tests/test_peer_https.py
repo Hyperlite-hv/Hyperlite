@@ -122,6 +122,8 @@ def test_peer_api_uses_https_and_falls_back_to_ssh(server, monkeypatch):
         return subprocess.CompletedProcess(args, 0, json.dumps({"status": 200, "body": "[]"}), "")
 
     monkeypatch.setattr(rolling_update, "_ssh", fake_ssh)
+    # hyperlite-daemon reads the member's address from the node registry, for the fallback.
+    monkeypatch.setattr(rolling_update.cluster, "get_node", lambda name: dict(server["node"]))
     status, body = rolling_update.peer_api(server["node"], "ana", "GET", "/vms")
     assert status == 200 and body["path"] == "/api/v1/vms" and ssh == []  # the members' API prefix
     server["published"].clear()  # no fingerprint: SSH, as before
@@ -207,6 +209,20 @@ def test_a_fingerprint_the_cluster_refused_is_published_again_soon(monkeypatch):
         time.sleep(0.01)
     stop.set()
     assert len(rounds) >= 2
+
+
+def test_an_export_is_read_while_it_arrives_on_a_connection_of_its_own(server):
+    answer = peer_https.stream(server["node"], "tok", "/api/v1/tasks/export.csv")
+    assert answer.status == 200
+    assert json.loads(answer.lines.read()) == {"path": "/api/v1/tasks/export.csv", "method": "GET"}
+    answer.close()
+    assert Handler.seen[-1][2] == "Bearer tok"
+    assert peer_https._pools == {}  # never a kept connection: the caller closes it once read
+    server["published"]["pve-a"] = "0" * 64
+    with pytest.raises(peer_https.Unavailable, match="does not match"):
+        peer_https.stream(server["node"], "tok", "/api/v1/tasks/export.csv")
+    with pytest.raises(peer_https.Unavailable):
+        peer_https.stream({"name": "pve-b", "hostname": "127.0.0.1"}, "tok", "/api/v1/tasks/export.csv")
 
 
 def test_a_connection_the_peer_closed_is_never_reopened_unchecked(server):

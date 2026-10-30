@@ -1,8 +1,6 @@
 """Accounts as the API manages them: the user list, creation, role and password changes, deletion, TOTP enrolment
 and the sign-in record. Password checks, hashing and sessions stay in app/core/security.py."""
 
-from datetime import UTC, datetime
-
 from app.domain.common import AlreadyExists
 from app.repositories import registry
 
@@ -42,12 +40,19 @@ def delete(username):
     _store().delete(username)
 
 
-def record_login(username):
-    _store().record_login(username, datetime.now(UTC).isoformat())
+def start_totp(username):
+    """A new second factor's secret, made, sealed and stored by hyperlite-daemon (it holds the node's keys): the
+    secret, shown once for the QR code."""
+    from app.core import privileged
+
+    return privileged.run("access.totp_start", user=username, username=username)["secret"]
 
 
-def start_totp(username, sealed_secret):
-    _store().set_totp_secret(username, sealed_secret)
+def check_totp(username, code):
+    """Whether `code` is the account's current one, checked by hyperlite-daemon; each code is accepted once."""
+    from app.core import privileged
+
+    return privileged.run("access.totp_check", user=username, username=username, code=code)["valid"]
 
 
 def enable_totp(username):

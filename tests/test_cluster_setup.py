@@ -74,8 +74,10 @@ def host(database, tmp_path, monkeypatch):
     monkeypatch.setattr(cluster_setup, "CFS_DEFAULTS", tmp_path / "default-cfs")
     monkeypatch.setattr(cluster_setup, "CFS_DB", tmp_path / "cfs" / "config.db")
     monkeypatch.setattr(cluster_setup, "WAIT_S", 2)
+    monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 2)
     monkeypatch.setattr(cluster_setup, "_run", run)
     monkeypatch.setattr(cluster_setup, "_local_addresses", lambda: {ADDRESS, "192.0.2.11"})
+    monkeypatch.setattr(cluster_setup, "_running_version", lambda: None)
     restarts = []
     monkeypatch.setattr(cluster_setup, "_restart_service", lambda: restarts.append(1))
     monkeypatch.setattr(shadow, "BINARY", str(tmp_path / "hyperlite-cfs"))
@@ -321,6 +323,21 @@ def test_each_node_follows_the_shared_configuration(host):
     assert not cluster_setup.sync()  # nothing newer
 
 
+def test_a_configuration_written_but_not_running_is_reloaded_again(host, monkeypatch):
+    _create(host)
+    cluster_setup.sync()
+    written = cluster_setup._local_version()
+    running = [written - 1]
+    monkeypatch.setattr(cluster_setup, "_running_version", lambda: running[0])
+    host.commands.clear()
+    assert not cluster_setup.sync()
+    assert host.commands == ["corosync-cfgtool -R"]  # its earlier reload did not take: Corosync lacks a member
+    running[0] = written
+    host.commands.clear()
+    cluster_setup.sync()
+    assert host.commands == []  # running what is written: nothing to do
+
+
 def test_removing_a_member(host):
     _create(host)
     _info, decoded = _information(host)
@@ -491,6 +508,7 @@ def test_a_join_that_fails_puts_this_node_back_as_it_was(host, monkeypatch):
     authorized_keys are back as they were, and nothing tells Hyperlite it joined."""
     monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: _answer())
     monkeypatch.setattr(cluster_setup, "WAIT_S", 0)
+    monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 0)
     conf = cluster_setup.COROSYNC_CONF
     conf.parent.mkdir(parents=True)
     conf.write_text("# Debian's own\n")
@@ -668,3 +686,52 @@ def test_a_node_before_1_3_joins_without_its_fingerprint_and_keys(host):
     _info, decoded = _information(host)
     cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)  # it publishes them itself, later
     assert "/cluster/tls/pve-b" not in host.files and "/cluster/authkey/pve-b" not in host.files
+
+
+def test_a_joining_node_waits_longer_for_its_links_than_a_new_cluster(host, monkeypatch):
+    """The links to the members come up once they reloaded with the new node: more than a minute on a loaded host
+    (the lab on GitHub's runners gave up at 60 s, the links up a second later)."""
+    waits = []
+    monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: _answer())
+    monkeypatch.setattr(cluster_setup, "_wait_for_cluster", lambda wait_s=None: waits.append(wait_s))
+    monkeypatch.setattr(cluster_setup, "JOIN_WAIT_S", 300)
+    cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
+    assert waits == [300] and cluster_setup.JOIN_WAIT_S > cluster_setup.WAIT_S
+
+
+def test_each_member_says_which_configuration_its_file_holds(host):
+    _create(host)
+    cluster_setup.sync()
+    assert host.files[f"{cluster_setup.WRITTEN_DIR}/hv-test"] == str(cluster_setup._local_version()).encode()
+
+
+def test_a_new_member_is_reloaded_in_once_every_member_wrote_it(host, monkeypatch):
+    """The lab's node-3 failure: the reload reaches every member at once, each from its own file, and a member that
+    still held the older one left the new node out while this one took it into the ring."""
+    _create(host)
+    _, decoded = _information(host)
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    _, decoded = _information(host)
+    written = f"{cluster_setup.WRITTEN_DIR}/pve-b"
+    seen = []
+
+    def member_follows(seconds):  # pve-b's lead loop writes the new configuration while this node waits
+        seen.append(list(host.commands))
+        host.files[written] = b"3"
+
+    monkeypatch.setattr(cluster_setup.time, "sleep", member_follows)
+    host.commands.clear()
+    cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
+    assert seen == [[]]  # waited once, before any reload
+    assert host.commands == ["corosync-cfgtool -R"]
+
+
+def test_a_member_that_does_not_write_it_is_waited_for_a_while_only(host, monkeypatch, caplog):
+    _create(host)
+    _, decoded = _information(host)
+    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    _, decoded = _information(host)
+    monkeypatch.setattr(cluster_setup, "WRITTEN_WAIT_S", 0)
+    host.commands.clear()
+    cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
+    assert host.commands == ["corosync-cfgtool -R"] and "pve-b did not write version 3" in caplog.text

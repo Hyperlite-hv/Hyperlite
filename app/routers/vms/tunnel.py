@@ -22,7 +22,7 @@ from app.core.audit import log_action, request_ip
 from app.core.libvirt_utils import open_conn
 from app.core.security import require_vm_privilege
 from app.core.vm_meta import get_vm_ssh_user
-from app.routers.vms._shared import router
+from app.routers.vms._shared import _agent_ips, router
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,8 @@ def _guest_ip(domain):
     could have the hypervisor connect anywhere it reaches (GHSA-4vfp-w7wf-jv75). It is preferred among those
     addresses, as it knows which one is the VM's own."""
     bound = _bound_ipv4(domain)
-    agent = guest_agent.ipv4(domain)
+    # Asked by hyperlite-daemon: an agent command needs a connection that may write, the API's is read-only.
+    agent = _agent_ips([domain]).get(domain.UUIDString()) if guest_agent.connected(domain) else None
     if agent and agent in bound:
         return agent
     return bound[0] if bound else None
@@ -76,7 +77,7 @@ def create_tunnel_ticket(
     if workstation.open_tunnel_count(user["username"]) >= workstation.tunnel_max_per_user():
         log_action(user["username"], "create_tunnel_ticket", f"{name}:{port}", "failed", "too many open tunnels")
         raise HTTPException(status_code=429, detail="Too many open tunnels for this account: close some first.")
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)
@@ -211,7 +212,7 @@ def _directly_reachable(conn, root):
 def vm_access(name: str, user: dict = Depends(require_vm_privilege("vm.view"))):
     """How a workstation can reach this VM: directly (a bridged network of the site,
     like any machine of the LAN) or through a tunnel of the hyperlite client."""
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         try:
             domain = conn.lookupByName(name)

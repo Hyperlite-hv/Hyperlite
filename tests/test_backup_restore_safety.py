@@ -293,7 +293,7 @@ def test_a_restore_that_would_not_fit_beside_the_disks_touches_nothing(tmp_path,
     for both; a full system disk stops the database, the journal and libvirt."""
     domain, vm_dir = _vm(tmp_path, ("vda", "qcow2"))
     released = []
-    monkeypatch.setattr(backups.checkpoints, "release", lambda d: released.append(d))
+    monkeypatch.setattr(backups.checkpoints, "drop", lambda d: released.append(d) or 0)
     _no_room(monkeypatch)
     with pytest.raises(backups.disk_space.NotEnoughSpace, match=r"this restore.*20\.0 GiB free, about 50\.0 GiB"):
         backups._restore_overwrite(None, domain, _images(tmp_path, "vda"), "t")
@@ -306,7 +306,7 @@ def test_the_replication_chain_is_kept_by_a_restore_that_is_refused(tmp_path, mo
     next replication to copy the whole VM again."""
     domain, _vm_dir = _vm(tmp_path, ("vda", "qcow2"), ("vdb", "qcow2"))
     released = []
-    monkeypatch.setattr(backups.checkpoints, "release", lambda d: released.append(d))
+    monkeypatch.setattr(backups.checkpoints, "drop", lambda d: released.append(d) or 0)
     with pytest.raises(RuntimeError, match="no longer match"):
         backups._restore_overwrite(None, domain, _images(tmp_path, "vda"), "t")
     assert released == []
@@ -320,7 +320,7 @@ def test_a_failed_checkpoint_release_removes_the_staged_images(tmp_path, monkeyp
     def broken(d):
         raise RuntimeError("Cannot remove the replication bitmap")
 
-    monkeypatch.setattr(backups.checkpoints, "release", broken)
+    monkeypatch.setattr(backups.checkpoints, "drop", broken)
     with pytest.raises(RuntimeError, match="bitmap"):
         backups._restore_overwrite(None, domain, _images(tmp_path, "vda"), "t")
     assert sorted(p.name for p in vm_dir.iterdir()) == ["vm1-vda.img"]

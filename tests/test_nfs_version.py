@@ -4,6 +4,8 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from app.core import storage_pools
+
 FS = "{http://libvirt.org/schemas/storagepool/fs/1.0}"
 
 
@@ -18,7 +20,7 @@ def test_the_chosen_version_is_passed_to_mount(version):
     payload = storage.PoolCreate(
         name="nas", type="netfs", nfs_host="127.0.0.1", nfs_export_path="/srv/share", nfs_version=version
     )
-    options = _options(storage._build_pool_xml(payload, "/var/lib/hyperlite/nas"))
+    options = _options(storage_pools.pool_xml(payload, "/var/lib/hyperlite/nas"))
     assert f"vers={version}" in options and "addr=127.0.0.1" in options
     assert sum(o.startswith("vers=") for o in options) == 1
 
@@ -27,7 +29,7 @@ def test_without_a_choice_the_previous_version_is_kept():
     from app.routers import storage
 
     payload = storage.PoolCreate(name="nas", type="netfs", nfs_host="127.0.0.1", nfs_export_path="/srv/share")
-    assert "vers=4.2" in _options(storage._build_pool_xml(payload, "/var/lib/hyperlite/nas"))
+    assert "vers=4.2" in _options(storage_pools.pool_xml(payload, "/var/lib/hyperlite/nas"))
 
 
 @pytest.mark.parametrize("version", ["2", "5", "4.2,nolock", "", "3;rm"])

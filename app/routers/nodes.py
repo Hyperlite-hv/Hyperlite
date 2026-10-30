@@ -2,26 +2,22 @@
 app/core/cluster.py."""
 
 import logging
-import re
 import threading
 
 import libvirt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from app.core import cluster_compat, cluster_view, maintenance, renaming, self_node, vm_locks
+from app.core import cluster, cluster_compat, cluster_view, maintenance, privileged, renaming, self_node, vm_locks
 from app.core.audit import log_action
 from app.core.cluster import (
     check_address,
-    get_cluster_pubkey,
     node_summary,
     register_node,
-    rename_reverse_trust,
-    test_node_connection,
 )
 from app.core.error_messages import describe_exception
-from app.core.host_capabilities import get_remote_capabilities
+from app.core.host_capabilities import remote_capabilities
 from app.core.libvirt_utils import open_conn
 from app.core.listing import listing
 from app.core.security import get_current_user, require_role
@@ -31,11 +27,13 @@ from app.core.tasks import (
     finish_task,
     register_cancel,
     request_cancel,
+    start_thread,
     task_log,
     task_status,
     update_task_progress,
 )
 from app.core.tasks import requester as _cancel_requester
+from app.daemon.registry import DaemonError
 from app.routers.vms.migration import _migrate_vm_job
 from app.services import node_service
 
@@ -43,7 +41,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
-NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$")
+NAME_RE = cluster.NODE_NAME_RE
+
+# A host driven over SSH from this node, with no Hyperlite of its own (one controller, nodes over SSH), is deprecated:
+# a node joins a cluster of equal nodes instead, as on Proxmox VE, with no controller to lose. Its routes keep working
+# for as long as API v1 lasts, and go with v2 (docs/api.md, "Deprecated").
+DEPRECATED_SINCE = "@1792800000"  # RFC 9745: 2026-10-24
+SSH_HOSTS_DOC = "https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/cluster-failover.md"
+
+
+def _deprecated(response: Response):
+    response.headers["Deprecation"] = DEPRECATED_SINCE
+    response.headers["Link"] = f'<{SSH_HOSTS_DOC}>; rel="deprecation"'
+
+
+SSH_HOST_ROUTE = {"deprecated": True, "dependencies": [Depends(_deprecated)]}
 
 
 async def _require(name):
@@ -69,7 +81,7 @@ class NodeTest(BaseModel):
     ssh_port: int = Field(22, ge=1, le=65535)
 
 
-@router.post("/test")
+@router.post("/test", **SSH_HOST_ROUTE)
 def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
     """Check that a machine can be registered (SSH trust plus a QEMU/KVM libvirt) without
     registering it, so the add-node form can say what is wrong before submitting."""
@@ -77,7 +89,8 @@ def test_node(payload: NodeTest, user: dict = Depends(require_role("admin"))):
         check_address(payload.hostname, payload.ssh_user)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
-    ok, detail = test_node_connection(payload.hostname, payload.ssh_user, payload.ssh_port)
+    # Asked of hyperlite-daemon, which alone holds the cluster's key.
+    ok, detail = cluster.test_from_daemon(payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     log_action(user["username"], "test_node", payload.hostname, "success" if ok else "failed", None if ok else detail)
     # The raw libvirt/SSH error stays in the audit log; the browser gets a fixed reason.
     if ok:
@@ -109,11 +122,11 @@ def _connection_failure(raw):
     return "The connection failed: the details are in the audit log."
 
 
-@router.get("/cluster-pubkey")
+@router.get("/cluster-pubkey", **SSH_HOST_ROUTE)
 def get_cluster_key(user: dict = Depends(require_role("admin"))):
     """Public key to install in ~/.ssh/authorized_keys of the remote node before
     registering it, displayed in the UI so it can be copied and pasted."""
-    return {"public_key": get_cluster_pubkey()}
+    return {"public_key": cluster.public_key()}
 
 
 class NodeCreate(BaseModel):
@@ -130,7 +143,7 @@ def _refuse_own_name(name):
         raise HTTPException(status_code=422, detail=f"'{name}' is this node's own name: choose another one")
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, **SSH_HOST_ROUTE)
 def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     if not NAME_RE.match(payload.name):
         raise HTTPException(status_code=422, detail="Invalid node name (letters/digits/-/., 2-63 characters)")
@@ -139,6 +152,10 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
         check_address(payload.hostname, payload.ssh_user)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
+    logger.warning(
+        "%s is registered as a host driven over SSH, which is deprecated: install Hyperlite on it and join the cluster",
+        payload.name,
+    )
     try:
         node = register_node(payload.name, payload.hostname, payload.ssh_user, payload.ssh_port, user["username"])
     except RuntimeError as e:
@@ -160,7 +177,7 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     return node
 
 
-@router.get("/config-copy")
+@router.get("/config-copy", **SSH_HOST_ROUTE)
 def config_copy_status(user: dict = Depends(require_role("admin"))):
     """When the configuration was last copied to each node (see app/core/config_copy.py)."""
     from app.core import config_copy
@@ -168,7 +185,7 @@ def config_copy_status(user: dict = Depends(require_role("admin"))):
     return config_copy.status()
 
 
-@router.post("/config-copy")
+@router.post("/config-copy", **SSH_HOST_ROUTE)
 def config_copy_now(user: dict = Depends(require_role("admin"))):
     """Copy the configuration to every online node now, whatever changed."""
     from app.core import config_copy
@@ -190,7 +207,7 @@ async def get_node_summary(name: str, user: dict = Depends(get_current_user)):
 
 
 def _compat_with_local(name):
-    local, remote = open_conn(None), open_conn(name)
+    local, remote = open_conn(None), open_conn(name, readonly=True)
     try:
         return cluster_compat.report(cluster_compat.check_pair(local, remote))
     finally:
@@ -220,9 +237,9 @@ async def get_node_capabilities(name: str, user: dict = Depends(get_current_user
     and is degraded to `null` otherwise rather than failing)."""
     await _require(name)
     try:
-        return await run_in_threadpool(get_remote_capabilities, name)
-    except HTTPException:  # the node seen down (503) or not answering (502), already said
-        raise
+        return await run_in_threadpool(remote_capabilities, name)
+    except DaemonError as e:  # the node seen down (503) or not answering (502), said by the daemon
+        raise privileged.http_error(e, failed="Node unreachable: {}") from None
     except Exception as e:
         msg = describe_exception(e)
         raise HTTPException(status_code=502, detail=f"Node unreachable: {msg}") from e
@@ -281,7 +298,7 @@ async def rename_node(name: str, payload: RenameNodeRequest, user: dict = Depend
     if busy:
         raise HTTPException(status_code=409, detail=f"Node '{name}' is busy ({', '.join(busy)}): try again later")
     await run_in_threadpool(renaming.node_records, name, new)
-    await run_in_threadpool(rename_reverse_trust, name, new)
+    await run_in_threadpool(privileged.run, "cluster.rename_trust", user=user["username"], node=name, new_name=new)
     log_action(user["username"], "rename_node", name, "success", f"-> {new}")
     return await node_service.wire_with_live(new)
 
@@ -296,11 +313,15 @@ _draining_lock = threading.Lock()
 class MaintenanceRequest(BaseModel):
     # Where the running VMs go; None = only mark the node, every VM stays where it is.
     target_node: str | None = None
+    # Each running VM where load balancing places it instead (docs/design/drs.md, 3.6): never with a target_node.
+    spread: bool = False
 
 
-def _checked_pair(name, target_node):
+def _checked_pair(name, target_node, spread=False):
     source = maintenance.label(name)
     maintenance.check_node_exists(source)
+    if spread and target_node is not None:
+        raise HTTPException(status_code=422, detail="Either a target node or the spread by load balancing, not both")
     target = None
     if target_node is not None:
         target = maintenance.label(target_node)
@@ -311,12 +332,17 @@ def _checked_pair(name, target_node):
     return source, target
 
 
-def _plan(source, target):
+def _plan(source, target, spread=False):
     """The drain plan, or a 502 when a node cannot be reached."""
     try:
         src_conn = open_conn(maintenance.conn_key(source))
     except libvirt.libvirtError as e:
         raise HTTPException(status_code=502, detail=f"Node '{source}' unreachable: {describe_exception(e)}") from e
+    if spread:
+        try:
+            return _spread_plan(source, src_conn)
+        finally:
+            src_conn.close()
     dst_conn = None
     try:
         if target is not None:
@@ -333,20 +359,44 @@ def _plan(source, target):
             dst_conn.close()
 
 
+def _spread_plan(source, src_conn):
+    """The drain plan when each running VM goes where load balancing places it, with "targets": {vm: label}."""
+    from app.core import drs, self_node
+
+    me = self_node.name()
+    running = [d.name() for d in src_conn.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE)]
+    placed = drs.spread(me if source == maintenance.LOCAL else source, running)
+    targets = {vm: (maintenance.LOCAL if n == me else n) if n else None for vm, n in placed.items()}
+    conns = {}
+    try:
+        for label in {t for t in targets.values() if t}:
+            try:
+                conns[label] = open_conn(maintenance.conn_key(label))
+            except libvirt.libvirtError:
+                conns[label] = None  # its VMs stay, said why
+        return maintenance.spread_plan(src_conn, targets, conns)
+    finally:
+        for conn in conns.values():
+            if conn:
+                conn.close()
+
+
 @router.get("/maintenance")
 def list_maintenance(user: dict = Depends(get_current_user)):
     return listing(maintenance.list_all())
 
 
 @router.get("/{name}/drain-plan")
-def get_drain_plan(name: str, target_node: str | None = None, user: dict = Depends(require_role("admin"))):
+def get_drain_plan(
+    name: str, target_node: str | None = None, spread: bool = False, user: dict = Depends(require_role("admin"))
+):
     """What draining would do, without doing it: shown to the admin before confirming."""
-    source, target = _checked_pair(name, target_node)
-    return _plan(source, target)
+    source, target = _checked_pair(name, target_node, spread)
+    return _plan(source, target, spread)
 
 
-def _run_in_background(target, *args):
-    threading.Thread(target=target, args=args, daemon=True).start()
+def _run_in_background(target, task_id, *args):
+    start_thread(target, task_id, *args, task_id=task_id)
 
 
 def _drain_job(parent_id, username, source, target, names):
@@ -377,8 +427,9 @@ def _drain_job(parent_id, username, source, target, names):
                 with claim:
                     task_id = create_task("migrate_vm", vm_name, node=source, username=username)
                     current["task"] = task_id
-                    task_log(parent_id, f"Migrating {vm_name} ({i + 1}/{len(names)})")
-                    _migrate_vm_job(task_id, username, maintenance.conn_key(source), target, vm_name)
+                    to = target[vm_name] if isinstance(target, dict) else target  # spread: each its own
+                    task_log(parent_id, f"Migrating {vm_name} to {to} ({i + 1}/{len(names)})")
+                    _migrate_vm_job(task_id, username, maintenance.conn_key(source), to, vm_name)
                     current.pop("task", None)
                 if task_status(task_id) != "succeeded":
                     failed.append(vm_name)
@@ -390,7 +441,9 @@ def _drain_job(parent_id, username, source, target, names):
         with _draining_lock:
             _draining.discard(source)
     moved = len(names) - len(failed) - len(not_started)
-    summary = f"{moved}/{len(names)} VM(s) migrated to {target}"
+    summary = f"{moved}/{len(names)} VM(s) migrated to " + (
+        "the members load balancing chose" if isinstance(target, dict) else target
+    )
     if failed:
         summary += f"; failed: {', '.join(failed)}"
     if not_started:
@@ -403,8 +456,9 @@ def _drain_job(parent_id, username, source, target, names):
 
 @router.post("/{name}/maintenance", status_code=202)
 def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depends(require_role("admin"))):
-    """Put a node in maintenance, then live-migrate its running VMs to `target_node`, one after another."""
-    source, target = _checked_pair(name, payload.target_node)
+    """Put a node in maintenance, then live-migrate its running VMs to `target_node`, or each where load balancing
+    places it (`spread`), one after another."""
+    source, target = _checked_pair(name, payload.target_node, payload.spread)
     # Reserved under the lock, planned outside it: the plan talks to both nodes and can take seconds.
     with _draining_lock:
         if source in _draining:
@@ -415,12 +469,12 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
         # Marked before the plan: from now on no VM can be created on it or sent to it.
         maintenance.enter(source, user["username"])
         try:
-            result = _plan(source, target)
+            result = _plan(source, target, payload.spread)
         except HTTPException as e:
             # A node that is down is still worth marking: it must not become a migration or HA target.
             log_action(user["username"], "enter_maintenance", source, "success", "node unreachable, nothing migrated")
             raise HTTPException(
-                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, purpose no VM was migrated"
+                status_code=e.status_code, detail=f"{e.detail}. The node is in maintenance, but no VM was migrated"
             ) from e
         if result["migratable"]:
             task_id = create_task("drain_node", source, node=source, username=user["username"])
@@ -435,10 +489,11 @@ def enter_maintenance(name: str, payload: MaintenanceRequest, user: dict = Depen
         "enter_maintenance",
         source,
         "success",
-        f"target {target or 'none'}; to migrate: {len(result['migratable'])}; staying: {len(result['not_migratable'])}",
+        f"target {'spread' if payload.spread else target or 'none'}; to migrate: {len(result['migratable'])}; staying: {len(result['not_migratable'])}",
     )
     if task_id:
-        _run_in_background(_drain_job, task_id, user["username"], source, target, result["migratable"])
+        where = result["targets"] if payload.spread else target
+        _run_in_background(_drain_job, task_id, user["username"], source, where, result["migratable"])
     return {"node": source, "in_maintenance": True, "task_id": task_id, **result}
 
 

@@ -10,7 +10,7 @@ import libvirt
 import pytest
 from fastapi import HTTPException
 
-from app.core import firmware, vm_builder
+from app.core import firmware, vm_builder, vm_snapshots
 
 runtime = importlib.import_module("app.routers.vms.runtime")
 snapshots = importlib.import_module("app.routers.vms.snapshots")
@@ -149,16 +149,18 @@ def test_without_kvm_the_support_is_read_for_qemu_and_without_either_nothing_is_
     assert support["uefi"] is False and support["uefi_secure"] is False and "q35" in support["reason"]
 
 
-def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path):
+def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path, daemon_libvirt):
     root = build(firmware.UEFI_SECURE, disk_bus="sata")
     domain = Mock()
     domain.XMLDesc.return_value = ET.tostring(root, encoding="unicode")
     domain.isActive.return_value = True
     conn = Mock()
     conn.lookupByName.return_value = domain
-    monkeypatch.setattr(runtime, "open_conn", lambda: conn)
+    monkeypatch.setattr(runtime, "open_conn", lambda **_k: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon changes the drive, in this process in the tests
     monkeypatch.setattr(runtime, "log_action", Mock())
     monkeypatch.setattr(runtime, "ISOS_DIR", tmp_path)
+    monkeypatch.setattr("app.core.disk_library.ISOS", tmp_path)  # the library the daemon reads
     (tmp_path / "virtio.iso").touch()
     runtime.set_vm_cdrom("win", runtime.CdromRequest(iso="virtio.iso", target_dev="hdd"), {"username": "admin"})
     xml, _ = domain.updateDeviceFlags.call_args.args
@@ -170,20 +172,19 @@ def test_the_driver_slot_of_a_uefi_vm_is_its_sata_drive(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize(("fw", "active", "refused"), [("uefi_secure", True, True), ("uefi_secure", False, False)])
-def test_a_running_uefi_vm_is_not_snapshotted_a_stopped_one_is(monkeypatch, fw, active, refused):
+def test_a_running_uefi_vm_is_not_snapshotted_a_stopped_one_is(monkeypatch, daemon_libvirt, fw, active, refused):
     domain = Mock()
     domain.XMLDesc.return_value = ET.tostring(build(fw), encoding="unicode")
     domain.isActive.return_value = active
     domain.snapshotLookupByName.side_effect = libvirt.libvirtError("none")
     conn = Mock()
     conn.lookupByName.return_value = domain
-    monkeypatch.setattr(snapshots, "open_conn", lambda: conn)
+    daemon_libvirt(conn)  # hyperlite-daemon checks the snapshot
     monkeypatch.setattr(snapshots, "log_action", Mock())
-    monkeypatch.setattr(snapshots, "_zvol_disks_of_domain", lambda d: [])
-    monkeypatch.setattr(snapshots.iscsi, "refuse_if_iscsi", lambda d, what: None)
+    monkeypatch.setattr(vm_snapshots.iscsi, "iscsi_disks_of_domain", lambda d: [])
     monkeypatch.setattr(snapshots, "create_task", lambda *a, **k: "t1")
     monkeypatch.setattr(snapshots, "task_log", lambda *a: None)
-    monkeypatch.setattr(snapshots.threading, "Thread", Mock())
+    monkeypatch.setattr(snapshots, "start_thread", Mock())
     payload = snapshots.SnapshotCreate(name="before-update")
     if refused:
         with pytest.raises(HTTPException) as err:

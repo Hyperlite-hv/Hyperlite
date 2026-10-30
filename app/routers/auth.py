@@ -27,7 +27,7 @@ from app.core.security import (
     set_password,
     verify_password,
 )
-from app.core.twofa import generate_secret, provisioning_uri, qr_code_svg, seal_secret, verify_code
+from app.core.twofa import provisioning_uri, qr_code_svg
 from app.daemon.registry import DaemonError
 from app.services import account_service
 
@@ -228,10 +228,6 @@ def _sign_in(op, log_user=None, **args):
         ) from None
 
 
-def _record_login(username):
-    account_service.record_login(username)
-
-
 @router.post("/login")
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), remember: bool = Form(False)):
     ip = _client_ip(request)
@@ -265,7 +261,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     if answer.get("weak_flagged"):
         log_action(user["username"], "login", "auth", "success", "Weak password: a change is required")
 
-    # Correct password purpose a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
+    # Correct password but a second factor (TOTP code or security key) set up: no full session token yet, only a 5-minute
     # intermediate token that the frontend exchanges for the real token through /auth/login/2fa after the TOTP code.
     # The account's failures are cleared only once the code is right too: clearing them here would let whoever knows
     # the password guess the code without limit.
@@ -274,7 +270,6 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
         return {"require_2fa": True, "preauth_token": answer["preauth_token"], "methods": answer["methods"]}
 
     _login_clear_failures(user["username"], ip)
-    _record_login(user["username"])
     log_action(user["username"], "login", "auth", "success")
     return _session_response(answer["token"], user)
 
@@ -332,7 +327,6 @@ def login_webauthn(request: Request, payload: LoginWebAuthn):
         log_action(username, "login", "auth", "failed", "Security key refused")
         raise HTTPException(status_code=401, detail="Security key refused: try again, or use the code")
     _login_clear_failures(username, ip)
-    _record_login(username)
     log_action(username, "login", "auth", "success", "Security key validated")
     return _session_response(answer["token"], answer["user"])
 
@@ -376,7 +370,6 @@ def login_2fa(request: Request, payload: Login2FA):
         raise HTTPException(status_code=401, detail="Invalid code (a code is accepted once: wait for the next one)")
 
     _login_clear_failures(username, ip)
-    _record_login(username)
     log_action(username, "login", "auth", "success", "2FA validated")
     return _session_response(answer["token"], answer["user"])
 
@@ -395,8 +388,8 @@ def me(user: dict = Depends(get_current_user_pending_ok)):
 
 # --- Self-service 2FA: each user manages their own 2FA, no need to be an admin
 # (require_role). Two-step flow: /2fa/setup generates a secret and ALREADY stores
-# it in the database, purpose totp_enabled stays 0. Until /2fa/confirm has verified a
-# real code, 2FA is NOT active, so a secret that was generated purpose never
+# it in the database, but totp_enabled stays 0. Until /2fa/confirm has verified a
+# real code, 2FA is NOT active, so a secret that was generated but never
 # confirmed (e.g. the user closes the tab while scanning the QR code) blocks no
 # one at the next login.
 @router.post("/2fa/setup")
@@ -407,8 +400,7 @@ def setup_2fa(payload: PasswordConfirm, user: dict = Depends(get_session_user)):
         raise HTTPException(status_code=400, detail="2FA is already enabled: disable it before generating a new one")
     _check_current_password(user, payload.password, "enable_2fa")
     _reauth_clear_failures(user["username"])
-    secret = generate_secret()
-    account_service.start_totp(user["username"], seal_secret(secret))
+    secret = account_service.start_totp(user["username"])  # made and sealed by hyperlite-daemon
     uri = provisioning_uri(secret, user["username"])
     return {"secret": secret, "otpauth_uri": uri, "qr_code_svg": qr_code_svg(uri)}
 
@@ -418,7 +410,7 @@ def confirm_2fa(payload: TwoFAConfirm, user: dict = Depends(get_session_user)):
     fresh = get_user(user["username"])
     if not fresh["totp_secret"]:
         raise HTTPException(status_code=400, detail="No pending 2FA setup: run /auth/2fa/setup first")
-    if not verify_code(user["username"], fresh["totp_secret"], payload.code):
+    if not account_service.check_totp(user["username"], payload.code):
         # 400, not 401: the session itself is valid, only the submitted code is wrong (a 401 makes
         # the dashboard treat the session as expired and sign the user out).
         raise HTTPException(status_code=400, detail="Invalid code")
@@ -438,7 +430,7 @@ def disable_2fa(request: Request, payload: TwoFADisable, user: dict = Depends(ge
         _refuse_reauth_if_locked(username, "disable_2fa")  # no password to ask: the code alone, below
     else:
         _check_current_password(user, payload.password, "disable_2fa")  # a directory account's, from the directory
-    if user["totp_enabled"] and not verify_code(username, user["totp_secret"], payload.code or ""):
+    if user["totp_enabled"] and not account_service.check_totp(username, payload.code or ""):
         _reauth_record_failure(username)
         log_action(username, "disable_2fa", username, "failed", "Invalid 2FA code")
         raise HTTPException(status_code=400, detail="Invalid 2FA code (a code is accepted once: wait for the next one)")
