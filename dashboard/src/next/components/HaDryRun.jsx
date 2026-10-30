@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
 import { Card, Field, SideDrawer, TableWrap } from "./ui";
 import { InlineError } from "./States";
+import { localizeApiText } from "../lib/apiText";
 
 // Automatic HA in dry-run mode (docs/design/ha-automatic.md): the watcher's status, the witness and thresholds, and
 // each node's fencing settings with a status-only test. Nothing here ever powers a node off or restarts a VM.
@@ -15,7 +16,7 @@ export function HaWatchBanner({ status }) {
   if (!status) return null;
   return (
     <div className="nx-bn" data-tone="info" role="status"><FlaskConical size={16} aria-hidden="true" />
-      <span className="nx-bn-t"><b>{t("hw.dryRun")}</b> {t("hw.dryRunHelp")}{status.reason && <><br />{t("hw.autoOff", { reason: status.reason })}</>}</span>
+      <span className="nx-bn-t"><b>{t("hw.dryRun")}</b> {t("hw.dryRunHelp")}{status.reason && <><br />{t("hw.autoOff", { reason: localizeApiText(t, status.reason) })}</>}</span>
     </div>
   );
 }
