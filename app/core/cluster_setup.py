@@ -60,6 +60,20 @@ PORT = int(os.environ.get("HYPERLITE_PORT", "8000"))
 CONF_PATH = "/cluster/corosync.json"
 COROSYNC_KEY_ENTRY = "/priv/cluster/authkey"
 SSH_DIR = "/cluster/ssh"
+# The config_version each member wrote to its corosync.conf: a member taking a new node in reloads every member's
+# Corosync at once (corosync-cfgtool -R), each from its own file, so it waits until they all wrote the new one.
+WRITTEN_DIR = "/cluster/corosync-written"
+WRITTEN_WAIT_S = 40  # the lead loop follows the shared configuration every RENEW_S (15 s)
+# Corosync's token timeout. Its default, 3 s, declares a knet link dead after 1.5 s without an answer (token / 2): a
+# member reached over the internet or a VPN loses it at every latency spike of its line, the ring forms again every few
+# seconds, and hyperlite-cfs refuses every change meanwhile. 10 s rides those spikes; a member that is really gone is
+# then noticed in about 10 s instead of 3. Every member must run the same value, so the shared configuration carries it
+# only once every member says it writes it (RENDERS_DIR); until then, Corosync's default.
+TOKEN_MS = 10000
+TOKEN_RANGE_MS = (1000, 60000)
+# What each member's render() writes beyond the base configuration, as a JSON list: "token" for TOKEN_MS.
+RENDERS_DIR = "/cluster/corosync-renders"
+RENDERS = ["token"]
 
 TICKET_SETTING = "cluster_join_ticket"  # rows each node keeps for itself (app/repositories/cfs/tables.py)
 JOIN_SETTING = "cfs_join_pending"
@@ -94,6 +108,17 @@ def _run(args, timeout=60):
     if done.returncode:
         logger.warning("%s failed: %s", " ".join(args), (done.stderr or done.stdout).strip()[:500])
     return done.returncode == 0
+
+
+def _running_version():
+    """The config_version Corosync runs (its cmap's totem.config_version): None when it does not answer."""
+    try:
+        out = subprocess.run(
+            ["corosync-cmapctl", "-g", "totem.config_version"], capture_output=True, text=True, timeout=10, check=True
+        )
+        return int(out.stdout.rsplit("=", 1)[1])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
 
 
 def _local_addresses():
@@ -178,7 +203,8 @@ def render(conf):
         "  version: 2\n"
         f"  cluster_name: {conf['cluster']}\n"
         f"  config_version: {int(conf['version'])}\n"
-        "  transport: knet\n"
+        + (f"  token: {int(conf['token'])}\n" if conf.get("token") else "")
+        + "  transport: knet\n"
         "  crypto_cipher: aes256\n"
         "  crypto_hash: sha256\n"
         "}\n"
@@ -207,6 +233,10 @@ def _check_conf(conf):
                     "votes": votes,
                 }
             )
+        if conf.get("token") is not None:
+            checked["token"] = int(conf["token"])
+            if not TOKEN_RANGE_MS[0] <= checked["token"] <= TOKEN_RANGE_MS[1]:
+                raise ValueError(checked["token"])
     except (KeyError, TypeError, ValueError):
         raise ClusterError("The cluster's configuration is not valid") from None
     if not checked["members"] or not 0 < checked["version"] < 2**31:
@@ -470,6 +500,117 @@ def _check_auth_keys(value):
     return {"keys": checked}
 
 
+def _say_written(client, me, version):
+    """Publish the config_version this node's corosync.conf holds, when it changed (see WRITTEN_DIR)."""
+    from app.repositories.cfs import shadow
+
+    path = f"{WRITTEN_DIR}/{shadow.component(me)}"
+    try:
+        if _written_of(client, path) == version:
+            return
+        client.put(path, str(version).encode())
+    except (CfsError, OSError) as e:  # without the quorum: said again at the next pass
+        logger.warning("This node's Corosync configuration version not published: %s", e)
+
+
+def _written_of(client, path):
+    try:
+        return int(client.get(path).data)
+    except NotFound:
+        return None
+    except ValueError:
+        logger.warning("%s does not hold a version", path)
+        return None
+
+
+def _wait_for_written(client, conf, me, new):
+    """Wait until every other member wrote the configuration `conf` to its corosync.conf, at most WRITTEN_WAIT_S.
+
+    The reload this node asks for reaches every member at once. A member that reloads its older file then knows no link
+    to the new node, while this one takes it into the ring: the new node never joins, and the others lose the token
+    every few seconds. The reload that member asks for itself then never gets through, since it travels on that
+    ring. A member that does not answer is waited for until the end only, then said."""
+    from app.repositories.cfs import shadow
+
+    others = [m["name"] for m in conf["members"] if m["name"] not in (me, new)]
+    deadline = time.monotonic() + WRITTEN_WAIT_S
+    while True:
+        late = [
+            n for n in others if (_written_of(client, f"{WRITTEN_DIR}/{shadow.component(n)}") or 0) < conf["version"]
+        ]
+        if not late:
+            return
+        if time.monotonic() >= deadline:
+            logger.warning(
+                "%s did not write version %s of Corosync's configuration in %s s: reloading anyway",
+                ", ".join(late),
+                conf["version"],
+                WRITTEN_WAIT_S,
+            )
+            return
+        time.sleep(1)
+
+
+def _say_renders(client, me):
+    """Publish what this node's render() writes (see RENDERS_DIR), when it changed."""
+    from app.repositories.cfs import shadow
+
+    path = f"{RENDERS_DIR}/{shadow.component(me)}"
+    value = json.dumps(RENDERS).encode()
+    try:
+        try:
+            if client.get(path).data == value:
+                return
+        except NotFound:
+            pass
+        client.put(path, value)
+    except (CfsError, OSError) as e:  # without the quorum: said again at the next pass
+        logger.warning("What this node writes to Corosync's configuration not published: %s", e)
+
+
+def _renders_of(client, name):
+    from app.repositories.cfs import shadow
+
+    try:
+        value = json.loads(client.get(f"{RENDERS_DIR}/{shadow.component(name)}").data)
+    except NotFound:  # a member before this one's version: it writes no token
+        return set()
+    except ValueError:
+        logger.warning("%s/%s does not hold a list", RENDERS_DIR, name)
+        return set()
+    return set(value) if isinstance(value, list) else set()
+
+
+def _settle_token(client, conf):
+    """On the leader: the shared configuration carries TOKEN_MS when every member writes it, none otherwise (a member
+    of an older version joined, or not all are updated yet). Each member then writes it and reloads (sync)."""
+    from app.core import cluster_lead
+
+    if not cluster_lead.is_leader():
+        return conf
+    wanted = TOKEN_MS if all("token" in _renders_of(client, m["name"]) for m in conf["members"]) else None
+    if conf.get("token") == wanted:
+        return conf
+    # Not blocking: sync() also runs while a member change on this node holds the lock (the change goes first, and
+    # the token is settled at the next pass).
+    if not _members_lock.acquire(blocking=False):
+        return conf
+    try:
+        current = shared_conf()
+        if not current or current.get("token") == wanted:
+            return current or conf
+        if wanted is None:
+            current.pop("token", None)
+        else:
+            current["token"] = wanted
+        current["version"] += 1
+        client.put(CONF_PATH, json.dumps(current).encode())
+    finally:
+        _members_lock.release()
+    logger.info("Corosync's token timeout is now %s for the whole cluster", f"{wanted} ms" if wanted else "its default")
+    return current
+
+
 def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=None):
     """Run on a member, called by the joining node with the ticket of the join information.
 
@@ -533,6 +674,7 @@ def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=No
                 SqliteNodeStore().delete(name)
             raise
         answer = {"configuration": conf, "corosync_key": corosync_key, "keys": keys, "ssh_keys": _member_keys(client)}
+        _wait_for_written(client, conf, self_node.name(), name)
         sync()  # last: this node's Corosync knows the new member before it calls, and may lose the quorum until it does
     log_action("system", "cluster_join", name, "success", f"{name} ({address}) joined {conf['cluster']}")
     return answer
@@ -860,20 +1002,37 @@ def _authorize(member_keys, me):
 
 
 def sync():
-    """Write corosync.conf when the shared one is newer, and authorize the members' SSH keys. Called in a cluster by
-    the lead loop (app/core/cluster_lead.py) and after a member changed."""
+    """Write corosync.conf when the shared one is newer, and authorize the members' SSH keys; on the leader, settle
+    Corosync's token timeout first (_settle_token). Called in a cluster by the lead loop (app/core/cluster_lead.py) and
+    after a member changed."""
     from app.repositories.cfs import shadow
 
     conf = shared_conf()
     if not conf:
         return False
+    me = self_node.name()
+    client = _client()
+    _say_renders(client, me)
+    try:
+        conf = _settle_token(client, conf)
+    except (CfsError, OSError) as e:  # without the quorum: settled at the next pass
+        logger.warning("Corosync's token timeout not settled: %s", e)
     changed = False
     if conf["version"] > _local_version():
         _write(COROSYNC_CONF, render(conf), 0o644)
         _run(["corosync-cfgtool", "-R"])
         changed = True
-    me = self_node.name()
-    client = _client()
+    else:
+        # A file written but not running, when a reload did not take. Seen in the lab: a node whose file listed a new
+        # member while its Corosync had no link to it, which the others took into the ring. That member never joined,
+        # and the others lost the token every few seconds.
+        running, written = _running_version(), _local_version()
+        if running is not None and running < written:
+            logger.warning(
+                "Corosync runs version %s of its configuration, %s is written: reloading it", running, written
+            )
+            _run(["corosync-cfgtool", "-R"])
+    _say_written(client, me, max(conf["version"], _local_version()))
     own = f"{SSH_DIR}/{shadow.component(me)}"
     from app.core import cluster
 
