@@ -125,11 +125,26 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-cap-nm small { display: block; font-size: var(--fs-12); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nx-cap-pct { text-align: right; font-family: var(--font-mono); font-size: var(--fs-13); font-weight: 500; }
 .nx-cap .nx-spark { width: 100%; height: 1.6rem; }
+/* A table that fits its card: in a narrow card its optional columns give way and its meters keep their figure only,
+   rather than scrolling sideways inside the card. */
+.nx-card2:has(.nx-table--fit) { container-type: inline-size; }
+@container (max-width: 40rem) {
+  .nx-table--fit [data-optional] { display: none; }
+  .nx-table--fit .nx-meter .nx-track { display: none; }
+}
+/* A phone: the state keeps its dot, its word stays for screen readers, and the inner cells are tighter. */
+@container (max-width: 28rem) {
+  .nx-table--fit .nx-state-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .nx-table.nx-table--fit :is(th, td) { padding-inline: 0.5rem; }
+}
+
 @media (max-width: 700px) { .nx-cap { grid-template-columns: minmax(0, 1fr) 3.5rem; } .nx-cap .nx-track, .nx-cap .nx-spark { display: none; } }
 
 /* ---------- Tables ---------- */
 .nx-table { border-collapse: separate; border-spacing: 0; font-size: var(--fs-13); }
-.nx-table th, .nx-table td { padding: 0 0.8rem; height: 2.8rem; border-bottom: 0; border-top: 1px solid var(--color-border-subtle); }
+/* The padding-block is inside the 2.8rem (border-box): one-line rows keep their height, and a cell on two lines (a
+   name and its role) no longer touches the row's edges, nor the card's bottom in the last row. */
+.nx-table th, .nx-table td { padding: 0.3rem 0.8rem; height: 2.8rem; border-bottom: 0; border-top: 1px solid var(--color-border-subtle); }
 .nx-table thead th { height: 2.2667rem; border-top: 0; background: var(--color-bg-surface-raised); font-size: var(--fs-12); font-weight: 500; color: var(--color-text-secondary); position: sticky; top: 0; z-index: 1; }
 .nx-table thead th:first-child, .nx-table tbody td:first-child, .nx-table tbody th:first-child, .nx-table tfoot td:first-child { padding-left: 1.0667rem; }
 .nx-table thead th:last-child, .nx-table tbody td:last-child, .nx-table tfoot td:last-child { padding-right: 1.0667rem; }
@@ -276,6 +291,9 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-tabs--page { padding: 0; margin: 0 0 1.2rem; border-bottom: 1px solid var(--color-border-subtle); }
 
 /* ---------- Workspace content ---------- */
+/* A very wide screen keeps a readable width, centred: the header, the tabs and the page share it, so they stay
+   aligned. Below about 1800 px nothing changes. */
+.nx-content > * { max-width: 120rem; margin-inline: auto; }
 .nx-page { padding: 1.3333rem 1.6rem 2.6667rem; }
 .nx-page > * + * { margin-top: 1.0667rem; }
 .nx-page > .nx-ph + *, .nx-page > .nx-tabs--page + * { margin-top: 0; }
@@ -501,7 +519,7 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-nodeband-stats { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 1.3333rem; }
 @container (max-width: 60rem) {
   .nx-nodeband { flex-wrap: wrap; }
-  .nx-nodeband-stats { flex-basis: 100%; margin-left: 1.6rem; gap: 1rem; }
+  .nx-nodeband-stats { flex-basis: calc(100% - 1.6rem); margin-left: 1.6rem; gap: 1rem; }
   .nx-nodeband-stats .nx-track { width: 3.2rem; }
 }
 @container (max-width: 32rem) {

@@ -834,7 +834,8 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 .nx-colpick > summary { list-style: none; cursor: pointer; }
 .nx-colpick > summary::-webkit-details-marker { display: none; }
 .nx-colpick-p { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; margin: 0; min-width: 12rem; display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); box-shadow: var(--shadow-md, 0 6px 20px rgba(0,0,0,.25)); }
-@media (max-width: 720px) { .nx-colpick-p { right: auto; left: 0; } }
+.nx-colpick-p[data-align="start"] { right: auto; left: 0; }
+.nx-colpick-p { max-width: calc(100vw - 2rem); }
 
 /* A field label followed by its (i) help. */
 .nx-f-l { display: inline-flex; align-items: center; gap: var(--space-1); }
