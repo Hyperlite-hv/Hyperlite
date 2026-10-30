@@ -735,3 +735,76 @@ def test_a_member_that_does_not_write_it_is_waited_for_a_while_only(host, monkey
     host.commands.clear()
     cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
     assert host.commands == ["corosync-cfgtool -R"] and "pve-b did not write version 3" in caplog.text
+
+
+def test_corosync_gets_the_token_timeout_the_shared_configuration_carries(host):
+    conf = {"cluster": "prod", "version": 3, "members": [{"name": "hv-test", "nodeid": 1, "address": ADDRESS}]}
+    assert "token:" not in cluster_setup.render(cluster_setup._check_conf(conf))  # Corosync's default
+    text = cluster_setup.render(cluster_setup._check_conf({**conf, "token": 10000}))
+    assert "  config_version: 3\n  token: 10000\n  transport: knet\n" in text
+    for bad in (999, 60001, "ten"):
+        with pytest.raises(cluster_setup.ClusterError):
+            cluster_setup._check_conf({**conf, "token": bad})
+
+
+def _leading(monkeypatch, leader=True):
+    monkeypatch.setattr(cluster_lead, "is_leader", lambda: leader)
+
+
+def test_each_member_says_what_it_writes_to_corosyncs_configuration(host):
+    _create(host)
+    cluster_setup.sync()
+    assert json.loads(host.files[f"{cluster_setup.RENDERS_DIR}/hv-test"]) == ["token"]
+
+
+def test_the_token_timeout_waits_for_every_member_to_write_it(host, monkeypatch):
+    """Corosync wants the same timeout on every member: a member of an older version would write the configuration
+    without it, so the cluster keeps the default until each one says it writes it."""
+    _create(host)
+    _add_member(host)
+    _leading(monkeypatch)
+    cluster_setup.sync()
+    assert "token" not in cluster_setup.shared_conf()  # pve-b said nothing yet
+    assert "token:" not in cluster_setup.COROSYNC_CONF.read_text()
+
+    host.files[f"{cluster_setup.RENDERS_DIR}/pve-b"] = b'["token"]'  # pve-b updated
+    version = cluster_setup.shared_conf()["version"]
+    cluster_setup.sync()
+    conf = cluster_setup.shared_conf()
+    assert conf["token"] == cluster_setup.TOKEN_MS and conf["version"] == version + 1  # every member writes it again
+    assert f"token: {cluster_setup.TOKEN_MS}" in cluster_setup.COROSYNC_CONF.read_text()
+    host.commands.clear()
+    cluster_setup.sync()
+    assert cluster_setup.shared_conf()["version"] == version + 1 and host.commands == []  # settled: nothing more
+
+
+def test_a_member_that_does_not_write_the_token_takes_the_cluster_back_to_the_default(host, monkeypatch):
+    _create(host)
+    _leading(monkeypatch)
+    cluster_setup.sync()
+    assert cluster_setup.shared_conf()["token"] == cluster_setup.TOKEN_MS
+    _add_member(host, "pve-old", 3, "192.0.2.13")  # a node of an older version joined
+    cluster_setup.sync()
+    assert "token" not in cluster_setup.shared_conf()
+    assert "token:" not in cluster_setup.COROSYNC_CONF.read_text()
+
+
+def test_only_the_leader_settles_the_token_timeout(host, monkeypatch):
+    _create(host)
+    _leading(monkeypatch, leader=False)
+    cluster_setup.sync()
+    assert "token" not in cluster_setup.shared_conf()
+
+
+def test_a_member_change_on_this_node_goes_first(host, monkeypatch):
+    """set_primary() runs sync() while it holds the members' lock: the token waits for the next pass instead of
+    waiting for that lock forever."""
+    _create(host)
+    _add_member(host)
+    host.files[f"{cluster_setup.RENDERS_DIR}/pve-b"] = b'["token"]'
+    _leading(monkeypatch)
+    version = cluster_setup.shared_conf()["version"]
+    cluster_setup.set_primary("hv-test", "admin")
+    assert "token" not in cluster_setup.shared_conf() and cluster_setup.shared_conf()["version"] == version + 1
+    cluster_setup.sync()
+    assert cluster_setup.shared_conf()["token"] == cluster_setup.TOKEN_MS
