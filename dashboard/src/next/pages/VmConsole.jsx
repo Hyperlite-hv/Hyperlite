@@ -13,6 +13,7 @@ import { Empty } from "../components/ui";
 import WorkstationAccess from "../components/WorkstationAccess";
 import Menu, { MenuItem } from "../components/Menu";
 import { KEY_COMBOS, MAX_TYPED, sendCombo, textToKeysyms } from "../lib/typeText";
+import { localizeApiText } from "../lib/apiText";
 
 const RETRY_S = 5;
 // About a minute of automatic retries. Past that, or on a refusal (a 4xx: no such VM, no privilege...), retrying
@@ -183,7 +184,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       )}
       <div className={standalone ? "nx-console-standalone" : undefined}>
         <div className="nx-termbar">
-          <div className="nx-seg2" role="group" aria-label={t("vc.mode")}>
+          <div className="nx-seg2 nx-seg2--wrap" role="group" aria-label={t("vc.mode")}>
             <button type="button" aria-pressed={mode === "vnc"} onClick={() => switchMode("vnc")}>{t("vc.vnc")}</button>
             <button type="button" aria-pressed={mode === "serial"} onClick={() => switchMode("serial")}>{t("vc.serial")}</button>
             <button type="button" aria-pressed={terminal} onClick={() => switchMode("terminal")}>{t("vc.ssh")}</button>
@@ -241,7 +242,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
             {!connected && status !== "connecting" && !retryIn && !error && <p className="nx-term-hint">{running ? t("nn.connecting") : t("vc.mustRun")}</p>}
           </div>
         )}
-        {error && <p className="nx-f-h is-error" role="alert">{error}</p>}
+        {error && <p className="nx-f-h is-error" role="alert">{localizeApiText(t, error)}</p>}
         {gaveUp && running && <div className="nx-inline" style={{ marginTop: "var(--space-2)" }}><span className="nx-f-h">{t("vc.gaveUp")}</span><button type="button" className="nx-btn nx-btn--sm" onClick={retryNow}>{t("action.retry")}</button></div>}
       </div>
       <WorkstationAccess vm={vm} open={wsOpen} onClose={() => setWsOpen(false)} />

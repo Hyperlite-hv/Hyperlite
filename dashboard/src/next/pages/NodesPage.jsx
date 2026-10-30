@@ -155,11 +155,11 @@ export default function NodesPage() {
         actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" />{t("nd.add")}</button>} />
       <div className="nx-card2 nx-card2--flush">
         <TableWrap>
-          <table className="nx-table">
+          <table className="nx-table nx-table--fit">
             <thead><tr>
               <th scope="col">{t("ns.col.state")}</th><th scope="col">{t("nd.node")}</th><th scope="col">{t("nd.connection")}</th>
               <th scope="col">{t("ns.cpu")}</th><th scope="col">{t("ns.memory")}</th><th scope="col">{t("ns.storage")}</th>
-              <th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col">{t("nd.version")}</th><th scope="col">{t("ns.uptime")}</th>
+              <th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col" data-optional>{t("nd.version")}</th><th scope="col" data-optional>{t("ns.uptime")}</th>
               <th scope="col"><span className="nx-sr">{t("actions")}</span></th>
             </tr></thead>
             <tbody>
@@ -176,16 +176,16 @@ export default function NodesPage() {
                       <button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.name}</button>
                       <small>{[n.cpu_coeurs && t("nd.cores", { n: n.cpu_coeurs }), n.memoire_totale_mo && formatSizeMb(n.memoire_totale_mo, lang)].filter(Boolean).join(" · ") || (local ? t("nd.thisHost") : "")}</small>
                     </th>
-                    <td>
-                      <Chip tone={local ? "accent" : undefined}>{local ? t("node.roleLocal") : t("node.roleMember")}</Chip>{" "}
-                      <span className="nx-mono nx-muted">{local ? t("nd.localConn") : `${n.ssh_user || "root"}@${n.ip}:${n.ssh_port || 22}`}</span>
+                    <td className="nx-nm" title={local ? t("nd.localConn") : undefined}>
+                      <Chip tone={local ? "accent" : undefined}>{local ? t("node.roleLocal") : t("node.roleMember")}</Chip>
+                      {!local && <small className="nx-mono">{`${n.ssh_user || "root"}@${n.ip}:${n.ssh_port || 22}`}</small>}
                     </td>
                     <td><Meter value={n.cpu_utilisation} label={`${t("ns.cpu")} ${n.name}`} /></td>
                     <td><Meter value={pct(n.used_memory_mb, n.memoire_totale_mo)} label={`${t("ns.memory")} ${n.name}`} /></td>
                     <td><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${t("ns.storage")} ${n.name}`} /></td>
                     <td className="nx-num nx-mono">{run} / {total}</td>
-                    <td className="nx-mono">{lib ? `libvirt ${lib}` : <span className="nx-muted">—</span>}</td>
-                    <td className="nx-mono nx-muted">{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
+                    <td className="nx-mono" data-optional>{lib ? `libvirt ${lib}` : <span className="nx-muted">—</span>}</td>
+                    <td className="nx-mono nx-muted" data-optional>{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
                     <td><div className="nx-ra">
                       {caps.admin && !local && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.remove_node_x", { v: n.name })} title={t("nd.remove")} onClick={() => remove(n)}><Trash2 size={15} aria-hidden="true" /></button>}
                       <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("nd.open", { name: n.name })} onClick={() => navigateTo("node", n.id, "summary")}><ChevronRight size={15} aria-hidden="true" /></button>
