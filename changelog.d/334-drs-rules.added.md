@@ -1,1 +1,0 @@
-- Load balancing's rules (#334, step 2): VMs kept together, apart, on some nodes or off them, as a "must" or a "should", and its settings (mode, threshold: automatic, level 3 by default); HA restarts a VM only where it keeps its "must" rules, else leaves it to an administrator, saying why.

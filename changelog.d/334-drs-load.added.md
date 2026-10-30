@@ -1,1 +1,0 @@
-- Each member's status carries its load and its VMs' (CPU, memory), as the metrics collector last measured them, for load balancing (#334, step 1).

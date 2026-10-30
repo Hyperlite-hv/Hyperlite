@@ -1,1 +1,0 @@
-- A user with rights on a VM, not an administrator, is no longer refused by hyperlite-daemon where the dashboard lets them in: a backup of that VM into a store (its retention and its cancellation included), a VM created from another node's ISO, and the cluster's lists when a member is reached over SSH.
