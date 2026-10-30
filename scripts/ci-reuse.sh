@@ -8,8 +8,9 @@
 #          job runs again. Identical files are identical inputs: the test -> master PR and the master push of a release
 #          have the tree test's tip had.
 #   docs   these files differ from such a validated tree only in release files (VERSION, the changelog, docs/,
-#          Markdown): the quick jobs run (backend, frontend, shell), the long ones (end-to-end, cfs, package, client)
-#          are not run again. The release PR changes nothing else.
+#          Markdown): the quick jobs run (frontend, shell, and of the backend its lint, its audit and the tests that
+#          read those files, scripts/ci-docs-tests.sh), the long ones (end-to-end, cfs, package, client) are not run
+#          again. The release PR changes nothing else.
 #
 # A validated tree: the head commit of a run of this workflow on a push to test or master, at most MAX_AGE_DAYS old,
 # whose check jobs all passed (skipped counts only because the run itself was a reuse, which validated its tree the
