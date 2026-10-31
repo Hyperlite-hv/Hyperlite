@@ -19,7 +19,8 @@ concurrency:
 jobs:
   # How much of this workflow the commit needs (scripts/ci-reuse.sh): `exact` when a push to test or master already
   # passed every check on exactly these files (a release: the test -> master PR and the master push), `docs` when only
-  # release files differ from such files (the release PR: the long jobs are not run again), `full` otherwise. A job it
+  # release files differ from such files (the release PR: the long jobs are not run again, and the backend runs only
+  # the tests that read those files, scripts/ci-docs-tests.sh), `full` otherwise. A job it
   # skips reports as passed to the branch protection; the e2e gate below accepts a skip only from it. Then which of the
   # long jobs a pull request needs, from the files it changes (scripts/ci-scope.sh): a push needs them all.
   reuse:
@@ -84,10 +85,16 @@ jobs:
         run: ruff format --check .
       # The shadow mode's tests run against the real hyperlite-cfs too (tests/test_cfs_shadow.py).
       - name: Build hyperlite-cfs
+        if: needs.reuse.outputs.mode != 'docs'
         run: meson setup build-cfs cfs --buildtype=release && ninja -C build-cfs hyperlite-cfs
       - name: Tests
         # One worker per core of the runner (pytest-xdist): the suite took five minutes on one.
+        if: needs.reuse.outputs.mode != 'docs'
         run: HYPERLITE_CFS_BIN=build-cfs/hyperlite-cfs python -m pytest -q -n 4
+      - name: Tests of the release files
+        # Only release files changed since a tree whose whole suite passed: the tests that read them, in seconds.
+        if: needs.reuse.outputs.mode == 'docs'
+        run: mapfile -t files < <(bash scripts/ci-docs-tests.sh) && python -m pytest -q -n 4 "${files[@]}"
       - name: Dependency audit
         run: pip install pip-audit==2.10.1 && pip-audit -r requirements.txt
 
