@@ -2,6 +2,7 @@
 package it installs restarts the daemon and the API, which the job must outlive. The daemon checks the request again."""
 
 import subprocess
+import time
 
 import pytest
 
@@ -49,6 +50,39 @@ def test_on_a_node_the_job_runs_in_a_unit_of_its_own(monkeypatch):
     [argv] = calls
     assert argv[:4] == ["systemd-run", "--quiet", "--collect", "--unit=hyperlite-update-job-abc-123"]
     assert argv[-5:] == ["app.daemon.update_job", "apt", "abc-123", "root", "1"]
+
+
+def test_the_daemon_itself_starts_the_unit_though_it_runs_its_own_calls_in_process(monkeypatch):
+    """1.4.0 and 1.4.1: hyperlite-daemon sets HYPERLITE_DAEMON_INPROCESS for its own calls, and the job ran in a thread
+    of the daemon. The package restarted the daemon, the job died with it, apt lost its output and the API kept the
+    old version."""
+    from app.daemon import server
+
+    monkeypatch.setattr(update, "_install_method", lambda: "apt")
+    monkeypatch.setenv(privileged.INPROCESS_ENV, "1")
+    monkeypatch.setattr(server, "_serving", True, raising=False)
+    monkeypatch.setattr(ops, "run_job", lambda *a: pytest.fail("not in a thread of the daemon"))
+    calls = []
+    monkeypatch.setattr(
+        ops.subprocess, "run", lambda argv, **k: calls.append(argv) or subprocess.CompletedProcess(argv, 0, "", "")
+    )
+    ops.start_update(ops.StartArgs(kind="apt", task_id="abc-123", username="root"), None)
+    [argv] = calls
+    assert argv[:4] == ["systemd-run", "--quiet", "--collect", "--unit=hyperlite-update-job-abc-123"]
+
+
+def test_without_a_daemon_the_job_runs_in_a_thread(monkeypatch):
+    monkeypatch.setattr(update, "_install_method", lambda: "apt")
+    monkeypatch.setenv(privileged.INPROCESS_ENV, "1")
+    ran = []
+    monkeypatch.setattr(ops, "run_job", lambda *a: ran.append(a))
+    monkeypatch.setattr(ops.subprocess, "run", lambda *a, **k: pytest.fail("no unit without a daemon"))
+    ops.start_update(ops.StartArgs(kind="apt", task_id="abc-123", username="root"), None)
+    for _ in range(50):
+        if ran:
+            break
+        time.sleep(0.01)
+    assert ran == [("apt", "abc-123", "root", True)]
 
 
 def test_a_refused_start_ends_the_task_with_its_reason(client, auth_headers, monkeypatch, database):
