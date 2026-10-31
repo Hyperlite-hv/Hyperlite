@@ -68,7 +68,7 @@
 .nx-help:hover .nx-help-tip, .nx-help-btn:focus-visible + .nx-help-tip { visibility: visible; opacity: 1; }
 
 /* ---------- Cards ---------- */
-.nx-card2 { background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); min-width: 0; }
+.nx-card2 { background: var(--color-bg-surface); border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); min-width: 0; }
 .nx-card2-h { display: flex; align-items: center; gap: 0.5333rem; padding: 0.9333rem 1.0667rem 0; min-height: 2.9333rem; }
 .nx-card2-h h2 { margin: 0; font-size: var(--fs-145); font-weight: 600; }
 .nx-card2-note { font-size: var(--fs-12); color: var(--color-text-muted); font-family: var(--font-mono); }
@@ -85,7 +85,7 @@
 @media (max-width: 1100px) { .nx-cols2, .nx-cols2--even { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---------- KPI strip ---------- */
-.nx-strip { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); overflow: hidden; }
+.nx-strip { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); background: var(--color-bg-surface); border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); overflow: hidden; }
 .nx-kpi { all: unset; box-sizing: border-box; padding: 0.9333rem 1.2rem; display: grid; align-content: start; gap: 0.1333rem; border-left: 1px solid var(--color-border-subtle); min-width: 0; position: relative; min-height: 5.6rem; }
 .nx-kpi:first-child { border-left: 0; }
 button.nx-kpi { cursor: pointer; }
@@ -643,7 +643,7 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 .nx-act-h-row { display: flex; align-items: center; gap: 0.5333rem; margin-bottom: 0.5333rem; }
 .nx-act-h-row .nx-act-h { margin: 0; }
 .nx-act-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 0.8rem; }
-.nx-act-card { padding: 0.8rem 1.0667rem; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); background: var(--color-bg-surface); min-width: 0; }
+.nx-act-card { padding: 0.8rem 1.0667rem; border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); background: var(--color-bg-surface); min-width: 0; }
 .nx-act-card.is-selected { border-color: var(--color-accent); }
 .nx-act-card-h { display: flex; align-items: center; justify-content: space-between; gap: 0.5333rem; min-width: 0; }
 .nx-act-card-h .nx-lnk { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
