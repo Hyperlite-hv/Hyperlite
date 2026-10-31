@@ -4,9 +4,8 @@
 `hyperlite-cfs` built from the checkout, and has a watchdog device for the HA tests. The VMs sit on a NAT network in
 `192.0.2.0/24`, a range reserved for documentation.
 
-It runs on a GitHub runner (`.github/workflows/lab.yml`: on changes to `cfs/` or `lab/`, every night, and on demand),
-so the lab needs no access to anyone's machines. It runs the same way on any Debian or Ubuntu host with libvirt and
-KVM:
+It is no longer run by the CI: run it by hand, on any Debian or Ubuntu host with libvirt and KVM (not a node in
+production: it starts several VMs):
 
 ```bash
 sudo apt-get install libvirt-daemon-system qemu-system-x86 qemu-utils virtinst dnsmasq-base cloud-image-utils
@@ -26,8 +25,8 @@ on real machines with a written procedure before production.
 Debian), and `lab/tests` makes them one cluster through the API, as an administrator does. Then it checks what only
 real members show: a request naming another member (`?node=`) is done by that member, an ISO upload is relayed to it,
 a VM made on one member is migrated to another (when the host lets the VMs run VMs of their own), and the Terraform
-provider manages every member's objects through one node. The `hyperlite-cluster` job of `.github/workflows/lab.yml`
-builds the package as the publication does and runs it; on a machine of your own:
+provider manages every member's objects through one node. It builds the package as the publication does and runs it;
+on a machine of your own:
 
 ```bash
 bash installer/build-deb.sh   # after installer/build-runtime.sh, see installer/
