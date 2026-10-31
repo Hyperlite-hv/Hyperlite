@@ -156,6 +156,7 @@ export default function VmList() {
   const [q, setQ] = useState("");
   const [chip, setChip] = useState("all");
   const [sort, setSort] = useState({ key: "state", dir: 1 });
+  const [colAlign, setColAlign] = useState("end");
   const [selName, setSelName] = useState(null);
   const [detail, setDetail] = useState(true);
   const [nodeFilter, setNodeFilter] = useState("");
@@ -356,9 +357,15 @@ export default function VmList() {
           {caps.admin && <option value="pool">{t("vmlist.group.pool")}</option>}
           <option value="none">{t("vmlist.group.none")}</option>
         </select>
-        <details className="nx-colpick">
+        {/* The panel opens towards the side that has room: from the button's right edge, unless that would leave the
+            screen (a button near the left edge, as when the toolbar wraps). */}
+        <details className="nx-colpick" onToggle={(e) => {
+          if (!e.currentTarget.open) return;
+          const button = e.currentTarget.querySelector("summary").getBoundingClientRect();
+          setColAlign(button.right - e.currentTarget.querySelector(".nx-colpick-p").offsetWidth < 8 ? "start" : "end");
+        }}>
           <summary className="nx-btn nx-btn--sm"><Columns3 size={14} aria-hidden="true" />{t("vmlist.columns")}</summary>
-          <fieldset className="nx-colpick-p"><legend className="nx-sr">{t("vmlist.columns")}</legend>
+          <fieldset className="nx-colpick-p" data-align={colAlign}><legend className="nx-sr">{t("vmlist.columns")}</legend>
             {OPTIONAL_COLUMNS.map((c) => (
               <label key={c} className="nx-check"><input type="checkbox" checked={columns.includes(c)} disabled={c === "node" && mode === "node"}
                 onChange={(e) => setColumns(e.target.checked ? OPTIONAL_COLUMNS.filter((x) => x === c || columns.includes(x)) : columns.filter((x) => x !== c))} /> {t(`vmlist.col.${c}`)}</label>

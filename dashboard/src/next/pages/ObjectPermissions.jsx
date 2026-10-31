@@ -9,6 +9,7 @@ import { errorMessage } from "../lib/errors";
 import { ErrorState } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
 import { Card, Chip, Field, Loading, TableWrap } from "../components/ui";
+import { localizeRoles } from "../lib/apiText";
 
 // Who may act on one VM or container: its own assignments (added and removed here) and, for a VM, the ones it
 // inherits from its pools (changed on the Permissions page, where the pool is managed). Administrators see and
@@ -26,10 +27,10 @@ function ObjectPermissions({ kind, name }) {
   const load = useCallback(async () => {
     try {
       const [acl, users, groups, roles, customRoles] = await Promise.all([fetchObjectAcl(kind, name), fetchUsers(), fetchGroups(), fetchAclRoles(), fetchCustomRoles()]);
-      setData({ acl, users, groups, roles: { ...roles, ...Object.fromEntries(customRoles.map((r) => [r.key, r])) } });
+      setData({ acl, users, groups, roles: { ...localizeRoles(t, roles), ...Object.fromEntries(customRoles.map((r) => [r.key, r])) } });
       setError(null);
     } catch (e) { setError(errorMessage(e)); }
-  }, [kind, name]);
+  }, [kind, name, t]);
   useEffect(() => { if (caps.admin) load(); }, [load, caps.admin]);
 
   if (!caps.admin) return <PermissionNotice requires={t("top.role.admin")} />;

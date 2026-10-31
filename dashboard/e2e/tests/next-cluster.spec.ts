@@ -30,8 +30,9 @@ test("Nodes: this host is listed and opens its page, add form sends the SSH port
   });
   await open(page, "nodes");
   const main = page.getByRole("main");
-  const hostRow = main.getByRole("row", { name: /Local \(libvirt\)/ });
-  await expect(hostRow).toContainText("Local node");
+  // The local node is named once, by its chip; its connection ("Local (libvirt)") is the cell's title.
+  const hostRow = main.getByRole("row", { name: /Local node/ });
+  await expect(hostRow.getByRole("cell", { name: "Local node" })).toHaveAttribute("title", "Local (libvirt)");
   await expect(hostRow.getByRole("button", { name: "Remove node" })).toHaveCount(0); // the local host cannot be removed
   // The add form is a side drawer (outside <main>).
   await main.getByRole("button", { name: "Add a remote node" }).click();
