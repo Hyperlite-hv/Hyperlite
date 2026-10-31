@@ -28,8 +28,11 @@
   --color-bg-surface-raised: #2C272E;
   --color-bg-hover: #2E292F;
   --color-bg-selected: #3A2631;
-  /* Borders. Default: the edge of cards, tables and panels, clearly visible (about 2:1; at 1.3:1 the surfaces
-     "floated" with no readable limit). Subtle: separators inside them (rows). Strong: controls, 3:1. */
+  /* Borders. Default: the edge of tables and panels, clearly visible (about 2:1; at 1.3:1 the surfaces
+     "floated" with no readable limit). Card: the edge of the sections on a page, one step above their surface, so a
+     page of cards is not a grid of light outlines on the dark background. Subtle: separators inside them (rows).
+     Strong: controls, 3:1. */
+  --color-border-card: #2A262C;
   --color-border-subtle: #3A343B;
   --color-border-default: #524A53;
   --color-border-strong: #7A7079;
@@ -96,7 +99,7 @@
   --color-bg-app: #E2DDDA; --color-bg-sidebar: #EEEAE7; --color-bg-workspace: #E2DDDA;
   --color-bg-surface: #EEEAE7; --color-bg-surface-raised: #E8E3E0;
   --color-bg-hover: #DED8D5; --color-bg-selected: #EAD9E1;
-  --color-border-subtle: #CCC5C2; --color-border-default: #ADA5A1;
+  --color-border-card: #CCC5C2; --color-border-subtle: #CCC5C2; --color-border-default: #ADA5A1;
   --color-border-strong: #7F767A; --color-border-focus: #6E3550;
   --color-text-primary: #1F1A1D; --color-text-secondary: #3A3336;
   --color-text-muted: #5A5256; --color-text-disabled: #948C90; --color-text-on-accent: #FFFFFF;
@@ -112,7 +115,7 @@
   color-scheme: dark;
   --color-bg-sidebar: #141215; --color-bg-surface: #242026; --color-bg-surface-raised: #2C272E;
   --color-bg-hover: #2E292F; --color-bg-selected: #3A2631; --color-bg-workspace: #1C191D;
-  --color-border-subtle: #3A343B; --color-border-default: #524A53; --color-border-strong: #7A7079;
+  --color-border-card: #2A262C; --color-border-subtle: #3A343B; --color-border-default: #524A53; --color-border-strong: #7A7079;
   --color-border-focus: #CE9DB2;
   --color-text-primary: #F1ECEE; --color-text-secondary: #C9C1C6; --color-text-muted: #A89FA5;
   --color-text-disabled: #6A6268; --color-text-on-accent: #19161A;
@@ -122,7 +125,7 @@
 }
 
 @media (prefers-contrast: more) {
-  :root[data-ui="next"] { --color-border-default: var(--color-border-strong); --color-border-subtle: var(--color-border-default); }
+  :root[data-ui="next"] { --color-border-default: var(--color-border-strong); --color-border-subtle: var(--color-border-default); --color-border-card: var(--color-border-default); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -285,7 +288,7 @@
 .nx-content { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4); }
 .nx-content[data-legacy="true"] { padding: 0; }
 .nx-legacy { padding: var(--space-4); }
-.nx-card { background: var(--color-bg-surface); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); padding: var(--space-4); }
+.nx-card { background: var(--color-bg-surface); border: 1px solid var(--color-border-card); border-radius: var(--radius-md); padding: var(--space-4); }
 .nx-card h2 { margin: 0 0 var(--space-3); font-size: var(--font-size-md); font-weight: 600; }
 .nx-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
 .nx-kpi { display: grid; justify-items: center; gap: var(--space-1); text-align: center; padding: var(--space-4) var(--space-3); }
@@ -493,7 +496,7 @@ textarea.nx-input { height: auto; min-height: 4.5rem; padding-block: var(--space
 .nx-spark { margin-top: var(--space-3); }
 
 /* ---------- Activity panel (right slide-over, closed by default) ---------- */
-.nx-trow { border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); background: var(--color-bg-workspace); overflow: hidden; }
+.nx-trow { border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); background: var(--color-bg-workspace); overflow: hidden; }
 .nx-trow-main { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; width: 100%; padding: var(--space-3); background: none; border: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
 .nx-trow-main:hover { background: var(--color-bg-hover); }
 .nx-trow-text { display: grid; gap: 2px; min-width: 0; font-size: var(--font-size-sm); }
@@ -509,7 +512,7 @@ textarea.nx-input { height: auto; min-height: 4.5rem; padding-block: var(--space
 [data-sidebar="collapsed"] .nx-nav-group-btn span[aria-hidden] { display: none; }
 
 /* ---------- Screens not rebuilt yet: same cards, fields and dialogs as the rest ---------- */
-:root[data-ui="next"] [data-slot="card"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
+:root[data-ui="next"] [data-slot="card"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
 :root[data-ui="next"] [data-slot="button"] { border-radius: var(--radius-md); }
 :root[data-ui="next"] [data-slot="input"], :root[data-ui="next"] [data-slot="textarea"], :root[data-ui="next"] [data-slot="native-select"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); }
 :root[data-ui="next"] [data-slot="dialog-content"], :root[data-ui="next"] [data-slot="alert-dialog-content"], :root[data-ui="next"] [data-slot="dropdown-menu-content"] { background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); }
