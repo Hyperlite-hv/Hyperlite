@@ -80,7 +80,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 - A cluster needs a low-latency network between its nodes (Corosync). Hosts driven over SSH from one controller (deprecated) depend on it: its configuration is copied to them every 15 minutes, and taking over after its loss is a manual command ([docs/cluster-failover.md](docs/cluster-failover.md)). Without the quorum a cluster node changes nothing, VMs included, as on Proxmox: a two-node cluster needs a QDevice, or `hyperlite-cfs expected-votes` once a node is known to be down for good.
 - Automatic high availability needs proof that a lost member stopped: a BMC (IPMI or Redfish) or an armed watchdog. Without either, its VMs are left to an administrator. It covers VMs whose disks are on a share that locks across nodes (NFS, SMB); hosts driven over SSH get a dry run only.
 - ZFS pools are created on loopback files by the web interface (single node); Ceph is not supported.
-- CI runs the backend unit and API tests, the dashboard lint and build, a Playwright end-to-end suite against a real backend and libvirt (QEMU without KVM), and the `hyperlite-cfs` tests with sanitizers and fuzzing. Multi-node operations (NFS, ZFS, migration, HA) are still mostly verified by hand on real machines.
+- The CI only publishes (package, ISO, APT repository); the tests (backend unit and API tests, dashboard lint and build, the Playwright end-to-end suite, the `hyperlite-cfs` tests) are run locally before a pull request. Multi-node operations (NFS, ZFS, migration, HA) are still mostly verified by hand on real machines.
 
 ## License
 

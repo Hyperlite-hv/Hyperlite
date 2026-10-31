@@ -57,7 +57,8 @@ To work on the dashboard with hot reload, run `npm run dev` in `dashboard/` (it 
 
 ## Checks
 
-Run these before opening a pull request; CI runs the same ones.
+Run these before opening a pull request: the CI no longer runs them, it only publishes what is pushed to `test` and
+`master`.
 
 ```bash
 venv/bin/ruff check .            # lint (bandit-style security rules included)
