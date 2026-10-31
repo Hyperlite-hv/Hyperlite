@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 # accepted too until then.
 API_USER = "www-data"
 
+_serving = False  # serve() runs in this process: it is hyperlite-daemon itself
+
 
 def allowed_uids():
     uids = {0}
@@ -99,10 +101,20 @@ def notify_ready():
         sock.sendall(b"READY=1")
 
 
+def serving():
+    """Whether this process is hyperlite-daemon itself. It sets HYPERLITE_DAEMON_INPROCESS for its own calls (serve()),
+    as the test suite and the e2e backend do to run the operations without a daemon: that variable alone cannot tell
+    them apart."""
+    return _serving
+
+
 def serve(path=None):
     """Listen on the socket until stopped: 0660, owned by root and the API's group when it exists."""
     import app.daemon.ops  # noqa: F401  (registers the operations)
     from app.core.privileged import INPROCESS_ENV
+
+    global _serving
+    _serving = True
 
     # The daemon's own code that asks for an operation (another node's read-only connection opening its tunnel) runs
     # it here, through the same registry, never through its own socket.
