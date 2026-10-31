@@ -234,6 +234,17 @@ def _fresh_inventory():
 
 
 @pytest.fixture(autouse=True)
+def _no_task_left():
+    """The task the code works for (app/core/tasks.py current_task) never carries over from one test: a task a test
+    left running took the next tests' calls to hyperlite-daemon into its log, in a database that was gone."""
+    from app.core import tasks
+
+    token = tasks._current.set(None)
+    yield
+    tasks._current.reset(token)
+
+
+@pytest.fixture(autouse=True)
 def _no_credential_left():
     """A request's credential (peer_auth.CREDENTIAL) never carries over from one test: one remembered by a test went
     with the next test's calls to hyperlite-daemon, which, checking each proof since step 4d, refused a token of
