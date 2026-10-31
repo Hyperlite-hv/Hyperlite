@@ -38,6 +38,28 @@ def task_log(task_id, message):
     _store().append_log(task_id, message, _now())
 
 
+# The task the running code works for: what it asks hyperlite-daemon meanwhile is written into that task's log
+# (app/core/privileged.py), so a task's log says what was done and why it failed, not only that it started and ended.
+# Set by create_task, carried onto the task's thread by start_thread, cleared by finish_task.
+_current = contextvars.ContextVar("hyperlite_current_task", default=None)
+
+
+def current_task():
+    """The task this code works for, while it runs in this process: a long-lived thread that created a task whose work
+    ended on another thread keeps its id, and must not write its next, unrelated calls into that task's log."""
+    task_id = _current.get()
+    with _cancel_lock:
+        return task_id if task_id in _live else None
+
+
+def _working_for(fn, task_id):
+    def run(*args, **kwargs):
+        _current.set(task_id)
+        return fn(*args, **kwargs)
+
+    return run
+
+
 def get_task_log(task_id):
     return _store().logs(task_id)
 
@@ -259,6 +281,7 @@ def create_task(type_, target=None, node=None, username=None):
     _store().create(task_id, type_, target, self_node.to_db(node), username, _now(), runner())
     with _cancel_lock:
         _live.add(task_id)
+    _current.set(task_id)
     if _bind_tasks.get():
         from app.core import peer_auth
 
@@ -297,6 +320,8 @@ def finish_task(task_id, status, error_message=None):
     _store().finish(task_id, status, error_message, cancelled_by, _now())
     _store().forget_runner(task_id)
     unregister_cancel(task_id)
+    if _current.get() == task_id:
+        _current.set(None)
 
 
 def start_thread(fn, *args, task_id=None, name=None):
@@ -308,10 +333,11 @@ def start_thread(fn, *args, task_id=None, name=None):
     (tests/test_threads_keep_the_proof.py)."""
     from app.core import peer_auth
 
-    target = fn
+    work = fn if task_id is None else _working_for(fn, task_id)
+    target = work
     if peer_auth.CREDENTIAL.get() is not None:
         # Without its task yet (a backup, each VM of a group), each task the thread makes takes the proof then.
-        target = peer_auth.carry(_binding(fn)) if task_id is None else peer_auth.carry(fn, _ticket(task_id))
+        target = peer_auth.carry(_binding(work)) if task_id is None else peer_auth.carry(work, _ticket(task_id))
     worker = threading.Thread(target=target, args=args, daemon=True, name=name)
     worker.start()
     return worker
