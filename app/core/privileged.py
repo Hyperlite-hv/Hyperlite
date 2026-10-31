@@ -5,13 +5,17 @@ permissions), the audit log and the tasks; the daemon does the root part.
 HYPERLITE_DAEMON_INPROCESS=1 runs the operation in this process, through the same registry and its argument models:
 the test suite, the e2e backend and the scale lab, which run no daemon. A node never sets it."""
 
+import logging
 import os
+import time
 
 from fastapi import HTTPException
 
 from app.core import daemon_client
 from app.core.audit import log_action
 from app.daemon.registry import DaemonError
+
+logger = logging.getLogger(__name__)
 
 INPROCESS_ENV = "HYPERLITE_DAEMON_INPROCESS"
 
@@ -46,7 +50,57 @@ def write(op, **args):
     return result
 
 
+# What a task's log shows of each operation it asks for (app/core/tasks.py current_task): the objects, places and
+# sizes it names, never a secret (a password, a token, a key, a session, a code), which only these names can be.
+_LOGGED_ARGS = (
+    "vm", "name", "new_name", "node", "target", "template", "container", "pool", "volume", "store", "network", "mac",
+    "device", "dev", "path", "size_gb", "memory_mb", "vcpu", "action", "kind", "force", "start", "autostart",
+    "snapshot", "backup_id", "check_only",
+)  # fmt: skip
+# The cluster's own plumbing (proofs, the replicated configuration): too frequent to say anything in a task's log.
+_QUIET = ("auth.", "cfs.")
+
+
+def _summary(args):
+    shown = [
+        f"{k}={str(v)[:60]}"
+        for k in _LOGGED_ARGS
+        if isinstance((v := args.get(k)), (str, int, float, bool)) and v != ""
+    ]
+    return f" ({', '.join(shown)})" if shown else ""
+
+
+def _note(task_id, message):
+    """A line of the task's log, never at the cost of the operation it describes."""
+    from app.core import tasks
+
+    try:
+        tasks.task_log(task_id, message)
+    except Exception:
+        logger.warning("Task %s: its log could not take a line", task_id, exc_info=True)
+
+
 def _call(op, user, timeout, args):
+    from app.core import tasks
+
+    task_id = None if op.startswith(_QUIET) else tasks.current_task()
+    if task_id is None:
+        return _dispatch(op, user, timeout, args)
+    _note(task_id, f"hyperlite-daemon: {op}{_summary(args)}")
+    began = time.monotonic()
+    try:
+        answer = _dispatch(op, user, timeout, args)
+    except DaemonError as e:
+        _note(task_id, f"{op}: {e.kind} after {time.monotonic() - began:.1f} s: {e.detail}")
+        raise
+    except Exception as e:
+        _note(task_id, f"{op}: failed after {time.monotonic() - began:.1f} s: {type(e).__name__}: {e}")
+        raise
+    _note(task_id, f"{op}: done in {time.monotonic() - began:.1f} s")
+    return answer
+
+
+def _dispatch(op, user, timeout, args):
     if os.environ.get(INPROCESS_ENV) != "1":
         return daemon_client.call_fds(op, args, user=user, timeout=timeout)
     import app.daemon.ops  # noqa: F401  (registers the operations)
