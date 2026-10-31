@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CircleStop } from "lucide-react";
+import { CircleStop, Copy, Download } from "lucide-react";
 import { cancelTask, fetchTaskLog } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -23,7 +23,9 @@ const LEVEL_TEXT = { error: "ERROR", warn: "WARN", ok: "OK", info: "INFO" };
 
 // A task's own log, refreshed while it runs, and the ways to stop it: a clean stop when the task has one, closing
 // it when nobody runs it any more, or (administrators) closing the record of one that cannot stop midway.
-export default function TaskLog({ task, onChanged, terminal = false }) {
+// tools (the terminal view of the Activity page): find a word in the log, keep its errors and warnings only, copy or
+// download it whole, for whoever is working out what went wrong.
+export default function TaskLog({ task, onChanged, terminal = false, tools = false }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const admin = useAuthStore((s) => s.role) === "admin";
@@ -32,6 +34,8 @@ export default function TaskLog({ task, onChanged, terminal = false }) {
   const [lines, setLines] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [find, setFind] = useState("");
+  const [problems, setProblems] = useState(false);
   const load = useCallback(async () => {
     try { setLines(await fetchTaskLog(task.id, task.on)); setError(null); } catch (e) { setError(errorMessage(e)); }
   }, [task.id, task.on]);
@@ -67,20 +71,48 @@ export default function TaskLog({ task, onChanged, terminal = false }) {
 
   if (terminal) {
     const all = [...(lines || [])];
-    // The task's final error is the last word of its log, when the log itself did not say it.
-    if (task.error && !all.some((l) => l.message === task.error)) all.push({ at: task.finished_at || null, message: task.error, level: "error" });
+    // The task's final error is the last word of its log, when the log itself did not say it ("Failed: <error>" does).
+    if (task.error && !all.some((l) => String(l.message).includes(task.error))) all.push({ at: task.finished_at || null, message: task.error, level: "error" });
+    const leveled = all.map((l) => ({ ...l, level: l.level || lineLevel(l.message) }));
+    const needle = find.trim().toLowerCase();
+    const kept = leveled.filter((l) => (!problems || l.level === "error" || l.level === "warn") && (!needle || String(l.message).toLowerCase().includes(needle)));
+    // The whole log as text, with its full timestamps: what goes into a ticket or a message to someone who can help.
+    const text = () => [`# ${task.type} ${task.target || ""} · ${task.id} · ${task.status}`, ...leveled.map((l) => `${l.at || "-"} ${LEVEL_TEXT[l.level]} ${l.message}`)].join("\n");
+    const copy = async () => {
+      try { await navigator.clipboard.writeText(text()); pushToast({ kind: "success", title: t("tl.copied") }); }
+      catch { pushToast({ kind: "error", title: t("tl.copyFailed") }); }
+    };
+    const save = () => {
+      const url = URL.createObjectURL(new Blob([text() + "\n"], { type: "text/plain" }));
+      const a = Object.assign(document.createElement("a"), { href: url, download: `hyperlite-${task.type}-${task.id.slice(0, 8)}.log` });
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    };
+    const nProblems = leveled.filter((l) => l.level === "error" || l.level === "warn").length;
     return (
       <div className="nx-tasklog nx-tasklog--term">
         {controls}
         <h3 className="nx-sr">{t("tl.log")}</h3>
+        {tools && all.length > 0 && (
+          <div className="nx-tlog-tools" role="group" aria-label={t("tl.log")}>
+            <span className="nx-tlog-g nx-tlog-g--find">
+              <input type="search" className="nx-inp nx-tlog-find" value={find} onChange={(e) => setFind(e.target.value)} placeholder={t("tl.find")} aria-label={t("tl.find")} />
+              <button type="button" className="nx-btn nx-btn--sm" aria-pressed={problems} disabled={!nProblems && !problems} onClick={() => setProblems((p) => !p)}>{t("tl.problems", { n: nProblems })}</button>
+            </span>
+            <span className="nx-tlog-g nx-tlog-g--out">
+              <span className="nx-muted nx-tlog-count">{kept.length === all.length ? t("tl.lines", { n: all.length }) : t("tl.linesOf", { n: kept.length, total: all.length })}</span>
+              <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={copy}><Copy size={14} aria-hidden="true" />{t("tl.copy")}</button>
+              <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={save}><Download size={14} aria-hidden="true" />{t("tl.download")}</button>
+            </span>
+          </div>
+        )}
         {error ? <p className="nx-hint nx-hint--error" role="alert" style={{ margin: 0 }}>{error}</p>
           : lines == null ? <p className="nx-tlog-empty">…</p>
-          : all.length === 0 ? <p className="nx-tlog-empty">{t("tl.empty")}</p> : (
+          : all.length === 0 ? <p className="nx-tlog-empty">{t("tl.empty")}</p>
+          : kept.length === 0 ? <p className="nx-tlog-empty">{t("tl.noMatch")}</p> : (
             <ol className="nx-tlog" aria-live={running(task) ? "polite" : undefined}>
-              {all.map((l, i) => {
-                const level = l.level || lineLevel(l.message);
-                return <li key={i} data-level={level}><span className="nx-tlog-t">{l.at ? time(l.at) : "--:--:--"}</span><span className="nx-tlog-l">{LEVEL_TEXT[level]}</span><span className="nx-tlog-m">{l.message}</span></li>;
-              })}
+              {kept.map((l, i) => (
+                <li key={i} data-level={l.level}><span className="nx-tlog-t">{l.at ? time(l.at) : "--:--:--"}</span><span className="nx-tlog-l">{LEVEL_TEXT[l.level]}</span><span className="nx-tlog-m">{l.message}</span></li>
+              ))}
             </ol>
           )}
       </div>

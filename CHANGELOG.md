@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-31
+
+### Added
+
+- A task's log now records each privileged step it takes: the daemon operation and its target (a VM, a pool, a
+  node...), how long it took, and how it ended, with the error when it failed. Secrets and arguments outside a short
+  list of names are never written. A failed task can be troubleshot from its log alone.
+
+### Changed
+
+- The Activity page is redesigned around what an operator looks for. Running tasks come first, with their progress,
+  elapsed time and an estimate from past runs of the same kind. Failures not looked at yet wait under "Needs
+  attention" until marked as seen. The history is grouped by day, and one account's bursts of tasks fold into a single
+  line. It can be filtered by status, object, type, node, period and account, and exported as CSV. The detail panel
+  shows the task's facts and error and its full log, which can be searched, narrowed to errors and warnings, copied or
+  downloaded.
+
 ## [1.4.2] - 2026-10-31
 
 ### Changed
