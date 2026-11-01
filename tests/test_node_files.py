@@ -122,7 +122,7 @@ def test_the_access_database_comes_back_with_its_journal(tmp_path):
     moved.mkdir(parents=True, mode=0o750)
     for suffix in ("", "-wal", "-shm"):
         (moved / f"access.db{suffix}").write_text(suffix or "db")
-    etc, var, written, _ = restore(tmp_path)
+    etc, _, written, _ = restore(tmp_path)
     assert written == ["access.db"]
     assert sorted(p.name for p in etc.iterdir()) == ["access.db", "access.db-shm", "access.db-wal"]
     assert not list(moved.glob("access.db*"))
@@ -136,10 +136,10 @@ def test_what_the_apis_group_could_have_made_is_never_trusted(tmp_path):
     (planted / "priv").mkdir(parents=True)
     (planted / "priv/env").write_text("HYPERLITE_SECRET_KEY=the attacker's")
     (planted / "access.db").write_text("forged")
-    os.chmod(planted, 0o777)
+    os.chmod(planted, 0o777)  # noqa: S103 (what www-data could make)
     moved = var / "access"
     moved.mkdir(mode=0o770)
-    os.chmod(moved, 0o770)
+    os.chmod(moved, 0o770)  # noqa: S103
     (moved / "access.db").write_text("forged")
     (var / "access.db").write_text("forged")  # where 1.13.0 looked
     etc, _, written, _ = restore(tmp_path)
