@@ -1,6 +1,6 @@
 # The cluster configuration as files in /etc/hyperlite (#525)
 
-Status: **accepted (maintainer, 2026-10-24).** The choices of section 2 are the maintainer's; the code starts after the privilege
+Status: **step 1 done (2026-11-01)**, steps 2 and 3 to come; accepted (maintainer, 2026-10-24). The choices of section 2 are the maintainer's; the code starts after the privilege
 separation (#511), as decided on 2026-10-21 (`docs/design/privilege-separation.md`, section 11).
 
 ## 1. Goal
@@ -159,3 +159,26 @@ Each one ships with its tests:
   node it is new. Its start does not depend on Corosync in local mode.
 - **Root on any node reads every node's keys** (decided, as Proxmox). A node removed from the cluster loses its copy
   with its tree.
+
+## 13. Step 1 as done (2026-11-01)
+
+- `hyperlite-cfs --mount DIR` (`cfs/src/mount.c`): libfuse3's low-level interface, the session's descriptor one more
+  source of the daemon's `poll()` loop, every answer read from the store on that thread. Mounted `ro` (every write
+  refused with EROFS by the kernel, root included), `allow_other`, `default_permissions`, `nosuid`, `nodev`; nothing
+  cached (entry and attribute timeouts of 0, `direct_io`).
+- **Where**: `/etc/hyperlite/cfs` for now. `/etc/hyperlite` itself still holds the node's files, and the design never
+  mounts over a directory that holds files: the mount moves to `/etc/hyperlite` with step 3, once they are in the tree.
+  `local` points at `nodes/<host>`, which step 3 fills.
+- **Modes**: as section 3; directories and the link get the mount's date (the tree keeps none for them).
+- **Virtual files**: `.version` (version, checksum, entries, bytes), `.quorum` (`1` when quorate and synchronised),
+  `.members` (this node's id, the members online, whether it is quorate, and `cluster/corosync.json` as stored).
+- **The unit**: `fusermount3 -u -z` first (a mount a crash left behind), the directory made, `--mount` passed. A mount
+  that fails is logged and the socket served all the same: the files are a view, Hyperlite reads through the socket.
+- **Packaging**: `libfuse3-dev` in the runtime build, `fuse3` and `libfuse3-4` in the package's dependencies.
+- **Tests**: `cfs/tests/test_mount.c` (types, modes, owners, sizes, `priv/`, the link, the virtual files, under ASan
+  and UBSan); `cfs/tests/python/test_mount.py` (the real daemon mounted: reading, a change seen at once, `priv/`
+  refused to `www-data`, another account refused, EROFS, the unmount at stop). By hand on a production node, in a
+  temporary directory with its own database: the same, and a `kill -9` leaving the mount dead until
+  `fusermount3 -u -z`, then mounted again. Not done yet: the `fuzz_fuse` target and the three-node cluster test.
+- Still to come: hyperlite-cfs on nodes outside a cluster (section 7), the bridge (step 2), the node's files in the
+  tree and the mount at `/etc/hyperlite` (step 3).
