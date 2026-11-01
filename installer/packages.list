@@ -27,6 +27,7 @@ libvirt-daemon-system
 libvirt-daemon-driver-lxc  # the Containers tab: libvirt-daemon-system does not pull it in
 libvirt-clients
 bridge-utils
+ifenslave  # bonds made from the node's Network page (app/core/host_network.py)
 ovmf
 swtpm
 swtpm-tools

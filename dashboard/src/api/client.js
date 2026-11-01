@@ -357,6 +357,39 @@ export async function deleteNetwork(name) {
   return realFetch(`/networks/${encodeURIComponent(name)}?confirm=true`, { method: "DELETE" });
 }
 // The host's interfaces a bridged network can sit on (existing bridges, NICs, bonds, VLANs; Wi-Fi listed as unusable).
+// The node's own bridges, bonds and VLAN interfaces (app/routers/host_network.py); `node`: another member.
+const hostNetworkPath = (path, node) => `/host/network${path}${node ? `?node=${encodeURIComponent(node)}` : ""}`;
+export async function fetchHostNetwork(node) {
+  return realFetch(hostNetworkPath("", node));
+}
+export async function previewHostNetwork(interfaces, node) {
+  return realFetch(hostNetworkPath("/preview", node), { method: "POST", ...jsonBody({ interfaces }) });
+}
+export async function applyHostNetwork(interfaces, timeoutS, node) {
+  return realFetch(hostNetworkPath("/apply", node), { method: "POST", ...jsonBody({ interfaces, timeout_s: timeoutS }) });
+}
+export async function confirmHostNetwork(id, node) {
+  return realFetch(hostNetworkPath("/confirm", node), { method: "POST", ...jsonBody({ id }) });
+}
+export async function rollbackHostNetwork(id, node) {
+  return realFetch(hostNetworkPath("/rollback", node), { method: "POST", ...jsonBody({ id }) });
+}
+// The nodes' own firewall (app/routers/host_firewall.py), applied on this node first, saved for the cluster once confirmed.
+export async function fetchFirewall() {
+  return realFetch("/cluster/firewall");
+}
+export async function previewFirewall(document) {
+  return realFetch("/cluster/firewall/preview", { method: "POST", ...jsonBody({ document }) });
+}
+export async function applyFirewall(document, timeoutS) {
+  return realFetch("/cluster/firewall/apply", { method: "POST", ...jsonBody({ document, timeout_s: timeoutS }) });
+}
+export async function confirmFirewall(id) {
+  return realFetch("/cluster/firewall/confirm", { method: "POST", ...jsonBody({ id }) });
+}
+export async function rollbackFirewall(id) {
+  return realFetch("/cluster/firewall/rollback", { method: "POST", ...jsonBody({ id }) });
+}
 export async function fetchHostInterfaces() {
   return realList("/networks/host-interfaces");
 }
