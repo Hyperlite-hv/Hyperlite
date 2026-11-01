@@ -934,3 +934,18 @@ After a join, the daemon restarts with the API: it loads the env file's keys, wh
 cluster's, only at its start. A `ClusterError` is the daemon's refusal (409, its sentence for the administrator). hyperlite-cfs not answering is
 `unavailable` (503), and a ticket that is not valid is `forbidden` (403). The cluster's state (`GET /cluster`) stays a
 read in the API: the shared configuration and the quorum come from the cfs socket, which www-data may read (14.7).
+
+### 14.10 4e: the switch (2026-11-01)
+
+With 14.3 to 14.9 in, the API does no root work of its own: `hyperlite.service` runs as `User=www-data`,
+`Group=www-data`. Its `ExecStartPre` steps stay root's (`+`), and systemd, root, still reads the node's env file for it.
+What it reads, writes and connects to, checked as `www-data` on a production node before the switch:
+
+- read and written: the main database with its `-wal` and `-shm`, `tmp`, `spool`, `/run/lock/hyperlite`,
+  `/var/log/hyperlite`;
+- read: `access.db`, the TLS key and certificate;
+- connected to: hyperlite-daemon's socket, hyperlite-cfs's socket, libvirt's read-only socket;
+- refused, as it must be: `/etc/hyperlite/priv`.
+
+The API's own `HOME` is `www-data`'s: nothing it does needs root's. `GET /host/preflight`, replayed by the API, checks
+that hyperlite-daemon answers instead of asking to be root (`preflight.run(service=True)`).

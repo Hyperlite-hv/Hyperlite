@@ -88,7 +88,7 @@ def host_preflight(user: dict = Depends(require_role("admin"))):
     from app.core import preflight
 
     try:
-        report = preflight.run(python=sys.executable, requirements=str(paths.CODE / "requirements.txt"))
+        report = preflight.run(python=sys.executable, requirements=str(paths.CODE / "requirements.txt"), service=True)
     except Exception as e:
         msg = describe_exception(e)
         log_action(user["username"], "host_preflight", "local", "failed", msg)
