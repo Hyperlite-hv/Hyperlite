@@ -115,6 +115,10 @@ def hosts(database, monkeypatch, daemon_libvirt):
     sent = []
 
     def fake_ssh(node, command, input_text=None):
+        if command == smb_storage._IN_TREE_TEST:  # is /etc/hyperlite that node's tree (from 1.14)?
+            if not hosts.get("tree"):
+                raise OSError("exit status 1")
+            return
         sent.append((node, command, input_text))
 
     monkeypatch.setattr(smb_storage, "_node_ssh", fake_ssh)
@@ -143,6 +147,24 @@ def test_a_pool_on_another_node_writes_there_through_ssh_input(client, auth_head
     assert "umask 077" in command and "/etc/hyperlite/priv/smb/nas.cred" in command
     assert text.startswith("username=vmstore\npassword=S3cr&t, p@ss!\n")
     assert "credentials=/etc/hyperlite/priv/smb/nas.cred" in _options(hosts["n2"].pools["nas"].xml)
+
+
+def test_a_node_whose_files_are_in_the_clusters_tree_gets_them_there(client, auth_headers, hosts):
+    """From 1.14 that node's /etc/hyperlite is the cluster's tree, read-only (docs/design/cfs-files.md, section 15):
+    its own secrets are under local/priv, written into the tree by its node_files."""
+    hosts["tree"] = True
+    headers = auth_headers("root")
+    r = client.post("/storage?node=n2", json=SMB, headers=headers)
+    assert r.status_code == 201, r.text
+    ((_, command, text),) = hosts["ssh"]
+    assert command == "cd /usr/lib/hyperlite && python3 -m app.core.node_files put priv/smb/nas.cred"
+    assert text.startswith("username=vmstore\npassword=S3cr&t, p@ss!\n")
+    assert "credentials=/etc/hyperlite/local/priv/smb/nas.cred" in _options(hosts["n2"].pools["nas"].xml)
+    hosts["ssh"].clear()
+    assert client.delete("/storage/nas?node=n2&confirm=true", headers=headers).status_code == 200
+    assert hosts["ssh"] == [
+        ("n2", "cd /usr/lib/hyperlite && python3 -m app.core.node_files remove priv/smb/nas.cred", None)
+    ]
 
 
 def test_a_share_that_does_not_mount_leaves_no_credentials_behind(client, auth_headers, hosts):

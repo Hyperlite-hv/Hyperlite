@@ -63,7 +63,7 @@ Hyperlite keeps very little state of its own: libvirt is the source of truth for
 - Authentication: local accounts (bcrypt), optional TOTP, API tokens (`hlt_` prefix, SHA-256 hash stored), optional OIDC single sign-on. hyperlite-daemon checks the proof and signs the session, an Ed25519 ticket as Proxmox VE's (`app/core/tickets.py`); the API only verifies it.
 - Authorization: a global role (`admin` or `viewer`) plus scoped rights (roles, groups, pools, per-VM and per-container ACL) evaluated in `app/core/permissions.py`. Endpoints declare the privilege they require.
 - Consoles and terminals use short-lived single-use tickets.
-- Secrets in the database (SMTP password, OIDC client secret) are encrypted with a Fernet key from `/etc/hyperlite/priv/env`.
+- Secrets in the database (SMTP password, OIDC client secret) are encrypted with a Fernet key from the node's env file (`/etc/hyperlite/local/priv/env`, `/etc/hyperlite/priv/env` up to 1.13).
 - Cluster nodes: dedicated SSH key, trust-on-first-use host keys, and a reverse-trust key per node (restricted with `from=`) for peer-to-peer migration.
 - User-supplied URLs are restricted to `http(s)` (`app/core/http_safety.py`).
 

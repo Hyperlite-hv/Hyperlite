@@ -4,14 +4,16 @@ Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/
 # The work no person asks for, out of the API, as Proxmox VE's pvescheduler (app/scheduler). After hyperlite-daemon,
 # which does its root work, and after the API; PartOf: a restart or a stop of the API (an update) restarts or stops it
 # too, so both run the same version. A crash of the API leaves it running.
-After=hyperlite-daemon.service hyperlite.service
-Wants=hyperlite-daemon.service
+After=hyperlite-daemon.service hyperlite.service hyperlite-cfs.service
+Wants=hyperlite-daemon.service hyperlite-cfs.service
 PartOf=hyperlite.service
 
 [Service]
 Type=simple
 WorkingDirectory=/usr/lib/hyperlite
 EnvironmentFile=-/etc/hyperlite/priv/env
+# Where the node's keys are once /etc/hyperlite is the cluster's tree (docs/design/cfs-files.md, section 15).
+EnvironmentFile=-/etc/hyperlite/local/priv/env
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/root
 # The tools' output read in English, as the API's (installer/hyperlite.service).
@@ -21,7 +23,7 @@ Environment=TMPDIR=/var/lib/hyperlite/tmp
 Environment=HYPERLITE_SERVICE=scheduler
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
 Environment=HYPERLITE_HA_SERVICE=1
-ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStartPre=/bin/sh -c 'test -s /etc/hyperlite/priv/env || test -s /etc/hyperlite/local/priv/env'
 ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.scheduler
 TimeoutStopSec=20
 Restart=on-failure

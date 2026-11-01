@@ -547,6 +547,37 @@ def test_a_join_that_fails_puts_this_node_back_as_it_was(host, monkeypatch):
     assert host.restarts == []
 
 
+def test_a_joining_node_keeps_its_own_files_in_the_clusters_tree(host, monkeypatch):
+    """With the node's files in its tree (docs/design/cfs-files.md, section 15), the tree that gives way to the
+    cluster's would take its certificate and keys with it: they are read before and written into the cluster's tree
+    once it is up, before the env file gets the cluster's keys. A join undone gets them back with the old tree."""
+    from app.core import node_files
+
+    own = {"local/hyperlite.crt": b"CERT", "priv/env": b"HYPERLITE_SECRET_KEY=own\n"}
+    events = []
+    monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: _answer())
+    monkeypatch.setattr(node_files, "in_tree", lambda etc=None: True)
+    monkeypatch.setattr(node_files, "from_tree", lambda client, node=None: dict(own))
+    monkeypatch.setattr(
+        node_files, "put_all", lambda files, node=None, client=None, wait_s=60: events.append(("put", dict(files)))
+    )
+    write_env = cluster_setup._write_env_keys
+    monkeypatch.setattr(cluster_setup, "_write_env_keys", lambda keys: events.append(("env",)) or write_env(keys))
+    cfs_db = cluster_setup.CFS_DB
+    cfs_db.parent.mkdir(parents=True)
+    cfs_db.write_bytes(b"its own tree")
+
+    cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
+    assert events == [("put", own), ("env",)]
+
+    # Undone: the files are not written by hand, the old tree brings them back.
+    restored = []
+    monkeypatch.setattr(cluster_setup, "_restore", lambda path, saved: restored.append(path))
+    monkeypatch.setattr(node_files, "relative", lambda path, etc=None: "priv/env" if path == "env" else None)
+    cluster_setup._undo_join({"env": (b"x", 0o600), "corosync.conf": (b"y", 0o644)}, {}, [], in_tree=True)
+    assert restored == ["corosync.conf"]
+
+
 # ---- The primary node: it counts twice in the quorum ----
 
 

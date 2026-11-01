@@ -23,7 +23,7 @@ import threading
 
 from cryptography.fernet import Fernet
 
-from app.core import paths
+from app.core import node_files, paths
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,20 @@ def _load_or_create_key():
     # already encrypted secret unreadable forever (there is no other copy).
     # Two first uses at once (two threads, or the service and a script) must not each
     # append a key of their own: the file is locked, and read again under the lock.
+    if node_files.is_node_file(ENV_PATH):  # in the cluster's tree: compare-and-set instead of a lock
+        new_key = Fernet.generate_key()
+
+        def add(old):
+            text = (old or b"").decode()
+            if any(line.startswith(f"{_KEY_VAR}=") for line in text.splitlines()):
+                return None
+            return (text + f"\n{_KEY_VAR}={new_key.decode()}\n").encode()
+
+        with _key_lock:
+            content = node_files.update(ENV_PATH, add, 0o600).decode()
+        key = next(line.split("=", 1)[1].strip() for line in content.splitlines() if line.startswith(f"{_KEY_VAR}="))
+        os.environ[_KEY_VAR] = key
+        return key.encode()
     with _key_lock, open(ENV_PATH, "a+") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:

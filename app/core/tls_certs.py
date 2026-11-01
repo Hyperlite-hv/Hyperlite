@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from cryptography.x509.oid import ExtensionOID, NameOID
 
-from app.core import api_group, paths
+from app.core import api_group, node_files, paths
 
 TLS_DIR = Path(os.environ.get("HYPERLITE_TLS_DIR") or paths.TLS_DIR)
 SELF_SIGNED_SCRIPT = paths.CODE / "scripts" / "ensure-tls-cert.sh"
@@ -140,21 +140,42 @@ def _write(path, data, mode):
     os.replace(tmp, path)
 
 
+def _in_tree(path):
+    """The node's TLS files are in the cluster's tree once /etc/hyperlite is its mount (docs/design/cfs-files.md,
+    section 15): written there through the socket, never on the read-only mount."""
+    return node_files.relative(path) is not None and node_files.in_tree()
+
+
+def _put(path, data, mode):
+    if _in_tree(path):
+        node_files.write(path, data, mode)
+    else:
+        _write(path, data, mode)
+
+
+def _drop(path):
+    if _in_tree(path):
+        node_files.remove(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
 def install(cert_bytes, key_bytes, source):
     """Put a checked pair in place, keeping the current one as `.previous`."""
     _check_loads(cert_bytes, key_bytes)
-    TLS_DIR.mkdir(parents=True, exist_ok=True)
-    # The API serves HTTPS with them (as pveproxy-ssl.key, root:www-data 0640); a key replaced stays root's alone.
-    api_group.share(TLS_DIR, 0o750)
     crt, key = _paths()
+    if not _in_tree(crt):
+        TLS_DIR.mkdir(parents=True, exist_ok=True)
+        # The API serves HTTPS with them (as pveproxy-ssl.key, root:www-data 0640); a key replaced stays root's alone.
+        api_group.share(TLS_DIR, 0o750)
     if crt.exists() and key.exists():
-        shutil.copy2(crt, crt.with_name("hyperlite.crt.previous"))
-        shutil.copy2(key, key.with_name("hyperlite.key.previous"))
-        os.chmod(key.with_name("hyperlite.key.previous"), 0o600)
-    _write(key, key_bytes, 0o640)
-    api_group.share(key, 0o640)
-    _write(crt, cert_bytes, 0o644)
-    (TLS_DIR / SOURCE_FILE).write_text(source + "\n")
+        _put(crt.with_name("hyperlite.crt.previous"), crt.read_bytes(), 0o644)
+        _put(key.with_name("hyperlite.key.previous"), key.read_bytes(), 0o600)
+    _put(key, key_bytes, 0o640)
+    if not _in_tree(key):
+        api_group.share(key, 0o640)
+    _put(crt, cert_bytes, 0o644)
+    _put(TLS_DIR / SOURCE_FILE, (source + "\n").encode(), 0o644)
 
 
 def import_pem(cert_pem, key_pem, chain_pem=""):
@@ -178,12 +199,12 @@ def restore_previous():
 def self_signed():
     """A new self-signed pair, as on the first boot (scripts/ensure-tls-cert.sh writes it when none exists)."""
     crt, key = _paths()
-    for p in (crt, key):
+    for p, mode in ((crt, 0o644), (key, 0o600)):
         if p.exists():
-            shutil.copy2(p, p.with_name(p.name + ".previous"))
-            p.unlink()
+            _put(p.with_name(p.name + ".previous"), p.read_bytes(), mode)
+            _drop(p)
     subprocess.run([str(SELF_SIGNED_SCRIPT)], check=True, timeout=60, capture_output=True)
-    (TLS_DIR / SOURCE_FILE).write_text("auto\n")
+    _put(TLS_DIR / SOURCE_FILE, b"auto\n", 0o644)
 
 
 def acme_command(domain, email, staging=False, config_path=None):

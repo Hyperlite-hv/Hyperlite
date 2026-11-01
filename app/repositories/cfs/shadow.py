@@ -755,12 +755,17 @@ def turn_on():
 
 
 def turn_off():
-    """Stop copying and stop the daemon. Its database stays in /var/lib/hyperlite-cfs for the next time."""
+    """Stop copying and stop the daemon (not once it holds the node's files). Its database stays in
+    /var/lib/hyperlite-cfs for the next time."""
     if forced():
         raise ShadowError(
             "Shadow mode is forced by HYPERLITE_CFS_SHADOW=1 in .env: remove that line and restart Hyperlite"
         )
     _settings().set_app_setting(SETTING, "0")
+    from app.core import node_files
+
+    if node_files.in_tree():  # it holds the node's own files (docs/design/cfs-files.md, section 15): it keeps running
+        return
     if not _systemctl("disable", "--now"):
         raise ShadowError(
             "Shadow mode is off, but the hyperlite-cfs service did not stop: see systemctl status hyperlite-cfs"

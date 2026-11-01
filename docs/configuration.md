@@ -1,6 +1,6 @@
 # Configuration
 
-Hyperlite is configured through environment variables, normally set in `/etc/hyperlite/priv/env` (read by systemd through `EnvironmentFile`; `/root/hyperlite/.env` up to 1.0). The package creates this file on first installation with fresh secrets and never overwrites it on upgrade.
+Hyperlite is configured through environment variables, normally set in `/etc/hyperlite/local/priv/env` (`/etc/hyperlite/priv/env` up to 1.13, `/root/hyperlite/.env` up to 1.0; read by systemd through `EnvironmentFile`). The package creates this file on first installation with fresh secrets and never overwrites it on upgrade. From 1.14 `/etc/hyperlite` is read-only (see Files below): change the file with `cd /usr/lib/hyperlite && python3 -m app.core.node_files put priv/env < new-env` as root.
 
 | Variable | Purpose | Default |
 |---|---|---|
@@ -40,14 +40,24 @@ Profile and policy names are the API's English wire values (see [api.md](api.md)
 From 1.1 the files live where Proxmox VE keeps its own (`app/core/paths.py`); up to 1.0 they were all under
 `/root/hyperlite`, and the first start of 1.1 moves them (`scripts/migrate_layout.sh`).
 
+From 1.14 `/etc/hyperlite` is the cluster's replicated configuration, mounted read-only by hyperlite-cfs as `/etc/pve`
+by pmxcfs ([design](design/cfs-files.md)): one JSON file per object under `db/`, the cluster's under `cluster/`, its
+secrets under `priv/` (root only), every node's own files under `nodes/<host>/`, and `local` pointing at this node's.
+`.members`, `.version` and `.quorum` are made when read. The first start of 1.14 moves the node's files into it (the
+directory as it was is kept in `/var/lib/hyperlite/etc-before-cfs-<date>`). Changes go through the dashboard, the API
+or `hyperlite-admin`; a node's own file through `python3 -m app.core.node_files put <path>` (root, from
+`/usr/lib/hyperlite`).
+
 | Path | Content | Proxmox VE |
 |---|---|---|
 | `/usr/lib/hyperlite` | The code and its Python environment (the package's). | `/usr/share/perl5/PVE` |
 | `/usr/share/hyperlite/www` | The web interface, built. | `/usr/share/pve-manager` |
-| `/etc/hyperlite/priv/env` | Secrets and environment (root only). | `/etc/pve/priv` |
-| `/etc/hyperlite/priv/ssh/` | Automation key (VMs, containers) and cluster keys. | `/etc/pve/priv`, `/root/.ssh` |
-| `/etc/hyperlite/priv/authkey.key`, `/etc/hyperlite/authkeys.json` | The key pair hyperlite-daemon signs sessions with (renewed every day) and the public keys the API verifies them with. | `/etc/pve/priv/authkey.key`, `/etc/pve/authkey.pub` |
-| `/etc/hyperlite/local/` | The web interface's certificate and key; replace them to use your own (or Node › Certificate). | `/etc/pve/local/pve-ssl.*` |
+| `/etc/hyperlite` | The cluster's configuration, read-only (from 1.14; before, the node's files below). | `/etc/pve` |
+| `/etc/hyperlite/local/priv/env` | Secrets and environment (root only; `/etc/hyperlite/priv/env` up to 1.13). | `/etc/pve/priv` |
+| `/etc/hyperlite/local/priv/ssh/` | Automation key (VMs, containers) and cluster keys (`priv/ssh/` up to 1.13). | `/etc/pve/priv`, `/root/.ssh` |
+| `/etc/hyperlite/local/priv/authkey.key`, `/etc/hyperlite/local/authkeys.json` | The key pair hyperlite-daemon signs sessions with (renewed every day) and the public keys the API verifies them with (`priv/authkey.key`, `authkeys.json` up to 1.13). | `/etc/pve/priv/authkey.key`, `/etc/pve/authkey.pub` |
+| `/etc/hyperlite/local/` | The web interface's certificate and key; replace them from Node › Certificate. | `/etc/pve/local/pve-ssl.*` |
+| `/var/lib/hyperlite/access/access.db` | Accounts, groups, permissions (root writes, the API reads; `/etc/hyperlite/access.db` up to 1.13). | `/etc/pve/user.cfg` |
 | `/var/lib/hyperlite/hyperlite.db` | SQLite database (WAL, root only). | `/var/lib/pve-cluster/config.db` |
 | `/var/lib/hyperlite/template/iso`, `template/vm` | ISO images, VM templates. | `/var/lib/vz/template/iso` |
 | `/var/lib/hyperlite/dump`, `dump/export`, `dump/container` | VM backups (the default directory), VM exports, container backups. | `/var/lib/vz/dump` |

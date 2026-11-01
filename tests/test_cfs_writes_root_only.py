@@ -123,4 +123,6 @@ def test_what_writes_the_tree_runs_in_the_daemon():
     for start in ("peer_https.start()", "cluster_v1.start()", "start_lead_loop()"):
         assert main.index(start) > in_process, start  # the API's own only when it runs the daemon's operations
     unit = (ROOT / "installer" / "hyperlite-cfs.service").read_text()
-    assert "--socket-mode 0660 --socket-group www-data" in unit
+    assert "ExecStart=/usr/lib/hyperlite/scripts/cfs-start.sh" in unit  # which starts it (the mount point it picks)
+    start = (ROOT / "scripts" / "cfs-start.sh").read_text()
+    assert "--socket-mode 0660 --socket-group www-data" in start
