@@ -188,14 +188,18 @@ Each one ships with its tests:
 - **Where each file goes**, fixed here once for step 3 (`app/core/node_files.py`, `tree_path` and `disk_path`):
   `local/<name>` is `nodes/<host>/<name>` (so `/etc/hyperlite/local/hyperlite.crt` reads the same once `local` is the
   mount's link), `priv/<path>` is `nodes/<host>/priv/<path>`, `authkeys.json` is `nodes/<host>/authkeys.json`.
-  `access.db`, a database, never goes in the tree: step 3 moves it to `/var/lib/hyperlite/access.db`. `<host>` is the
+  `access.db`, a database, never goes in the tree: step 3 moves it to `/var/lib/hyperlite/access/access.db`, a
+  directory of root's (`/var/lib/hyperlite` itself is writable by the API's group). `<host>` is the
   host name, as the mount names `local`.
 - **The restore** (`python3 -m app.core.node_files restore`, the system's Python: no venv yet at that point). It reads
   this node's files from the tree through the socket; if the tree is mounted over `/etc/hyperlite` it stops
   hyperlite-cfs and unmounts it (and refuses to go on if the mount stays); it writes each file that is not on disk
   (never one that is), with the installation's modes; then fills the gaps from the newest
   `/var/lib/hyperlite/etc-before-cfs-<date>`; then puts `access.db` back with its `-wal` and `-shm`, from
-  `/var/lib/hyperlite` or else the kept directory. A tree it cannot read is logged and the kept directory used.
+  `/var/lib/hyperlite/access` or else the kept directory; then points the SMB pools step 3 changed back at
+  `/etc/hyperlite/priv/smb`. A tree it cannot read is logged and the kept directory used. **1.13.1**: a kept
+  directory or a database is used only when root's and writable by no one else: `/var/lib/hyperlite` is writable by
+  the API's group, which must not be able to plant keys or permissions a rollback would take (1.13.0 trusted them).
 - **The postinst runs it first**, before it looks for `priv/env` to tell an upgrade from a first installation: a
   rollback from step 3 would otherwise make new keys over the node's (every session and encrypted secret lost). A
   restore that fails stops the installation. The bridge itself moves nothing: on every node today it finds nothing to
