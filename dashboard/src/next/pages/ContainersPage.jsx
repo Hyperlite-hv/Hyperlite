@@ -112,7 +112,7 @@ export default function ContainersPage() {
                     return (
                       <tr key={ct.name} className={ctx.is("ct", ct.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
                         <td><StatusIndicator kind="vm" wire={on ? "active" : "stopped"} /></td>
-                        <th scope="row" className="nx-mono"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("container", ct.name, "summary")}>{ct.name}</button></th>
+                        <th scope="row" className="nx-mono"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("container", ct.name, "summary")}>{ct.vmid != null && <span className="nx-muted" title={t("vmid.title")}>{ct.vmid} </span>}{ct.name}</button></th>
                         <td>{ct.mode === "application"
                           ? <><Chip tone="info">Docker</Chip> <span className="nx-mono nx-muted">{ct.image}</span></>
                           : <Chip>LXC</Chip>}</td>

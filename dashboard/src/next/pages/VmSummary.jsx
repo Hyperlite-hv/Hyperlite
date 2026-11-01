@@ -111,6 +111,7 @@ export default function VmSummary({ resource: vm }) {
             <dt>{t("vm.tools")}</dt><dd>{vm.guest_agent ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.guest_agent}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
             <dt>{t("wz.firmware")}</dt><dd>{vm.firmware ? t(`fw.${vm.firmware}`) : na}</dd>
             <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"}</dd>
+            <dt>VMID</dt><dd title={t("vmid.title")}>{vm.vmid != null ? <span className="nx-mono">{vm.vmid}</span> : <span className="nx-muted">{t("vmid.pending")}</span>}</dd>
             <dt>UUID</dt><dd className="nx-break">{vm.uuid ? <span className="nx-mono nx-muted">{vm.uuid}</span> : na}</dd>
           </dl>
         </Card>
