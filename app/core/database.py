@@ -31,12 +31,14 @@ ACCESS_PATH = os.environ.get("HYPERLITE_ACCESS_DB_PATH")
 
 
 def access_path():
-    """/etc/hyperlite/access.db beside the node's configuration; beside the database when it was moved elsewhere (the
-    test suite, the end-to-end backend), so each keeps its own."""
+    """/var/lib/hyperlite/access/access.db once /etc/hyperlite is the cluster's tree (read-only), /etc/hyperlite/access.db
+    before; beside the database when it was moved elsewhere (the test suite, the end-to-end backend), so each keeps its
+    own. Once moved it is never looked for in /etc/hyperlite again, even with the tree not mounted: a database made
+    there would hide the node's."""
     if ACCESS_PATH:
         return Path(ACCESS_PATH)
     if DB_PATH == paths.DB:
-        return paths.ETC / "access.db"
+        return paths.ACCESS_DB if paths.IN_TREE or paths.ACCESS_DB.exists() else paths.ETC / "access.db"
     return DB_PATH.with_name(DB_PATH.stem + "-access.db")
 
 

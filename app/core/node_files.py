@@ -20,14 +20,18 @@ could have made. SMB pools whose credentials step 3 read from /etc/hyperlite/loc
 /etc/hyperlite/priv/smb again."""
 
 import argparse
+import contextlib
 import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
+import time
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from app.core import cfs_client, paths
+from app.core import api_group, cfs_client, paths
 
 # Files of /etc/hyperlite itself (not under local/ or priv/) that are the node's.
 TOP = ("authkeys.json",)
@@ -160,6 +164,271 @@ def smb_pools(old, new, virsh=_virsh):
     return changed
 
 
+# ---- Step 3: the node's files in the tree (section 15) ----
+
+_client_factory = None  # replaced in the tests
+
+
+def _client():
+    if _client_factory:
+        return _client_factory()
+    return cfs_client.CfsClient(cfs_client.DEFAULT_SOCKET, timeout=10.0)
+
+
+def in_tree(etc=None):
+    """Whether /etc/hyperlite is the tree's mount: only the mount shows .version."""
+    return (Path(etc or paths.ETC) / ".version").is_file()
+
+
+def relative(path, etc=None):
+    """A node's file as its path under /etc/hyperlite on disk ("priv/env"), from any path it is read at: on disk
+    (/etc/hyperlite/priv/env) or in the tree (/etc/hyperlite/local/priv/env). None for any other path."""
+    etc = Path(etc or paths.ETC)
+    try:
+        rel = PurePosixPath(os.path.normpath(path)).relative_to(etc)
+    except ValueError:
+        return None
+    parts = rel.parts
+    if len(parts) > 2 and parts[:2] == ("local", "priv"):
+        rel = PurePosixPath("priv", *parts[2:])
+    elif parts == ("local", "authkeys.json"):
+        rel = PurePosixPath("authkeys.json")
+    return str(rel) if tree_path(str(rel), "-") else None
+
+
+def location(rel, etc=None, tree=None):
+    """Where `rel` ("priv/env") is read: /etc/hyperlite/<rel> on disk, /etc/hyperlite/local/<its path under
+    nodes/<host>/> in the tree."""
+    etc = Path(etc or paths.ETC)
+    if not (in_tree(etc) if tree is None else tree):
+        return etc / rel
+    return etc / "local" / tree_path(rel, "-")[len("/nodes/-/") :]
+
+
+def write(path, data, mode=None):
+    """Write a node's file, wherever it lives: in the tree through the socket (root), or on disk atomically with
+    `mode` (the installation's by default). `path` is any path the file is read at."""
+    rel = relative(path)
+    if rel is None:
+        raise ValueError(f"{path} is not one of the node's files in {paths.ETC}")
+    data = data.encode() if isinstance(data, str) else bytes(data)
+    if in_tree():
+        with _client() as c:
+            c.put(tree_path(rel), data)
+    else:
+        _write(paths.ETC, rel, data, mode, replace=True)
+
+
+def is_node_file(path):
+    """`path` is one of the node's files and lives in the tree: written with write(), never on the mount."""
+    return relative(path) is not None and in_tree()
+
+
+def update(path, change, mode=None, attempts=20):
+    """Read, change and write a node's file in the tree without losing another writer's change (compare-and-set on
+    the entry's version): `change(old bytes or None)` returns the new bytes, or None to leave it. Returns what is
+    there after."""
+    tp = tree_path(relative(path))
+    with _client() as c:
+        for _ in range(attempts):
+            try:
+                entry = c.get(tp)
+                old, expected = entry.data, entry.version
+            except cfs_client.NotFound:
+                old, expected = None, cfs_client.MUST_NOT_EXIST
+            new = change(old)
+            if new is None:
+                return old
+            try:
+                c.put(tp, new, expected)
+                return new
+            except cfs_client.Conflict:
+                continue
+    raise RuntimeError(f"{path}: changed by another writer {attempts} times in a row")
+
+
+def put_all(files, node=None, client=None, wait_s=60):
+    """{rel: bytes} written as this node's files in the tree, waiting for a tree still synchronising (a join)."""
+    node = node or host()
+    c = client or _client()
+    deadline = time.monotonic() + wait_s
+    try:
+        for rel, data in sorted(files.items()):
+            while True:
+                try:
+                    c.put(tree_path(rel, node), data)
+                    break
+                except (cfs_client.Synchronising, cfs_client.ReadOnly):
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.5)
+    finally:
+        if client is None:
+            c.close()
+
+
+def drop_node(name, client=None):
+    """Every file of node `name` out of the tree (a member removed). The tree names a node by its host name, the
+    cluster by its node name (the host name, lowercase and without its domain): both are matched."""
+    c = client or _client()
+    try:
+        try:
+            hosts = [ch.name for ch in c.list("/nodes") if ch.is_dir and ch.name.lower().split(".")[0] == name]
+        except cfs_client.NotFound:
+            hosts = []
+        for node in hosts:
+            for rel in from_tree(c, node):
+                with contextlib.suppress(cfs_client.NotFound):
+                    c.delete(tree_path(rel, node))
+    finally:
+        if client is None:
+            c.close()
+
+
+def remove(path):
+    rel = relative(path)
+    if rel is None:
+        raise ValueError(f"{path} is not one of the node's files in {paths.ETC}")
+    if in_tree():
+        with _client() as c, contextlib.suppress(cfs_client.NotFound):
+            c.delete(tree_path(rel))
+    else:
+        (paths.ETC / rel).unlink(missing_ok=True)
+
+
+def keygen(path, comment):
+    """An Ed25519 key pair at `path` and `path`.pub, made in a directory of its own then written as the node's
+    files: ssh-keygen cannot write into the tree."""
+    with tempfile.TemporaryDirectory(prefix="hyperlite-keygen-") as tmp:
+        key = Path(tmp) / "key"
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(key), "-C", comment],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        write(path, key.read_bytes(), 0o600)
+        write(f"{path}.pub", key.with_suffix(".pub").read_bytes(), 0o644)
+
+
+def on_disk(etc=None):
+    """{rel: bytes} for every node's file on disk under /etc/hyperlite, and the paths left out (not a node's file).
+    cfs/, where the tree may be mounted, is never walked."""
+    etc = Path(etc or paths.ETC)
+    found, other = {}, []
+    for root, dirs, names in os.walk(etc):
+        here = Path(root)
+        if here == etc:
+            dirs[:] = [d for d in dirs if d != "cfs"]
+        dirs.sort()
+        for name in sorted(names):
+            src = here / name
+            rel = src.relative_to(etc).as_posix()
+            if here == etc and name.startswith(ACCESS_DB):
+                continue
+            if src.is_file() and not src.is_symlink() and tree_path(rel, "-"):
+                found[rel] = src.read_bytes()
+            else:
+                other.append(rel)
+    return found, other
+
+
+def _systemctl(*args):
+    return subprocess.run(["systemctl", *args], capture_output=True, text=True).returncode == 0
+
+
+def _wait(check, timeout_s):
+    deadline = time.monotonic() + timeout_s
+    while not check():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.1)
+    return True
+
+
+def move(etc=None, var=None, client=None, node=None, systemctl=_systemctl, virsh=_virsh, log=print, wait_s=30):
+    """Step 3, once: the node's files of /etc/hyperlite into the tree, access.db to /var/lib/hyperlite, the directory
+    moved aside and the tree mounted in its place (section 15). Nothing when already done. Run with the API stopped
+    (hyperlite.service's ExecStartPre); stops and starts hyperlite-daemon and hyperlite-cfs itself."""
+    etc, var = Path(etc or paths.ETC), Path(var or paths.VAR)
+    if in_tree(etc):
+        return []
+    files, other = on_disk(etc)
+    if not files and kept_dir(var):
+        raise RuntimeError(
+            f"{etc} is empty: hyperlite-cfs has not mounted the tree there (systemctl status hyperlite-cfs)"
+        )
+    if "priv/env" not in files:
+        raise RuntimeError(f"{etc}/priv/env is missing: the node's keys cannot be moved")
+    for rel in other:
+        log(f"not one of the node's files, left in the kept directory: {rel}")
+    client = client or _client()
+    node = node or host()
+    systemctl("stop", "hyperlite-daemon.service")
+    try:
+        base = f"/nodes/{node}"
+        stale = set(from_tree(client, node)) - set(files)  # left by an earlier move: the disk is the newer
+        for rel, data in files.items():
+            client.put(tree_path(rel, node), data)
+            if client.get(tree_path(rel, node)).data != data:
+                raise RuntimeError(f"{rel} does not read back the same from the tree")
+        for rel in stale:
+            client.delete(tree_path(rel, node))
+        log(f"{len(files)} files in the tree under {base}")
+    except Exception:
+        systemctl("start", "hyperlite-daemon.service")
+        raise
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    aside = var / f"{KEPT_PREFIX}{stamp}"
+    old_smb, new_smb = str(etc / "priv" / "smb"), str(etc / "local" / "priv" / "smb")
+    moved_db = []
+    try:
+        access = var / ACCESS_DIR
+        access.mkdir(mode=0o700, exist_ok=True)
+        api_group.share(access, 0o750)  # the API reads the permissions, never writes them
+        for suffix in ("", "-wal", "-shm"):
+            if (etc / (ACCESS_DB + suffix)).exists():
+                shutil.move(etc / (ACCESS_DB + suffix), access / (ACCESS_DB + suffix))
+                moved_db.append(suffix)
+        pools = smb_pools(old_smb, new_smb, virsh)
+        systemctl("stop", "hyperlite-cfs.service")
+        subprocess.run(["fusermount3", "-u", "-z", str(etc / "cfs")], capture_output=True)
+        shutil.move(etc, aside)
+        os.chmod(aside, 0o700)  # the node's keys, in a directory the API's group may list
+        etc.mkdir(mode=0o755)
+    except Exception:
+        _undo_move(etc, var, aside, moved_db, old_smb, new_smb, systemctl, virsh)
+        raise
+    systemctl("start", "hyperlite-cfs.service")
+    if not _wait(lambda: in_tree(etc), wait_s):
+        log("the tree did not mount at /etc/hyperlite: the files go back where they were")
+        systemctl("stop", "hyperlite-cfs.service")
+        subprocess.run(["fusermount3", "-u", "-z", str(etc)], capture_output=True)
+        _undo_move(etc, var, aside, moved_db, old_smb, new_smb, systemctl, virsh)
+        raise RuntimeError("hyperlite-cfs did not mount the tree at /etc/hyperlite: see journalctl -u hyperlite-cfs")
+    systemctl("start", "hyperlite-daemon.service")
+    log(f"moved: {etc} is the tree; the files as they were are kept in {aside}")
+    for name in pools:
+        log(f"SMB pool {name}: its credentials are read from {new_smb}")
+    return sorted(files)
+
+
+def _undo_move(etc, var, aside, moved_db, old_smb, new_smb, systemctl, virsh):
+    if aside.exists():
+        if etc.exists() and any(etc.iterdir()):
+            shutil.rmtree(aside)  # a copy to another file system cut short: the files are still where they were
+        else:
+            os.chmod(aside, 0o755)  # noqa: S103 - /etc/hyperlite's own mode, back
+            if etc.exists():
+                etc.rmdir()
+            shutil.move(aside, etc)
+    for suffix in moved_db:
+        shutil.move(var / ACCESS_DIR / (ACCESS_DB + suffix), etc / (ACCESS_DB + suffix))
+    smb_pools(new_smb, old_smb, virsh)
+    systemctl("start", "hyperlite-cfs.service")
+    systemctl("start", "hyperlite-daemon.service")
+
+
 def _is_mount(path):
     return subprocess.run(["mountpoint", "-q", str(path)], capture_output=True).returncode == 0
 
@@ -218,14 +487,31 @@ def restore(etc=None, var=None, client=None, node=None, is_mount=_is_mount, unmo
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("action", choices=["restore"])
+    parser.add_argument("action", choices=["restore", "move", "put", "remove", "path"])
+    parser.add_argument("file", nargs="?", help="put, path: the file, as its path under /etc/hyperlite on disk")
+    parser.add_argument("--mode", type=lambda v: int(v, 8), help="put: its mode on disk (octal)")
     parser.add_argument("--socket", default=cfs_client.DEFAULT_SOCKET)
     args = parser.parse_args(argv)
+    say = lambda m: print(f"[hyperlite-node-files] {m}")  # noqa: E731
+    if args.action == "path":
+        print(location(args.file))
+        return
+    if args.action in ("put", "remove") and relative(paths.ETC / (args.file or "")) is None:
+        parser.error(f"{args.file}: not one of the node's files (local/..., priv/..., authkeys.json)")
+    if args.action == "put":
+        write(paths.ETC / args.file, sys.stdin.buffer.read(), args.mode)
+        return
+    if args.action == "remove":
+        remove(paths.ETC / args.file)
+        return
+    if args.action == "move":
+        move(log=say)
+        return
     client = None
     if os.path.exists(args.socket):
         client = cfs_client.CfsClient(args.socket, timeout=10.0)
     try:
-        restore(client=client, log=lambda m: print(f"[hyperlite-node-files] {m}"))
+        restore(client=client, log=say)
     finally:
         if client:
             client.close()
