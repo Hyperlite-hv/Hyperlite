@@ -11,16 +11,20 @@ cfs_client use the standard library only.
   /etc/hyperlite/local/<name>     nodes/<host>/<name>            the TLS certificate and key, the VLAN-aware bridges
   /etc/hyperlite/priv/<path>      nodes/<host>/priv/<path>       the node's keys, its SSH keys, SMB credentials
   /etc/hyperlite/authkeys.json    nodes/<host>/authkeys.json     the public keys sessions are verified with
-  /etc/hyperlite/access.db        /var/lib/hyperlite/access.db   a database, never in the tree
+  /etc/hyperlite/access.db        /var/lib/hyperlite/access/     a database, never in the tree (root's directory)
 
 A file already on disk is never replaced: the tree's copy fills what is missing, then the directory step 3 moved aside
-(/var/lib/hyperlite/etc-before-cfs-<date>, the newest) fills what the tree lacks."""
+(/var/lib/hyperlite/etc-before-cfs-<date>, the newest) fills what the tree lacks. /var/lib/hyperlite is writable by the
+API's group: a kept directory or a database there is trusted only when root's and closed to others, never one the API
+could have made. SMB pools whose credentials step 3 read from /etc/hyperlite/local/priv/smb read them from
+/etc/hyperlite/priv/smb again."""
 
 import argparse
 import os
 import shutil
 import socket
 import subprocess
+import tempfile
 from pathlib import Path, PurePosixPath
 
 from app.core import cfs_client, paths
@@ -28,6 +32,7 @@ from app.core import cfs_client, paths
 # Files of /etc/hyperlite itself (not under local/ or priv/) that are the node's.
 TOP = ("authkeys.json",)
 ACCESS_DB = "access.db"
+ACCESS_DIR = "access"  # under /var/lib/hyperlite: root's, as /etc/hyperlite was
 KEPT_PREFIX = "etc-before-cfs-"
 
 
@@ -87,9 +92,19 @@ def from_tree(client, node=None):
     return found
 
 
+def _roots(path):
+    """Root's (the restore's own account, root's on a node), and writable by no one else: a path the API's group could
+    not have made or changed."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return st.st_uid in (0, os.geteuid()) and not st.st_mode & 0o022
+
+
 def kept_dir(var):
-    """The newest directory step 3 moved /etc/hyperlite to, or None."""
-    kept = sorted(p for p in Path(var).glob(KEPT_PREFIX + "*") if p.is_dir())
+    """The newest directory step 3 moved /etc/hyperlite to, or None. Only root's."""
+    kept = sorted(p for p in Path(var).glob(KEPT_PREFIX + "*") if p.is_dir() and not p.is_symlink() and _roots(p))
     return kept[-1] if kept else None
 
 
@@ -121,6 +136,30 @@ def _write(etc, rel, data, mode=None):
     return True
 
 
+def _virsh(*args, data=None):
+    try:
+        return subprocess.run(["virsh", *args], input=data, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return subprocess.CompletedProcess(args, 1, "", str(e))
+
+
+def smb_pools(old, new, virsh=_virsh):
+    """Point every libvirt SMB pool whose credentials are in directory `old` at `new` (their definition names the
+    file). The names of the pools changed."""
+    changed = []
+    listed = virsh("pool-list", "--all", "--name")
+    for name in [n.strip() for n in listed.stdout.splitlines() if n.strip()] if listed.returncode == 0 else []:
+        xml = virsh("pool-dumpxml", "--inactive", name)
+        if xml.returncode or f"credentials={old}/" not in xml.stdout:
+            continue
+        with tempfile.NamedTemporaryFile("w", suffix=".xml") as f:
+            f.write(xml.stdout.replace(f"credentials={old}/", f"credentials={new}/"))
+            f.flush()
+            if virsh("pool-define", f.name).returncode == 0:
+                changed.append(name)
+    return changed
+
+
 def _is_mount(path):
     return subprocess.run(["mountpoint", "-q", str(path)], capture_output=True).returncode == 0
 
@@ -131,10 +170,11 @@ def _unmount(path):
     subprocess.run(["fusermount3", "-u", "-z", str(path)], capture_output=True)
 
 
-def restore(etc=None, var=None, client=None, node=None, is_mount=_is_mount, unmount=_unmount, log=print):
+def restore(etc=None, var=None, client=None, node=None, is_mount=_is_mount, unmount=_unmount, virsh=None, log=print):
     """Put the node's files back in /etc/hyperlite from the tree, then from the directory step 3 kept, and access.db
     back from /var/lib/hyperlite. Never replaces a file on disk. Returns the paths written."""
     etc, var = Path(etc or paths.ETC), Path(var or paths.VAR)
+    virsh = virsh or _virsh
     tree = {}
     if client is not None:
         try:
@@ -160,16 +200,19 @@ def restore(etc=None, var=None, client=None, node=None, is_mount=_is_mount, unmo
                 written.append(rel)
     # access.db: where step 3 moved it, else as it was kept. The database's own files, never one of them alone.
     if not (etc / ACCESS_DB).exists():
-        for source in (var, kept):
-            if source and (source / ACCESS_DB).exists():
+        moved = var / ACCESS_DIR
+        for source in (moved if _roots(moved) else None, kept):
+            if source and (source / ACCESS_DB).exists() and _roots(source / ACCESS_DB):
                 for suffix in ("", "-wal", "-shm"):
                     if (source / (ACCESS_DB + suffix)).exists():
-                        move = shutil.move if source == var else shutil.copy2
+                        move = shutil.move if source == moved else shutil.copy2
                         move(source / (ACCESS_DB + suffix), etc / (ACCESS_DB + suffix))
                 written.append(ACCESS_DB)
                 break
     for rel in written:
         log(f"put back: {etc / rel}")
+    for name in smb_pools(str(etc / "local" / "priv" / "smb"), str(etc / "priv" / "smb"), virsh):
+        log(f"SMB pool {name}: its credentials are read from {etc / 'priv' / 'smb'} again")
     return written
 
 
