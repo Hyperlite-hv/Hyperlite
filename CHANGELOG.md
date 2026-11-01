@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-01
+
+### Fixed
+
+- With the API as `www-data`, a change made through Hyperlite reaches the cluster's status at once again, instead of
+  at the next period (10 s): the change seen before the request is signed in no longer asks hyperlite-daemon without
+  a proof, which it refused.
+
 ## [1.6.0] - 2026-11-01
 
 ### Changed
