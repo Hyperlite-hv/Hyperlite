@@ -4,7 +4,7 @@ a node's files from there, and holds the same list.
 
   code               /usr/lib/hyperlite                 (Proxmox: /usr/share/perl5/PVE)
   web interface      /usr/share/hyperlite/www           (Proxmox: /usr/share/pve-manager)
-  node secrets       /etc/hyperlite/priv                (Proxmox: /etc/pve/priv)
+  node secrets       /etc/hyperlite/priv                (Proxmox: /etc/pve/priv; /etc/hyperlite/local/priv from 1.14)
   node TLS           /etc/hyperlite/local               (Proxmox: /etc/pve/local)
   data               /var/lib/hyperlite                 (Proxmox: /var/lib/vz, /var/lib/pve-cluster)
 
@@ -26,12 +26,17 @@ WWW = Path(
     or ("/usr/share/hyperlite/www" if CODE == INSTALLED_CODE else CODE / "dashboard" / "dist")
 )
 
-# /etc/hyperlite: root only (0700), as /etc/pve/priv.
-PRIV = ETC / "priv"
+# From 1.14 /etc/hyperlite is hyperlite-cfs's tree, mounted read-only, as /etc/pve (docs/design/cfs-files.md, section
+# 15): only the mount shows .version. Its priv/ is then the cluster's, and the node's own secrets are under local/priv,
+# its own directory (nodes/<host>/priv). Before the move they are in /etc/hyperlite/priv. Written through
+# app/core/node_files.py, which knows both.
+IN_TREE = (ETC / ".version").is_file()
+TLS_DIR = ETC / "local"  # the web interface's certificate and key
+# Root only (0700), as /etc/pve/priv.
+PRIV = (TLS_DIR if IN_TREE else ETC) / "priv"
 ENV_FILE = PRIV / "env"  # the node's keys (session signing, encryption); a systemd EnvironmentFile
 SSH_DIR = PRIV / "ssh"  # the key this node uses to reach the others and its VMs
 INITIAL_PASSWORD_FILE = PRIV / "initial-admin-password.txt"
-TLS_DIR = ETC / "local"  # the web interface's certificate and key
 
 # /run/hyperlite: what lasts as long as the services (hyperlite-daemon's socket, its tunnels to the other nodes).
 RUN = Path(os.environ.get("HYPERLITE_RUN_DIR") or "/run/hyperlite")
@@ -42,6 +47,9 @@ LOCKS = Path(os.environ.get("HYPERLITE_LOCK_DIR") or "/run/lock/hyperlite")
 
 # /var/lib/hyperlite
 DB = VAR / "hyperlite.db"
+# The permission tables (app/core/database.py), in /etc/hyperlite up to 1.13: a directory of root's, since
+# /var/lib/hyperlite is writable by the API's group, which only reads them.
+ACCESS_DB = VAR / "access" / "access.db"
 ISOS = VAR / "template" / "iso"
 TEMPLATES = VAR / "template" / "vm"
 BACKUPS = VAR / "dump"

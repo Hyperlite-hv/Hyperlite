@@ -35,7 +35,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core import database, db_health, paths, schema_v1
+from app.core import database, db_health, node_files, paths, schema_v1
 
 
 def _store():
@@ -378,8 +378,12 @@ def install(work, meta, self_names, db_path=None, env_path=None, old_label=None)
     keys = dict(line.split("=", 1) for line in (work / "keys.env").read_text().splitlines() if "=" in line)
     lines = env_path.read_text().splitlines() if env_path.exists() else []
     kept = [line for line in lines if line.partition("=")[0].strip() not in keys]
-    env_path.write_text("\n".join(kept + [f"{k}={v}" for k, v in keys.items()]) + "\n")
-    env_path.chmod(0o600)
+    text = "\n".join(kept + [f"{k}={v}" for k, v in keys.items()]) + "\n"
+    if node_files.is_node_file(env_path):  # in the cluster's tree (docs/design/cfs-files.md, section 15)
+        node_files.write(env_path, text, 0o600)
+    else:
+        env_path.write_text(text)
+        env_path.chmod(0o600)
 
     old_label = old_label or meta.get("controller") or "old-controller"
     conn = sqlite3.connect(db_path)

@@ -13,7 +13,7 @@ from pathlib import Path
 import libvirt
 
 from app.core import firmware as fw
-from app.core import paths
+from app.core import node_files, paths
 from app.core.safe_paths import safe_child
 
 IMAGES_DIR = Path("/var/lib/libvirt/images")
@@ -49,9 +49,13 @@ def _ensure_automation_keypair():
     """SSH key dedicated to Hyperlite (generated once on the server), injected into
     the cloud-init of every new VM so the web SSH terminal works without any
     password stored on the server side."""
-    SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     priv = SSH_KEY_DIR / "hyperlite_automation"
     pub = SSH_KEY_DIR / "hyperlite_automation.pub"
+    if node_files.is_node_file(priv):  # in the cluster's tree (docs/design/cfs-files.md, section 15)
+        if not priv.exists():
+            node_files.keygen(priv, "hyperlite-automation")
+        return priv, pub
+    SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not priv.exists():
         subprocess.run(
             ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", "hyperlite-automation"],

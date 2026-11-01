@@ -1,8 +1,8 @@
 [Unit]
 Description=Hyperlite replicated cluster configuration (hyperlite-cfs)
 Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/cfs/README.md
-# The package installs this unit disabled. Local mode (the default) needs nothing else: it is what shadow mode uses on
-# a node without a cluster. Cluster mode (HYPERLITE_CFS_MODE=--cluster in /etc/default/hyperlite-cfs) joins the local
+# Enabled on every node (docs/design/cfs-files.md, section 7): it holds the node's own files, as pmxcfs on a single
+# Proxmox VE node. Local mode (the default) needs nothing else. Cluster mode (HYPERLITE_CFS_MODE=--cluster in /etc/default/hyperlite-cfs) joins the local
 # Corosync's process group; Corosync and its configuration come with setting up a cluster.
 After=corosync.service
 # Never give up restarting it: in a cluster it exits when Corosync goes away (an upgrade, a crash) and must come back
@@ -15,11 +15,11 @@ Environment=HYPERLITE_CFS_MODE=
 EnvironmentFile=-/etc/default/hyperlite-cfs
 # The socket's group is the API's (www-data from 4e), which reads the replicated configuration; only root changes it,
 # as /etc/pve for www-data on Proxmox VE (docs/design/privilege-separation.md, section 14.7).
-# The tree as read-only files at /etc/hyperlite/cfs, as /etc/pve (docs/design/cfs-files.md): a mount a crash left
-# behind ("Transport endpoint is not connected") is cleaned first. A mount that fails is logged; the socket is served.
-ExecStartPre=-/usr/bin/fusermount3 -u -z /etc/hyperlite/cfs
-ExecStartPre=/bin/mkdir -p /etc/hyperlite/cfs
-ExecStart=/usr/lib/hyperlite/hyperlite-cfs $HYPERLITE_CFS_MODE --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0660 --socket-group www-data --mount /etc/hyperlite/cfs
+# The tree as read-only files, as /etc/pve (docs/design/cfs-files.md): at /etc/hyperlite once the node's files are in
+# it, at /etc/hyperlite/cfs before (scripts/cfs-start.sh). Ready once mounted (scripts/cfs-wait.sh): what starts after
+# it reads the node's files there. A mount that fails is logged; the socket is served.
+ExecStart=/usr/lib/hyperlite/scripts/cfs-start.sh
+ExecStartPost=/usr/lib/hyperlite/scripts/cfs-wait.sh
 StateDirectory=hyperlite-cfs
 StateDirectoryMode=0700
 RuntimeDirectory=hyperlite-cfs

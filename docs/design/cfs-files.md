@@ -1,6 +1,6 @@
 # The cluster configuration as files in /etc/hyperlite (#525)
 
-Status: **steps 1 and 2 done (2026-11-01)**, step 3 to come; accepted (maintainer, 2026-10-24). The choices of section 2 are the maintainer's; the code starts after the privilege
+Status: **done (2026-11-01)**: steps 1, 2 and 3; accepted (maintainer, 2026-10-24). The choices of section 2 are the maintainer's; the code starts after the privilege
 separation (#511), as decided on 2026-10-21 (`docs/design/privilege-separation.md`, section 11).
 
 ## 1. Goal
@@ -211,3 +211,55 @@ Each one ships with its tests:
   the postinst's order). By hand on a production node: a temporary hyperlite-cfs mounted over a temporary
   `/etc/hyperlite` holding a certificate and keys, restored (unmounted, files and modes back); the postinst's command
   on the node itself, which changed nothing.
+
+## 15. Step 3 as built: the move
+
+- **Where the code finds a file.** `node_files.in_tree()`: `/etc/hyperlite/.version` exists, which only the mount
+  shows. In the tree `/etc/hyperlite/priv` is the cluster's: the node's own secrets are read at
+  `/etc/hyperlite/local/priv/...` (`paths.PRIV` points there), the TLS files at `/etc/hyperlite/local/...` as before
+  (the mount's `local` link), `authkeys.json` at `/etc/hyperlite/local/authkeys.json`. `access.db` lives in
+  `/var/lib/hyperlite`.
+- **How the code writes one.** The mount is read-only: every writer of a node's file goes through
+  `node_files.write`/`remove`/`keygen`, which put the file in the tree through the socket (root) when it is there, and
+  write it on disk (atomically, with its mode) when it is not. Shell scripts call `python3 -m app.core.node_files put`.
+  Converted: the TLS certificate (`tls_certs`, `ensure-tls-cert.sh`), the session keys (`tickets`), the env file
+  (`secrets_crypto`, `cluster_setup`), the SSH keys (`cluster`, `vm_builder`), the VLAN-aware bridges list
+  (`bridge_vlan`), the SMB credentials (`smb_storage`, on this node and over SSH on another), the initial password.
+- **When the move runs.** `ExecStartPre=+` of `hyperlite.service`, after the certificate is made and before anything
+  reads the keys (`python3 -m app.core.node_files move`; nothing when already done): at that point the API, the
+  scheduler and HA are stopped (a restart stops them first). It stops hyperlite-daemon; puts every file of
+  `/etc/hyperlite` (but `access.db` and `cfs/`) in the tree under `nodes/<host>/`, replacing what a previous move left
+  there (the disk is the newer), and reads each back; moves `access.db` and its journal to `/var/lib/hyperlite`;
+  rewrites the libvirt SMB pools whose credentials it moved (the path in their definition); stops hyperlite-cfs; moves
+  `/etc/hyperlite` aside to `/var/lib/hyperlite/etc-before-cfs-<date>`; makes it again, empty; starts hyperlite-cfs,
+  which mounts at `/etc/hyperlite` when the directory is empty (at `/etc/hyperlite/cfs` while it holds files: a node
+  not moved yet); waits for the mount; starts hyperlite-daemon. Any failure before the directory is moved aside
+  changes nothing on disk; after it, the directory is put back and the service fails (the watchdog rolls back).
+- **hyperlite-cfs on every node** (section 7): the package enables it in local mode where no cluster set it up;
+  hyperlite, hyperlite-daemon, the scheduler, HA and the VLAN-aware bridges start after it (`Wants=`, `After=`; not
+  `Requires=`, whose restart would take the API's own start down during the move); its `ExecStartPost` waits for the
+  socket and the mount.
+- **The join** (`cluster_setup.join`): this node's `nodes/<host>/` is read before its tree gives way to the cluster's
+  and written into the cluster's once it is up, before the env file gets the cluster's keys. A join undone puts the
+  old tree back, files included. **A member removed** loses its `nodes/<name>/`.
+- **The way back** is the bridge's (section 14): 1.13.1's postinst takes the tree off `/etc/hyperlite`, puts the
+  files back, `access.db` back from `/var/lib/hyperlite/access`, and the SMB pools' credentials path back. `preinst`
+  refuses to install over a version older than 1.13.1 (1.13.0 trusted what the API's group could plant). This
+  version's postinst never runs the restore (it would take the files out of its own tree); it finds the node's keys in
+  either place to tell an upgrade from a first installation, and enables hyperlite-cfs on every node.
+- **A remote node's SMB credentials** (`smb_storage`): whether that node's `/etc/hyperlite` is the tree is asked over
+  SSH (`test -f /etc/hyperlite/.version`); there they are written by its own `node_files put`, through the SSH
+  connection's input as before.
+- **Shadow mode turned off** no longer stops hyperlite-cfs once it holds the node's files.
+- **Not done**: the `fuzz_fuse` target and the three-node test of section 10 (no lab: the maintainer's decision, no VM
+  lab any more); `.vmlist` (section 4).
+- **Tests**: `tests/test_node_files.py` (the mapping, writes and removals into the tree, compare-and-set on the env
+  file, a key pair made aside, a member's files removed, the move with its checks, a mount that does not come and is
+  undone, a node without keys, the writers converted: TLS, env key, session keys), `tests/test_cluster_setup.py` (a
+  join keeps the node's files; undone, they come back with the old tree), `tests/test_smb_pools.py` (a remote node in
+  the tree). By hand on a production node, every path in a temporary directory and the real hyperlite-cfs and FUSE:
+  the move (5 files, the tree mounted in place, `www-data` reading the key and refused `priv/env`, a write refused
+  read-only, `access.db` in a 0750 directory, the kept copy 0700), the TLS pair made again into the tree by
+  `ensure-tls-cert.sh`, a restart mounting at the same place, and the way back by 1.13.1's restore.
+- **The update's archive** leaves `/etc/hyperlite` out once it is the mount: its files are in the tree, which no
+  rollback changes, and extracting into a read-only mount would fail.

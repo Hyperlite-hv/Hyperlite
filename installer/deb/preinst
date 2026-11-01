@@ -12,4 +12,11 @@ if [ "$1" = upgrade ] && [ -n "${2:-}" ] && dpkg --compare-versions "$2" lt 1:1.
     echo "hyperlite: install 1.0.2 first (apt-get install hyperlite=1:1.0.2), then update again." >&2
     exit 1
 fi
+# From 1.14 the node's files live in the cluster's tree (docs/design/cfs-files.md, section 15). A return to the version
+# this one replaces must find them: only 1.13.1 and later put them back out of the tree (its postinst, the bridge).
+if [ "$1" = upgrade ] && [ -n "${2:-}" ] && dpkg --compare-versions "$2" lt 1:1.13.1; then
+    echo "hyperlite: version $2 is installed; this version can only be installed over 1.13.1 or later." >&2
+    echo "hyperlite: install 1.13.1 first (apt-get install hyperlite=1:1.13.1), then update again." >&2
+    exit 1
+fi
 exit 0

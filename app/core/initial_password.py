@@ -8,7 +8,8 @@ import os
 import threading
 from pathlib import Path
 
-from app.core import paths
+from app.core import node_files, paths
+from app.core.cfs_client import CfsError
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,9 @@ def forget():
     files, env = _paths()
     for path in files:
         try:
+            if node_files.is_node_file(path):  # in the cluster's tree (docs/design/cfs-files.md, section 15)
+                node_files.remove(path)
+                continue
             path.unlink(missing_ok=True)
         except OSError:
             logger.warning(
@@ -47,6 +51,18 @@ def forget():
         return
     kept = [line for line in lines if not line.startswith(ENV_LINE)]
     if kept == lines:
+        return
+    if node_files.is_node_file(env):
+
+        def without(old):
+            text = (old or b"").decode()
+            left = "".join(line for line in text.splitlines(keepends=True) if not line.startswith(ENV_LINE))
+            return None if left == text else left.encode()
+
+        try:
+            node_files.update(env, without, 0o600)
+        except (OSError, RuntimeError, CfsError):
+            logger.warning("The initial password could not be removed from the service's .env", exc_info=True)
         return
     tmp = env.with_name(env.name + ".tmp")
     try:

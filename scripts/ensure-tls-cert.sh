@@ -16,10 +16,20 @@ CNF="$TLS_DIR/openssl-hyperlite.cnf"
 
 [ -f "$KEY" ] && [ -f "$CRT" ] && exit 0
 
-mkdir -p "$TLS_DIR"
-# Read by the API, which serves HTTPS with them (www-data from 4e), as /etc/pve/local/pveproxy-ssl.key.
-chgrp www-data "$TLS_DIR" 2>/dev/null || true
-chmod 750 "$TLS_DIR"
+# Once /etc/hyperlite is the cluster's tree (read-only; only the mount shows .version), the pair is made aside and put
+# in the tree as the node's files (app/core/node_files.py, docs/design/cfs-files.md section 15).
+IN_TREE=0
+[ -f /etc/hyperlite/.version ] && IN_TREE=1
+if [ "$IN_TREE" = 1 ]; then
+    OUT=$(mktemp -d)
+    trap 'rm -rf "$OUT"' EXIT
+    KEY="$OUT/hyperlite.key" CRT="$OUT/hyperlite.crt" CNF="$OUT/openssl-hyperlite.cnf"
+else
+    mkdir -p "$TLS_DIR"
+    # Read by the API, which serves HTTPS with them (www-data from 4e), as /etc/pve/local/pveproxy-ssl.key.
+    chgrp www-data "$TLS_DIR" 2>/dev/null || true
+    chmod 750 "$TLS_DIR"
+fi
 
 HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
 # First non-loopback IPv4 found: enough for a convenience self-signed certificate
@@ -63,6 +73,13 @@ openssl req -x509 -nodes -newkey rsa:2048 \
     -keyout "$KEY" -out "$CRT" -days 3650 \
     -config "$CNF" -extensions v3_req >/dev/null 2>&1
 
+if [ "$IN_TREE" = 1 ]; then
+    cd /usr/lib/hyperlite
+    for f in openssl-hyperlite.cnf hyperlite.key hyperlite.crt; do
+        python3 -m app.core.node_files put "local/$f" < "$OUT/$f"
+    done
+    exit 0
+fi
 chgrp www-data "$KEY" 2>/dev/null || true
 chmod 640 "$KEY"
 chmod 644 "$CRT"
