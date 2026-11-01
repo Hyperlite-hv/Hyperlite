@@ -313,26 +313,25 @@ def _members():
 
 
 def _vm_bridges():
-    try:
-        from app.core.libvirt_utils import local_conn
+    """The bridges of libvirt's NAT and routed networks, whose dnsmasq runs on the host."""
+    import libvirt
 
-        conn = local_conn()
-    except Exception as e:  # no libvirt here: no VM network to serve
-        logger.info("libvirt not read for the firewall: %s", e)
-        return []
+    from app.core import libvirt_utils
+
+    bridges = []
     try:
-        bridges = []
-        for net in conn.listAllNetworks():
-            xml = net.XMLDesc(0)
-            forward = re.search(r"<forward mode='([^']+)'", xml)
-            if forward and forward.group(1) not in ("nat", "route"):
-                continue  # a bridged or macvtap network: no dnsmasq of libvirt on the host
-            found = re.search(r"<bridge name='([^']+)'", xml)
-            if found:
-                bridges.append(found.group(1))
-        return bridges
-    finally:
-        conn.close()
+        with libvirt_utils.local_conn() as conn:
+            for net in conn.listAllNetworks():
+                xml = net.XMLDesc(0)
+                forward = re.search(r"<forward mode='([^']+)'", xml)
+                if forward and forward.group(1) not in ("nat", "route"):
+                    continue  # a bridged or macvtap network: no dnsmasq of libvirt on the host
+                found = re.search(r"<bridge name='([^']+)'", xml)
+                if found:
+                    bridges.append(found.group(1))
+    except libvirt.libvirtError as e:  # no libvirt here: no VM network to serve
+        logger.info("libvirt not read for the firewall: %s", e)
+    return bridges
 
 
 def ruleset(doc, node=None):

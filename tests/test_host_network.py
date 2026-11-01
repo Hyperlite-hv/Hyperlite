@@ -239,3 +239,35 @@ def test_the_routes_ask_the_daemon_as_the_administrator(client, auth_headers, mo
     assert asked[2][2] == {"interfaces": body["interfaces"], "timeout_s": 45}
     viewer = auth_headers("eve", role="viewer")
     assert client.get("/host/network", headers=viewer).status_code == 403
+
+
+class _Net:
+    def __init__(self, name, xml):
+        self._name, self._xml = name, xml
+
+    def name(self):
+        return self._name
+
+    def XMLDesc(self, flags):
+        return self._xml
+
+
+class _Conn:
+    def __init__(self, nets):
+        self.nets = nets
+
+    def listAllNetworks(self):
+        return self.nets
+
+
+NETS = [
+    _Net("default", "<network><forward mode='nat'/><bridge name='virbr0'/></network>"),
+    _Net("isolated", "<network><bridge name='virbr1'/></network>"),
+    _Net("lan", "<network><forward mode='bridge'/><bridge name='vmbr1'/></network>"),
+    _Net("direct", "<network><forward mode='bridge'><interface dev='bond0'/></forward></network>"),
+]
+
+
+def test_the_networks_on_an_interface_are_read_from_the_daemons_libvirt(daemon_libvirt):
+    daemon_libvirt(_Conn(NETS))
+    assert hn._used_by_networks() == {"virbr0": "default", "virbr1": "isolated", "vmbr1": "lan", "bond0": "direct"}
