@@ -47,6 +47,34 @@ def access_writable(path=None):
     return os.access(path, os.W_OK) if path.exists() else os.access(path.parent, os.W_OK)
 
 
+# SQLite deletes the -wal and -shm files when the database's last connection closes, and the next one makes them again.
+# Made by root (the daemon, the schedulers), each is root's alone for an instant, before SQLite gives it the database's
+# owner and mode: the API, www-data, opening the database then fails with "unable to open database file". The API keeps
+# one idle connection open, so the files stay while it runs.
+_kept = []
+
+
+def keep_open(attempts=5, pause_s=0.2):
+    """Open the connection the process keeps (once; again a few times while root makes the files)."""
+    import time
+
+    if _kept:
+        return
+    for attempt in range(attempts):
+        conn = sqlite3.connect(Path(DB_PATH).absolute().as_uri(), uri=True, timeout=30, check_same_thread=False)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchall()  # opens the -wal and -shm, kept open
+        except sqlite3.OperationalError:
+            conn.close()
+            if attempt == attempts - 1:
+                raise
+            time.sleep(pause_s)
+            continue
+        _kept.append(conn)
+        return
+
+
 @contextmanager
 def get_conn():
     # timeout=30 (instead of the default 5 s) plus WAL mode: fixes a real

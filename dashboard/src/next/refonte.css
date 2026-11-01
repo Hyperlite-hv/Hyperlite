@@ -174,11 +174,14 @@ button.nx-kpi:focus-visible { outline: 2px solid var(--color-border-focus); outl
 .nx-search2 svg { position: absolute; left: 0.6667rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); pointer-events: none; }
 .nx-search2 input { width: 100%; height: 2.1333rem; padding: 0 0.6667rem 0 2.2667rem; border-radius: var(--radius-md); border: 1px solid var(--color-border-default); background: var(--color-bg-surface); font-size: var(--fs-13); }
 .nx-sel { height: 2.1333rem; border-radius: var(--radius-md); border: 1px solid var(--color-border-default); background: var(--color-bg-surface); padding: 0 1.8667rem 0 0.6667rem; font-size: var(--fs-13); }
-.nx-seg2 { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--radius-md); background: var(--color-bg-surface); border: 1px solid var(--color-border-default); }
+/* The group sits on the page with the sections' edge, and the chosen button shows by its fill, not by a light line:
+   in the dark theme two outlines read as a white halo. */
+.nx-seg2 { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--radius-md); background: var(--color-bg-surface); border: 1px solid var(--color-border-card); }
 .nx-seg2 button { all: unset; cursor: pointer; height: 1.7333rem; padding: 0 0.6667rem; border-radius: var(--radius-sm); color: var(--color-text-secondary); font-size: var(--fs-125); font-weight: 500; display: inline-flex; align-items: center; gap: 0.4rem; }
 .nx-seg2 button:hover { color: var(--color-text-primary); }
 .nx-seg2 button[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
-.nx-seg2 button[aria-pressed="true"] { background: var(--color-bg-surface-raised); color: var(--color-text-primary); box-shadow: 0 0 0 1px var(--color-border-strong) inset; }
+.nx-seg2 button[aria-pressed="true"] { background: var(--color-bg-selected); color: var(--color-text-primary); }
+@media (prefers-contrast: more) { .nx-seg2 button[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--color-border-strong) inset; } }
 .nx-seg2 button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: 1px; }
 .nx-seg2 .nx-n { font-family: var(--font-mono); font-size: var(--fs-11); color: var(--color-text-muted); }
 .nx-seg2 .nx-n.is-warn { color: var(--color-warning); }

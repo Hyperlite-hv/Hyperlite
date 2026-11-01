@@ -20,7 +20,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.core import db_health, firmware, passthrough, paths, pty_session
+from app.core import db_health, firmware, passthrough, paths, peer_auth, pty_session
 from app.core.audit import log_action
 from app.core.error_messages import describe_exception
 from app.core.host_capabilities import get_local_capabilities
@@ -137,6 +137,7 @@ def create_host_terminal_ticket(user: dict = Depends(require_role("admin"))):
 
     ticket = secrets.token_urlsafe(24)
     HOST_SHELL_TICKETS[ticket] = (user["username"], now + HOST_SHELL_TICKET_TTL)
+    peer_auth.keep_with_ticket(ticket, HOST_SHELL_TICKET_TTL)
     log_action(user["username"], "create_host_terminal_ticket", socket.gethostname(), "success")
     return {"ticket": ticket, "expires_in_s": HOST_SHELL_TICKET_TTL}
 
@@ -148,6 +149,7 @@ async def host_terminal(websocket: WebSocket):
     if entry is None:
         await websocket.close(code=4401)
         return
+    peer_auth.take_ticket_credential(ticket)
 
     username, expiry = entry
     if time.time() > expiry:

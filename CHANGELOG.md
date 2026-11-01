@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-01
+
+### Changed
+
+- The filter selectors (all, running, stopped, to check…) lose their light outlines in the dark theme: the group
+  takes the sections' edge, and the chosen filter shows by its tinted fill. With the system's high-contrast setting,
+  the chosen filter keeps its outline.
+
+### Fixed
+
+- With the API as `www-data` (1.6.0), the consoles opened again: the host's shell, a VM's display, terminal and serial
+  console, a container's terminal and shell, and SPICE through virt-viewer. Their websocket brings a one-time ticket
+  only, so the call to hyperlite-daemon carried no proof and was refused; the ticket now keeps the proof of the request
+  that made it.
+- With the API as `www-data`, a request no longer fails now and then with "unable to open database file": the API
+  keeps one connection to the database open, so its `-wal` and `-shm` files are no longer made again by root's
+  services, root's alone for an instant, at every last close.
+
 ## [1.6.1] - 2026-11-01
 
 ### Fixed

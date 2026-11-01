@@ -513,7 +513,9 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 def on_startup():
-    from app.core import seed
+    from app.core import database, seed
+
+    database.keep_open()  # the database's -wal and -shm stay while the API runs (app/core/database.py)
 
     if not seed.in_daemon():  # the test suite, the end-to-end backend: hyperlite-daemon's start does it otherwise
         seed.first_start()
