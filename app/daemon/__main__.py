@@ -47,6 +47,14 @@ if __name__ == "__main__":
         host_network.finish_interrupted()
     except Exception:  # the daemon must start all the same: the administrator sees the change still pending
         logging.getLogger(__name__).exception("The unconfirmed host network change could not be rolled back")
+    # The same for the firewall, which then follows the cluster's saved rules (app/core/host_firewall.py).
+    from app.core import host_firewall
+
+    try:
+        host_firewall.finish_interrupted()
+    except Exception:  # the follow loop below still applies the saved rules
+        logging.getLogger(__name__).exception("The unconfirmed host firewall change could not be rolled back")
+    host_firewall.start_follow_loop()
 
     # The copy between SQLite and hyperlite-cfs, both ways: root's, as the permissions' file and the cluster's tree are
     # (app/daemon/ops/cfs.py).

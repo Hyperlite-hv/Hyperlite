@@ -374,6 +374,22 @@ export async function confirmHostNetwork(id, node) {
 export async function rollbackHostNetwork(id, node) {
   return realFetch(hostNetworkPath("/rollback", node), { method: "POST", ...jsonBody({ id }) });
 }
+// The nodes' own firewall (app/routers/host_firewall.py), applied on this node first, saved for the cluster once confirmed.
+export async function fetchFirewall() {
+  return realFetch("/cluster/firewall");
+}
+export async function previewFirewall(document) {
+  return realFetch("/cluster/firewall/preview", { method: "POST", ...jsonBody({ document }) });
+}
+export async function applyFirewall(document, timeoutS) {
+  return realFetch("/cluster/firewall/apply", { method: "POST", ...jsonBody({ document, timeout_s: timeoutS }) });
+}
+export async function confirmFirewall(id) {
+  return realFetch("/cluster/firewall/confirm", { method: "POST", ...jsonBody({ id }) });
+}
+export async function rollbackFirewall(id) {
+  return realFetch("/cluster/firewall/rollback", { method: "POST", ...jsonBody({ id }) });
+}
 export async function fetchHostInterfaces() {
   return realList("/networks/host-interfaces");
 }

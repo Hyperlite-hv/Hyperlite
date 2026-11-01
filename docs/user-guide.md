@@ -307,6 +307,23 @@ Hyperlite writes these interfaces in its own file, `/etc/network/interfaces.d/hy
 `/etc/network/interfaces` stay the administrator's: listed, never changed, and not offered as ports or bond cards.
 Bonds need the `ifenslave` package. On a cluster, each node has its own Network tab.
 
+### The nodes' firewall
+
+**Firewall** (administrators) filters what reaches the nodes themselves; the VMs' and networks' firewalls stay on their
+pages. Turn it on, choose the input policy (drop what no rule accepts, or accept), then write the rules:
+
+- **Cluster rules**, for every node, in order; **a node's rules** come after them;
+- a rule accepts, drops or rejects a protocol (tcp, udp, icmp or all), on ports (`22`, `8000-8010`, `80,443`), from
+  anywhere, an address or network, or an **IP set** (`+admins`);
+- a **security group** gathers rules called from one line of the cluster's or a node's rules.
+
+Always let in, whatever the rules say: the cluster's members between them, established connections, ICMPv6, and DHCP
+and DNS for the VMs of NAT networks. The first time it is turned on, starting rules open the dashboard, SSH and ping.
+
+**Review and apply** shows the nftables rules, checked; **Apply** puts them in place on this node, and a banner counts
+down: **Confirm** saves them for the whole cluster (every node follows within seconds), **Roll back** undoes them.
+Without a confirmation in time, the node puts its previous rules back by itself.
+
 ## 8. Library: ISO images, templates, imported disks
 
 **ISO images and templates**:
