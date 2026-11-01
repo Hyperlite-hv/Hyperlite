@@ -86,8 +86,8 @@ function Summary({ setView }) {
       <div className="nx-cols2 nx-cols2--fit">
         <Card title={t("nav.nodes")} flush>
           <TableWrap>
-            <table className="nx-table">
-              <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("nd.node")}</th><th scope="col">{t("ns.cpu")}</th><th scope="col">{t("ns.memory")}</th><th scope="col">{t("ns.storage")}</th><th scope="col" className="nx-num">VM</th><th scope="col">{t("ns.col.uptime")}</th></tr></thead>
+            <table className="nx-table nx-table--fit">
+              <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("nd.node")}</th><th scope="col">{t("ns.cpu")}</th><th scope="col">{t("ns.memory")}</th><th scope="col" data-optional>{t("ns.storage")}</th><th scope="col" className="nx-num">VM</th><th scope="col" data-optional>{t("ns.col.uptime")}</th></tr></thead>
               <tbody>
                 {nodes.map((n) => {
                   const nv = vms.filter((v) => v.node === n.id);
@@ -97,9 +97,9 @@ function Summary({ setView }) {
                       <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.name}</button><small>{n.id === "local" ? t("node.roleLocal") : t("node.roleMember")}</small></th>
                       <td><Meter value={n.cpu_utilisation} label={`${n.name} ${t("ns.cpu")}`} /></td>
                       <td><Meter value={pct(n.used_memory_mb, n.memoire_totale_mo)} label={`${n.name} ${t("ns.memory")}`} /></td>
-                      <td><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${n.name} ${t("ns.storage")}`} /></td>
+                      <td data-optional><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${n.name} ${t("ns.storage")}`} /></td>
                       <td className="nx-num nx-mono">{nv.filter((v) => v.state === "active").length} / {nv.length}</td>
-                      <td className="nx-mono nx-muted">{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
+                      <td className="nx-mono nx-muted" data-optional>{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
                     </tr>
                   );
                 })}

@@ -39,11 +39,6 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: lucide-react
         update-types: ["version-update:semver-major"]
-  - package-ecosystem: pip
-    directory: /.github
-    target-branch: test
-    schedule:
-      interval: weekly
   - package-ecosystem: github-actions
     # The workflows, and the actions of this repository they use (their own pinned actions).
     directories: ["/", "/.github/actions/*"]
