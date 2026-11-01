@@ -4126,4 +4126,11 @@ export default {
   "fwg.hint": "Leurs règles s’appliquent au trafic qui entre, avant les règles ci-dessous. Elles se modifient dans Centre de données › Pare-feu, et chaque changement s’applique partout où le groupe est utilisé.",
   "vmid.title": "Numéro de la VM dans le cluster (VMID), utilisable à la place de son nom dans l’API",
   "vmid.pending": "attribué sous peu",
+  "vb.live": "Restaurer à chaud",
+  "vb.liveX": "Restaurer à chaud la sauvegarde {v} dans une nouvelle VM",
+  "vb.liveHint": "La nouvelle VM démarre tout de suite sur la sauvegarde ; le reste est recopié pendant qu’elle tourne.",
+  "vb.liveTitle": "Restauration à chaud de la sauvegarde #{id}",
+  "vb.liveMsg": "La nouvelle VM démarre tout de suite et lit la sauvegarde pendant que ses disques se recopient (tâche visible dans Activité). Si la copie échoue, la VM est arrêtée et supprimée : aucun disque n’est laissé à moitié restauré.",
+  "vb.liveConfirm": "Démarrer",
+  "vb.liveStarted": "Restauration à chaud lancée",
 };

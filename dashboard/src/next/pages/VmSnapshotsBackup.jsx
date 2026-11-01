@@ -228,11 +228,11 @@ export function VmBackupPage({ resource: vm }) {
     if (!(await confirmAction({ title: t("vb.overwriteTitle", { name: vm.name }), message: t("vb.overwriteMsg"), confirmLabel: t("vs.restore"), danger: true }))) return;
     try { await restoreBackup(b.id, "overwrite", null, vmNode); pushToast({ kind: "success", title: t("vb.restoreStarted") }); await reload(); } catch (er) { fail(t("vb.restoreFailed"))(er); }
   }
-  async function restoreNew(b) {
+  async function restoreNew(b, live = false) {
     const taken = new Set(vms.map((v) => v.name));
-    const name = await promptText({ title: t("vb.newTitle", { id: b.id }), label: t("tp.newName"), defaultValue: `${vm.name}-restored`, confirmLabel: t("vs.restore"), validate: (v) => (!NAME_RE.test(v) ? t("ct.nameRule") : taken.has(v) ? t("tp.nameTaken") : "") });
+    const name = await promptText({ title: t(live ? "vb.liveTitle" : "vb.newTitle", { id: b.id }), message: live ? t("vb.liveMsg") : undefined, label: t("tp.newName"), defaultValue: `${vm.name}-restored`, confirmLabel: t(live ? "vb.liveConfirm" : "vs.restore"), validate: (v) => (!NAME_RE.test(v) ? t("ct.nameRule") : taken.has(v) ? t("tp.nameTaken") : "") });
     if (!name) return;
-    try { await restoreBackup(b.id, "new", name.trim(), vmNode); pushToast({ kind: "success", title: t("vb.restoreStarted"), message: name.trim() }); } catch (er) { fail(t("vb.restoreFailed"))(er); }
+    try { await restoreBackup(b.id, "new", name.trim(), vmNode, live); pushToast({ kind: "success", title: t(live ? "vb.liveStarted" : "vb.restoreStarted"), message: name.trim() }); } catch (er) { fail(t("vb.restoreFailed"))(er); }
   }
   async function importInto() {
     const { backup, store } = importing;
@@ -286,6 +286,7 @@ export function VmBackupPage({ resource: vm }) {
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy} aria-label={t("vb.verifyAria", { v: b.id })} onClick={() => verify(b)}>{t("vb.verify")}</button>}
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--sm" aria-disabled={!stopped || undefined} title={!stopped ? t("vb.stopToRestore") : undefined} aria-label={t("a11y.restore_backup_x_in_place", { v: b.id })} onClick={() => restoreInPlace(b)}>{t("vb.inPlace")}</button>}
                         {caps.admin && b.status === "succeeded" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("a11y.restore_backup_x_to_a_new_vm", { v: b.id })} onClick={() => restoreNew(b)}>{t("vb.newVm")}</button>}
+                        {caps.admin && b.status === "succeeded" && !b.store && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("vb.liveX", { v: b.id })} title={t("vb.liveHint")} onClick={() => restoreNew(b, true)}>{t("vb.live")}</button>}
                         {caps.admin && b.status === "succeeded" && !b.store && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("vb.importX", { v: b.id })} onClick={() => setImporting({ backup: b, store: null })}>{t("vb.import")}</button>}
                         {caps.admin && b.status === "succeeded" && !b.store && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-label={t("fr.browseX", { v: b.id })} onClick={() => setBrowsing({ ...b, vm_name: vm.name, on: vmNode })}>{t("fr.browse")}</button>}
                         {caps.admin && (b.status === "succeeded" || b.status === "failed") && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("menu.delete").replace("…", "")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}
