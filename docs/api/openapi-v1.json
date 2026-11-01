@@ -3267,7 +3267,7 @@
     "properties": {
      "live": {
       "default": false,
-      "description": "Live restore (mode 'new', a backup kept as files): the VM starts at once on the backup, the rest copied while it runs",
+      "description": "Live restore (mode 'new'): the VM starts at once on the backup, the rest copied while it runs; a backup in a store is served to it by the node meanwhile",
       "title": "Live",
       "type": "boolean"
      },
