@@ -33,9 +33,10 @@ class Conn:
 
 
 @pytest.fixture()
-def nodes(database, monkeypatch):
+def nodes(database, monkeypatch, daemon_libvirt):
     hosts = {None: Conn({"web": Domain(), "off": Domain(active=False)}), "n2": Conn({})}
     monkeypatch.setattr(migration, "open_conn", lambda node=None, readonly=False: hosts[node])
+    daemon_libvirt(hosts[None], nodes={"n2": hosts["n2"]})  # the compatibility check is the daemon's
     monkeypatch.setattr(cluster_compat, "check_vm_migration", lambda src, dst, domain: [])
     monkeypatch.setattr(maintenance, "refuse_if_in_maintenance", lambda node, what: None)
     monkeypatch.setattr(iscsi, "refuse_if_iscsi", lambda domain, what: None)
