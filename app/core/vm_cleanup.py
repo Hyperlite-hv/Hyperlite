@@ -60,7 +60,7 @@ def check_once():
     if not rows:
         return
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         for row in rows:
             try:

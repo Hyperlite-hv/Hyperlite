@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from app.daemon.needs import ANYONE, own_task
+from app.daemon.needs import ANYONE, PUBLIC, own_task
 from app.daemon.registry import Args, DaemonError, operation
 
 NODE_NAME = 63
@@ -319,3 +319,189 @@ def statd_publish(args, ctx):
         return {"sent": None}
     _statd_last[0] = now
     return {"sent": statd.publish()}
+
+
+# ---- Forming the cluster (app/core/cluster_setup.py): Corosync's files and services, hyperlite-cfs's mode, the
+# cluster's keys and the shared configuration, all root's (docs/design/privilege-separation.md, section 14, 4e). The
+# daemon runs each step as the API ran it; the routes keep their answers. ----
+
+
+def _setup(fn, *args):
+    """A cluster_setup step: its refusals (ClusterError) "refused", a forged or spent ticket "forbidden", hyperlite-cfs
+    or a file not answering "unavailable", as the routes answered them (409, 403, 503)."""
+    from app.core import cluster_setup
+    from app.core.cfs_client import CfsError
+
+    try:
+        return fn(*args)
+    except cluster_setup.ClusterError as e:
+        raise DaemonError("refused", str(e)) from e
+    except PermissionError as e:
+        raise DaemonError("forbidden", str(e)) from e
+    except (CfsError, OSError) as e:
+        raise DaemonError("unavailable", str(e) or type(e).__name__) from e
+
+
+class CreateClusterArgs(Args):
+    name: str = Field(min_length=1, max_length=15)
+    address: str = Field(min_length=1, max_length=64)
+
+
+@operation("cluster.setup_create", CreateClusterArgs)
+def setup_create(args, ctx):
+    """This node, the first member of a new cluster (cluster_setup.create): the cluster's state."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.create, args.name, args.address, ctx.user or "system")
+
+
+@operation("cluster.setup_join_information")
+def setup_join_information(args, ctx):
+    """What an administrator copies into a new node (a new ticket each time): {"information", "cluster", "expire"}."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.join_information)
+
+
+class JoinClusterArgs(Args):
+    information: str = Field(min_length=1, max_length=2000)
+    address: str = Field(min_length=1, max_length=64)
+    confirmation: str = Field(max_length=15)
+
+
+@operation("cluster.setup_join", JoinClusterArgs)
+def setup_join(args, ctx):
+    """This node joins the cluster the information names (cluster_setup.join): it is put back as it was on a failure,
+    and restarts on the cluster's configuration on a success. One call that waits (JOIN_WAIT_S)."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.join, args.information, args.address, args.confirmation, ctx.user or "system")
+
+
+class AcceptMemberArgs(Args):
+    ticket: str = Field(max_length=100)
+    name: str = Field(max_length=NODE_NAME)
+    address: str = Field(max_length=64)
+    ssh_key: str = Field(max_length=200)
+    fingerprint: str | None = Field(None, max_length=64)
+    auth_keys: dict | None = None
+
+
+@operation("cluster.setup_accept_member", AcceptMemberArgs, needs=PUBLIC)
+def setup_accept_member(args, ctx):
+    """A joining node let in (cluster_setup.accept_member). It has no account here: the ticket it carries stands for the
+    administrator who copied the join information, and is checked and spent there."""
+    from app.core import cluster_setup
+
+    return _setup(
+        cluster_setup.accept_member,
+        args.ticket,
+        args.name,
+        args.address,
+        args.ssh_key,
+        args.fingerprint,
+        args.auth_keys,
+    )
+
+
+class PrimaryArgs(Args):
+    name: str | None = Field(None, max_length=NODE_NAME)
+
+
+@operation("cluster.setup_primary", PrimaryArgs)
+def setup_primary(args, ctx):
+    """The member that counts twice in the quorum, or none (cluster_setup.set_primary)."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.set_primary, args.name, ctx.user or "system")
+
+
+class RemoveMemberArgs(Args):
+    name: str = Field(min_length=1, max_length=NODE_NAME)
+    confirmation: str = Field(max_length=NODE_NAME)
+
+
+@operation("cluster.setup_remove_member", RemoveMemberArgs)
+def setup_remove_member(args, ctx):
+    """A member taken out of the cluster (cluster_setup.remove_member)."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.remove_member, args.name, args.confirmation, ctx.user or "system")
+
+
+# ---- The migration's checks (point 11 of #298): they read a VM's migratable definition, which implies libvirt's secure
+# flag that a read-only connection refuses, and another member's libvirt, opened with the cluster's key ----
+
+
+class MigrationCheckArgs(Args):
+    vm: str = Field(min_length=1, max_length=64)
+    node: str | None = Field(None, min_length=1, max_length=NODE_NAME)  # the VM's node; None, this one
+    target: str = Field(min_length=1, max_length=NODE_NAME)  # a member's name, or maintenance.LOCAL
+
+
+@operation("vm.migration_check", MigrationCheckArgs)
+def migration_check(args, ctx):
+    """cluster_compat's report on migrating the VM `vm` from `node` to `target`."""
+    import libvirt
+
+    from app.core import cluster_compat, libvirt_utils
+
+    with libvirt_utils.node_conn(args.node) as src:
+        try:
+            domain = src.lookupByName(args.vm)
+        except libvirt.libvirtError:
+            raise DaemonError("not_found", f"VM '{args.vm}' not found") from None
+        with libvirt_utils.node_conn(args.target) as dst:
+            return cluster_compat.report(cluster_compat.check_vm_migration(src, dst, domain))
+
+
+@operation("node.compatibility", NodeArgs)
+def compatibility(args, ctx):
+    """cluster_compat's report from this node (the source) to the registered node `node`."""
+    from app.core import cluster_compat, libvirt_utils
+
+    _registered(args.node)
+    with libvirt_utils.node_conn() as local, libvirt_utils.node_conn(args.node) as remote:
+        return cluster_compat.report(cluster_compat.check_pair(local, remote))
+
+
+class VmPlanArgs(Args):
+    source: str = Field(min_length=1, max_length=NODE_NAME)  # a member's name, or maintenance.LOCAL
+    target: str | None = Field(None, min_length=1, max_length=NODE_NAME)
+    spread: bool = False
+
+
+@operation("node.vm_plan", VmPlanArgs)
+def vm_plan(args, ctx):
+    """Which running VMs of `source` can be live-migrated, and why the others cannot (maintenance.plan): to `target`,
+    to no node when it is None, or with `spread` each where load balancing places it."""
+    from app.core import libvirt_utils, maintenance
+
+    with libvirt_utils.node_conn(args.source) as src:
+        if args.spread:
+            return _spread_plan(args.source, src)
+        if args.target is None:
+            return maintenance.plan(src, None, None)
+        with libvirt_utils.node_conn(args.target) as dst:
+            return maintenance.plan(src, dst, args.target)
+
+
+def _spread_plan(source, src):
+    import contextlib
+
+    import libvirt
+
+    from app.core import drs, libvirt_utils, maintenance, self_node
+
+    me = self_node.name()
+    running = [d.name() for d in src.listAllDomains(libvirt.VIR_CONNECT_LIST_DOMAINS_ACTIVE)]
+    placed = drs.spread(me if source == maintenance.LOCAL else source, running)
+    targets = {vm: (maintenance.LOCAL if n == me else n) if n else None for vm, n in placed.items()}
+    conns = {}
+    with contextlib.ExitStack() as opened:
+        for label in {t for t in targets.values() if t}:
+            try:
+                conns[label] = opened.enter_context(libvirt_utils.node_conn(label))
+            except DaemonError:
+                conns[label] = None  # its VMs stay, said why
+        return maintenance.spread_plan(src, targets, conns)
