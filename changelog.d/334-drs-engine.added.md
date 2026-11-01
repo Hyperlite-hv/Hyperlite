@@ -1,1 +1,0 @@
-- Load balancing's engine (#334, step 3): the leader reads every member's load from its status, finds an imbalance that lasts 15 minutes (or a member above 90 %, or a broken rule) and computes the moves that even it, the rules kept; only VMs whose disks are all on a shared pool move.

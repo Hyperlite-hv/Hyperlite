@@ -19,8 +19,10 @@ NODES = [
 class FakeCluster:
     """The other nodes' APIs: each update succeeds (or fails for `failing`), a reboot is needed on `reboot`."""
 
-    def __init__(self, failing=(), reboot=(), blocked=(), current=()):
+    def __init__(self, failing=(), reboot=(), blocked=(), current=(), stale=0, rolled=()):
         self.failing, self.reboot, self.blocked, self.current = set(failing), set(reboot), set(blocked), set(current)
+        # stale: how many checks the old process still answers after the task ended; rolled: nodes rolled back.
+        self.stale, self.rolled = stale, set(rolled)
         self.calls, self.drained, self.rebooted = [], [], []
         self.version = {n["name"]: "1.0.0" for n in NODES}
 
@@ -40,9 +42,12 @@ class FakeCluster:
             return 200, {"status": "succeeded"}
         if path == "/update/check":
             pending = name in self.reboot and name not in self.rebooted
+            old = name in self.rolled or self.stale > 0
+            self.stale -= 1
             return 200, {
                 "verifiable": True,
-                "commit_local": self.version[name],
+                "commit_local": "1.0.0" if old else self.version[name],
+                "rolled_back": old,
                 "system": {"restart_required": pending},
             }
         if path == "/host/system/power":
@@ -133,6 +138,18 @@ def test_a_failure_stops_the_run_on_its_node(cluster, database):
     assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["pve2"]
     assert local == []  # neither pve3 nor this node
     assert [m["node"] for m in maintenance.list_all()] == ["pve2"]  # it stays in maintenance
+
+
+def test_the_old_process_answering_before_its_restart_is_not_a_rollback(cluster, database):
+    cluster(stale=2)
+    assert _run(database, [])[0] == "succeeded"
+
+
+def test_a_rollback_that_lasts_stops_the_run(cluster, database, monkeypatch):
+    monkeypatch.setattr(rolling_update, "ROLLBACK_SETTLE_S", 0)
+    cluster(rolled={"pve2"})
+    status, error = _run(database, [])
+    assert status == "failed" and "pve2: the new version did not start and was rolled back" in error
 
 
 def test_a_node_whose_vms_cannot_move_is_not_rebooted_unless_chosen(cluster, database, monkeypatch):

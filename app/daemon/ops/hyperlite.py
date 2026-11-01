@@ -5,7 +5,9 @@ run in either. hyperlite.start_update checks the request again and starts the jo
 (app/daemon/update_job.py), as the update watchdog runs, which outlives both restarts. The job is the code the API ran
 in a thread up to 1.1.3 (app/routers/update.py); it writes the task's progress and log itself.
 
-HYPERLITE_DAEMON_INPROCESS=1 (tests): the job runs in a thread of this process, as before."""
+HYPERLITE_DAEMON_INPROCESS=1 (tests): the job runs in a thread of this process, as before. The daemon sets that
+variable too, for its own calls: it still starts the unit (app/daemon/server.py serving()). A job in a thread of the
+daemon died with it when the package restarted it, apt lost its output (exit 100) and the API was never restarted."""
 
 import os
 import subprocess
@@ -44,8 +46,9 @@ def run_job(kind, task_id, username, system=True):
 
 def _launch(args):
     from app.core import privileged
+    from app.daemon import server
 
-    if os.environ.get(privileged.INPROCESS_ENV) == "1":
+    if os.environ.get(privileged.INPROCESS_ENV) == "1" and not server.serving():
         threading.Thread(
             target=run_job, args=(args.kind, args.task_id, args.username, args.system), daemon=True
         ).start()
