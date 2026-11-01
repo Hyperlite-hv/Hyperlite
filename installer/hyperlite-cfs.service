@@ -15,7 +15,11 @@ Environment=HYPERLITE_CFS_MODE=
 EnvironmentFile=-/etc/default/hyperlite-cfs
 # The socket's group is the API's (www-data from 4e), which reads the replicated configuration; only root changes it,
 # as /etc/pve for www-data on Proxmox VE (docs/design/privilege-separation.md, section 14.7).
-ExecStart=/usr/lib/hyperlite/hyperlite-cfs $HYPERLITE_CFS_MODE --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0660 --socket-group www-data
+# The tree as read-only files at /etc/hyperlite/cfs, as /etc/pve (docs/design/cfs-files.md): a mount a crash left
+# behind ("Transport endpoint is not connected") is cleaned first. A mount that fails is logged; the socket is served.
+ExecStartPre=-/usr/bin/fusermount3 -u -z /etc/hyperlite/cfs
+ExecStartPre=/bin/mkdir -p /etc/hyperlite/cfs
+ExecStart=/usr/lib/hyperlite/hyperlite-cfs $HYPERLITE_CFS_MODE --db /var/lib/hyperlite-cfs/config.db --socket /run/hyperlite-cfs/socket --socket-mode 0660 --socket-group www-data --mount /etc/hyperlite/cfs
 StateDirectory=hyperlite-cfs
 StateDirectoryMode=0700
 RuntimeDirectory=hyperlite-cfs
