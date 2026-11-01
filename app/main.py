@@ -297,7 +297,7 @@ def health(request: Request):
     except ImportError:
         uvicorn_version = None
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         # "api": the version of the API (/api/v1), for a client to know which addresses and names to use.
         body = {"status": "ok", "environment": _environment_label(), "api": 1}

@@ -332,7 +332,7 @@ def _lb_steps(targets, dry_run):
         ip_map = dict.fromkeys(backends, "0.0.0.0")  # noqa: S104 -- placeholder address, not a bind
     else:
         ip_map = {}
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             for b in backends:
                 try:

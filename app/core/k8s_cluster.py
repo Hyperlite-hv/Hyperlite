@@ -358,7 +358,7 @@ def precheck(name, workers, vcpu, memory_mb, disk_gb, network):
     if get_cluster(name):
         raise ClusterError(f"A cluster named '{name}' already exists", 409)
     server, agents = vm_names(name, workers)
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         for vm in (server, *agents):
             try:
@@ -396,7 +396,7 @@ def _start_vm(vm, username):
     from app.core import privileged
     from app.core.libvirt_utils import open_conn
 
-    conn = open_conn()
+    conn = open_conn(readonly=True)
     try:
         running = conn.lookupByName(vm).isActive()
     finally:
@@ -493,7 +493,7 @@ def delete_cluster(name, username):
     task_id = create_task("delete_k8s_cluster", name, username=username)
     try:
         _update(name, status="deleting")
-        conn = open_conn()
+        conn = open_conn(readonly=True)
         try:
             for vm in (cluster["server"], *cluster["workers"]):
                 try:

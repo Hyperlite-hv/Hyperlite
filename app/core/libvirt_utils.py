@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+import weakref
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -13,37 +14,42 @@ LIBVIRT_URI = "qemu:///system"
 LXC_URI = "lxc:///system"
 
 
+# The read-only connections open_conn gave, each with its node (None: this one): what would write through one asks
+# hyperlite-daemon instead, before libvirt refuses it ("operation forbidden", said in the API's journal).
+_read_only = weakref.WeakKeyDictionary()
+
 NO_LXC = "This node has no LXC driver (libvirt-daemon-driver-lxc), so it runs no containers"
 
 
-def _lxc():
-    conn = libvirt.open(LXC_URI)
+def _lxc(readonly=False):
+    conn = libvirt.openReadOnly(LXC_URI) if readonly else libvirt.open(LXC_URI)
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt (LXC) connection")
     return conn
 
 
-def open_lxc_conn():
+def open_lxc_conn(readonly=False):
     """Connection dedicated to containers: libvirt exposes LXC through a driver/URI
     SEPARATE from qemu:///system (same libvirtd daemon, but VM and container
     domains do not share the same list: a qemu:///system connection never
     sees a container, and vice versa). There is no multi-node support for now
     (unlike open_conn): local containers only in this first version. A node without the LXC driver answers 501
-    for a container named by the user, not a 500 with libvirt's error."""
+    for a container named by the user, not a 500 with libvirt's error. `readonly`: libvirt's read-only socket, all the API
+    needs to read (what changes a container goes through hyperlite-daemon's operations)."""
     try:
-        return _lxc()
+        return _lxc(readonly)
     except libvirt.libvirtError as e:
         logger.info("No LXC connection on this node: %s", e)
         raise HTTPException(status_code=501, detail=NO_LXC) from None
 
 
-def open_lxc_conn_if_any():
+def open_lxc_conn_if_any(readonly=False):
     """The LXC connection, or None when this node has no LXC driver (libvirt installed without it, as on a VM-only
     host or a CI runner): it then simply has no containers. What looks for every guest of the node (a network's, a
     shutdown's, the list of containers) goes through this; what acts on a container named by the user uses
     open_lxc_conn."""
     try:
-        return _lxc()
+        return _lxc(readonly)
     except libvirt.libvirtError as e:
         logger.info("No LXC connection on this node, so no containers: %s", e)
         return None
@@ -56,10 +62,11 @@ def open_conn(node_name=None, readonly=False):
     (see app/core/cluster.py) to a registered cluster node. A node the cluster
     sees down is refused at once (node_health.NodeDown, 503), never waited for.
 
-    readonly: another node's connection through hyperlite-daemon's tunnel to its read-only libvirt
-    (app/core/node_tunnel.py), which needs no key here; what changes that node goes through the daemon's operations
-    (`node`). The connection opened with the cluster's key stays for HA and migration until they move
-    (docs/design/privilege-separation.md, section 13, the cluster domain)."""
+    readonly: libvirt's read-only socket on this node, and on another node hyperlite-daemon's tunnel to its read-only
+    libvirt (app/core/node_tunnel.py), which needs no key here. All the API needs to read: what changes a guest goes
+    through the daemon's operations, and once the API runs as www-data (docs/design/privilege-separation.md, 4e),
+    polkit refuses it libvirt's read-write socket. The connection opened with the cluster's key stays for HA and
+    migration until they move (section 13, the cluster domain)."""
     if node_name and node_name != "local":
         from app.core import node_health
         from app.core.cluster import get_node, libvirt_uri_from_here
@@ -69,12 +76,14 @@ def open_conn(node_name=None, readonly=False):
             raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
         node_health.check(node)
         if readonly:
-            return _through_tunnel(node_name)
+            conn = _through_tunnel(node_name)
+            _read_only[conn] = node_name
+            return conn
         uri = libvirt_uri_from_here(node)
     else:
         uri = LIBVIRT_URI
     try:
-        conn = libvirt.open(uri)
+        conn = libvirt.openReadOnly(uri) if readonly and uri == LIBVIRT_URI else libvirt.open(uri)
     except libvirt.libvirtError as e:
         if uri == LIBVIRT_URI:
             raise
@@ -84,6 +93,8 @@ def open_conn(node_name=None, readonly=False):
         raise HTTPException(status_code=502, detail=f"Node unreachable: {describe_exception(e)}") from e
     if conn is None:
         raise HTTPException(status_code=500, detail="Unable to open the libvirt connection")
+    if readonly and uri == LIBVIRT_URI:
+        _read_only[conn] = None
     return conn
 
 
@@ -191,7 +202,10 @@ def get_vm_uptime_s(vm_name):
 
 
 def ensure_default_pool(conn):
-    """Create and start the 'default' storage pool if it does not exist yet."""
+    """Create and start the 'default' storage pool if it does not exist yet. Writes nothing for a pool already there,
+    started and autostarted; through a read-only connection (the API's), hyperlite-daemon makes or starts it."""
+    if conn in _read_only:
+        return _default_pool_from_the_daemon(conn)
     try:
         pool = conn.storagePoolLookupByName("default")
     except libvirt.libvirtError:
@@ -207,8 +221,26 @@ def ensure_default_pool(conn):
         pool.build()
     if not pool.isActive():
         pool.create()
-    pool.setAutostart(True)
+    if not pool.autostart():
+        pool.setAutostart(True)
     return pool
+
+
+def _default_pool_from_the_daemon(conn):
+    from app.core import privileged
+    from app.daemon.registry import DaemonError
+
+    try:
+        pool = conn.storagePoolLookupByName("default")
+        if pool.isActive() and pool.autostart():
+            return pool
+    except libvirt.libvirtError:
+        pass  # not defined yet: the daemon defines it
+    try:
+        privileged.run("storage.ensure_default_pool", node=_read_only[conn])
+    except DaemonError as e:
+        raise libvirt.libvirtError(f"The 'default' storage pool could not be made: {e.detail or e.kind}") from e
+    return conn.storagePoolLookupByName("default")
 
 
 def lookup_pool(conn, name):

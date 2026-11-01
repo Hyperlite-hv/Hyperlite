@@ -250,7 +250,7 @@ class LibNet:
 def lib(monkeypatch, daemon_libvirt):
     lib = Lib()
     daemon_libvirt(lib)
-    monkeypatch.setattr("app.core.libvirt_utils.open_lxc_conn_if_any", lambda: None)
+    monkeypatch.setattr("app.core.libvirt_utils.open_lxc_conn_if_any", lambda readonly=False: None)
     return lib
 
 
