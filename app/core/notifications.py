@@ -51,6 +51,7 @@ NOTIFY_EVENTS = {
     "cfs_conflict": "Configuration change overridden by the cluster",
     # The node's own database found damaged, and sound again (app/core/db_health.py).
     "database_check": "Database check",
+    "zfs_pool": "ZFS pool health (a disk failed or is missing)",
 }
 
 
