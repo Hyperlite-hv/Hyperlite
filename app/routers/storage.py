@@ -249,7 +249,11 @@ class PoolCreate(BaseModel):
     # "netfs" pool: the NFS protocol version to mount with. Always explicit, never negotiated (see _build_pool_xml):
     # 4.2 unless the server only offers an older one (a NAS limited to NFSv3, for instance).
     nfs_version: Literal["3", "4", "4.0", "4.1", "4.2"] = "4.2"
-    size_gb: int | None = Field(None, ge=1)  # "zfs" pool: size of the loopback file
+    size_gb: int | None = Field(None, ge=1)  # "zfs" pool on a file (to try ZFS without a disk): its size
+    # "zfs" pool on the node's disks (#419, docs/design/zfs-disks.md): its layout and free disks (by-id paths,
+    # GET /storage/zfs/disks).
+    zfs_layout: Literal["single", "mirror", "raidz1", "raidz2", "raidz3"] | None = None
+    zfs_disks: list[str] = Field(default_factory=list, max_length=64)
     iscsi_host: str | None = None  # "iscsi" pool: portal address of the storage server
     iscsi_port: int = Field(iscsi.DEFAULT_PORT, ge=1, le=65535)
     iscsi_target: str | None = None  # "iscsi" pool: target name (IQN)
@@ -309,9 +313,12 @@ def _create_single(payload, node, user):
                 status_code=422,
                 detail="A ZFS pool can only be created on the local host (single-node management for now)",
             )
-        if not payload.size_gb:
-            raise HTTPException(status_code=422, detail="size_gb is required for a ZFS pool")
-        size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
+        on_disks = bool(payload.zfs_layout or payload.zfs_disks)
+        if on_disks and not (payload.zfs_layout and payload.zfs_disks):
+            raise HTTPException(status_code=422, detail="A ZFS pool on disks needs its layout and its disks")
+        if not on_disks and not payload.size_gb:
+            raise HTTPException(status_code=422, detail="A ZFS pool needs its disks (zfs_layout, zfs_disks) or size_gb")
+        size_errors = [] if on_disks else validate_vm_resources(disk_sizes=[payload.size_gb])
         if size_errors:
             raise HTTPException(status_code=422, detail=size_errors)
         if not privileged.ask("storage.zfs_load_module", user, "create_storage_pool", payload.name)["loaded"]:
@@ -327,9 +334,12 @@ def _create_single(payload, node, user):
             refused=500,
             failed="ZFS pool creation error: {}",
             name=payload.name,
-            size_gb=payload.size_gb,
+            **(
+                {"layout": payload.zfs_layout, "disks": payload.zfs_disks} if on_disks else {"size_gb": payload.size_gb}
+            ),
         )
-        log_action(user["username"], "create_storage_pool", payload.name, "success")
+        detail = f"zfs {payload.zfs_layout}: {', '.join(payload.zfs_disks)}" if on_disks else None
+        log_action(user["username"], "create_storage_pool", payload.name, "success", detail)
         return pool
 
     # Checked here first, so another node's pool gets the same answers; hyperlite-daemon checks it again.
@@ -344,7 +354,7 @@ def _create_single(payload, node, user):
         user,
         "create_storage_pool",
         payload.name,
-        **payload.model_dump(exclude={"size_gb", "all_nodes", "nodes"}),
+        **payload.model_dump(exclude={"size_gb", "zfs_layout", "zfs_disks", "all_nodes", "nodes"}),
     )
     log_action(user["username"], "create_storage_pool", payload.name, "success")
     conn = open_conn(node, readonly=True)
@@ -438,6 +448,65 @@ def apply_shared_pools(node_name, username):
             shared_pools.add_node(entry["name"], node_name)
         out.append({"name": entry["name"], **result})
     return out
+
+
+@router.get("/zfs/disks")
+def zfs_free_disks(user: dict = Depends(require_role("admin"))):
+    """This node's disks a ZFS pool may be built on: whole, blank, no VM's (docs/design/zfs-disks.md)."""
+    return privileged.ask("storage.zfs_disks", user, "list_zfs_disks", "local")
+
+
+class ZfsScrub(BaseModel):
+    stop: bool = False
+
+
+class ZfsPoolDisks(BaseModel):
+    """attach: one disk to the vdev or disk `target` (a mirror more, a RAIDZ grown); add: a new vdev of `layout`
+    (more room); replace: the disk `target` by a free one (ZFS rebuilds it)."""
+
+    action: Literal["attach", "add", "replace"]
+    disks: list[str] = Field(min_length=1, max_length=64)
+    layout: Literal["single", "mirror", "raidz1", "raidz2", "raidz3"] | None = None
+    target: str | None = Field(None, max_length=512)
+
+
+def _zfs_pool(pool_name):
+    if not zfs_storage.pool_exists(pool_name):
+        raise HTTPException(status_code=404, detail=f"ZFS pool '{pool_name}' not found")
+
+
+@router.get("/{pool_name}/zfs")
+def zfs_pool_health(pool_name: str, user: dict = Depends(get_current_user)):
+    """The pool's health: its state, the last scrub or rebuild, and every vdev and disk with its errors."""
+    _zfs_pool(pool_name)
+    return privileged.ask("storage.zfs_pool_status", user, "zfs_pool_status", pool_name, name=pool_name)
+
+
+@router.post("/{pool_name}/zfs/scrub")
+def zfs_pool_scrub(pool_name: str, payload: ZfsScrub, user: dict = Depends(require_role("admin"))):
+    _zfs_pool(pool_name)
+    action = "zfs_scrub_stop" if payload.stop else "zfs_scrub"
+    result = privileged.ask("storage.zfs_pool_scrub", user, action, pool_name, name=pool_name, stop=payload.stop)
+    log_action(user["username"], action, pool_name, "success")
+    return result
+
+
+@router.post("/{pool_name}/zfs/disks")
+def zfs_pool_disks(pool_name: str, payload: ZfsPoolDisks, user: dict = Depends(require_role("admin"))):
+    _zfs_pool(pool_name)
+    result = privileged.ask(
+        "storage.zfs_pool_disks",
+        user,
+        f"zfs_disks_{payload.action}",
+        pool_name,
+        name=pool_name,
+        action=payload.action,
+        disks=payload.disks,
+        layout=payload.layout,
+        target=payload.target,
+    )
+    log_action(user["username"], f"zfs_disks_{payload.action}", pool_name, "success", ", ".join(payload.disks))
+    return result
 
 
 @router.get("/shared")
