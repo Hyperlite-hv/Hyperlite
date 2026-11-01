@@ -9,13 +9,17 @@ Requires=libvirtd.service
 
 [Service]
 Type=simple
+# As Proxmox VE's pveproxy: the HTTPS API is not root. What needs root (libvirt's writes, storage, network, packages,
+# the consoles, the cluster's keys) goes through hyperlite-daemon's socket, which checks each caller's proof and
+# rights; the API reads libvirt through its read-only socket (docs/design/privilege-separation.md, section 14).
+User=www-data
+Group=www-data
 WorkingDirectory=/usr/lib/hyperlite
 # The node's keys, root only (app/core/paths.py). Optional for systemd only because it is read again for each command:
 # at the first start of 1.1 they are still in /root/hyperlite/.env until the first ExecStartPre moves them; the
 # second refuses to start without them.
 EnvironmentFile=-/etc/hyperlite/priv/env
 Environment=PYTHONUNBUFFERED=1
-Environment=HOME=/root
 # The schedulers are hyperlite-scheduler's (installer/hyperlite-scheduler.service): the API starts none of them.
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
 # HA's loops and the watchdog are hyperlite-ha-lrm's and hyperlite-ha-crm's: the API starts none of them.

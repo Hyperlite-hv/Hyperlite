@@ -82,7 +82,7 @@ def lxc(monkeypatch, tmp_path, daemon_libvirt, daemon_lxc):
     monkeypatch.setattr(container_ops, "CONTAINERS_DIR", tmp_path)
     daemon_libvirt(Mock(**{"listAllStoragePools.return_value": []}))
     daemon_lxc(conn)
-    monkeypatch.setattr(containers, "open_lxc_conn", lambda: conn)
+    monkeypatch.setattr(containers, "open_lxc_conn", lambda readonly=False: conn)
     monkeypatch.setattr(container_config, "container_rootfs_path", lambda name: tmp_path / name)
     conn.rootfs = rootfs
     return conn
