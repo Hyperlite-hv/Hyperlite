@@ -50,14 +50,78 @@ class PoolArgs(Args):
 
 
 class PoolCreateArgs(PoolArgs):
-    size_gb: int = Field(ge=1, le=MAX_GB)
+    size_gb: int | None = Field(None, ge=1, le=MAX_GB)  # a pool on a file (to try ZFS without a disk)
+    # A pool on the node's disks (#419): its layout and disks (by-id paths, free ones only).
+    layout: Literal["single", "mirror", "raidz1", "raidz2", "raidz3"] | None = None
+    disks: list[str] = Field(default_factory=list, max_length=64)
+
+
+def _free_disks():
+    """The disks a pool may take: blank, and no VM's disk (passthrough of a whole disk included)."""
+    from app.core import host_disks
+
+    return host_disks.free_disks(in_use=_disk_paths_in_use())
 
 
 @operation("storage.zfs_pool_create", PoolCreateArgs)
 @_zfs
 def zfs_pool_create(args, ctx):
     _name(args.name)
+    if args.layout:
+        return zfs_storage.create_pool_on_disks(args.name, args.layout, args.disks, _free_disks())
+    if not args.size_gb:
+        raise DaemonError("refused", "A ZFS pool is made on disks (layout and disks) or on a file (size_gb)")
     return zfs_storage.create_pool(args.name, args.size_gb)
+
+
+@operation("storage.zfs_disks", NoArgs, needs=ANYONE)
+def zfs_disks(args, ctx):
+    """The node's free disks, which a ZFS pool may be built on (read only: lsblk and the VMs' definitions)."""
+    return {"disks": _free_disks()}
+
+
+@operation("storage.zfs_pool_status", PoolArgs, needs=ANYONE)
+@_zfs
+def zfs_pool_status(args, ctx):
+    _name(args.name)
+    return zfs_storage.pool_status(args.name)
+
+
+class ScrubArgs(PoolArgs):
+    stop: bool = False
+
+
+@operation("storage.zfs_pool_scrub", ScrubArgs)
+@_zfs
+def zfs_pool_scrub(args, ctx):
+    _name(args.name)
+    zfs_storage.scrub(args.name, args.stop)
+    return zfs_storage.pool_status(args.name)
+
+
+class PoolDisksArgs(PoolArgs):
+    """attach: one disk to the vdev or disk `target`; add: a new vdev of `layout`; replace: the disk `target` by one."""
+
+    action: Literal["attach", "add", "replace"]
+    disks: list[str] = Field(min_length=1, max_length=64)
+    layout: Literal["single", "mirror", "raidz1", "raidz2", "raidz3"] | None = None
+    target: str | None = Field(None, max_length=512)
+
+
+@operation("storage.zfs_pool_disks", PoolDisksArgs)
+@_zfs
+def zfs_pool_disks(args, ctx):
+    _name(args.name)
+    free = _free_disks()
+    if args.action == "add":
+        if not args.layout:
+            raise DaemonError("refused", "The new disks' layout is required")
+        return zfs_storage.add_vdev(args.name, args.layout, args.disks, free)
+    if not args.target or len(args.disks) != 1:
+        raise DaemonError("refused", "One disk, and the disk or vdev it goes to, are required")
+    if args.action == "attach":
+        return zfs_storage.attach_disk(args.name, args.target, args.disks[0], free)
+    return zfs_storage.replace_disk(args.name, args.target, args.disks[0], free)
 
 
 @operation("storage.zfs_pool_delete", PoolArgs)
