@@ -57,6 +57,29 @@ def remember(credential):
     CREDENTIAL.set(credential)
 
 
+# A one-time ticket (a console's websocket, a SPICE connection) -> the credential of the request that made it, and until
+# when it is kept. The websocket or the connection brings the ticket only, and hyperlite-daemon wants the account's own
+# proof: the API, not root, cannot call it without one.
+_TICKET_CREDENTIALS = {}
+
+
+def keep_with_ticket(ticket, ttl_s):
+    """Keep this request's credential with `ticket`, for ttl_s seconds."""
+    now = time.time()
+    for old, (_credential, until) in list(_TICKET_CREDENTIALS.items()):
+        if until < now:
+            _TICKET_CREDENTIALS.pop(old, None)
+    _TICKET_CREDENTIALS[ticket] = (CREDENTIAL.get(), now + ttl_s)
+
+
+def take_ticket_credential(ticket, keep=False):
+    """In the websocket or connection that brought `ticket`: the credential of the request that made it becomes this
+    context's. keep: the ticket admits several connections (SPICE), so it stays."""
+    entry = _TICKET_CREDENTIALS.get(ticket) if keep else _TICKET_CREDENTIALS.pop(ticket, None)
+    if entry is not None and entry[1] >= time.time():
+        CREDENTIAL.set(entry[0])
+
+
 def carry(fn, credential=None):
     """`fn`, to run in another thread with this thread's credential, or `credential`: a new thread starts without it."""
     context = contextvars.copy_context()

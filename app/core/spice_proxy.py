@@ -98,6 +98,9 @@ async def _serve(client_reader, client_writer):
         await _refuse(client_writer, "403 Forbidden")
         return
     vm, node, _port = target  # the daemon reads the port from the definition
+    from app.core import peer_auth
+
+    peer_auth.take_ticket_credential(request_line.split()[1].rpartition(":")[0], keep=True)
     from app.core import pty_session
     from app.daemon.registry import DaemonError
     from app.routers.vms.console import open_display
