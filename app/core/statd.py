@@ -42,6 +42,13 @@ def changed():
     if _loop_runs[0]:
         _wake.set()
         return
+    if os.geteuid() != 0:
+        from app.core import peer_auth
+
+        # No proof to show hyperlite-daemon, which would refuse: a write request's middleware runs before it is signed
+        # in. Its audit entry asks again, with the proof; otherwise the periodic summary follows within PERIOD_S.
+        if peer_auth.CREDENTIAL.get() is None:
+            return
     with _pending_lock:
         if _pending[0]:
             return
