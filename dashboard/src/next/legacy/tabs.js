@@ -17,6 +17,7 @@ import Overview from "../pages/Overview";
 import ActivityPage from "../pages/ActivityPage";
 import StoragePage from "../pages/StoragePage";
 import NetworkPage from "../pages/NetworkPage";
+import FirewallPage from "../pages/FirewallPage";
 import { ActivityTasksPage, ActivityJournalPage } from "../pages/ActivityHub";
 import BackupsPage from "../pages/BackupsPage";
 import ExportsPage from "../pages/ExportsPage";
@@ -39,7 +40,7 @@ import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPerm
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
-  exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
+  exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, firewall: FirewallPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
   nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage, sites: SitesPage,
 };
 export const NODE_TABS = {

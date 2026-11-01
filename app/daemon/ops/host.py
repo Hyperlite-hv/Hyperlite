@@ -191,3 +191,68 @@ def network_rollback(args, ctx):
     from app.core import host_network
 
     return host_network.rollback(args.id)
+
+
+# ---- The nodes' own firewall (app/core/host_firewall.py): nftables as root, the rollback timer armed first. ----
+
+
+def _firewall_refusals(fn):
+    @functools.wraps(fn)
+    def wrapper(args, ctx):
+        from app.core import host_firewall
+
+        try:
+            return fn(args, ctx)
+        except host_firewall.FirewallError as e:
+            raise DaemonError("refused", str(e)) from e
+
+    return wrapper
+
+
+@operation("host.firewall_state", NoArgs)
+def firewall_state(args, ctx):
+    from app.core import host_firewall
+
+    return host_firewall.state()
+
+
+class FirewallChangeArgs(Args):
+    # The document's own fields are checked by host_firewall.normalize, which refuses anything it does not know.
+    document: dict
+    timeout_s: int = Field(default=60, ge=30, le=600)
+
+
+@operation("host.firewall_preview", FirewallChangeArgs)
+@_firewall_refusals
+def firewall_preview(args, ctx):
+    from app.core import host_firewall
+
+    return host_firewall.preview(args.document)
+
+
+@operation("host.firewall_apply", FirewallChangeArgs)
+@_firewall_refusals
+def firewall_apply(args, ctx):
+    from app.core import host_firewall
+
+    return host_firewall.apply(args.document, args.timeout_s)
+
+
+class FirewallChangeIdArgs(Args):
+    id: str = Field(pattern=r"^[0-9a-f]{16}$")
+
+
+@operation("host.firewall_confirm", FirewallChangeIdArgs)
+@_firewall_refusals
+def firewall_confirm(args, ctx):
+    from app.core import host_firewall
+
+    return host_firewall.confirm(args.id)
+
+
+@operation("host.firewall_rollback", FirewallChangeIdArgs)
+@_firewall_refusals
+def firewall_rollback(args, ctx):
+    from app.core import host_firewall
+
+    return host_firewall.rollback(args.id)
