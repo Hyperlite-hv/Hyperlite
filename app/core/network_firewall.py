@@ -125,6 +125,12 @@ def _build_rule_specs(bridge: str, config: dict):
         ["-i", bridge, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
         ["-o", bridge, "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
     ]
+    if config.get("groups"):
+        from app.core import host_firewall
+
+        doc = host_firewall.saved() or host_firewall.DEFAULT
+        for group in config["groups"]:
+            specs += host_firewall.group_iptables_specs(doc, group, bridge)
     for rule in config["rules"]:
         proto = [] if rule["protocol"] == "all" else ["-p", rule["protocol"]]
         port = ["--dport", str(rule["port"])] if rule.get("port") and rule["protocol"] in ("tcp", "udp") else []
@@ -193,8 +199,22 @@ def apply_network_firewall(network_name: str, config: dict, user=None):
     """Apply `config` to the network's bridge (hyperlite-daemon) and keep it, to replay after a reboot. Returns a
     summary; raises Refused (a ValueError) or RuntimeError, which the caller translates to HTTPException."""
     result = _daemon("network.firewall_apply", user, network=network_name, config=config)
-    _store().save_network_firewall(network_name, config["default_policy"], json.dumps(config["rules"]))
+    _store().save_network_firewall(network_name, config["default_policy"], json.dumps(_stored_rules(config)))
     return {"bridge": result["bridge"], "applied_rules": len(config["rules"])}
+
+
+def _stored_rules(config):
+    """The rules as stored: the security groups the network references go with them as {"group": name} entries."""
+    return [{"group": g} for g in config.get("groups") or []] + list(config["rules"])
+
+
+def _config(default_policy, rules_json):
+    stored = json.loads(rules_json)
+    return {
+        "default_policy": default_policy,
+        "rules": [r for r in stored if "group" not in r],
+        "groups": [r["group"] for r in stored if "group" in r],
+    }
 
 
 def get_network_firewall(network_name: str) -> dict:
@@ -203,8 +223,9 @@ def get_network_firewall(network_name: str) -> dict:
         return {
             "default_policy": "accept",
             "rules": [],
+            "groups": [],
         }  # nothing configured: everything is allowed, the default behaviour
-    return {"default_policy": row["default_policy"], "rules": json.loads(row["rules_json"])}
+    return _config(row["default_policy"], row["rules_json"])
 
 
 def remove_network_firewall(network_name: str, user=None):
@@ -224,8 +245,21 @@ def reapply_all(user=None):
     disappear afterwards with nothing indicating it in the UI (the network still
     looks "active", just without any filtering)."""
     for row in _store().network_firewalls():
-        config = {"default_policy": row["default_policy"], "rules": json.loads(row["rules_json"])}
+        config = _config(row["default_policy"], row["rules_json"])
         try:
             _daemon("network.firewall_apply", user, network=row["network_name"], config=config)
         except Exception:
             logger.exception("Reapplying the firewall of network %s failed", row["network_name"])
+
+
+def reapply_local():
+    """In hyperlite-daemon, when the security groups change (app/core/host_firewall.py): every network's chain on this
+    node rebuilt with the groups as they are now."""
+    for row in _store().network_firewalls():
+        config = _config(row["default_policy"], row["rules_json"])
+        if not config["groups"]:
+            continue
+        try:
+            apply_rules(row["network_name"], config)
+        except (Refused, RuntimeError) as e:
+            logger.warning("The firewall of network %s not rebuilt: %s", row["network_name"], e)

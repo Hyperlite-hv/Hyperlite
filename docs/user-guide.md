@@ -320,6 +320,9 @@ pages. Turn it on, choose the input policy (drop what no rule accepts, or accept
 Always let in, whatever the rules say: the cluster's members between them, established connections, ICMPv6, and DHCP
 and DNS for the VMs of NAT networks. The first time it is turned on, starting rules open the dashboard, SSH and ping.
 
+A VM's or a network's **Firewall** card lists the security groups to tick: their rules apply to incoming traffic
+before the card's own, and editing a group changes every VM and network using it.
+
 **Review and apply** shows the nftables rules, checked; **Apply** puts them in place on this node, and a banner counts
 down: **Confirm** saves them for the whole cluster (every node follows within seconds), **Roll back** undoes them.
 Without a confirmation in time, the node puts its previous rules back by itself.

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.core import privileged
 from app.core.audit import log_action
-from app.core.security import require_role
+from app.core.security import get_current_user, require_role
 
 router = APIRouter(prefix="/cluster/firewall", tags=["cluster"])
 
@@ -29,6 +29,16 @@ def firewall_state(user: dict = Depends(require_role("admin"))):
     """The saved firewall, this node's name, the change waiting here for its confirmation, and whether the rules are
     in place on this node."""
     return privileged.ask("host.firewall_state", user, "firewall_read", "cluster")
+
+
+@router.get("/groups")
+def firewall_groups(user: dict = Depends(get_current_user)):
+    """The security groups a VM's or a network's firewall can reference: names, comments and rules (no addresses of
+    the IP sets they use)."""
+    from app.core import host_firewall
+
+    doc = host_firewall.saved() or host_firewall.DEFAULT
+    return [{"name": g["name"], "comment": g["comment"], "rules": g["rules"]} for g in doc["groups"]]
 
 
 @router.post("/preview")
