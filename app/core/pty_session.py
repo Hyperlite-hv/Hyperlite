@@ -54,11 +54,13 @@ async def bridge(websocket: WebSocket, master_fd):
     loop.add_reader(master_fd, _on_readable)
 
     async def pty_to_ws():
-        while True:
-            data = await queue.get()
-            if not data:
-                break
-            await websocket.send_text(data.decode(errors="replace"))
+        # The browser may close the terminal while the program still writes: the session just ends.
+        with contextlib.suppress(WebSocketDisconnect, RuntimeError):
+            while True:
+                data = await queue.get()
+                if not data:
+                    break
+                await websocket.send_text(data.decode(errors="replace"))
 
     async def ws_to_pty():
         with contextlib.suppress(WebSocketDisconnect, RuntimeError, OSError):
