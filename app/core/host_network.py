@@ -14,7 +14,6 @@ the API or hyperlite-daemon; the daemon also finishes, at its start, a rollback 
 Run as root, by hyperlite-daemon (app/daemon/ops/host.py).
 """
 
-import contextlib
 import difflib
 import fcntl
 import ipaddress
@@ -29,7 +28,7 @@ import sys
 import time
 from pathlib import Path
 
-from app.core import host_interfaces, paths
+from app.core import host_interfaces, paths, rollback_timer
 
 logger = logging.getLogger(__name__)
 
@@ -430,30 +429,14 @@ def _switch(old, new, names, new_text):
 
 
 def _start_timer(change_id, timeout_s):
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(["systemctl", "stop", f"{ROLLBACK_UNIT}.timer"], capture_output=True, timeout=30)
-        subprocess.run(["systemctl", "reset-failed", f"{ROLLBACK_UNIT}.service"], capture_output=True, timeout=30)
-    argv = [
-        "systemd-run",
-        f"--unit={ROLLBACK_UNIT}",
-        f"--on-active={int(timeout_s)}s",
-        "--timer-property=AccuracySec=1s",
-        f"--working-directory={paths.CODE}",
-        f"--setenv=PYTHONPATH={paths.CODE}",
-        sys.executable,
-        "-m",
-        "app.core.host_network",
-        "rollback",
-        change_id,
-    ]
-    r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
-    if r.returncode != 0:
-        raise NetworkError(f"The rollback timer could not be started: {(r.stderr or r.stdout).strip()[-300:]}")
+    try:
+        rollback_timer.start(ROLLBACK_UNIT, "app.core.host_network", change_id, timeout_s)
+    except rollback_timer.TimerError as e:
+        raise NetworkError(str(e)) from e
 
 
 def _stop_timer():
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(["systemctl", "stop", f"{ROLLBACK_UNIT}.timer"], capture_output=True, timeout=30)
+    rollback_timer.stop(ROLLBACK_UNIT)
 
 
 def preview(interfaces):
