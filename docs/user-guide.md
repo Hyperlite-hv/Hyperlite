@@ -234,7 +234,7 @@ its VMs and their disks.
 |---|---|---|
 | Directory | Local disks as files | The default pool exists already. |
 | NFS | A share on a NAS | Shared between nodes: needed for HA and for migration without copying disks. Hyperlite checks that QEMU can use the share (permissions). |
-| ZFS | VM disks as zvols with native snapshots | Local to one node (created on a file); no live migration. |
+| ZFS | VM disks as zvols with native snapshots | Local to one node: on the node's free disks (single, mirror, RAIDZ1/2/3; the disks chosen are erased) or on a file to try it. **ZFS health** in the pool's menu shows every disk's state and errors, starts a scrub, adds a disk (a mirror more, a RAIDZ grown) or room, and replaces a failed disk; a pool that degrades is notified. No live migration. |
 | iSCSI | LUNs of a storage array | Each VM takes a whole LUN; allow this host's initiator name on the array first. The LUNs stay on the array when the pool is removed. |
 | LVM | VM disks as logical volumes of a volume group (an existing one, or one created on an empty disk) | With a **thin pool** (LVM-thin), disks take room only as they are written and get snapshots (disk only; restored with the VM stopped). Without one, the volumes are thick and have no snapshot. The pool is removed only once its group holds no VM disk or snapshot; no live migration or backup for now. |
 
