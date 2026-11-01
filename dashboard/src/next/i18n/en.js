@@ -4088,4 +4088,9 @@ export default {
   "hf.confirmFailed": "Could not confirm",
   "hf.rolledBack": "Previous rules restored",
   "hf.rollbackFailed": "Could not roll back",
+  "fwg.title": "Security groups",
+  "fwg.none": "No security group: they are made in Datacenter › Firewall.",
+  "fwg.empty": "no active rule",
+  "fwg.missing": "no longer exists",
+  "fwg.hint": "Their rules apply to incoming traffic, before the rules below. They are edited in Datacenter › Firewall, and each change applies wherever the group is used.",
 };

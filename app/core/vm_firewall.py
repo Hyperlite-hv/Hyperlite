@@ -12,6 +12,7 @@ from app.core.error_messages import describe_exception
 PROTOCOLS = {"tcp", "udp", "icmp", "all"}
 ACTIONS = {"accept", "drop"}
 DIRECTIONS = {"in", "out", "inout"}
+GROUP_FILTER_PREFIX = "hyperlite-group-"  # app/core/host_firewall.py
 
 
 class FirewallError(Exception):
@@ -29,6 +30,9 @@ def filter_xml(vm_name, config):
     """The nwfilter of `config` ({"default_policy", "rules": [{"action", "direction", "protocol", "port"}]}): the rules
     in order, then the default policy as a catch-all at priority 999."""
     root = ET.Element("filter", name=filter_name(vm_name), chain="root")
+    # The security groups' filters (app/core/host_firewall.py), whose rules come before the VM's own by priority.
+    for group in config.get("groups") or []:
+        ET.SubElement(root, "filterref", filter=f"{GROUP_FILTER_PREFIX}{group}")
     for priority, rule in enumerate(config["rules"], start=300):
         rule_el = ET.SubElement(
             root, "rule", action=rule["action"], direction=rule["direction"], priority=str(priority)
@@ -44,6 +48,11 @@ def filter_xml(vm_name, config):
 def parse(xml_desc):
     root = ET.fromstring(xml_desc)
     rules = []
+    groups = [
+        ref.get("filter")[len(GROUP_FILTER_PREFIX) :]
+        for ref in root.findall("filterref")
+        if (ref.get("filter") or "").startswith(GROUP_FILTER_PREFIX)
+    ]
     default_policy = "accept"
     for rule_el in root.findall("rule"):
         proto_el = None
@@ -63,7 +72,7 @@ def parse(xml_desc):
         rules.append(
             {"action": action, "direction": direction, "protocol": protocol, "port": int(port) if port else None}
         )
-    return {"default_policy": default_policy, "rules": rules}
+    return {"default_policy": default_policy, "rules": rules, "groups": groups}
 
 
 def apply(conn, domain, config):
