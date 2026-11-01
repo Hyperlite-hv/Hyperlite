@@ -35,6 +35,8 @@ crypto = dependency('libcrypto')
 deps = [sqlite, crypto]
 # Corosync's client libraries (Debian: libcpg-dev, libquorum-dev, libvotequorum-dev, libcmap-dev): only the daemon
 # links them, the node logic and its tests run without Corosync.
+# libfuse3 (Debian: libfuse3-dev; at run time fuse3): the tree shown as files (src/mount.c, --mount).
+fuse = dependency('fuse3')
 corosync = [dependency('libcpg'), dependency('libquorum'), dependency('libvotequorum'), dependency('libcmap')]
 
 core = static_library(
@@ -54,13 +56,19 @@ executable(
   'src/server.c',
   'src/corosync.c',
   'src/expected.c',
+  'src/mount.c',
   link_with: core,
-  dependencies: deps + corosync,
+  dependencies: deps + corosync + [fuse],
   install: true,
   install_dir: get_option('sbindir'),
 )
 
 if get_option('tests')
+  test(
+    'mount',
+    executable('test_mount', 'tests/test_mount.c', 'src/mount.c', link_with: core, dependencies: deps + [fuse],
+               include_directories: include_directories('src')),
+  )
   foreach t : ['path', 'proto', 'store', 'handler', 'node', 'status']
     test(
       t,

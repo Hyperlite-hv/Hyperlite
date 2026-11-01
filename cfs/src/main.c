@@ -13,6 +13,7 @@
 
 #include "corosync.h"
 #include "expected.h"
+#include "mount.h"
 #include "server.h"
 
 #define DEFAULT_DB "/var/lib/hyperlite-cfs/config.db"
@@ -36,13 +37,14 @@ static int loop_send(void *arg, const uint8_t *msg, size_t len)
 
 static void usage(FILE *f)
 {
-    fprintf(f, "usage: hyperlite-cfs [--cluster] [--db PATH] [--socket PATH] [--socket-mode OCTAL] [--socket-group NAME]\n"
+    fprintf(f, "usage: hyperlite-cfs [--cluster] [--db PATH] [--socket PATH] [--socket-mode OCTAL] [--socket-group NAME] [--mount DIR]\n"
                "       hyperlite-cfs expected-votes VOTES [--confirm CLUSTER_NAME]\n"
                "  --cluster      replicate through the local Corosync (default: local mode, one node)\n"
                "  --db           database file (default " DEFAULT_DB ")\n"
                "  --socket       Unix socket (default " DEFAULT_SOCKET ")\n"
                "  --socket-mode  permissions of the socket (default 0600: root only)\n"
                "  --socket-group group of the socket (the API's, which reads; only root changes anything)\n"
+               "  --mount        show the tree as read-only files at DIR (an empty directory)\n"
                "  expected-votes make a partition that lost the quorum writable again (see --help after it)\n");
 }
 
@@ -53,6 +55,7 @@ int main(int argc, char **argv)
     unsigned mode = 0600;
     gid_t group = (gid_t)-1;
     bool cluster = false;
+    const char *mountpoint = NULL;
     if (argc > 1 && strcmp(argv[1], "expected-votes") == 0)
         return cfs_expected_main(argc - 1, argv + 1);
     for (int i = 1; i < argc; i++) {
@@ -77,6 +80,8 @@ int main(int argc, char **argv)
                 return 2;
             }
             group = g->gr_gid;
+        } else if (strcmp(argv[i], "--mount") == 0 && i + 1 < argc) {
+            mountpoint = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             usage(stdout);
             return 0;
@@ -100,7 +105,8 @@ int main(int argc, char **argv)
     }
     static cfs_node node;
     cfs_corosync *cs = NULL;
-    cfs_source sources[3];
+    cfs_source sources[4];
+    cfs_mount *mount = NULL;
     size_t nsources = 0;
     int rc = 0;
     if (cluster) {
@@ -125,8 +131,19 @@ int main(int argc, char **argv)
         cfs_node_membership(&node, &self, 1);
         fprintf(stderr, "hyperlite-cfs: local mode, database %s, socket %s\n", db, sock);
     }
+    if (rc == 0 && mountpoint) {
+        /* The files are a view: a mount that fails is said, the socket is served all the same. */
+        mount = cfs_mount_open(&node, mountpoint, group == (gid_t)-1 ? 0 : group, err, sizeof(err));
+        if (mount) {
+            sources[nsources++] = cfs_mount_source(mount);
+            fprintf(stderr, "hyperlite-cfs: the tree is mounted at %s\n", mountpoint);
+        } else {
+            fprintf(stderr, "hyperlite-cfs: %s\n", err);
+        }
+    }
     if (rc == 0)
         rc = cfs_serve(&node, sock, mode, group, sources, nsources, &stop_requested);
+    cfs_mount_close(mount);
     cfs_corosync_close(cs);
     cfs_node_free(&node);
     cfs_store_close(store);
