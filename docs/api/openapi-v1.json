@@ -3265,6 +3265,12 @@
    },
    "RestoreRequest": {
     "properties": {
+     "live": {
+      "default": false,
+      "description": "Live restore (mode 'new', a backup kept as files): the VM starts at once on the backup, the rest copied while it runs",
+      "title": "Live",
+      "type": "boolean"
+     },
      "mode": {
       "description": "'overwrite' (replaces the original VM) or 'new' (new VM)",
       "title": "Mode",
