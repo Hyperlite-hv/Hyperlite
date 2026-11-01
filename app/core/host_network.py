@@ -550,21 +550,18 @@ def finish_interrupted():
 
 def _used_by_networks():
     """{interface: libvirt network} for the managed interfaces a bridged network sits on."""
-    try:
-        from app.core.libvirt_utils import local_conn
+    import libvirt
 
-        conn = local_conn()
-    except Exception as e:  # no libvirt here (a test, a node being set up): nothing to protect
-        logger.info("libvirt not read for the host network check: %s", e)
-        return {}
+    from app.core import libvirt_utils
+
     used = {}
     try:
-        for net in conn.listAllNetworks():
-            xml = net.XMLDesc(0)
-            for found in re.finditer(r"<(?:bridge name|interface dev)='([^']+)'", xml):
-                used.setdefault(found.group(1), net.name())
-    finally:
-        conn.close()
+        with libvirt_utils.local_conn() as conn:
+            for net in conn.listAllNetworks():
+                for found in re.finditer(r"<(?:bridge name|interface dev)='([^']+)'", net.XMLDesc(0)):
+                    used.setdefault(found.group(1), net.name())
+    except libvirt.libvirtError as e:  # no libvirt here (a node being set up): no network to protect
+        logger.info("libvirt not read for the host network check: %s", e)
     return used
 
 
