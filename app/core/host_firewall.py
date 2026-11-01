@@ -338,6 +338,127 @@ def ruleset(doc, node=None):
     return render(doc, node or _node(), _members(), _vm_bridges())
 
 
+# ---- Security groups for the VMs and the networks: each group, as the traffic that enters a VM (its rules have no
+# direction; for a VM, their source is where the traffic comes from) ----
+
+GROUP_FILTER_PREFIX = "hyperlite-group-"
+# A VM's own rules start at 300 (app/core/vm_firewall.py) and its default policy is at 999: the groups' rules, merged
+# into the VM's filter by priority, come first.
+GROUP_PRIORITY = 100
+GROUP_MAX_EXPANDED = 199
+
+
+def group_filter_name(name):
+    return f"{GROUP_FILTER_PREFIX}{name}"
+
+
+def _sources(rule, ipsets):
+    """The networks a rule's source stands for: [None] for anywhere."""
+    if rule["source"] == "any":
+        return [None]
+    if rule["source"].startswith("+"):
+        return [ipaddress.ip_network(c, strict=False) for c in ipsets.get(rule["source"][1:], [])]
+    return [ipaddress.ip_network(rule["source"], strict=False)]
+
+
+def _port_parts(rule):
+    """[(start, end)] for each port or range of a tcp or udp rule, [None] for all ports."""
+    if not rule.get("port") or rule["protocol"] not in ("tcp", "udp"):
+        return [None]
+    return [tuple(int(b) for b in (part.split("-") * 2)[:2]) for part in rule["port"].split(",")]
+
+
+def expand_group(doc, name):
+    """The group's enabled rules, one per source network and port range: [{action, protocol, net, ports}]."""
+    ipsets = {s["name"]: s["cidrs"] for s in doc["ipsets"]}
+    group = next((g for g in doc["groups"] if g["name"] == name), None)
+    out = []
+    for rule in group["rules"] if group else []:
+        if not rule.get("enabled", True):
+            continue
+        for net in _sources(rule, ipsets):
+            for ports in _port_parts(rule):
+                out.append({"action": rule["action"], "protocol": rule["protocol"], "net": net, "ports": ports})
+    return out
+
+
+def group_filter_xml(doc, name):
+    """The libvirt nwfilter of a group, referenced from a VM's own filter (<filterref>)."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.Element("filter", name=group_filter_name(name), chain="root")
+    for i, r in enumerate(expand_group(doc, name)[:GROUP_MAX_EXPANDED]):
+        el = ET.SubElement(root, "rule", action=r["action"], direction="in", priority=str(GROUP_PRIORITY + i))
+        match = ET.SubElement(el, r["protocol"])
+        if r["net"] is not None:
+            match.set("srcipaddr", str(r["net"].network_address))
+            match.set("srcipmask", str(r["net"].prefixlen))
+        if r["ports"] is not None:
+            match.set("dstportstart", str(r["ports"][0]))
+            match.set("dstportend", str(r["ports"][1]))
+    return ET.tostring(root, encoding="unicode")
+
+
+def group_iptables_specs(doc, name, bridge):
+    """The group's rules for a network's chain (app/core/network_firewall.py): traffic entering its VMs (-o bridge)."""
+    specs = []
+    for r in expand_group(doc, name):
+        spec = ["-o", bridge]
+        if r["net"] is not None:
+            spec += ["-s", str(r["net"])]
+        if r["protocol"] != "all":
+            spec += ["-p", r["protocol"]]
+        if r["ports"] is not None:
+            start, end = r["ports"]
+            spec += ["--dport", str(start) if start == end else f"{start}:{end}"]
+        spec += ["-j", {"accept": "ACCEPT", "drop": "DROP", "reject": "REJECT"}[r["action"]]]
+        specs.append(spec)
+    return specs
+
+
+def sync_groups(doc):
+    """Every group defined as an nwfilter on this node (libvirt applies a changed one to the running VMs at once), the
+    ones the document no longer has undefined unless a VM still references them, and the networks' chains rebuilt."""
+    import libvirt
+
+    from app.core import libvirt_utils, network_firewall
+
+    wanted = {group_filter_name(g["name"]) for g in doc["groups"]}
+    with libvirt_utils.local_conn() as conn:
+        for g in doc["groups"]:
+            conn.nwfilterDefineXML(group_filter_xml(doc, g["name"]))
+        filters = conn.listAllNWFilters()
+        # libvirt lets a filter another one references go (only a running VM's interface holds it): a stopped VM
+        # whose group filter is gone would not start again. A group some VM's filter still calls stays as it was.
+        referenced = set()
+        for nwf in filters:
+            if not nwf.name().startswith(GROUP_FILTER_PREFIX):
+                referenced.update(re.findall(r"<filterref filter='([^']+)'", nwf.XMLDesc(0)))
+        for nwf in filters:
+            name = nwf.name()
+            if not name.startswith(GROUP_FILTER_PREFIX) or name in wanted:
+                continue
+            if name in referenced:
+                logger.warning("Security group filter %s kept: a VM's firewall still references it", name)
+                continue
+            try:
+                nwf.undefine()
+            except libvirt.libvirtError as e:  # held by a running VM's interface
+                logger.warning("Security group filter %s kept: %s", name, e)
+    network_firewall.reapply_local()
+
+
+def unknown_groups(names):
+    """The names among `names` the saved firewall has no security group for."""
+    doc = saved() or DEFAULT
+    known = {g["name"] for g in doc["groups"]}
+    return [n for n in names if n not in known]
+
+
+def _groups_digest(doc):
+    return hashlib.sha256(json.dumps([doc["groups"], doc["ipsets"]], sort_keys=True).encode()).hexdigest()
+
+
 # ---- Applying, confirming, rolling back, following the cluster ----
 
 
@@ -473,6 +594,17 @@ def follow_once():
     doc = saved()
     if doc is None:
         return False
+    groups_path = STATE_DIR / "groups"
+    digest = _groups_digest(doc)
+    try:
+        current_groups = groups_path.read_text()
+    except FileNotFoundError:
+        current_groups = None
+    if current_groups != digest:
+        sync_groups(doc)
+        STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        groups_path.write_text(digest)
+        logger.info("Security groups defined for the VMs and the networks (%d)", len(doc["groups"]))
     script = ruleset(doc)
     digest = hashlib.sha256(script.encode()).hexdigest()
     try:
