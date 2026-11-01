@@ -51,10 +51,12 @@ def node(tmp_path, monkeypatch):
         return Done()
 
     monkeypatch.setattr(fw.subprocess, "run", run)
+    synced = []
+    monkeypatch.setattr(fw, "sync_groups", lambda doc: synced.append([g["name"] for g in doc["groups"]]))
     monkeypatch.setattr(
         fw, "saved", lambda: fw.normalize(json.loads(saved["value"])) if saved["value"] else dict(fw.DEFAULT)
     )
-    return {"ran": ran, "refuse": refuse, "table": table, "saved": saved}
+    return {"ran": ran, "refuse": refuse, "table": table, "saved": saved, "synced": synced}
 
 
 def test_the_script_pins_what_keeps_the_cluster_and_the_vms_working_then_the_rules():
@@ -220,3 +222,102 @@ def test_the_vms_bridges_are_read_from_the_daemons_libvirt(daemon_libvirt):
     """The NAT, routed and isolated networks' bridges (their dnsmasq runs on the host), not a bridged one's."""
     daemon_libvirt(_Conn(NETS))
     assert fw._vm_bridges() == ["virbr0", "virbr1"]
+
+
+def test_the_groups_are_synced_when_they_change_only(node):
+    node["saved"]["value"] = json.dumps(DOC)
+    fw.follow_once()
+    fw.follow_once()
+    assert node["synced"] == [["web"]]
+    node["saved"]["value"] = json.dumps({**DOC, "groups": [WEB, {"name": "db", "rules": []}]})
+    fw.follow_once()
+    assert node["synced"] == [["web"], ["web", "db"]]
+
+
+def test_a_group_is_a_vm_filter_of_incoming_rules_before_the_vms_own():
+    import xml.etree.ElementTree as ET
+
+    doc = fw.normalize(
+        {
+            "ipsets": [ADMINS],
+            "groups": [
+                {
+                    "name": "admin",
+                    "rules": [
+                        {"action": "accept", "protocol": "tcp", "port": "22,8000-8010", "source": "+admins"},
+                        {"action": "drop", "protocol": "all", "enabled": False},
+                        {"action": "reject", "protocol": "icmp", "source": "10.0.0.0/8"},
+                    ],
+                }
+            ],
+        }
+    )
+    root = ET.fromstring(fw.group_filter_xml(doc, "admin"))
+    assert root.get("name") == "hyperlite-group-admin"
+    rules = [(r.get("action"), r.get("direction"), int(r.get("priority")), r[0].tag, dict(r[0].attrib)) for r in root]
+    one = {"srcipaddr": "10.8.0.5", "srcipmask": "32"}
+    lan = {"srcipaddr": "192.168.1.0", "srcipmask": "24"}
+    assert rules == [
+        ("accept", "in", 100, "tcp", {**one, "dstportstart": "22", "dstportend": "22"}),
+        ("accept", "in", 101, "tcp", {**one, "dstportstart": "8000", "dstportend": "8010"}),
+        ("accept", "in", 102, "tcp", {**lan, "dstportstart": "22", "dstportend": "22"}),
+        ("accept", "in", 103, "tcp", {**lan, "dstportstart": "8000", "dstportend": "8010"}),
+        ("reject", "in", 104, "icmp", {"srcipaddr": "10.0.0.0", "srcipmask": "8"}),
+    ]
+
+
+def test_a_vms_filter_references_its_groups_and_reads_them_back():
+    from app.core import vm_firewall
+
+    rule = {"action": "accept", "direction": "in", "protocol": "tcp", "port": 80}
+    config = {"default_policy": "drop", "rules": [rule], "groups": ["web", "admin"]}
+    xml = vm_firewall.filter_xml("web1", config)
+    assert 'filterref filter="hyperlite-group-web"' in xml
+    assert vm_firewall.parse(xml) == config
+
+
+def test_a_vm_or_network_firewall_refuses_an_unknown_group(client, auth_headers, monkeypatch):
+    monkeypatch.setattr(fw, "saved", lambda: fw.normalize({"groups": [WEB]}))
+    body = {"default_policy": "accept", "rules": [], "groups": ["web", "nope"]}
+    r = client.put("/networks/lab/firewall", json=body, headers=auth_headers("root"))
+    assert r.status_code == 422 and "Unknown security group: nope" in r.json()["detail"]
+    groups = client.get("/cluster/firewall/groups", headers=auth_headers("eve", role="viewer"))
+    assert groups.status_code == 200 and [g["name"] for g in groups.json()] == ["web"]
+
+
+def test_a_deleted_group_a_vm_still_references_is_kept(daemon_libvirt, monkeypatch):
+    """libvirt lets a filter another references be undefined: a stopped VM would then not start again."""
+    from app.core import network_firewall
+
+    class Filter:
+        def __init__(self, name, xml=""):
+            self._name, self._xml, self.gone = name, xml, False
+
+        def name(self):
+            return self._name
+
+        def XMLDesc(self, flags):
+            return self._xml
+
+        def undefine(self):
+            self.gone = True
+
+    used = Filter("hyperlite-group-old")
+    unused = Filter("hyperlite-group-older")
+    vm = Filter("hyperlite-vm-web1", "<filter><filterref filter='hyperlite-group-old'/></filter>")
+
+    class Conn:
+        def __init__(self):
+            self.defined = []
+
+        def nwfilterDefineXML(self, xml):
+            self.defined.append(xml)
+
+        def listAllNWFilters(self):
+            return [used, unused, vm]
+
+    conn = daemon_libvirt(Conn())
+    monkeypatch.setattr(network_firewall, "reapply_local", lambda: None)
+    fw.sync_groups(fw.normalize({"groups": [WEB]}))
+    assert not used.gone and unused.gone and not vm.gone
+    assert len(conn.defined) == 1 and "hyperlite-group-web" in conn.defined[0]

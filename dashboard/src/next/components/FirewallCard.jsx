@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { fetchFirewallGroups } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT } from "../i18n";
 import { errorMessage } from "../lib/errors";
-import { Card, Loading, TableWrap } from "./ui";
+import { Card, Chip, Loading, TableWrap } from "./ui";
 import { ErrorState } from "./States";
 
 const PROTOCOLS = ["tcp", "udp", "icmp", "all"];
@@ -17,6 +18,8 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
   const [saved, setSaved] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [groups, setGroups] = useState([]);
+  useEffect(() => { fetchFirewallGroups().then(setGroups).catch(() => setGroups([])); }, []);
 
   // A failed load is shown in the card with a retry, not as a notification: a notification left the card
   // spinning forever, and it fired on a page whose VM had just been deleted.
@@ -43,6 +46,7 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
         <option value="accept">{t("fw.allow")}</option><option value="drop">{t("fw.block")}</option>
       </select>
     </>}>
+      <GroupsPicker groups={groups} chosen={config.groups || []} disabled={!isAdmin} onChange={(next) => setConfig((c) => ({ ...c, groups: next }))} />
       {config.rules.length === 0 ? <p className="nx-muted" style={{ margin: 0, padding: "0 var(--space-4) var(--space-4)" }}>{t("fw.none")}</p> : (
         <TableWrap>
           <table className="nx-table">
@@ -70,5 +74,33 @@ export default function FirewallCard({ title, fetchConfig, saveConfig, isAdmin }
         </div>
       )}
     </Card>
+  );
+}
+
+// The security groups of the nodes' firewall (Datacenter > Firewall), applied before the rules below.
+function GroupsPicker({ groups, chosen, disabled, onChange }) {
+  const t = useT();
+  const known = new Set(groups.map((g) => g.name));
+  const missing = chosen.filter((g) => !known.has(g));
+  if (groups.length === 0 && missing.length === 0) return <p className="nx-muted" style={{ margin: 0, padding: "0 var(--space-4) var(--space-3)", fontSize: "var(--fs-12)" }}>{t("fwg.none")}</p>;
+  const toggle = (name) => onChange(chosen.includes(name) ? chosen.filter((g) => g !== name) : [...chosen, name]);
+  const summary = (g) => g.rules.filter((r) => r.enabled !== false).map((r) => `${r.action} ${r.protocol}${r.port ? ` ${r.port}` : ""}${r.source && r.source !== "any" ? ` ${r.source}` : ""}`).join(" · ");
+  return (
+    <fieldset style={{ border: 0, margin: 0, padding: "0 var(--space-4) var(--space-3)", display: "grid", gap: "0.4rem" }}>
+      <legend style={{ fontSize: "var(--fs-13)", fontWeight: 500, marginBottom: "0.3333rem" }}>{t("fwg.title")}</legend>
+      {groups.map((g) => (
+        <label key={g.name} style={{ display: "flex", gap: "0.5rem", alignItems: "baseline" }}>
+          <input type="checkbox" checked={chosen.includes(g.name)} disabled={disabled} onChange={() => toggle(g.name)} />
+          <span><span className="nx-mono">{g.name}</span>{g.comment ? <span className="nx-muted"> — {g.comment}</span> : null}<br /><span className="nx-muted nx-mono" style={{ fontSize: "var(--fs-12)" }}>{summary(g) || t("fwg.empty")}</span></span>
+        </label>
+      ))}
+      {missing.map((name) => (
+        <label key={name} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <input type="checkbox" checked disabled={disabled} onChange={() => toggle(name)} />
+          <span className="nx-mono">{name}</span> <Chip tone="warning">{t("fwg.missing")}</Chip>
+        </label>
+      ))}
+      <span className="nx-muted" style={{ fontSize: "var(--fs-12)" }}>{t("fwg.hint")}</span>
+    </fieldset>
   );
 }

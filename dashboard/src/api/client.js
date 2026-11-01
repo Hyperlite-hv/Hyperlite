@@ -378,6 +378,9 @@ export async function rollbackHostNetwork(id, node) {
 export async function fetchFirewall() {
   return realFetch("/cluster/firewall");
 }
+export async function fetchFirewallGroups() {
+  return realFetch("/cluster/firewall/groups");
+}
 export async function previewFirewall(document) {
   return realFetch("/cluster/firewall/preview", { method: "POST", ...jsonBody({ document }) });
 }

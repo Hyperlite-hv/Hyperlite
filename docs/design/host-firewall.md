@@ -1,7 +1,7 @@
 # Design: the nodes' own firewall, at the cluster's and each node's level (#422)
 
-Status: **first part done** (the nodes' input rules, security groups and IP sets). Second part: VMs and networks
-referencing the security groups.
+Status: **done**: the nodes' input rules, security groups and IP sets (first part), and VMs and networks referencing the
+security groups (second part, section 6).
 
 ## 1. Where we were
 
@@ -47,5 +47,29 @@ open to an IP set the client belongs to, 6000 open to another network only and 9
 
 ## 5. Not yet
 
-VMs and networks referencing the security groups (the second part), aliases (names for addresses: IP sets cover the
+Aliases (names for addresses: IP sets cover the
 need), IPv6 sources, output and forward rules for the nodes.
+
+## 6. VMs and networks referencing the security groups
+
+A VM's or a network's firewall (the same form) takes a list of security groups besides its own rules. A group's
+rules have no direction: for a VM or a network they are the traffic that enters it, their source being where it
+comes from (an IP set stands for one rule per network, a port list for one rule per port or range).
+
+- **For a VM**, each group is a libvirt nwfilter of its own, `hyperlite-group-<name>`, that every node's daemon
+  defines from the saved document (`host_firewall.sync_groups`, in the follow loop, when the groups or IP sets
+  change). The VM's filter references it with `<filterref>`. libvirt merges the referenced rules by priority: the
+  groups' are 100 to 299, the VM's own from 300, its default policy 999, so the groups come first. A changed group
+  applies to the running VMs at once (libvirt re-instantiates the filters that reference it).
+- **libvirt lets a filter another references be undefined** (only a running VM's interface holds it): checked on a
+  production node. A stopped VM whose group filter was removed would not start again, so a group some VM's filter
+  still references is kept as it was until no VM uses it.
+- **For a network**, the groups' rules go into its iptables chain, before its own rules, as traffic leaving the
+  bridge towards its VMs (`-o bridge`). They are stored with its rules (`{"group": name}` entries) and every node's
+  daemon rebuilds the chains that use groups when the groups change.
+- A VM's or a network's firewall refuses a group that does not exist (422); one deleted since shows as such on the
+  form. `GET /cluster/firewall/groups` lists the groups for any signed-in account (names, comments, rules: an IP set
+  shows by its name only).
+
+Verified: a group's filter and a VM filter referencing it defined by libvirt 11.3 on a production node (not attached
+to any VM, removed after), which also showed the undefine above.

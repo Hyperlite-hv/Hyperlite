@@ -1596,6 +1596,15 @@
       "title": "Default Policy",
       "type": "string"
      },
+     "groups": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Groups",
+      "type": "array"
+     },
      "rules": {
       "default": [],
       "items": {
@@ -9389,6 +9398,31 @@
      }
     ],
     "summary": "Firewall Confirm",
+    "tags": [
+     "cluster"
+    ]
+   }
+  },
+  "/api/v1/cluster/firewall/groups": {
+   "get": {
+    "description": "The security groups a VM's or a network's firewall can reference: names, comments and rules (no addresses of\nthe IP sets they use).",
+    "operationId": "firewall_groups_api_v1_cluster_firewall_groups_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Firewall Groups",
     "tags": [
      "cluster"
     ]
