@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.core import host_system, offline_update, paths, version
+from app.core import host_system, node_files, offline_update, paths, version
 from app.core.audit import log_action
 from app.core.database import DB_PATH, access_path
 from app.core.http_safety import require_http_url
@@ -132,7 +132,10 @@ _BACKUP_EXCLUDES = [
 
 
 def _backup_members():
-    return [str(p.relative_to(ARCHIVE_ROOT)) for p in (REPO_DIR, paths.ETC) if p.exists()]
+    # Once /etc/hyperlite is the cluster's tree its files are there, which no rollback changes, and extracting into
+    # the read-only mount would fail (docs/design/cfs-files.md, section 15).
+    kept = (REPO_DIR,) if node_files.in_tree() else (REPO_DIR, paths.ETC)
+    return [str(p.relative_to(ARCHIVE_ROOT)) for p in kept if p.exists()]
 
 
 UPDATE_BACKUPS_KEPT = 3

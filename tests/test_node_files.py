@@ -176,6 +176,263 @@ def test_a_mount_that_stays_stops_the_installation(tmp_path):
     assert not (tmp_path / "etc" / "priv").exists()
 
 
-def test_the_postinst_puts_them_back_before_it_looks_for_the_nodes_keys():
+def test_the_package_never_takes_the_files_out_of_the_tree_and_comes_only_over_the_bridge():
+    """The restore is the bridge's (1.13.1), run by its own postinst on a return to it: this version's postinst would
+    take the files out of its own tree. It finds the node's keys in either place, and refuses an older version."""
     postinst = (INSTALLER / "deb" / "postinst").read_text()
-    assert postinst.index("python3 -m app.core.node_files restore") < postinst.index('[ ! -f "$PRIV/env" ]')
+    assert "node_files restore" not in postinst
+    assert '[ ! -f "$ETC/local/priv/env" ]' in postinst
+    preinst = (INSTALLER / "deb" / "preinst").read_text()
+    assert "lt 1:1.13.1" in preinst
+
+
+# ---- Step 3: the node's files in the tree (section 15) ----
+
+
+class Cfs(Tree):
+    """A tree that is written too, with versions: what node_files writes through the socket."""
+
+    def __init__(self, files=None):
+        super().__init__(dict(files or {}))
+        self.versions = dict.fromkeys(self.files, 1)
+        self.conflicts = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def close(self):
+        pass
+
+    def get(self, path):
+        if path not in self.files:
+            raise cfs_client.NotFound(1, path)
+        return cfs_client.Entry(data=self.files[path], version=self.versions[path], mtime=0)
+
+    def put(self, path, data, expected=cfs_client.ANY_VERSION):
+        if self.conflicts:
+            self.conflicts -= 1
+            raise cfs_client.Conflict(2, path)
+        current = self.versions.get(path, 0)
+        if expected != cfs_client.ANY_VERSION and expected != current:
+            raise cfs_client.Conflict(2, path)
+        self.files[path] = bytes(data)
+        self.versions[path] = current + 1
+        return current + 1
+
+    def delete(self, path, expected=cfs_client.ANY_VERSION):
+        if path not in self.files:
+            raise cfs_client.NotFound(1, path)
+        del self.files[path]
+
+
+@pytest.fixture()
+def tree(tmp_path, monkeypatch):
+    """/etc/hyperlite as the mount (its .version), hyperlite-cfs behind it."""
+    from app.core import paths
+
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    (etc / ".version").write_text("{}")
+    cfs = Cfs()
+    monkeypatch.setattr(paths, "ETC", etc)
+    monkeypatch.setattr(node_files, "_client_factory", lambda: cfs)
+    monkeypatch.setattr(node_files, "host", lambda: "pve-a")
+    return cfs
+
+
+def test_a_nodes_file_is_read_under_local_and_written_into_the_tree(tree):
+    from app.core import paths
+
+    etc = paths.ETC
+    assert node_files.location("priv/env") == etc / "local/priv/env"
+    assert node_files.location("local/hyperlite.crt") == etc / "local/hyperlite.crt"
+    assert node_files.location("authkeys.json") == etc / "local/authkeys.json"
+    for path in (etc / "local/priv/env", etc / "priv/env"):
+        assert node_files.relative(path) == "priv/env"
+    assert node_files.relative(etc / "local/authkeys.json") == "authkeys.json"
+    assert node_files.relative(etc / "db/users/alice") is None and node_files.relative("/etc/passwd") is None
+
+    node_files.write(etc / "local/priv/env", "K=1\n", 0o600)
+    node_files.write(etc / "local/hyperlite.crt", b"CERT")
+    assert tree.files == {"/nodes/pve-a/priv/env": b"K=1\n", "/nodes/pve-a/hyperlite.crt": b"CERT"}
+    assert not (etc / "local").exists()  # nothing on the mount
+    node_files.remove(etc / "local/hyperlite.crt")
+    node_files.remove(etc / "local/hyperlite.crt")  # gone already: nothing to say
+    assert list(tree.files) == ["/nodes/pve-a/priv/env"]
+    with pytest.raises(ValueError, match="not one of the node's files"):
+        node_files.write(etc / "db/users/alice", b"{}")
+
+
+def test_two_writers_of_the_env_file_never_lose_each_others_line(tree):
+    from app.core import paths
+
+    env = paths.ETC / "local/priv/env"
+    node_files.write(env, "A=1\n")
+    tree.conflicts = 2  # another writer got there first, twice
+    node_files.update(env, lambda old: old + b"B=2\n")
+    assert tree.files["/nodes/pve-a/priv/env"] == b"A=1\nB=2\n"
+    assert node_files.update(env, lambda old: None) == b"A=1\nB=2\n"  # nothing to change: nothing written
+
+
+def test_a_key_pair_is_made_aside_and_put_in_the_tree(tree):
+    from app.core import paths
+
+    node_files.keygen(paths.ETC / "local/priv/ssh/hyperlite_cluster", "hyperlite-cluster")
+    priv = tree.files["/nodes/pve-a/priv/ssh/hyperlite_cluster"]
+    pub = tree.files["/nodes/pve-a/priv/ssh/hyperlite_cluster.pub"]
+    assert b"PRIVATE KEY" in priv and pub.startswith(b"ssh-ed25519 ") and b"hyperlite-cluster" in pub
+
+
+def test_a_removed_member_takes_its_files_with_it():
+    cfs = Cfs(
+        {"/nodes/PVE-B.lan/priv/env": b"x", "/nodes/PVE-B.lan/hyperlite.crt": b"c", "/nodes/pve-a/priv/env": b"a"}
+    )
+    node_files.drop_node("pve-b", client=cfs)
+    assert list(cfs.files) == ["/nodes/pve-a/priv/env"]
+
+
+def _node_on_disk(etc):
+    (etc / "local").mkdir(parents=True)
+    (etc / "priv/ssh").mkdir(parents=True)
+    (etc / "cfs").mkdir()
+    (etc / "local/hyperlite.crt").write_text("CERT")
+    (etc / "priv/env").write_text("HYPERLITE_SECRET_KEY=k\n")
+    (etc / "priv/ssh/hyperlite_cluster").write_text("SSH")
+    (etc / "authkeys.json").write_text("[]")
+    (etc / "access.db").write_text("db")
+    (etc / "access.db-wal").write_text("wal")
+
+
+class Services:
+    """systemctl as the move sees it: hyperlite-cfs mounts the tree over the empty /etc/hyperlite when it starts."""
+
+    def __init__(self, etc, mounts=True):
+        self.etc, self.mounts, self.calls = etc, mounts, []
+
+    def __call__(self, *args):
+        self.calls.append(" ".join(args))
+        if args == ("start", "hyperlite-cfs.service") and self.mounts and not any(self.etc.iterdir()):
+            (self.etc / ".version").write_text("{}")
+        return True
+
+
+def _virsh_with(pools):
+    defined = {}
+
+    def virsh(*args, data=None):
+        if args[0] == "pool-list":
+            return subprocess.CompletedProcess(args, 0, "\n".join(pools), "")
+        if args[0] == "pool-dumpxml":
+            return subprocess.CompletedProcess(args, 0, pools[args[-1]], "")
+        defined[args[0]] = Path(args[1]).read_text()
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    virsh.defined = defined
+    return virsh
+
+
+def test_the_move_puts_every_file_in_the_tree_and_mounts_it_in_their_place(tmp_path, monkeypatch):
+    from app.core import api_group
+
+    monkeypatch.setattr(api_group, "share", lambda path, mode: os.chmod(path, mode))
+    etc, var = tmp_path / "etc", tmp_path / "var"
+    var.mkdir()
+    _node_on_disk(etc)
+    cfs = Cfs({"/nodes/pve-a/priv/old-key": b"left by an earlier move"})
+    services = Services(etc)
+    smb = f"<pool><option name='credentials={etc}/priv/smb/nas.cred'/></pool>"
+    virsh = _virsh_with({"nas": smb})
+    moved = node_files.move(etc, var, cfs, "pve-a", services, virsh, log=lambda m: None, wait_s=1)
+
+    assert moved == ["authkeys.json", "local/hyperlite.crt", "priv/env", "priv/ssh/hyperlite_cluster"]
+    assert cfs.files == {
+        "/nodes/pve-a/authkeys.json": b"[]",
+        "/nodes/pve-a/hyperlite.crt": b"CERT",
+        "/nodes/pve-a/priv/env": b"HYPERLITE_SECRET_KEY=k\n",
+        "/nodes/pve-a/priv/ssh/hyperlite_cluster": b"SSH",
+    }
+    assert services.calls == [
+        "stop hyperlite-daemon.service",
+        "stop hyperlite-cfs.service",
+        "start hyperlite-cfs.service",
+        "start hyperlite-daemon.service",
+    ]
+    assert node_files.in_tree(etc) and [p.name for p in etc.iterdir()] == [".version"]
+    assert (var / "access/access.db").read_text() == "db" and (var / "access/access.db-wal").read_text() == "wal"
+    assert os.stat(var / "access").st_mode & 0o777 == 0o750
+    (kept,) = var.glob("etc-before-cfs-*")
+    assert (kept / "priv/env").exists() and os.stat(kept).st_mode & 0o777 == 0o700
+    assert f"credentials={etc}/local/priv/smb/nas.cred" in virsh.defined["pool-define"]
+    # Done once: the next start finds the mount and does nothing.
+    assert node_files.move(etc, var, cfs, "pve-a", services, virsh, log=lambda m: None) == []
+
+
+def test_a_mount_that_does_not_come_puts_everything_back(tmp_path, monkeypatch):
+    from app.core import api_group
+
+    monkeypatch.setattr(api_group, "share", lambda path, mode: os.chmod(path, mode))
+    etc, var = tmp_path / "etc", tmp_path / "var"
+    var.mkdir()
+    _node_on_disk(etc)
+    services = Services(etc, mounts=False)
+    with pytest.raises(RuntimeError, match="did not mount the tree"):
+        node_files.move(etc, var, Cfs(), "pve-a", services, _virsh_with({}), log=lambda m: None, wait_s=0.2)
+    assert (etc / "priv/env").read_text() == "HYPERLITE_SECRET_KEY=k\n" and (etc / "access.db").read_text() == "db"
+    assert not list(var.glob("etc-before-cfs-*")) and not (var / "access/access.db").exists()
+    assert services.calls[-2:] == ["start hyperlite-cfs.service", "start hyperlite-daemon.service"]
+
+
+def test_a_node_without_its_keys_is_not_moved(tmp_path):
+    etc = tmp_path / "etc"
+    (etc / "local").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="priv/env is missing"):
+        node_files.move(etc, tmp_path, Cfs(), "pve-a", Services(etc), _virsh_with({}), log=lambda m: None)
+
+
+def test_the_writers_of_the_nodes_files_write_into_the_tree(tree, monkeypatch):
+    """Once /etc/hyperlite is the mount, nothing is written on it: each writer puts its file in the tree."""
+    from app.core import paths, secrets_crypto, tickets, tls_certs
+
+    etc = paths.ETC
+    monkeypatch.setattr(tls_certs, "TLS_DIR", etc / "local")
+    monkeypatch.setattr(tls_certs, "_check_loads", lambda cert, key: None)
+    tls_certs.install(b"CERT", b"KEY", "import")
+    assert tree.files["/nodes/pve-a/hyperlite.crt"] == b"CERT" and tree.files["/nodes/pve-a/hyperlite.key"] == b"KEY"
+    assert tree.files["/nodes/pve-a/source"] == b"import\n"
+
+    monkeypatch.setattr(secrets_crypto, "ENV_PATH", etc / "local/priv/env")
+    monkeypatch.delenv(secrets_crypto._KEY_VAR, raising=False)
+    tree.files["/nodes/pve-a/priv/env"] = b"HYPERLITE_SECRET_KEY=s\n"
+    tree.versions["/nodes/pve-a/priv/env"] = 1
+    key = secrets_crypto._load_or_create_key()
+    monkeypatch.delenv(secrets_crypto._KEY_VAR, raising=False)
+    assert secrets_crypto._load_or_create_key() == key  # read back, never a second key
+    env = tree.files["/nodes/pve-a/priv/env"].decode()
+    assert env.startswith("HYPERLITE_SECRET_KEY=s\n") and env.count(f"{secrets_crypto._KEY_VAR}=") == 1
+
+    tickets._write(etc / "local/authkeys.json", b'{"keys": []}', 0o644)
+    assert tree.files["/nodes/pve-a/authkeys.json"] == b'{"keys": []}'
+    assert not (etc / "local").exists()
+
+
+def test_a_node_whose_tree_did_not_mount_is_told_so(tmp_path):
+    """After the move /etc/hyperlite is empty beneath the mount: when hyperlite-cfs did not mount it, nothing is moved
+    and the reason is said."""
+    etc, var = tmp_path / "etc", tmp_path / "var"
+    etc.mkdir()
+    (var / "etc-before-cfs-20261101T000000Z").mkdir(parents=True, mode=0o700)
+    with pytest.raises(RuntimeError, match="hyperlite-cfs has not mounted the tree"):
+        node_files.move(etc, var, Cfs(), "pve-a", Services(etc), _virsh_with({}), log=lambda m: None)
+
+
+def test_the_tree_mounted_at_cfs_is_never_walked(tmp_path):
+    etc = tmp_path / "etc"
+    _node_on_disk(etc)
+    (etc / "cfs" / "priv").mkdir(parents=True)
+    (etc / "cfs" / "priv" / "authkey").write_text("the cluster's")
+    files, other = node_files.on_disk(etc)
+    assert sorted(files) == ["authkeys.json", "local/hyperlite.crt", "priv/env", "priv/ssh/hyperlite_cluster"]
+    assert other == []

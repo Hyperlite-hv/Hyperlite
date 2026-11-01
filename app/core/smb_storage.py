@@ -26,7 +26,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from app.core import nfs_permissions, paths
+from app.core import nfs_permissions, node_files, paths
 from app.core.safe_paths import safe_child
 
 logger = logging.getLogger(__name__)
@@ -38,13 +38,27 @@ USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@-]{0,63}$")
 DOMAIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 # The credentials file is one `key=value` per line: a value cannot hold a line break (or a NUL).
 PASSWORD_FORBIDDEN = re.compile(r"[\r\n\x00]")
-# On a node registered in the cluster: the same place as on this host in a standard installation.
+# On a node registered in the cluster: the same place as on this host in a standard installation, which moves once
+# /etc/hyperlite is the cluster's tree (docs/design/cfs-files.md, section 15): the node's own secrets are then under
+# local/priv, and written into the tree (app/core/node_files.py), the mount being read-only.
 REMOTE_DIR = "/etc/hyperlite/priv/smb"
+REMOTE_DIR_TREE = "/etc/hyperlite/local/priv/smb"
 SSH_TIMEOUT_S = 20
+_IN_TREE_TEST = "test -f /etc/hyperlite/.version"
+
+
+def _remote_in_tree(node):
+    try:
+        _node_ssh(node, _IN_TREE_TEST)
+        return True
+    except OSError:
+        return False
 
 
 def credentials_dir(node=None):
-    return Path(REMOTE_DIR) if node else paths.PRIV / "smb"
+    if node:
+        return Path(REMOTE_DIR_TREE if _remote_in_tree(node) else REMOTE_DIR)
+    return paths.PRIV / "smb"
 
 
 def credentials_path(pool_name, node=None):
@@ -57,7 +71,7 @@ def own_file(path):
     """`path` if it is a credentials file Hyperlite writes (a `.cred` file right in a credentials directory), else
     None. A pool's definition can name any file, and root writes and removes this one."""
     directory, name = os.path.split(os.path.normpath(path))
-    if directory not in (REMOTE_DIR, str(paths.PRIV / "smb")) or not name.endswith(".cred"):
+    if directory not in (REMOTE_DIR, REMOTE_DIR_TREE, str(paths.PRIV / "smb")) or not name.endswith(".cred"):
         return None
     try:
         return str(safe_child(directory, name))
@@ -162,12 +176,19 @@ def write_credentials(path, text, node=None):
     path = checked
     if node:
         directory = os.path.dirname(path)
+        if directory == REMOTE_DIR_TREE:
+            rel = f"priv/smb/{os.path.basename(path)}"
+            _node_ssh(node, f"cd /usr/lib/hyperlite && python3 -m app.core.node_files put {shlex.quote(rel)}", text)
+            return
         _node_ssh(
             node,
             f"umask 077 && mkdir -p {shlex.quote(directory)} && chmod 700 {shlex.quote(directory)} "
             f"&& cat > {shlex.quote(path)}",
             input_text=text,
         )
+        return
+    if node_files.is_node_file(path):
+        node_files.write(path, text, 0o600)
         return
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     os.chmod(os.path.dirname(path), 0o700)
@@ -185,8 +206,13 @@ def remove_credentials(path, node=None):
         return
     path = checked
     try:
-        if node:
+        if node and os.path.dirname(path) == REMOTE_DIR_TREE:
+            rel = f"priv/smb/{os.path.basename(path)}"
+            _node_ssh(node, f"cd /usr/lib/hyperlite && python3 -m app.core.node_files remove {shlex.quote(rel)}")
+        elif node:
             _node_ssh(node, f"rm -f {shlex.quote(path)}")
+        elif node_files.is_node_file(path):
+            node_files.remove(path)
         else:
             Path(path).unlink(missing_ok=True)
     except (OSError, subprocess.SubprocessError) as e:

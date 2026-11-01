@@ -42,7 +42,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from app.core import self_node
+from app.core import node_files, self_node
 from app.core.cfs_client import CfsError, NotFound
 
 logger = logging.getLogger(__name__)
@@ -135,6 +135,9 @@ def _settings():
 
 def _write(path, data, mode):
     path = Path(path)
+    if node_files.is_node_file(path):  # the env file, in the cluster's tree (docs/design/cfs-files.md, section 15)
+        node_files.write(path, data, mode)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(data if isinstance(data, bytes) else data.encode())
@@ -723,7 +726,10 @@ def _saved(path):
 def _restore(path, saved):
     path = Path(path)
     if saved is None:
-        path.unlink(missing_ok=True)
+        if node_files.is_node_file(path):
+            node_files.remove(path)
+        else:
+            path.unlink(missing_ok=True)
     else:
         _write(path, saved[0], saved[1])
 
@@ -735,14 +741,18 @@ def _service_state(name):
     }
 
 
-def _undo_join(files, services, moved):
-    """Put this node back as it was before join(): its files, its hyperlite-cfs database and its services."""
+def _undo_join(files, services, moved, in_tree=False):
+    """Put this node back as it was before join(): its files, its hyperlite-cfs database and its services. The node's
+    own files in the tree (`in_tree`) come back with the database: they are not written (the mount is gone meanwhile,
+    and a file written there would land on the disk beneath it)."""
     from app.core import cluster_lead
     from app.repositories.cfs import shadow
 
     _run(["systemctl", "stop", shadow.SERVICE])
     _run(["systemctl", "stop", "corosync"])
     for path, saved in files.items():
+        if in_tree and node_files.relative(path) is not None:
+            continue
         try:
             _restore(path, saved)
         except OSError as e:
@@ -809,6 +819,10 @@ def join(information, address, confirmation, username):
     files = {p: _saved(p) for p in (_authorized_keys_path(), COROSYNC_CONF, COROSYNC_KEY, CFS_DEFAULTS, _env_path())}
     services = {name: _service_state(name) for name in ("corosync", shadow.SERVICE)}
     moved = []
+    # The node's own files live in its tree (docs/design/cfs-files.md, section 15), which gives way to the cluster's:
+    # read now, written into the cluster's once it is up, before the env file gets the cluster's keys.
+    in_tree = node_files.in_tree()
+    own = node_files.from_tree(_client()) if in_tree else {}
     try:
         _authorize(member_keys, me)
         _backup(COROSYNC_CONF)
@@ -825,13 +839,15 @@ def join(information, address, confirmation, username):
         _start_cluster_services()
         logger.info("Waiting for the links to the cluster's members and the quorum (at most %s s)", JOIN_WAIT_S)
         _wait_for_cluster(JOIN_WAIT_S)
+        if own:
+            node_files.put_all(own, client=_client())
         _write_env_keys(keys)
         settings = _settings()
         settings.set_app_setting(JOIN_SETTING, "1")  # the next start empties the outbox (finish_join)
         settings.set_app_setting(shadow.SETTING, "1")  # last: until now this node keeps out of the cluster's tree
     except Exception as e:
         logger.exception("Joining %s failed: this node is put back as it was", conf["cluster"])
-        _undo_join(files, services, moved)
+        _undo_join(files, services, moved, in_tree)
         reason = str(e) if isinstance(e, ClusterError) else "the join failed (see journalctl -u hyperlite)"
         raise ClusterError(f"{reason}. This node is back as it was. {take_out}") from None
     log_action(username, "cluster_join", conf["cluster"], "success", f"{me} ({address})")
@@ -874,6 +890,8 @@ def remove_member(name, confirmation, username):
         client.put(CONF_PATH, json.dumps(conf).encode())
         with contextlib.suppress(NotFound):
             client.delete(f"{SSH_DIR}/{shadow.component(name)}")
+        # Its own files (certificate, keys) go with it: the node is gone (docs/design/cfs-files.md, section 5).
+        node_files.drop_node(name, client=client)
         from app.core import peer_auth
 
         peer_auth.forget(name)
