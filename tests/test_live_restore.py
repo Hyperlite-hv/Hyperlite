@@ -89,7 +89,7 @@ def test_a_disk_still_reading_its_backup_is_not_called_restored(tmp_path, monkey
         live_restore.check_standalone([tmp_path / "new.qcow2"])
 
 
-def test_only_a_new_vm_from_a_backup_kept_as_files_restores_live(client, auth_headers, database, tmp_path):
+def test_only_a_new_vm_restores_live(client, auth_headers, database, tmp_path):
     from tests.test_backup_restore_safety import _backup_row
 
     headers = auth_headers("alice")
@@ -97,4 +97,4 @@ def test_only_a_new_vm_from_a_backup_kept_as_files_restores_live(client, auth_he
     r = client.post(f"/backups/{backup_id}/restore", json={"mode": "overwrite", "live": True}, headers=headers)
     assert r.status_code == 422 and "A live restore makes a new VM" in r.json()["detail"]
     with pytest.raises(RuntimeError, match="A live restore makes a new VM"):
-        backups.restore_files(str(tmp_path), True, "vm1", "new", "copy", None, "task", live=True)
+        backups.restore_files(str(tmp_path), True, "vm1", "overwrite", "vm1", None, "task", live=True)

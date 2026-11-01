@@ -362,7 +362,7 @@ A VM's **Backups** tab:
   backup of the VM, manual ones included.
 - For each backup: **Verify** (checksums and image checks; every backup is also verified automatically within a
   week), **In place** (restore over the VM, stopped first), **New VM** (restore under a new name), **Live restore**
-  (a backup kept as files only: the new VM starts at once and its disks are copied from the backup while it runs; a
+  (the new VM starts at once and its disks are copied from the backup while it runs, a backup in a store included; a
   copy that fails removes it, the backup is never written), **Files** (see below), delete.
 
 UEFI VMs get their firmware state (boot entries, Secure Boot keys, TPM) saved and restored with the disks.

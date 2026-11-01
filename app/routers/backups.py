@@ -222,8 +222,8 @@ class RestoreRequest(BaseModel):
     new_name: str | None = None
     live: bool = Field(
         False,
-        description="Live restore (mode 'new', a backup kept as files): the VM starts at once on the backup, the rest "
-        "copied while it runs",
+        description="Live restore (mode 'new'): the VM starts at once on the backup, the rest copied while it runs; a "
+        "backup in a store is served to it by the node meanwhile",
     )
 
 
@@ -243,11 +243,8 @@ def restore_backup_endpoint(
         raise HTTPException(status_code=422, detail="Invalid mode (expected 'overwrite' or 'new')")
     if row["status"] != "succeeded":
         raise HTTPException(status_code=409, detail="This backup is not in a restorable state (failed or in progress)")
-    if payload.live and (payload.mode != "new" or row.get("store")):
-        raise HTTPException(
-            status_code=422,
-            detail="A live restore makes a new VM from a backup kept as files (not one in a backup store)",
-        )
+    if payload.live and payload.mode != "new":
+        raise HTTPException(status_code=422, detail="A live restore makes a new VM, never over the original one")
     if payload.mode == "new":
         name_error = validate_name(payload.new_name or "")
         if name_error:
