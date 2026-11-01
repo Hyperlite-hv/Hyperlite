@@ -27,7 +27,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt_trust_kept_debs
 apt-get install -y -qq --no-install-recommends ca-certificates gcc pkg-config meson ninja-build xz-utils \
-    libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev libvirt-dev \
+    libsqlite3-dev libssl-dev libcpg-dev libquorum-dev libvotequorum-dev libcmap-dev libfuse3-dev libvirt-dev \
     python3 python3-venv python3-dev > /dev/null
 
 rm -rf "$OUT" && mkdir -p "$OUT/wheels"
