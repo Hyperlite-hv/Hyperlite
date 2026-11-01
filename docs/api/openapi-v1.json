@@ -499,6 +499,20 @@
     "title": "CertificateImport",
     "type": "object"
    },
+   "ChangeId": {
+    "properties": {
+     "id": {
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "title": "ChangeId",
+    "type": "object"
+   },
    "ChannelCreate": {
     "properties": {
      "config": {
@@ -2544,6 +2558,33 @@
      "target"
     ],
     "title": "Move",
+    "type": "object"
+   },
+   "NetworkChange": {
+    "properties": {
+     "interfaces": {
+      "description": "The whole definition of the managed interfaces",
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "maxItems": 64,
+      "title": "Interfaces",
+      "type": "array"
+     },
+     "timeout_s": {
+      "default": 60,
+      "description": "Seconds to confirm before the change is rolled back",
+      "maximum": 600.0,
+      "minimum": 30.0,
+      "title": "Timeout S",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "interfaces"
+    ],
+    "title": "NetworkChange",
     "type": "object"
    },
    "NetworkCreate": {
@@ -12524,6 +12565,209 @@
     "summary": "Get Host Metrics History",
     "tags": [
      "metrics"
+    ]
+   }
+  },
+  "/api/v1/host/network": {
+   "get": {
+    "description": "The host's interfaces (`configured_by`: hyperlite, system or none), the managed ones, the change waiting for\nits confirmation and the tools the node has.",
+    "operationId": "network_state_api_v1_host_network_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Network State",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/network/apply": {
+   "post": {
+    "description": "Apply, then confirm within `timeout_s` (POST /host/network/confirm) or the previous configuration comes back.",
+    "operationId": "network_apply_api_v1_host_network_apply_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NetworkChange"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Network Apply",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/network/confirm": {
+   "post": {
+    "operationId": "network_confirm_api_v1_host_network_confirm_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangeId"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Network Confirm",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/network/preview": {
+   "post": {
+    "description": "The diff of the managed file and the interfaces that would come down and up; nothing changes.",
+    "operationId": "network_preview_api_v1_host_network_preview_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/NetworkChange"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Network Preview",
+    "tags": [
+     "host"
+    ]
+   }
+  },
+  "/api/v1/host/network/rollback": {
+   "post": {
+    "operationId": "network_rollback_api_v1_host_network_rollback_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangeId"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Network Rollback",
+    "tags": [
+     "host"
     ]
    }
   },

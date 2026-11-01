@@ -17,6 +17,7 @@ import PermissionNotice from "../components/PermissionNotice";
 import { Card, Chip, Empty, Loading, TableWrap } from "../components/ui";
 import CertificateCard from "../components/CertificateCard";
 import { HostSettingsCards } from "./NodeHostSystem";
+import { HostNetworkEditor } from "./NodeNetwork";
 
 const isLocal = (node) => node?.id === "local";
 
@@ -98,11 +99,14 @@ export function NodeSystemPage({ resource: node }) {
 
 export function NodeNetworkPage({ resource: node }) {
   const t = useT();
+  const isAdmin = capabilities(useAuthStore((s) => s.role)).admin;
   const { hw, error, load } = useHardware(node);
   if (!node) return null;
   if (error && !hw) return <ErrorState message={error} onRetry={load} />;
   const list = hw?.interfaces || [];
   return (
+    <>
+    {isAdmin && <HostNetworkEditor node={node} />}
     <div className="nx-card2 nx-card2--flush">
       {!hw ? <Loading style={{ padding: "var(--space-4)", margin: 0 }} /> : list.length === 0 ? <Empty icon={Network} title={t("nn.noIfaces")} /> : (
         <TableWrap>
@@ -128,6 +132,7 @@ export function NodeNetworkPage({ resource: node }) {
         </TableWrap>
       )}
     </div>
+    </>
   );
 }
 
