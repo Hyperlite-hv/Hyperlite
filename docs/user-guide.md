@@ -327,6 +327,12 @@ before the card's own, and editing a group changes every VM and network using it
 down: **Confirm** saves them for the whole cluster (every node follows within seconds), **Roll back** undoes them.
 Without a confirmation in time, the node puts its previous rules back by itself.
 
+### VMID
+
+Every VM and container has a **VMID**, a number from 100 unique in the cluster, shown before its name in the lists
+and on its summary. It never changes (migration, rename, restore) and is never given to another guest. The API takes
+it wherever it takes a name: `POST /api/v1/vms/104/start` starts the VM 104, on whichever node it runs.
+
 ## 8. Library: ISO images, templates, imported disks
 
 **ISO images and templates**:

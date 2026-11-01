@@ -232,7 +232,7 @@ export default function VmList() {
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
     const list = vms.filter((v) => (!nodeFilter || v.node === nodeFilter) && (!tagFilter || tagsOf(v).includes(tagFilter)) && (chip === "all" || (chip === "running" && v.state === "active") || (chip === "stopped" && (v.state === "stopped" || v.state === "shutting_down")) || (chip === "problems" && PROBLEM.has(v.state)))
-      && (!n || `${v.name} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)} ${tagsOf(v).join(" ")}`.toLowerCase().includes(n)));
+      && (!n || `${v.vmid ?? ""} ${v.name} ${v.ip || ""} ${v.os || ""} ${nodeName(v.node)} ${tagsOf(v).join(" ")}`.toLowerCase().includes(n)));
     const rank = (v) => (PROBLEM.has(v.state) ? 0 : v.state === "active" ? 1 : 2); // problems first
     const val = { state: rank, name: (v) => v.name.toLowerCase(), node: (v) => nodeName(v.node).toLowerCase(), res: (v) => (v.vcpu || 0) * 1e6 + (v.memory_mb || 0), uptime: (v) => v.uptime_s || 0 }[sort.key];
     return [...list].sort((a, b) => (val(a) > val(b) ? 1 : val(a) < val(b) ? -1 : a.name.localeCompare(b.name)) * sort.dir);
@@ -303,7 +303,7 @@ export default function VmList() {
                           onClick={() => select(vm)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(vm); } }} onContextMenu={ctx.open("vm", vm, vmKey(vm))}>
                           {selectable && <td className="nx-pickcell">{pickBox(vm)}</td>}
                           <td style={{ width: "2rem" }}><StatusIndicator kind="vm" wire={vm.state} compact /></td>
-                          <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vmKey(vm), "summary"); }}>{vm.name}</button>{sub(vm)}</th>
+                          <th scope="row" className="nx-nm"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("vm", vmKey(vm), "summary"); }}>{vm.vmid != null && <span className="nx-mono nx-muted" title={t("vmid.title")}>{vm.vmid} </span>}{vm.name}</button>{sub(vm)}</th>
                           {col("node") && <td>{nodeCell(vm.node)}</td>}
                           {col("ip") && <td className="nx-mono">{vm.ip || <span className="nx-muted">—</span>}</td>}
                           {col("os") && <td>{vm.os || <span className="nx-muted">—</span>}</td>}

@@ -28,6 +28,7 @@ from app.core import (
     privileged,
     pty_session,
     renaming,
+    vmid,
 )
 from app.core.audit import log_action
 from app.core.container_create import ContainerCreate
@@ -95,6 +96,7 @@ def _summary(domain):
         "image": app["image"] if app else None,
         "name": domain.name(),
         "id": domain.ID() if active else None,
+        "vmid": vmid.of_root(ET.fromstring(domain.XMLDesc(0))),
         "uuid": domain.UUIDString(),
         "state": STATE_NAMES.get(state, "unknown"),
         "vcpu": nvcpu,

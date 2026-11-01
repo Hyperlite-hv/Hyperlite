@@ -4124,4 +4124,6 @@ export default {
   "fwg.empty": "aucune règle active",
   "fwg.missing": "n’existe plus",
   "fwg.hint": "Leurs règles s’appliquent au trafic qui entre, avant les règles ci-dessous. Elles se modifient dans Centre de données › Pare-feu, et chaque changement s’applique partout où le groupe est utilisé.",
+  "vmid.title": "Numéro de la VM dans le cluster (VMID), utilisable à la place de son nom dans l’API",
+  "vmid.pending": "attribué sous peu",
 };
