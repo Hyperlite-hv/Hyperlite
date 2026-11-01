@@ -24,6 +24,7 @@ from app.core import (
     maintenance,
     object_meta,
     paths,
+    peer_auth,
     privileged,
     pty_session,
     renaming,
@@ -712,6 +713,7 @@ def create_terminal_ticket(name: str, user: dict = Depends(require_role("admin")
 
         ticket = secrets.token_urlsafe(24)
         TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, user["username"])
+        peer_auth.keep_with_ticket(ticket, TERMINAL_TICKET_TTL)
         log_action(user["username"], "create_container_terminal_ticket", name, "success")
         return {"ticket": ticket, "user": ssh_user, "expires_in_s": TERMINAL_TICKET_TTL}
     finally:
@@ -727,6 +729,7 @@ async def container_terminal(websocket: WebSocket, name: str):
         return
 
     ct_name, _ip, _ssh_user, expiry, username = entry
+    peer_auth.take_ticket_credential(ticket)
     if ct_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
@@ -769,6 +772,7 @@ def create_shell_ticket(name: str, user: dict = Depends(require_role("admin"))):
             SHELL_TICKETS.pop(old_ticket, None)
     ticket = secrets.token_urlsafe(24)
     SHELL_TICKETS[ticket] = (name, user["username"], now + TERMINAL_TICKET_TTL)
+    peer_auth.keep_with_ticket(ticket, TERMINAL_TICKET_TTL)
     log_action(user["username"], "create_container_shell_ticket", name, "success")
     return {"ticket": ticket, "expires_in_s": TERMINAL_TICKET_TTL}
 
@@ -781,6 +785,7 @@ async def container_shell_session(websocket: WebSocket, name: str):
         await websocket.close(code=4401)
         return
     username = entry[1]
+    peer_auth.take_ticket_credential(ticket)
     await websocket.accept()
     try:
         # hyperlite-daemon finds the container's PID 1 itself and enters its namespaces (console.container_shell).
