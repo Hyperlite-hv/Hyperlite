@@ -1,0 +1,1 @@
+- Closing a terminal while its program still writes no longer leaves an error trace in the service's journal.
