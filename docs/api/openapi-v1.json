@@ -4595,6 +4595,76 @@
     "title": "WebAuthnRegister",
     "type": "object"
    },
+   "ZfsPoolDisks": {
+    "description": "attach: one disk to the vdev or disk `target` (a mirror more, a RAIDZ grown); add: a new vdev of `layout`\n(more room); replace: the disk `target` by a free one (ZFS rebuilds it).",
+    "properties": {
+     "action": {
+      "enum": [
+       "attach",
+       "add",
+       "replace"
+      ],
+      "title": "Action",
+      "type": "string"
+     },
+     "disks": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "title": "Disks",
+      "type": "array"
+     },
+     "layout": {
+      "anyOf": [
+       {
+        "enum": [
+         "single",
+         "mirror",
+         "raidz1",
+         "raidz2",
+         "raidz3"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Layout"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "maxLength": 512,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target"
+     }
+    },
+    "required": [
+     "action",
+     "disks"
+    ],
+    "title": "ZfsPoolDisks",
+    "type": "object"
+   },
+   "ZfsScrub": {
+    "properties": {
+     "stop": {
+      "default": false,
+      "title": "Stop",
+      "type": "boolean"
+     }
+    },
+    "title": "ZfsScrub",
+    "type": "object"
+   },
    "app__routers__pools__PoolCreate": {
     "properties": {
      "description": {
@@ -4884,6 +4954,32 @@
       "pattern": "^(dir|netfs|smb|zfs|iscsi|lvm)$",
       "title": "Type",
       "type": "string"
+     },
+     "zfs_disks": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Zfs Disks",
+      "type": "array"
+     },
+     "zfs_layout": {
+      "anyOf": [
+       {
+        "enum": [
+         "single",
+         "mirror",
+         "raidz1",
+         "raidz2",
+         "raidz3"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Zfs Layout"
      }
     },
     "required": [
@@ -18948,6 +19044,61 @@
     ]
    }
   },
+  "/api/v1/storage/zfs/disks": {
+   "get": {
+    "description": "This node's disks a ZFS pool may be built on: whole, blank, no VM's (docs/design/zfs-disks.md).",
+    "operationId": "zfs_free_disks_api_v1_storage_zfs_disks_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Zfs Free Disks",
+    "tags": [
+     "storage"
+    ]
+   }
+  },
   "/api/v1/storage/{pool_name}": {
    "delete": {
     "description": "everywhere: a shared pool (app/core/shared_pools.py) is removed from every node that has it, and its\ndefinition with it, as on Proxmox; without it, from `node` only.",
@@ -19524,6 +19675,216 @@
      }
     ],
     "summary": "Get Volume",
+    "tags": [
+     "storage"
+    ]
+   }
+  },
+  "/api/v1/storage/{pool_name}/zfs": {
+   "get": {
+    "description": "The pool's health: its state, the last scrub or rebuild, and every vdev and disk with its errors.",
+    "operationId": "zfs_pool_health_api_v1_storage__pool_name__zfs_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_name",
+      "required": true,
+      "schema": {
+       "title": "Pool Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Zfs Pool Health",
+    "tags": [
+     "storage"
+    ]
+   }
+  },
+  "/api/v1/storage/{pool_name}/zfs/disks": {
+   "post": {
+    "operationId": "zfs_pool_disks_api_v1_storage__pool_name__zfs_disks_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_name",
+      "required": true,
+      "schema": {
+       "title": "Pool Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ZfsPoolDisks"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Zfs Pool Disks",
+    "tags": [
+     "storage"
+    ]
+   }
+  },
+  "/api/v1/storage/{pool_name}/zfs/scrub": {
+   "post": {
+    "operationId": "zfs_pool_scrub_api_v1_storage__pool_name__zfs_scrub_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_name",
+      "required": true,
+      "schema": {
+       "title": "Pool Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ZfsScrub"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Zfs Pool Scrub",
     "tags": [
      "storage"
     ]

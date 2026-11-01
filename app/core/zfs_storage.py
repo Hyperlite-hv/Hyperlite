@@ -26,10 +26,12 @@ real block device (`/dev/sdX`) when moving to a real disk changes nothing else.
 
 """
 
+import json
 import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -42,14 +44,20 @@ SECURE_BOOT_VAR = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-
 
 # Why ZFS cannot be used on this host (see status()). The dashboard shows its own translated text for each code.
 STATUS_MESSAGES = {
-    "not_installed": "ZFS is not installed on this host (zfsutils-linux and zfs-dkms packages)",
+    "not_installed": "ZFS is not installed on this host (zfsutils-linux, zfs-dkms and linux-headers-amd64 packages)",
     "secure_boot": (
         "The ZFS kernel module is refused by Secure Boot: it is signed with a key this machine does not trust yet. "
         "Enroll the key with 'mokutil --import /var/lib/dkms/mok.pub', reboot, then choose 'Enroll MOK' on the "
         "machine's screen"
     ),
     "module_not_loaded": "The ZFS kernel module could not be loaded (modprobe zfs)",
+    "module_not_built": (
+        "The ZFS kernel module is not built for the running kernel: its headers are missing, so DKMS could not build "
+        "it when the kernel was updated. Install them with 'apt install linux-headers-amd64' (they then follow every "
+        "kernel update), and the module is built"
+    ),
 }
+MODULES = Path("/lib/modules")
 
 # ZFS names: the same constraints as VM/pool names elsewhere in this project
 # (letters/digits/dashes), and never raw user text injected as is into a
@@ -87,13 +95,23 @@ def secure_boot_enabled():
     return len(data) >= 5 and data[4] == 1
 
 
+def module_built(modules=None, release=None):
+    """Whether a zfs module exists for the running kernel (DKMS puts it under updates/dkms). A kernel updated without
+    its headers leaves it unbuilt: seen on a node, where ZFS stopped working after a kernel update."""
+    root = Path(modules or MODULES) / (release or os.uname().release)
+    return any(root.rglob("zfs.ko*")) if root.is_dir() else True
+
+
 def status():
-    """'ok', or why ZFS cannot be used: 'not_installed', 'secure_boot' (the module is refused by Secure Boot, the
-    case of a zfs-dkms module signed with a key not enrolled yet) or 'module_not_loaded'."""
+    """'ok', or why ZFS cannot be used: 'not_installed', 'module_not_built' (no module for the running kernel),
+    'secure_boot' (the module is refused by Secure Boot, the case of a zfs-dkms module signed with a key not enrolled
+    yet) or 'module_not_loaded'."""
     if not is_available():
         return "not_installed"
     if module_loaded():
         return "ok"
+    if not module_built():
+        return "module_not_built"
     return "secure_boot" if secure_boot_enabled() else "module_not_loaded"
 
 
@@ -239,9 +257,17 @@ def delete_pool(name):
         raise ZfsError(f"Pool '{name}' still contains {len(zvols)} zvol(s), delete them first")
 
     backing_file = _backing_file_of(name)
+    leaves, disks = [], []
+    if not backing_file:  # a pool on disks: they are given back blank, free for another pool (host_disks)
+        leaves = [leaf for leaf in _leaves(pool_status(name)["vdevs"]) if leaf.startswith("/dev/")]
+        disks = disks_of(name)
     _run("zpool", "destroy", name)
     if backing_file:
         Path(backing_file).unlink(missing_ok=True)
+    for leaf in leaves:
+        _run("zpool", "labelclear", "-f", leaf, check=False)
+    for disk in disks:
+        _run("wipefs", "-a", disk, check=False)
 
 
 def list_zvols(pool_name):
@@ -423,3 +449,216 @@ def delete_zvol_snapshot(specs, snap_name):
             errors.append(proc.stderr.strip() or f"failed on {full}")
     if errors:
         raise ZfsError("; ".join(errors))
+
+
+# ---- Pools on the node's disks (#419, docs/design/zfs-disks.md) ----
+
+# Each layout's least number of disks, as Proxmox VE's: one disk (or a stripe of several, no redundancy), a mirror,
+# RAIDZ with one, two or three disks' worth of parity.
+LAYOUTS = {"single": 1, "mirror": 2, "raidz1": 3, "raidz2": 4, "raidz3": 5}
+
+
+def _checked_disks(disks, free):
+    """`disks` (by-id paths) if each is a free disk of this node, else ZfsError. `free`: host_disks.free_disks()."""
+    offered = {d["path"]: d for d in free}
+    if not disks:
+        raise ZfsError("Choose the disks of the pool")
+    if len(set(disks)) != len(disks):
+        raise ZfsError("A disk is named twice")
+    for disk in disks:
+        if disk not in offered:
+            raise ZfsError(f"{disk} is not a free disk of this node (in use, partitioned or holding data)")
+    return list(disks)
+
+
+def _vdev_args(layout, disks):
+    if layout not in LAYOUTS:
+        raise ZfsError(f"Unknown layout '{layout}' (expected one of {', '.join(LAYOUTS)})")
+    if len(disks) < LAYOUTS[layout]:
+        raise ZfsError(f"A {layout} pool needs at least {LAYOUTS[layout]} disks")
+    return list(disks) if layout == "single" else [layout, *disks]
+
+
+def create_pool_on_disks(name, layout, disks, free):
+    """A pool on whole disks, which ZFS partitions itself: 4 KiB sectors (ashift=12, right for every disk sold today,
+    as Proxmox), lz4 compression, nothing mounted (it holds zvols only), and trim run as space is freed."""
+    name_error = validate_zfs_name(name)
+    if name_error:
+        raise ZfsError(name_error)
+    if pool_exists(name):
+        raise ZfsError(f"A ZFS pool '{name}' already exists")
+    vdevs = _vdev_args(layout, _checked_disks(disks, free))
+    _run(
+        "zpool", "create", "-o", "ashift=12", "-o", "autotrim=on", "-O", "compression=lz4", "-O", "mountpoint=none",
+        name, *vdevs,
+    )  # fmt: skip
+    return list_pool(name)
+
+
+def _vdev(node):
+    """One vdev of `zpool status -j`, its children nested: what the dashboard shows of the pool's health."""
+    children = [_vdev(child) for child in (node.get("vdevs") or {}).values()]
+    return {
+        "name": node.get("name", ""),
+        "type": node.get("vdev_type", ""),
+        "path": node.get("path"),
+        "state": node.get("state", ""),
+        "read_errors": int(node.get("read_errors") or 0),
+        "write_errors": int(node.get("write_errors") or 0),
+        "checksum_errors": int(node.get("checksum_errors") or 0),
+        "children": children,
+    }
+
+
+def pool_status(name):
+    """The pool's health as `zpool status` gives it: {"state", "status", "action", "errors", "scan", "vdevs"}, its
+    top-level vdevs (a mirror, a RAIDZ, a disk) with their disks, each with its state and error counts."""
+    proc = _run("zpool", "status", "-j", "--json-int", "-P", name, check=False)
+    if proc.returncode != 0:
+        if not pool_exists(name):
+            raise ZfsNotFoundError(f"ZFS pool '{name}' not found")
+        raise ZfsError((proc.stderr or proc.stdout).strip())
+    pool = json.loads(proc.stdout)["pools"][name]
+    root = next(iter((pool.get("vdevs") or {}).values()), {})
+    scan = pool.get("scan_stats") or {}
+    return {
+        "name": name,
+        "state": pool.get("state", ""),
+        "status": pool.get("status"),
+        "action": pool.get("action"),
+        "errors": int(pool.get("error_count") or 0),
+        "scan": {
+            "function": scan.get("function"),
+            "state": scan.get("state"),
+            "start_time": scan.get("start_time"),
+            "end_time": scan.get("end_time"),
+            "to_examine": scan.get("to_examine"),
+            "examined": scan.get("examined"),
+            "errors": scan.get("errors"),
+        }
+        if scan
+        else None,
+        "vdevs": [_vdev(v) for v in (root.get("vdevs") or {}).values()]
+        + [{**_vdev(v), "class": kind} for kind in _CLASSES for v in (pool.get(kind) or {}).values()],
+    }
+
+
+# The vdevs `zpool status -j` lists beside the data ones: log, cache, spare, special and dedup devices.
+_CLASSES = ("logs", "l2cache", "spares", "special", "dedup")
+
+
+def _leaves(vdevs):
+    for v in vdevs:
+        if v["children"]:
+            yield from _leaves(v["children"])
+        elif v.get("path"):
+            yield v["path"]
+
+
+def scrub(name, stop=False):
+    """Read every block of the pool and repair what a copy can repair (`zpool scrub`), or stop the one running."""
+    if not pool_exists(name):
+        raise ZfsNotFoundError(f"ZFS pool '{name}' not found")
+    _run("zpool", "scrub", *(["-s"] if stop else []), name)
+
+
+def attach_disk(name, target, disk, free):
+    """One disk attached to the vdev `target` of the pool: a single disk becomes a mirror, a mirror gets one more copy,
+    a RAIDZ grows by one disk (RAIDZ expansion, OpenZFS 2.3, as Proxmox VE 9), its data spread again in the
+    background."""
+    (disk,) = _checked_disks([disk], free)
+    current = pool_status(name)
+    names = {v["name"] for v in current["vdevs"]} | set(_leaves(current["vdevs"]))
+    if target not in names:
+        raise ZfsError(f"'{target}' is not a disk or a vdev of pool '{name}'")
+    _run("zpool", "attach", name, target, disk)
+    return pool_status(name)
+
+
+def add_vdev(name, layout, disks, free):
+    """More room: a new vdev of `layout` beside the pool's own (zpool refuses one less redundant than the others)."""
+    if not pool_exists(name):
+        raise ZfsNotFoundError(f"ZFS pool '{name}' not found")
+    _run("zpool", "add", name, *_vdev_args(layout, _checked_disks(disks, free)))
+    return pool_status(name)
+
+
+def replace_disk(name, old, disk, free):
+    """A failed or failing disk of the pool replaced by a free one (`zpool replace`): ZFS rebuilds it (resilver) from
+    the others."""
+    (disk,) = _checked_disks([disk], free)
+    if old not in set(_leaves(pool_status(name)["vdevs"])):
+        raise ZfsError(f"'{old}' is not a disk of pool '{name}'")
+    _run("zpool", "replace", name, old, disk)
+    return pool_status(name)
+
+
+def disks_of(name):
+    """The whole disks a pool is built on (by-id paths, its partitions' disks); [] for a pool on a file."""
+    disks = []
+    for leaf in _leaves(pool_status(name)["vdevs"]):
+        if not leaf.startswith("/dev/"):
+            continue
+        disk = re.sub(r"-part\d+$", "", leaf) if "/by-id/" in leaf else re.sub(r"(?<=\d)p\d+$|(?<=[a-z])\d+$", "", leaf)
+        if disk not in disks:
+            disks.append(disk)
+    return disks
+
+
+# ---- Watching the pools' health (docs/design/zfs-disks.md) ----
+#
+# A disk that fails in a mirror or a RAIDZ leaves the pool working, DEGRADED: unseen, the next failure loses it. Every
+# WATCH_S hyperlite-scheduler reads each pool's state and notifies once when one leaves ONLINE, and once when it is
+# back. (Debian's zfsutils-linux scrubs every pool monthly from cron; Proxmox relies on ZED's mail the same way.)
+
+WATCH_S = 600
+_watched = {}
+_watch_lock = threading.Lock()
+
+
+def watch_once(notify=None, log=None):
+    """Notify each pool whose state changed since the last look: {name: state} of the ones notified."""
+    if not module_loaded():
+        return {}
+    if notify is None:
+        from app.core.notifications import notify
+    changed = {}
+    for pool in list_pools():
+        state = "ONLINE" if pool["state"] == "active" else pool["state"].upper()
+        with _watch_lock:
+            before, _watched[pool["name"]] = _watched.get(pool["name"]), state
+        if (before is None and state == "ONLINE") or before == state:
+            continue
+        changed[pool["name"]] = state
+        if state == "ONLINE":
+            notify("zfs_pool", f"ZFS pool {pool['name']} is healthy again", "Every disk of the pool is ONLINE.")
+        else:
+            notify(
+                "zfs_pool",
+                f"ZFS pool {pool['name']} is {state}",
+                f"The pool is {state}: a disk failed or is missing. The Storage page ({pool['name']}) shows which; replace it "
+                "before another one fails.",
+                result="failed",
+            )
+        if log:
+            log(pool["name"], state)
+    return changed
+
+
+def _watch_loop():
+    import logging
+
+    while True:
+        try:
+            watch_once(log=lambda name, state: logging.getLogger(__name__).warning("ZFS pool %s: %s", name, state))
+        except Exception:  # the loop must outlive one look
+            logging.getLogger(__name__).exception("ZFS pools' health not read")
+        time.sleep(WATCH_S)
+
+
+def start_watch():
+    if not is_available():
+        return None
+    thread = threading.Thread(target=_watch_loop, daemon=True, name="zfs-watch")
+    thread.start()
+    return thread
