@@ -2,6 +2,7 @@
 back in /etc/hyperlite from the cluster's tree and the directory step 3 kept, before the postinst looks for them."""
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,7 @@ def restore(tmp_path, tree=None, mounted=None, **kw):
         is_mount=lambda p: state["mounted"],
         unmount=unmount,
         log=lambda m: None,
-        **kw,
+        **{"virsh": lambda *a, **k: subprocess.CompletedProcess(a, 1, "", ""), **kw},
     )
     return etc, var, written, state
 
@@ -117,14 +118,48 @@ def test_a_file_on_disk_is_never_replaced_and_the_kept_directory_fills_the_gaps(
 
 
 def test_the_access_database_comes_back_with_its_journal(tmp_path):
-    var = tmp_path / "var"
-    var.mkdir()
+    moved = tmp_path / "var" / "access"
+    moved.mkdir(parents=True, mode=0o750)
     for suffix in ("", "-wal", "-shm"):
-        (var / f"access.db{suffix}").write_text(suffix or "db")
-    etc, var, written, _ = restore(tmp_path)
+        (moved / f"access.db{suffix}").write_text(suffix or "db")
+    etc, _, written, _ = restore(tmp_path)
     assert written == ["access.db"]
     assert sorted(p.name for p in etc.iterdir()) == ["access.db", "access.db-shm", "access.db-wal"]
-    assert not list(var.glob("access.db*"))
+    assert not list(moved.glob("access.db*"))
+
+
+def test_what_the_apis_group_could_have_made_is_never_trusted(tmp_path):
+    """/var/lib/hyperlite is writable by www-data: a kept directory or a database it could have planted or changed is
+    left alone, so a compromised API cannot give itself keys or permissions through a rollback."""
+    var = tmp_path / "var"
+    planted = var / "etc-before-cfs-99991231"
+    (planted / "priv").mkdir(parents=True)
+    (planted / "priv/env").write_text("HYPERLITE_SECRET_KEY=the attacker's")
+    (planted / "access.db").write_text("forged")
+    os.chmod(planted, 0o777)  # noqa: S103 (what www-data could make)
+    moved = var / "access"
+    moved.mkdir(mode=0o770)
+    os.chmod(moved, 0o770)  # noqa: S103
+    (moved / "access.db").write_text("forged")
+    (var / "access.db").write_text("forged")  # where 1.13.0 looked
+    etc, _, written, _ = restore(tmp_path)
+    assert written == [] and not (etc / "priv/env").exists() and not (etc / "access.db").exists()
+
+
+def test_smb_pools_read_their_credentials_where_the_files_are_put_back(tmp_path):
+    defined = {}
+
+    def virsh(*args, data=None):
+        if args[0] == "pool-list":
+            return subprocess.CompletedProcess(args, 0, "nas\nlocal\n", "")
+        if args[0] == "pool-dumpxml":
+            option = "credentials=/x/etc/local/priv/smb/nas.cred" if args[-1] == "nas" else "noperm"
+            return subprocess.CompletedProcess(args, 0, f"<pool><option name='{option}'/></pool>", "")
+        defined["xml"] = Path(args[1]).read_text()
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    assert node_files.smb_pools("/x/etc/local/priv/smb", "/x/etc/priv/smb", virsh) == ["nas"]
+    assert "credentials=/x/etc/priv/smb/nas.cred" in defined["xml"]
 
 
 def test_nothing_to_do_on_an_ordinary_node(tmp_path):
