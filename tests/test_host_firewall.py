@@ -187,3 +187,36 @@ def test_confirm_saves_the_document_for_the_cluster(client, auth_headers, monkey
     assert json.loads(registry.settings().sync.app_setting(fw.SETTING)) == fw.normalize(DOC)
     assert asked == ["host.firewall_apply", "host.firewall_confirm"]
     assert client.get("/cluster/firewall", headers=auth_headers("eve", role="viewer")).status_code == 403
+
+
+class _Net:
+    def __init__(self, name, xml):
+        self._name, self._xml = name, xml
+
+    def name(self):
+        return self._name
+
+    def XMLDesc(self, flags):
+        return self._xml
+
+
+class _Conn:
+    def __init__(self, nets):
+        self.nets = nets
+
+    def listAllNetworks(self):
+        return self.nets
+
+
+NETS = [
+    _Net("default", "<network><forward mode='nat'/><bridge name='virbr0'/></network>"),
+    _Net("isolated", "<network><bridge name='virbr1'/></network>"),
+    _Net("lan", "<network><forward mode='bridge'/><bridge name='vmbr1'/></network>"),
+    _Net("direct", "<network><forward mode='bridge'><interface dev='bond0'/></forward></network>"),
+]
+
+
+def test_the_vms_bridges_are_read_from_the_daemons_libvirt(daemon_libvirt):
+    """The NAT, routed and isolated networks' bridges (their dnsmasq runs on the host), not a bridged one's."""
+    daemon_libvirt(_Conn(NETS))
+    assert fw._vm_bridges() == ["virbr0", "virbr1"]
