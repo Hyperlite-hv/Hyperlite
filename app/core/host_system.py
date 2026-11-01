@@ -570,9 +570,9 @@ def running_guests():
     from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
 
     found = []
-    for kind, opener in (("vm", open_conn), ("container", open_lxc_conn_if_any)):
+    for kind, opener in (("vm", open_conn), ("container", open_lxc_conn_if_any)):  # both read-only
         try:
-            conn = opener()
+            conn = opener(readonly=True)
         except Exception as e:  # libvirt unreachable: no guest of this kind can be listed, none is waited for
             logger.warning("Cannot list the running %ss: %s", kind, e)
             continue
@@ -595,7 +595,7 @@ def stop_guests(guests, log, timeout_s=180, poll_s=3):
 
     conns = {"vm": open_conn(readonly=True), "container": None}
     try:
-        conns["container"] = open_lxc_conn_if_any()
+        conns["container"] = open_lxc_conn_if_any(readonly=True)
         for kind, name in guests:
             try:
                 if kind == "vm":
