@@ -36,6 +36,16 @@ def overlay(backup_image, dest):
     )
 
 
+def overlay_nbd(uri, size, dest):
+    """A new qcow2 file at `dest` reading through to the NBD export `uri` of `size` bytes (a backup in a store served
+    by app/core/nbd_export.py). Not opened here (-u): QEMU opens it once the VM starts."""
+    subprocess.run(
+        ["qemu-img", "create", "-q", "-u", "-f", "qcow2", "-F", "raw", "-b", uri, str(dest), str(size)],
+        check=True,
+        capture_output=True,
+    )
+
+
 def image_info(path):
     r = subprocess.run(
         ["qemu-img", "info", "-U", "--output=json", str(path)], capture_output=True, text=True, timeout=60

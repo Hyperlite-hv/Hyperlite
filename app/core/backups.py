@@ -49,6 +49,8 @@ from app.core import (
     firmware,
     guest_agent,
     live_restore,
+    nbd_export,
+    nfs_permissions,
     paths,
     replication,
     vm_locks,
@@ -997,8 +999,8 @@ def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only
     from app.core.vm_builder import IMAGES_DIR as _IMAGES_DIR
     from app.core.vm_builder import build_domain_xml, validate_name
 
-    if live and (mode != "new" or store):
-        raise RuntimeError("A live restore makes a new VM from a backup kept as files (not one in a backup store)")
+    if live and mode != "new":
+        raise RuntimeError("A live restore makes a new VM, never over the original one")
     found = checked_backup(path)
     found = None if isinstance(found, Path) else found
     if store and not found:
@@ -1077,7 +1079,16 @@ def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only
                 if dest.exists():
                     raise RuntimeError(f"A disk file '{dest.name}' already exists")
                 new_disk_paths.append(dest)
-                if found:
+                if found and live:
+                    # Served from the store while the copy runs (app/core/nbd_export.py), closed once it ends.
+                    index = store_.index_of(vm_uuid, stamp, _dev)
+                    server = stack.enter_context(
+                        nbd_export.IndexServer(
+                            store_, index, _live_socket(vm, _dev), nfs_permissions.qemu_identity()[:2]
+                        )
+                    )
+                    live_restore.overlay_nbd(server.uri, index.size, dest)
+                elif found:
                     backup_store_vm.restore_disk(store_, vm_uuid, stamp, _dev, dest, "qcow2")
                     update_task_progress(task_id, int(20 + (i + 1) * span))
                 elif live:
@@ -1124,7 +1135,7 @@ def _live_copy(domain, images, disks, task_id):
     """Start the new VM on its backup's images, then copy them into its own disks while it runs
     (app/core/live_restore.py). Raises on a failed copy; the caller removes the VM and its disks."""
     targets = [target for target, _src in images]
-    owners = live_restore.Owners([src for _dev, src in images])
+    owners = live_restore.Owners([src for _dev, src in images if src is not None])  # none for a store's backup
     try:
         domain.create()
         update_task_progress(task_id, 20)
@@ -1132,6 +1143,19 @@ def _live_copy(domain, images, disks, task_id):
         live_restore.check_standalone(disks)
     finally:
         owners.restore()
+
+
+def _live_socket(vm, dev):
+    """Where a store's backup is served to QEMU for a live restore: the directory QEMU's AppArmor profile lets it reach
+    (scripts/ensure-backup-apparmor.sh), QEMU's user and group only."""
+    from app.core import backup_store_vm
+
+    directory = backup_store_vm.SOCKETS
+    directory.mkdir(parents=True, exist_ok=True)
+    uid, gid, _ = nfs_permissions.qemu_identity()
+    os.chown(directory, uid, gid)
+    os.chmod(directory, 0o770)  # noqa: S103 - QEMU's user and group only
+    return directory / f"live-{vm}-{dev}.sock"
 
 
 def _drop_new_vm(conn, name):
