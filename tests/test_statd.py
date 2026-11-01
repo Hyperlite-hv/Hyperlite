@@ -71,7 +71,7 @@ def test_a_change_made_through_hyperlite_sends_the_status_soon(monkeypatch):
     assert statd._wake.is_set()
 
 
-def _changes_without_the_loop(monkeypatch, euid):
+def _changes_without_the_loop(monkeypatch, euid, before=0):
     """Three changes in a row in a process without the periodic loop (the API on an installed node): what went out."""
     from app.core import privileged
 
@@ -94,6 +94,8 @@ def _changes_without_the_loop(monkeypatch, euid):
     monkeypatch.setattr(privileged, "run", run)
     from app.core import peer_auth
 
+    for _ in range(before):  # a write request's middleware, before it is signed in
+        statd.changed()
     token = peer_auth.CREDENTIAL.set("the request's proof")
     try:
         for _ in range(3):
@@ -115,6 +117,12 @@ def test_an_api_that_is_not_root_asks_the_daemon_with_the_requests_proof(monkeyp
     """hyperlite-cfs takes STAT_PUT from root only: an API as www-data asks hyperlite-daemon, once, on a thread that
     keeps the proof of the request that made the change (tasks.start_thread)."""
     assert _changes_without_the_loop(monkeypatch, 33) == [("statd.publish", "the request's proof")]
+
+
+def test_a_change_seen_before_the_sign_in_does_not_take_the_place_of_the_proven_one(monkeypatch):
+    """Under www-data, the middleware's change comes before the request is signed in: asked without a proof, the daemon
+    refused it, and the debounce then dropped the change its audit entry asked for with the proof."""
+    assert _changes_without_the_loop(monkeypatch, 33, before=2) == [("statd.publish", "the request's proof")]
 
 
 def test_the_daemon_sends_at_most_one_summary_a_second(monkeypatch):
