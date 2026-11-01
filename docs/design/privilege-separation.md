@@ -896,3 +896,25 @@ What the API still wrote itself is now done elsewhere:
 - **Still in the API, moving with #298's split:**
   - the cluster's creation, join and leave (`cluster_setup`);
   - `statd.changed`'s publish (`STAT_PUT`, already root-only in cfs).
+
+### 14.8 4e: libvirt read through its read-only socket, the migration's checks in the daemon (2026-10-26)
+
+Once the API runs as `www-data`, polkit refuses it libvirt's read-write socket. Its reads go through the read-only one
+(`open_conn(readonly=True)`): this node's directly, another member's through the daemon's tunnel (`node_tunnel`).
+
+Two kinds of call fail on that socket, so they move into hyperlite-daemon:
+
+- **Writes hidden in a read.** `lookup_pool(conn, "default")` defined and autostarted the `default` pool, and set its
+  autostart again at every lookup. A pool already there, started and autostarted, is now only read. Through a
+  read-only connection, the daemon makes or starts a missing one (`storage.ensure_default_pool`, on that connection's
+  node).
+- **The migratable definition.** `VIR_DOMAIN_XML_MIGRATABLE` implies libvirt's secure flag, which the read-only socket
+  refuses. Every compatibility check reads it, so the checks are the daemon's, for an administrator. The daemon opens
+  both nodes' libvirt itself, another member's with the cluster's key:
+  - `vm.migration_check`: one VM's report, for `GET /vms/{name}/migration-check` and before a migration starts
+    (`migration.start`, for the route and for load balancing);
+  - `node.compatibility`: from this node to another, for a node's registration and `GET /nodes/{name}/compatibility`;
+  - `node.vm_plan`: which VMs of a node can leave it and why the others stay, for the drain plan, entering maintenance
+    and the rolling update.
+
+No route opens a read-write connection any more; `tests/test_api_libvirt_readonly.py` scans them.
