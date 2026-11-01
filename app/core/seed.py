@@ -2,7 +2,7 @@ import logging
 import os
 import secrets
 
-from app.core import paths
+from app.core import node_files, paths
 from app.core.database import init_db
 from app.core.security import hash_password
 
@@ -29,10 +29,13 @@ def first_start():
     if password:
         # Never logged: a root-only file, and only where it is in the log.
         pw_file = paths.INITIAL_PASSWORD_FILE
-        pw_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(pw_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(password + "\n")
+        if node_files.is_node_file(pw_file):  # in the cluster's tree (docs/design/cfs-files.md, section 15)
+            node_files.write(pw_file, password + "\n", 0o600)
+        else:
+            pw_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            fd = os.open(pw_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(password + "\n")
         logger.warning("=== Admin account created: the initial password is in %s ===", pw_file)
     initial_password.start()
     twofa.encrypt_stored_secrets()
