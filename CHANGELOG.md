@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-01
+
+### Added
+
+- A VM's or a network's firewall references security groups of the nodes' firewall (Datacenter › Firewall): their rules
+  apply to the incoming traffic before its own, and a change to a group applies at once wherever it is used. A group a
+  VM still uses is kept until no VM references it.
+
 ## [1.8.1] - 2026-11-01
 
 ### Fixed
