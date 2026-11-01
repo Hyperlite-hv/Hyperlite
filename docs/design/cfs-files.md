@@ -1,6 +1,6 @@
 # The cluster configuration as files in /etc/hyperlite (#525)
 
-Status: **step 1 done (2026-11-01)**, steps 2 and 3 to come; accepted (maintainer, 2026-10-24). The choices of section 2 are the maintainer's; the code starts after the privilege
+Status: **steps 1 and 2 done (2026-11-01)**, step 3 to come; accepted (maintainer, 2026-10-24). The choices of section 2 are the maintainer's; the code starts after the privilege
 separation (#511), as decided on 2026-10-21 (`docs/design/privilege-separation.md`, section 11).
 
 ## 1. Goal
@@ -112,8 +112,8 @@ every node live in the tree, it must run everywhere, as `pve-cluster` does on a 
 The same trap as in `docs/design/privilege-separation.md`, section 9: the version installed runs the update. The
 version that moves the node's files into the tree is installed over one that knows how to find them there:
 
-1. **the bridge** (moves nothing): reads the node's files from the tree when `/etc/hyperlite` holds none, and its
-   rollback moves them back out (`ExecStartPre`, from the kept directory or from the tree);
+1. **the bridge** (moves nothing): its installation over step 3 (a rollback) puts the node's files back out of the
+   tree, or the kept directory, before anything reads them (section 14);
 2. **the move**: refuses to install over a version older than the bridge (`preinst`), mounts, moves the files in. A
    failure at start puts them back and fails, which the watchdog turns into a rollback.
 
@@ -182,3 +182,28 @@ Each one ships with its tests:
   `fusermount3 -u -z`, then mounted again. Not done yet: the `fuzz_fuse` target and the three-node cluster test.
 - Still to come: hyperlite-cfs on nodes outside a cluster (section 7), the bridge (step 2), the node's files in the
   tree and the mount at `/etc/hyperlite` (step 3).
+
+## 14. Step 2 as done (2026-11-01): the bridge
+
+- **Where each file goes**, fixed here once for step 3 (`app/core/node_files.py`, `tree_path` and `disk_path`):
+  `local/<name>` is `nodes/<host>/<name>` (so `/etc/hyperlite/local/hyperlite.crt` reads the same once `local` is the
+  mount's link), `priv/<path>` is `nodes/<host>/priv/<path>`, `authkeys.json` is `nodes/<host>/authkeys.json`.
+  `access.db`, a database, never goes in the tree: step 3 moves it to `/var/lib/hyperlite/access.db`. `<host>` is the
+  host name, as the mount names `local`.
+- **The restore** (`python3 -m app.core.node_files restore`, the system's Python: no venv yet at that point). It reads
+  this node's files from the tree through the socket; if the tree is mounted over `/etc/hyperlite` it stops
+  hyperlite-cfs and unmounts it (and refuses to go on if the mount stays); it writes each file that is not on disk
+  (never one that is), with the installation's modes; then fills the gaps from the newest
+  `/var/lib/hyperlite/etc-before-cfs-<date>`; then puts `access.db` back with its `-wal` and `-shm`, from
+  `/var/lib/hyperlite` or else the kept directory. A tree it cannot read is logged and the kept directory used.
+- **The postinst runs it first**, before it looks for `priv/env` to tell an upgrade from a first installation: a
+  rollback from step 3 would otherwise make new keys over the node's (every session and encrypted secret lost). A
+  restore that fails stops the installation. The bridge itself moves nothing: on every node today it finds nothing to
+  do. hyperlite-cfs is restarted when enabled rather than when running, since the restore may have stopped it.
+- **Not in the bridge**: reading the files from the tree at run time. Once the postinst has put them back they are
+  where this version reads them, which keeps the bridge's code paths those of every version before it.
+- **Tests**: `tests/test_node_files.py` (each file's place and back, a rollback from a mounted tree with the modes, a
+  file on disk never replaced, the kept directory and `access.db`, nothing on an ordinary node, a mount that stays,
+  the postinst's order). By hand on a production node: a temporary hyperlite-cfs mounted over a temporary
+  `/etc/hyperlite` holding a certificate and keys, restored (unmounted, files and modes back); the postinst's command
+  on the node itself, which changed nothing.
