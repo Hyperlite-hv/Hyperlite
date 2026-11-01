@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-11-01
+
+### Added
+
+- Live restore from a backup store (#513): a backup in a store, encrypted or not, restores as a new VM that starts at
+  once, as one kept as files does. The node serves the backup to the VM as a read-only disk while its disks are copied.
+
 ## [1.14.0] - 2026-11-01
 
 ### Changed
