@@ -4095,4 +4095,11 @@ export default {
   "fwg.hint": "Their rules apply to incoming traffic, before the rules below. They are edited in Datacenter › Firewall, and each change applies wherever the group is used.",
   "vmid.title": "The VM's number in the cluster (VMID), usable in the API instead of its name",
   "vmid.pending": "given shortly",
+  "vb.live": "Live restore",
+  "vb.liveX": "Live restore backup {v} to a new VM",
+  "vb.liveHint": "The new VM starts at once on the backup; the rest is copied while it runs.",
+  "vb.liveTitle": "Live restore of backup #{id}",
+  "vb.liveMsg": "The new VM starts at once and reads the backup while its disks are copied (a task in Activity). If the copy fails, the VM is stopped and removed: no disk is left half restored.",
+  "vb.liveConfirm": "Start",
+  "vb.liveStarted": "Live restore started",
 };

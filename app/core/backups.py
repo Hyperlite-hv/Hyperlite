@@ -48,6 +48,7 @@ from app.core import (
     disk_space,
     firmware,
     guest_agent,
+    live_restore,
     paths,
     replication,
     vm_locks,
@@ -910,13 +911,14 @@ def _restore_overwrite_from_store(domain, found, devs, task_id):
     return [*_swap_staged(staged, task_id), *(d.source for d in blocks)], dropped
 
 
-def restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None):
-    """See _restore_backup; the backup is marked as being read meanwhile, so it cannot be deleted under the restore."""
+def restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None, live=False):
+    """See _restore_backup; the backup is marked as being read meanwhile, so it cannot be deleted under the restore,
+    a live one included: its VM reads the backup until the copy ends."""
     with backup_use.reading(backup_id, "a restore"):
-        return _restore_backup(backup_id, mode, new_name, username, claim, network)
+        return _restore_backup(backup_id, mode, new_name, username, claim, network, live)
 
 
-def _restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None):
+def _restore_backup(backup_id, mode, new_name=None, username="system", claim=None, network=None, live=False):
     """mode='overwrite': replace the disks of the original VM (it must be stopped). mode='new': define a new VM from
     the backup, with a new UUID/MAC (the same logic as cloning). `network` (mode 'new' only) replaces the network
     recorded in the backup: a backup made on another site may name a network this node does not have.
@@ -945,6 +947,7 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
                 "vm": target_name or "",
                 "network": network,
                 "task_id": task_id,
+                "live": live,
             }
             _restore_in_daemon(username, check_only=True, **ask)  # the VM, the name, the network: before reading
             _check_before_restore(row, task_id, username)
@@ -983,15 +986,19 @@ def _restore_in_daemon(username, **ask):
         raise RuntimeError(e.detail) from None
 
 
-def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only=False):
+def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only=False, live=False):
     """hyperlite-daemon's part of a restore (backup.restore), on a backup checked_backup accepts: over the stopped VM
     `vm`, into the disks its own definition names, or as the new VM `vm` in the images directory, its definition
     built from checked fields. With `check_only`, only what is refused before the backup is read: the VM missing or
-    running, the new name taken or invalid, the network missing. Returns {"restored", "os_label", "ssh_user"}."""
+    running, the new name taken or invalid, the network missing. `live` (a new VM from a directory backup): the VM
+    starts at once on its backup, the rest copied while it runs (app/core/live_restore.py). Returns {"restored",
+    "os_label", "ssh_user", "live"}."""
     from app.core import backup_store_vm, libvirt_utils
     from app.core.vm_builder import IMAGES_DIR as _IMAGES_DIR
     from app.core.vm_builder import build_domain_xml, validate_name
 
+    if live and (mode != "new" or store):
+        raise RuntimeError("A live restore makes a new VM from a backup kept as files (not one in a backup store)")
     found = checked_backup(path)
     found = None if isinstance(found, Path) else found
     if store and not found:
@@ -1060,7 +1067,7 @@ def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only
                 store_, vm_uuid, stamp = found
                 needed = sum(store_.index_of(vm_uuid, stamp, dev).size for dev, _ in images)
             else:
-                needed = sum(_allocated_bytes(src) for _dev, src in images)
+                needed = sum(_allocated_bytes(src) for _dev, src in images)  # a live restore copies as much
             disk_space.ensure_room(_IMAGES_DIR, needed, "this restore")
 
             span = 60 / len(images)
@@ -1073,6 +1080,8 @@ def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only
                 if found:
                     backup_store_vm.restore_disk(store_, vm_uuid, stamp, _dev, dest, "qcow2")
                     update_task_progress(task_id, int(20 + (i + 1) * span))
+                elif live:
+                    live_restore.overlay(src, dest)
                 else:
                     _convert(src, dest, "qcow2", task_id, 20 + i * span, span)
 
@@ -1090,19 +1099,55 @@ def restore_files(path, store, source_vm, mode, vm, network, task_id, check_only
             )
             new_domain = conn.defineXML(xml)
             refresh_pools_for_paths(conn, new_disk_paths)
+            restored = backup_integrity.restore_firmware_state(files_dir, new_domain)
+            if live:
+                _live_copy(new_domain, images, new_disk_paths[: len(images)], task_id)
             return {
-                "restored": backup_integrity.restore_firmware_state(files_dir, new_domain),
+                "restored": restored,
                 "os_label": config.get("os_label"),
                 "ssh_user": config.get("ssh_user"),
+                "live": live,
             }
         except Exception as e:
             if mode == "new" and not check_only:
+                if live:
+                    _drop_new_vm(conn, vm)
                 # Only the files this restore created: the name check above refused existing ones.
                 for created in new_disk_paths:
                     Path(created).unlink(missing_ok=True)
             if isinstance(e, libvirt.libvirtError):
                 raise RuntimeError(describe_exception(e)) from e
             raise
+
+
+def _live_copy(domain, images, disks, task_id):
+    """Start the new VM on its backup's images, then copy them into its own disks while it runs
+    (app/core/live_restore.py). Raises on a failed copy; the caller removes the VM and its disks."""
+    targets = [target for target, _src in images]
+    owners = live_restore.Owners([src for _dev, src in images])
+    try:
+        domain.create()
+        update_task_progress(task_id, 20)
+        live_restore.stream(domain, targets, lambda pct: update_task_progress(task_id, 20 + int(pct * 0.75)))
+        live_restore.check_standalone(disks)
+    finally:
+        owners.restore()
+
+
+def _drop_new_vm(conn, name):
+    """A live restore that failed: its VM stopped and forgotten (its disks are removed by the caller)."""
+    try:
+        domain = conn.lookupByName(name)
+    except libvirt.libvirtError:
+        return
+    with contextlib.suppress(libvirt.libvirtError):
+        if domain.isActive():
+            domain.destroy()
+    with contextlib.suppress(libvirt.libvirtError):
+        domain.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_NVRAM | libvirt.VIR_DOMAIN_UNDEFINE_KEEP_TPM)
+        return
+    with contextlib.suppress(libvirt.libvirtError):
+        domain.undefine()
 
 
 def verify_backup(backup_id, username="system", task_id=None):
