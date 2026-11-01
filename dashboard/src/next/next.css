@@ -28,8 +28,11 @@
   --color-bg-surface-raised: #2C272E;
   --color-bg-hover: #2E292F;
   --color-bg-selected: #3A2631;
-  /* Borders. Default: the edge of cards, tables and panels, clearly visible (about 2:1; at 1.3:1 the surfaces
-     "floated" with no readable limit). Subtle: separators inside them (rows). Strong: controls, 3:1. */
+  /* Borders. Default: the edge of tables and panels, clearly visible (about 2:1; at 1.3:1 the surfaces
+     "floated" with no readable limit). Card: the edge of the sections on a page, one step above their surface, so a
+     page of cards is not a grid of light outlines on the dark background. Subtle: separators inside them (rows).
+     Strong: controls, 3:1. */
+  --color-border-card: #2A262C;
   --color-border-subtle: #3A343B;
   --color-border-default: #524A53;
   --color-border-strong: #7A7079;
@@ -96,7 +99,7 @@
   --color-bg-app: #E2DDDA; --color-bg-sidebar: #EEEAE7; --color-bg-workspace: #E2DDDA;
   --color-bg-surface: #EEEAE7; --color-bg-surface-raised: #E8E3E0;
   --color-bg-hover: #DED8D5; --color-bg-selected: #EAD9E1;
-  --color-border-subtle: #CCC5C2; --color-border-default: #ADA5A1;
+  --color-border-card: #CCC5C2; --color-border-subtle: #CCC5C2; --color-border-default: #ADA5A1;
   --color-border-strong: #7F767A; --color-border-focus: #6E3550;
   --color-text-primary: #1F1A1D; --color-text-secondary: #3A3336;
   --color-text-muted: #5A5256; --color-text-disabled: #948C90; --color-text-on-accent: #FFFFFF;
@@ -112,7 +115,7 @@
   color-scheme: dark;
   --color-bg-sidebar: #141215; --color-bg-surface: #242026; --color-bg-surface-raised: #2C272E;
   --color-bg-hover: #2E292F; --color-bg-selected: #3A2631; --color-bg-workspace: #1C191D;
-  --color-border-subtle: #3A343B; --color-border-default: #524A53; --color-border-strong: #7A7079;
+  --color-border-card: #2A262C; --color-border-subtle: #3A343B; --color-border-default: #524A53; --color-border-strong: #7A7079;
   --color-border-focus: #CE9DB2;
   --color-text-primary: #F1ECEE; --color-text-secondary: #C9C1C6; --color-text-muted: #A89FA5;
   --color-text-disabled: #6A6268; --color-text-on-accent: #19161A;
@@ -122,7 +125,7 @@
 }
 
 @media (prefers-contrast: more) {
-  :root[data-ui="next"] { --color-border-default: var(--color-border-strong); --color-border-subtle: var(--color-border-default); }
+  :root[data-ui="next"] { --color-border-default: var(--color-border-strong); --color-border-subtle: var(--color-border-default); --color-border-card: var(--color-border-default); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -269,9 +272,9 @@
 
 /* ---------- Workspace ---------- */
 .nx-main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--color-bg-workspace); }
-.nx-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-border-default); background: var(--color-warning-subtle); border-left: 3px solid var(--color-warning); font-size: var(--font-size-sm); }
-.nx-banner--danger { background: var(--color-danger-subtle); border-left-color: var(--color-danger); }
-.nx-banner--info { background: var(--color-info-subtle); border-left-color: var(--color-info); }
+.nx-banner { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-border-default); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
+.nx-banner--danger { background: var(--color-danger-subtle); }
+.nx-banner--info { background: var(--color-info-subtle); }
 .nx-reshead { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4) 0; flex-wrap: wrap; }
 .nx-reshead h1 { margin: 0; font-size: var(--font-size-xl); line-height: var(--line-height-tight); font-weight: 600; overflow-wrap: anywhere; }
 .nx-reshead .nx-meta { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
@@ -285,7 +288,7 @@
 .nx-content { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4); }
 .nx-content[data-legacy="true"] { padding: 0; }
 .nx-legacy { padding: var(--space-4); }
-.nx-card { background: var(--color-bg-surface); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); padding: var(--space-4); }
+.nx-card { background: var(--color-bg-surface); border: 1px solid var(--color-border-card); border-radius: var(--radius-md); padding: var(--space-4); }
 .nx-card h2 { margin: 0 0 var(--space-3); font-size: var(--font-size-md); font-weight: 600; }
 .nx-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
 .nx-kpi { display: grid; justify-items: center; gap: var(--space-1); text-align: center; padding: var(--space-4) var(--space-3); }
@@ -297,7 +300,7 @@
 .nx-gauge-value small { font-size: 0.6875rem; font-weight: 500; margin-left: 1px; color: var(--color-text-muted); }
 .nx-gauge--empty { width: 84px; height: 84px; border-radius: 50%; border: 7px solid var(--color-border-subtle); display: grid; place-items: center; }
 .nx-empty, .nx-error { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-6); max-width: 40rem; }
-.nx-error { border-left: 3px solid var(--color-danger); background: var(--color-danger-subtle); border-radius: var(--radius-md); }
+.nx-error { border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border-subtle)); background: var(--color-danger-subtle); border-radius: var(--radius-md); }
 .nx-empty h2, .nx-error h2 { margin: 0; font-size: var(--font-size-lg); }
 
 /* vSphere-style perspectives, actions and section navigation */
@@ -398,6 +401,8 @@
 @media (max-width: 1100px) { .nx-cols { grid-template-columns: minmax(0, 1fr); } }
 .nx-cardhead { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
 .nx-cardhead h2 { margin: 0 auto 0 0; }
+/* A textarea takes the rows it asks for: the fixed height of a one-line input folded it into a single line. */
+textarea.nx-input { height: auto; min-height: 4.5rem; padding-block: var(--space-2); line-height: 1.45; resize: vertical; }
 .nx-input { height: 2rem; min-width: 10rem; padding: 0 var(--space-3); background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
 .nx-spark { display: block; margin-top: var(--space-2); font-size: var(--font-size-xs); min-height: 28px; }
 .nx-cards { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); }
@@ -491,7 +496,7 @@
 .nx-spark { margin-top: var(--space-3); }
 
 /* ---------- Activity panel (right slide-over, closed by default) ---------- */
-.nx-trow { border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); background: var(--color-bg-workspace); overflow: hidden; }
+.nx-trow { border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); background: var(--color-bg-workspace); overflow: hidden; }
 .nx-trow-main { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; width: 100%; padding: var(--space-3); background: none; border: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
 .nx-trow-main:hover { background: var(--color-bg-hover); }
 .nx-trow-text { display: grid; gap: 2px; min-width: 0; font-size: var(--font-size-sm); }
@@ -507,7 +512,7 @@
 [data-sidebar="collapsed"] .nx-nav-group-btn span[aria-hidden] { display: none; }
 
 /* ---------- Screens not rebuilt yet: same cards, fields and dialogs as the rest ---------- */
-:root[data-ui="next"] [data-slot="card"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
+:root[data-ui="next"] [data-slot="card"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
 :root[data-ui="next"] [data-slot="button"] { border-radius: var(--radius-md); }
 :root[data-ui="next"] [data-slot="input"], :root[data-ui="next"] [data-slot="textarea"], :root[data-ui="next"] [data-slot="native-select"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); }
 :root[data-ui="next"] [data-slot="dialog-content"], :root[data-ui="next"] [data-slot="alert-dialog-content"], :root[data-ui="next"] [data-slot="dropdown-menu-content"] { background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-float); }
@@ -528,7 +533,7 @@
 .nx-ns > *, .nx-cols > * { min-width: 0; }
 
 /* ---------- Forms inside cards ---------- */
-.nx-form { display: grid; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); background: var(--color-bg-workspace); }
+.nx-form { display: grid; align-content: start; gap: var(--space-4); padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-lg); background: var(--color-bg-workspace); }
 .nx-form label { display: grid; gap: var(--space-1); font-size: var(--font-size-sm); color: var(--color-text-secondary); }
 .nx-formgrid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
 .nx-formgrid--3 { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
@@ -554,10 +559,11 @@ select.nx-input { height: 2rem; }
 .nx-keybox code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--font-size-xs); }
 
 /* HA / compatibility */
-.nx-notice { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--color-border-strong); border-left-width: 4px; background: var(--color-bg-raised); }
-.nx-notice--warning { border-left-color: var(--color-warning); background: var(--color-warning-subtle); }
-.nx-notice--success { border-left-color: var(--color-success); background: var(--color-success-subtle); }
-.nx-error-inline { margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border-left: 4px solid var(--color-danger); background: var(--color-danger-subtle); }
+/* The same vocabulary as the banners (.nx-bn): a border tinted all round, not a thick coloured bar on the left. */
+.nx-notice { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--color-border-strong); background: var(--color-bg-raised); }
+.nx-notice--warning { border-color: color-mix(in oklab, var(--color-warning) 35%, var(--color-border-subtle)); background: var(--color-warning-subtle); }
+.nx-notice--success { border-color: color-mix(in oklab, var(--color-success) 35%, var(--color-border-subtle)); background: var(--color-success-subtle); }
+.nx-error-inline { margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border-subtle)); background: var(--color-danger-subtle); }
 .nx-row--warn > * { background: var(--color-warning-subtle); }
 .nx-check { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
 .nx-input--auto { width: auto; }
@@ -722,6 +728,10 @@ select.nx-input { height: 2rem; }
 @media (max-width: 1100px) { .nx-ov-row, .nx-ov-row--even { grid-template-columns: minmax(0, 1fr); } }
 
 /* Scrollbars: thin and in the theme's colours everywhere (the navigation column resolves its own dark tokens) */
+/* What the browser draws carries the palette too: checkboxes, radios and ranges, the caret, the selected text. */
+:root[data-ui="next"] { accent-color: var(--color-accent); }
+:root[data-ui="next"] :is(input, textarea) { caret-color: var(--color-accent); }
+:root[data-ui="next"] ::selection { background: color-mix(in oklab, var(--color-accent) 32%, transparent); }
 :root[data-ui="next"], :root[data-ui="next"] * { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--color-text-muted) 45%, transparent) transparent; }
 :root[data-ui="next"] *:hover { scrollbar-color: color-mix(in oklab, var(--color-text-muted) 70%, transparent) transparent; }
 /* Tab rows scroll sideways when they must, without a visible bar (the 1px underline offset used to create a stray one) */
@@ -817,7 +827,7 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 @media (max-width: 720px) { .nx-iplist li { grid-template-columns: 1fr 1fr; } }
 
 /* Settings waiting for a VM's next start, under its header. */
-.nx-pending { margin: 0.9333rem 1.6rem 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-left: 3px solid var(--color-warning); border-radius: var(--radius-md); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
+.nx-pending { margin: 0.9333rem 1.6rem 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in oklab, var(--color-warning) 35%, var(--color-border-subtle)); border-radius: var(--radius-md); background: var(--color-warning-subtle); font-size: var(--font-size-sm); }
 .nx-pending-h { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .nx-pending-t { margin-top: var(--space-2); }
 .nx-pending + .nx-tabs { margin-top: 0.9333rem; }
@@ -834,7 +844,8 @@ button.nx-tag:hover { border-color: var(--color-border-strong); }
 .nx-colpick > summary { list-style: none; cursor: pointer; }
 .nx-colpick > summary::-webkit-details-marker { display: none; }
 .nx-colpick-p { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; margin: 0; min-width: 12rem; display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); box-shadow: var(--shadow-md, 0 6px 20px rgba(0,0,0,.25)); }
-@media (max-width: 720px) { .nx-colpick-p { right: auto; left: 0; } }
+.nx-colpick-p[data-align="start"] { right: auto; left: 0; }
+.nx-colpick-p { max-width: calc(100vw - 2rem); }
 
 /* A field label followed by its (i) help. */
 .nx-f-l { display: inline-flex; align-items: center; gap: var(--space-1); }
