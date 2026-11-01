@@ -27,9 +27,19 @@ class FirewallRule(BaseModel):
     port: int | None = Field(None, ge=1, le=65535)
 
 
+def check_groups(groups):
+    """A VM's or a network's firewall references existing security groups only (the nodes' firewall page)."""
+    from app.core import host_firewall
+
+    if unknown := host_firewall.unknown_groups(groups):
+        raise HTTPException(status_code=422, detail=f"Unknown security group: {', '.join(unknown)}")
+
+
 class FirewallConfig(BaseModel):
     default_policy: str = "accept"
     rules: list[FirewallRule] = []
+    # Security groups of the nodes' firewall (app/core/host_firewall.py), applied before the rules.
+    groups: list[str] = Field([], max_length=16)
 
 
 @router.get("/{name}/firewall")
@@ -63,6 +73,7 @@ def set_vm_firewall(name: str, payload: FirewallConfig, user: dict = Depends(req
             or rule.protocol not in _FIREWALL_PROTOCOLS
         ):
             raise HTTPException(status_code=422, detail=f"Invalid rule: {rule}")
+    check_groups(payload.groups)
 
     conn = open_conn(readonly=True)
     try:

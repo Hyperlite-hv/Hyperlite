@@ -6,9 +6,10 @@ interface name from the API, which could otherwise point a rule or a VLAN change
 keep who may ask, the audit log and the database."""
 
 import functools
+import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core import bridge_vlan, libvirt_utils, network_firewall
 from app.daemon.needs import ANYONE
@@ -48,6 +49,15 @@ class FirewallConfig(BaseModel):
 
     default_policy: Literal["accept", "drop"]
     rules: list[FirewallRule] = Field(max_length=RULES)
+    # Security groups (app/core/host_firewall.py): their nwfilter for a VM, their rules in a network's chain.
+    groups: list[str] = Field(default=[], max_length=16)
+
+    @field_validator("groups")
+    @classmethod
+    def _group_names(cls, groups):
+        if any(not re.match(r"^[a-zA-Z][a-zA-Z0-9_-]{0,31}$", g) for g in groups):
+            raise ValueError("not a security group name")
+        return groups
 
 
 class NetworkArgs(Args):
