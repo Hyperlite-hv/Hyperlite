@@ -17,7 +17,13 @@ from app.core.security import get_current_user, require_role
 from app.core.vm_builder import validate_name
 from app.daemon.registry import DaemonError
 from app.routers.vms._shared import inventory
-from app.routers.vms.firewall import _FIREWALL_ACTIONS, _FIREWALL_DIRECTIONS, _FIREWALL_PROTOCOLS, FirewallConfig
+from app.routers.vms.firewall import (
+    _FIREWALL_ACTIONS,
+    _FIREWALL_DIRECTIONS,
+    _FIREWALL_PROTOCOLS,
+    FirewallConfig,
+    check_groups,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +237,7 @@ def set_network_firewall(name: str, payload: FirewallConfig, user: dict = Depend
             or rule.protocol not in _FIREWALL_PROTOCOLS
         ):
             raise HTTPException(status_code=422, detail=f"Invalid rule: {rule}")
+    check_groups(payload.groups)
 
     conn = open_conn(readonly=True)
     try:

@@ -99,7 +99,7 @@ def test_applying_puts_our_chain_first_in_forward_and_rebuilds_it(iptables, data
 
 def test_the_configuration_is_stored_and_replayed_after_a_reboot(iptables, database):
     fw.apply_network_firewall("lab", CONFIG)
-    assert fw.get_network_firewall("lab") == {"default_policy": "drop", "rules": CONFIG["rules"]}
+    assert fw.get_network_firewall("lab") == {"default_policy": "drop", "rules": CONFIG["rules"], "groups": []}
     iptables.chains = {"FORWARD": []}  # a reboot: iptables starts empty
     fw.reapply_all()
     assert iptables.chains[fw._chain_name("lab")] == fw._build_rule_specs("virbr7", CONFIG)
@@ -136,3 +136,31 @@ def test_an_unknown_network_is_refused(iptables, database):
     with pytest.raises(ValueError):
         fw.apply_network_firewall("nope", CONFIG)
     assert json.loads(json.dumps(fw.get_network_firewall("nope")))["default_policy"] == "accept"
+
+
+def test_a_networks_security_groups_are_stored_with_it_and_built_into_its_chain(iptables, database, monkeypatch):
+    """The groups of the nodes' firewall go into the network's chain before its own rules, as traffic entering its
+    VMs (-o bridge), an IP set as one rule per network, a port list as one rule per port."""
+    from app.core import host_firewall
+
+    doc = host_firewall.normalize(
+        {
+            "ipsets": [{"name": "admins", "cidrs": ["192.168.1.0/24", "10.8.0.5"]}],
+            "groups": [
+                {"name": "web", "rules": [{"action": "accept", "protocol": "tcp", "port": "80,443"}]},
+                {"name": "ssh", "rules": [{"action": "accept", "protocol": "tcp", "port": "22", "source": "+admins"}]},
+            ],
+        }
+    )
+    monkeypatch.setattr(host_firewall, "saved", lambda: doc)
+    config = {**CONFIG, "groups": ["web", "ssh"]}
+    fw.apply_network_firewall("lab", config)
+    assert fw.get_network_firewall("lab")["groups"] == ["web", "ssh"]
+    chain = iptables.chains[fw._chain_name("lab")]
+    groups = [
+        ["-o", "virbr7", "-p", "tcp", "--dport", "80", "-j", "ACCEPT"],
+        ["-o", "virbr7", "-p", "tcp", "--dport", "443", "-j", "ACCEPT"],
+        ["-o", "virbr7", "-s", "10.8.0.5/32", "-p", "tcp", "--dport", "22", "-j", "ACCEPT"],
+        ["-o", "virbr7", "-s", "192.168.1.0/24", "-p", "tcp", "--dport", "22", "-j", "ACCEPT"],
+    ]
+    assert chain[2:6] == groups  # after the established connections, before the network's own rules

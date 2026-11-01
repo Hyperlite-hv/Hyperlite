@@ -122,7 +122,7 @@ def test_the_firewall_is_applied_on_the_bridge_the_daemon_reads(host, iptables, 
     assert result == {"bridge": "br0", "applied_rules": 1}
     rules = [args for args in iptables if args[0] == "-A" and args[1].startswith("HLNET")]
     assert rules and all("br0" in args for args in rules)
-    assert network_firewall.get_network_firewall("lan") == RULES  # kept by the API, to replay after a reboot
+    assert network_firewall.get_network_firewall("lan") == {**RULES, "groups": []}  # kept by the API, for a reboot
 
 
 def test_an_unknown_network_is_refused_and_nothing_is_kept(host, iptables, database):
