@@ -80,7 +80,7 @@
         {"fr": "Restauration de fichiers", "en": "File restore", "status": "ahead", "pve": "Needs Proxmox Backup Server", "hl": "Built in, no backup server"},
         {"fr": "Sauvegardes incrémentales", "en": "Incremental backups", "status": "parity", "issue": 337, "pve": "With PBS (dirty bitmaps)", "hl": "Every disk type (qcow2, raw, ZFS, LVM, iSCSI) into a backup store; a running VM's qcow2 disks read only where the guest wrote since the last backup (dirty bitmaps); every backup a complete image, never a chain"},
         {"fr": "Déduplication et chiffrement", "en": "Deduplication and encryption", "status": "parity", "issue": 420, "pve": "Proxmox Backup Server", "hl": "A chunk store as PBS's: 4 MiB chunks held once across every VM, optional client-side AES-256-GCM with a master recovery key, verification, garbage collection, off-site copies pulled by the other site (another store or another cluster, a read-only account, no key there) with their own retention"},
-        {"fr": "Restauration à chaud", "en": "Live restore", "status": "missing", "issue": 513, "pve": "Yes", "hl": "None"}
+        {"fr": "Restauration à chaud", "en": "Live restore", "status": "partial", "issue": 513, "pve": "Yes", "hl": "A backup kept as files restored as a new VM that starts at once, its disks copied from the backup while it runs (block pull), the backup left untouched; not yet from a backup store"}
       ]
     },
     {

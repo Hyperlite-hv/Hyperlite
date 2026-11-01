@@ -561,8 +561,9 @@ export async function unlockBackupStore(name, key) {
 export async function deleteBackup(id, on) {
   return realFetch(`/backups/${id}${backupQs("on", on, "confirm=true")}`, { method: "DELETE" });
 }
-export async function restoreBackup(id, mode, newName = null, on) {
-  return realFetch(`/backups/${id}/restore${backupQs("on", on)}`, { method: "POST", ...jsonBody({ mode, new_name: newName }) });
+// live: a new VM started at once on the backup, the rest copied while it runs (a backup kept as files only).
+export async function restoreBackup(id, mode, newName = null, on, live = false) {
+  return realFetch(`/backups/${id}/restore${backupQs("on", on)}`, { method: "POST", ...jsonBody({ mode, new_name: newName, live }) });
 }
 // Recompute every checksum of a backup and check its images (a task, held by the same node as the backup).
 // A backup of the directory format copied into a backup store (a task); the backup stays as it is.

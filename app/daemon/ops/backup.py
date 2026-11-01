@@ -96,6 +96,7 @@ class RestoreArgs(Args):
     network: str | None = Field(default=None, min_length=1, max_length=64)
     task_id: str = Field(min_length=1, max_length=TASK_ID)
     check_only: bool = False
+    live: bool = False  # a new VM started at once on the backup (app/core/live_restore.py)
 
 
 @operation("backup.restore", RestoreArgs)
@@ -115,6 +116,7 @@ def restore(args, ctx):
             args.network,
             args.task_id,
             check_only=args.check_only,
+            live=args.live,
         )
 
 
