@@ -220,6 +220,11 @@ def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("ad
 class RestoreRequest(BaseModel):
     mode: str = Field(description="'overwrite' (replaces the original VM) or 'new' (new VM)")
     new_name: str | None = None
+    live: bool = Field(
+        False,
+        description="Live restore (mode 'new', a backup kept as files): the VM starts at once on the backup, the rest "
+        "copied while it runs",
+    )
 
 
 @router.post("/backups/{backup_id}/restore", status_code=202)
@@ -238,6 +243,11 @@ def restore_backup_endpoint(
         raise HTTPException(status_code=422, detail="Invalid mode (expected 'overwrite' or 'new')")
     if row["status"] != "succeeded":
         raise HTTPException(status_code=409, detail="This backup is not in a restorable state (failed or in progress)")
+    if payload.live and (payload.mode != "new" or row.get("store")):
+        raise HTTPException(
+            status_code=422,
+            detail="A live restore makes a new VM from a backup kept as files (not one in a backup store)",
+        )
     if payload.mode == "new":
         name_error = validate_name(payload.new_name or "")
         if name_error:
@@ -247,7 +257,9 @@ def restore_backup_endpoint(
 
     def job():
         try:
-            restore_backup(backup_id, payload.mode, payload.new_name, username=user["username"], claim=claim)
+            restore_backup(
+                backup_id, payload.mode, payload.new_name, username=user["username"], claim=claim, live=payload.live
+            )
         except Exception:
             logger.debug("Ignored exception in job()", exc_info=True)  # already logged in restore_backup
         finally:
@@ -258,7 +270,13 @@ def restore_backup_endpoint(
     except BaseException:
         claim.release()
         raise
-    log_action(user["username"], "restore_backup_requested", row["vm_name"], "success", f"mode={payload.mode}")
+    log_action(
+        user["username"],
+        "restore_backup_requested",
+        row["vm_name"],
+        "success",
+        f"mode={payload.mode}{' live' if payload.live else ''}",
+    )
     return {"message": "Restore started in the background"}
 
 
