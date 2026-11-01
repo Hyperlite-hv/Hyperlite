@@ -1,6 +1,6 @@
 # Design: VLANs, bonds and host network settings
 
-Status: **steps 1 and 2 decided** (step 2 "as Proxmox VE does", parts 1 and 2: section 7). Steps 3 to 5 wait for the
+Status: **steps 1, 2 and 4 done** (step 4: section 8) (step 2 "as Proxmox VE does", parts 1 and 2: section 7). Steps 3 to 5 wait for the
 maintainer's decision.
 
 ## 1. Where we are
@@ -155,3 +155,32 @@ Checked in the lab (a bridge whose uplink is a bond, the host's address untagged
 | A VM with tag 10 on the bridge made VLAN-aware | Its port is on VLAN 10 |
 | Filtering lost, as after a reboot | `python -m app.core.bridge_vlan boot`, then the unit, make it VLAN-aware again; the unit is ordered after `network.target` and before `libvirtd.service` |
 | Turned off | No filtering, no longer listed; the host still reached |
+
+## 8. Step 4: the host's bridges, bonds and VLAN interfaces (2026-11-01)
+
+The node's Network page creates, edits and deletes bridges, bonds and VLAN interfaces (#512), as Proxmox VE's
+Node › Network does. Section 3.2 recommended ifupdown2's `ifreload`; hosts installed from Debian run the classic
+ifupdown, and replacing it on a running node is a change of its own. So the implementation keeps to what both read:
+
+- **One file, Hyperlite's**: `/etc/network/interfaces.d/hyperlite`, sourced by Debian's `/etc/network/interfaces`.
+  The administrator's own files are never written. An interface they name (a stanza, a port, a slave, a raw device)
+  is listed as theirs, and Hyperlite neither changes it nor takes it as a member. Moving a NIC from
+  `/etc/network/interfaces` into a bridge stays a step done by hand.
+- **Checked in hyperlite-daemon** (`app/core/host_network.py`), whatever the dashboard sent: names, a bond's cards
+  (NICs only), a bridge's ports (no bridge in a bridge), a VLAN's parent, one gateway at most and none if the node
+  already has a default route elsewhere, no Wi-Fi, the tools (bridge-utils for bridges, ifenslave for bonds; both
+  recommended by the package), and no deletion of an interface a libvirt network sits on.
+- **Shown before applied**: the file's diff and the interfaces that come down and up: only the changed ones and what
+  sits on them (a bridge on a changed bond).
+- **Applied with a rollback armed first**: a transient systemd timer (`hyperlite-network-rollback`) runs
+  `python -m app.core.host_network rollback <id>` when the delay (30 to 600 s, 60 by default) ends. The page confirms
+  from the browser, over the network as it is after the change; a change that cuts the browser off is undone by the
+  timer, without the API or the daemon. An interface that does not come up rolls the change back at once. The daemon
+  rolls back, at its start, a change the node rebooted on before its confirmation.
+- **Every node**: the routes (`/host/network`, `/preview`, `/apply`, `/confirm`, `/rollback`) take `?node=`, which
+  sends the request to that member.
+
+Verified with the real ifupdown in a network namespace of its own (dummy NICs, a bond in active-backup, a VLAN on it,
+a bridge on the VLAN with an address, a change of the bridge only, the rollback and the deletion), and the timer on a
+production node with nothing to roll back. Not done here: VLAN-aware bridges from this page (section 7 has its own
+action), IPv6 addresses, and bridges or bonds made in the administrator's files.

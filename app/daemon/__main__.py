@@ -40,6 +40,14 @@ if __name__ == "__main__":
     if removed := disk_library.clean_staging():
         logging.getLogger(__name__).info("Removed %d upload(s) a stop left being stored", removed)
 
+    # A host network change the node rebooted on before it was confirmed (app/core/host_network.py): put back.
+    from app.core import host_network
+
+    try:
+        host_network.finish_interrupted()
+    except Exception:  # the daemon must start all the same: the administrator sees the change still pending
+        logging.getLogger(__name__).exception("The unconfirmed host network change could not be rolled back")
+
     # The copy between SQLite and hyperlite-cfs, both ways: root's, as the permissions' file and the cluster's tree are
     # (app/daemon/ops/cfs.py).
     from app.repositories.cfs import inbound, shadow

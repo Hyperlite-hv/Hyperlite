@@ -290,6 +290,23 @@ A network's **Details**:
 VLAN tags are set per VM network card. Starting, stopping, autostart and deletion are in the row's buttons and menu (a
 network still used by a VM cannot be deleted).
 
+### The host's bridges, bonds and VLAN interfaces
+
+A node's **Network** tab (administrators) creates, edits and deletes the host's own **bridges** (for VMs, with or
+without ports), **bonds** (two network cards or more, in active-backup, LACP 802.3ad or another mode) and **VLAN
+interfaces** (on a card, a bond or a bridge), with an optional IPv4 address and MTU.
+
+1. Make the changes: they stay a draft on the page until applied.
+2. **Review and apply** shows the difference in the file, and the interfaces that stop and start again (the VMs on
+   them lose the network for a few seconds).
+3. Choose the confirmation delay and **Apply**. A banner counts down: **Confirm** keeps the change, **Roll back**
+   undoes it. Without a confirmation in time (the change cut this browser off, for example), the node puts its
+   previous configuration back by itself, even after a reboot.
+
+Hyperlite writes these interfaces in its own file, `/etc/network/interfaces.d/hyperlite`. The interfaces of
+`/etc/network/interfaces` stay the administrator's: listed, never changed, and not offered as ports or bond cards.
+Bonds need the `ifenslave` package. On a cluster, each node has its own Network tab.
+
 ## 8. Library: ISO images, templates, imported disks
 
 **ISO images and templates**:
