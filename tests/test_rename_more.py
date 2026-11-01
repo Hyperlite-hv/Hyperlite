@@ -298,7 +298,7 @@ def test_a_network_is_renamed_and_its_stopped_guests_follow(client, auth_headers
     assert "labo" in qemu.nets and "lab" not in qemu.nets and qemu.nets["labo"].isActive()
     assert '<source network="labo" />' in qemu.defined[0] and '<source network="labo" />' in lxc.defined[0]
     assert get_container_app("pg")["network"] == "labo"
-    assert applied == [("labo", {"default_policy": "drop", "rules": []})]
+    assert applied == [("labo", {"default_policy": "drop", "rules": [], "groups": []})]  # groups: #422
 
 
 def test_a_network_with_a_running_guest_or_a_system_network_keeps_its_name(client, auth_headers, nets):

@@ -30,6 +30,7 @@ def start():
     from app.core.update_check import start_update_check_scheduler
     from app.core.vm_boot import start_boot_sequence
     from app.core.vm_cleanup import start_auto_cleanup_scheduler
+    from app.core.zfs_storage import start_watch as start_zfs_watch
 
     start_backup_scheduler()
     start_replication_scheduler()
@@ -38,6 +39,7 @@ def start():
     start_boot_sequence()
     start_node_poller()
     start_config_copy()
+    start_zfs_watch()
     _at_start()
 
 
