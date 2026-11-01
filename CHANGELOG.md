@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-01
+
+### Changed
+
+- The filter selectors (all, running, stopped, to check…) lose their light outlines in the dark theme: the group
+  takes the sections' edge, and the chosen filter shows by its tinted fill. With the system's high-contrast setting,
+  the chosen filter keeps its outline.
+
 ## [1.6.1] - 2026-11-01
 
 ### Fixed
