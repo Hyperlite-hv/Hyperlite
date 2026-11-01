@@ -1,7 +1,8 @@
 [Unit]
 Description=Hyperlite daemon (the operations that need root, behind a local socket)
 Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/privilege-separation.md
-After=libvirtd.service
+After=libvirtd.service hyperlite-cfs.service
+Wants=hyperlite-cfs.service
 Before=hyperlite.service
 
 [Service]
@@ -11,6 +12,8 @@ WorkingDirectory=/usr/lib/hyperlite
 # The node's settings the API's unit loads too: the copy to hyperlite-cfs runs here (app/daemon/ops/cfs.py) and reads
 # whether it is forced on (HYPERLITE_CFS_SHADOW) and the daemon's socket, as the API did.
 EnvironmentFile=-/etc/hyperlite/priv/env
+# Where the node's keys are once /etc/hyperlite is the cluster's tree (docs/design/cfs-files.md, section 15).
+EnvironmentFile=-/etc/hyperlite/local/priv/env
 Environment=PYTHONUNBUFFERED=1
 Environment=LC_ALL=C.UTF-8
 # /run/hyperlite: the socket, 0660 root and the API's group (app/daemon/server.py). Nothing listens on the network.

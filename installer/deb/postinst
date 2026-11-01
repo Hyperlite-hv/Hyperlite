@@ -16,16 +16,11 @@ ETC=/etc/hyperlite
 PRIV=$ETC/priv
 OLD=/root/hyperlite  # up to 1.0
 
-# The bridge (docs/design/cfs-files.md, section 8): a version from step 3 on keeps the node's files in the cluster's
-# tree. Reinstalled over it (a rollback), this one puts them back on disk first, before their absence could be taken
-# for a first installation and new keys made over the node's. Never replaces a file; nothing to do on any other node.
-if ! ( cd "$CODE" && python3 -m app.core.node_files restore ); then
-    log "ERROR: the node's files could not be put back in $ETC from the cluster's tree: nothing changed. See above."
-    exit 1
-fi
-
+# From 1.14 the node's files are in the cluster's tree, mounted read-only at /etc/hyperlite (docs/design/cfs-files.md,
+# section 15): its keys are then at local/priv/env. The bridge's restore (1.13) is not run here: it would take them out
+# of the tree; a return to 1.13 runs it from 1.13's own postinst.
 FRESH_INSTALL=0
-[ ! -f "$PRIV/env" ] && [ ! -f "$OLD/.env" ] && FRESH_INSTALL=1
+[ ! -f "$PRIV/env" ] && [ ! -f "$ETC/local/priv/env" ] && [ ! -f "$OLD/.env" ] && FRESH_INSTALL=1
 
 chmod +x "$CODE/scripts/"*.sh 2>/dev/null || true
 # Readable by libvirt-qemu down to the ISO images (template/iso); what holds secrets is closed below it.
@@ -81,8 +76,8 @@ else
     fi
 fi
 
-# hyperlite-cfs, the replicated configuration: built in CI, shipped at /usr/lib/hyperlite/hyperlite-cfs. Its unit is
-# installed but left disabled until a cluster is set up. Older versions built it on the node into /usr/local/sbin:
+# hyperlite-cfs, the replicated configuration: built in CI, shipped at /usr/lib/hyperlite/hyperlite-cfs. It runs on every
+# node from 1.14 (docs/design/cfs-files.md, section 7): it holds the node's own files. Older versions built it on the node into /usr/local/sbin:
 # that name now points at the shipped one, for the scripts that still use it.
 log "hyperlite-cfs (replicated configuration)"
 ln -sfn "$CODE/hyperlite-cfs" /usr/local/sbin/hyperlite-cfs
@@ -136,10 +131,11 @@ if ! ( cd "$CODE" && "$CODE/venv/bin/python3" -c \
     "from app.core.host_system import ensure_auto_updates_default; ensure_auto_updates_default()" ) >/dev/null 2>&1; then
     log "WARNING: the night security updates could not be set up (Node > Updates)."
 fi
-# Only a daemon an administrator enabled (a cluster) is restarted onto the new binary; a disabled one stays stopped.
-# Not try-restart: the bridge's restore above may have stopped it to unmount the tree.
-if systemctl is-enabled --quiet hyperlite-cfs.service && ! systemctl restart hyperlite-cfs.service; then
-    log "WARNING: hyperlite-cfs did not restart: systemctl status hyperlite-cfs"
+# On every node, in local mode where no cluster set it up (/etc/default/hyperlite-cfs): it holds the node's files, and
+# the API's next start moves them into its tree (app/core/node_files.py, move).
+systemctl enable hyperlite-cfs.service
+if ! systemctl restart hyperlite-cfs.service; then
+    log "WARNING: hyperlite-cfs did not start: systemctl status hyperlite-cfs"
 fi
 # hyperlite-daemon: the root side of the API (docs/design/privilege-separation.md). Restarting it never touches the
 # API process, so it is restarted even when the API defers its own restart.

@@ -7,13 +7,15 @@ Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/
 # After hyperlite-daemon and the API; PartOf: a restart or a stop of the API (an update) restarts or stops it too, so
 # they run the same version, as the scheduler.
 After=hyperlite-daemon.service hyperlite-cfs.service hyperlite.service
-Wants=hyperlite-daemon.service
+Wants=hyperlite-daemon.service hyperlite-cfs.service
 PartOf=hyperlite.service
 
 [Service]
 Type=simple
 WorkingDirectory=/usr/lib/hyperlite
 EnvironmentFile=-/etc/hyperlite/priv/env
+# Where the node's keys are once /etc/hyperlite is the cluster's tree (docs/design/cfs-files.md, section 15).
+EnvironmentFile=-/etc/hyperlite/local/priv/env
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/root
 # The tools' output read in English, as the API's (installer/hyperlite.service).
@@ -23,7 +25,7 @@ Environment=TMPDIR=/var/lib/hyperlite/tmp
 Environment=HYPERLITE_SERVICE=ha-lrm
 Environment=HYPERLITE_HA_SERVICE=1
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
-ExecStartPre=/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStartPre=/bin/sh -c 'test -s /etc/hyperlite/priv/env || test -s /etc/hyperlite/local/priv/env'
 ExecStart=/usr/lib/hyperlite/venv/bin/python -m app.ha_services lrm
 # A normal stop disarms the watchdog at once (ha_selffence.stop, the magic close). One killed at this timeout would
 # skip it, and the node would reset after the watchdog's own timeout: the stop is short, keep it so.

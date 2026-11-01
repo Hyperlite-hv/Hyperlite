@@ -4,6 +4,7 @@ section 12).
 
   /etc/hyperlite/priv/authkey.key   the key signing now (root, 0600): read by the daemon only
   /etc/hyperlite/authkeys.json      the public keys, newest first (0644): what the API verifies with
+  (in /etc/hyperlite/local/ once /etc/hyperlite is the cluster's tree, docs/design/cfs-files.md section 15)
 
 A new pair every ROTATE_S, made when a token is signed after that time; a public key is kept KEEP_S after its successor
 appeared, so a session of "Stay signed in" (7 days) outlives the rotations. A token names its key (`kid`).
@@ -26,7 +27,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from jwt import PyJWTError
 
-from app.core import paths
+from app.core import node_files, paths
 
 ALGORITHM = "EdDSA"
 ROTATE_S = 24 * 3600
@@ -42,7 +43,7 @@ def private_path():
 
 
 def public_path():
-    return paths.ETC / "authkeys.json"
+    return node_files.location("authkeys.json", paths.ETC)
 
 
 def _kid(raw):
@@ -76,7 +77,11 @@ def _public_keys():
 
 
 def _write(path, data, mode):
-    """Replace `path` with `data` at once (a reader sees the old file or the new one), `mode` from the start."""
+    """Replace `path` with `data` at once (a reader sees the old file or the new one), `mode` from the start. The
+    node's own keys go into the cluster's tree once /etc/hyperlite is its mount (app/core/node_files.py)."""
+    if node_files.relative(path) is not None and node_files.in_tree():
+        node_files.write(path, data, mode)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
@@ -106,8 +111,9 @@ def ensure_keys(now=None):
         raw = _raw(private.public_key())
         keys.insert(0, {"kid": _kid(raw), "public": base64.b64encode(raw).decode(), "created": now})
         kept = keys[:1] + [k for prev, k in itertools.pairwise(keys) if now - prev["created"] < KEEP_S]
-        paths.PRIV.mkdir(parents=True, exist_ok=True)
-        os.chmod(paths.PRIV, 0o700)
+        if not node_files.in_tree():
+            paths.PRIV.mkdir(parents=True, exist_ok=True)
+            os.chmod(paths.PRIV, 0o700)
         _write(public_path(), json.dumps({"keys": kept}, indent=1).encode() + b"\n", 0o644)
         pem = private.private_bytes(
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()

@@ -1,10 +1,10 @@
 [Unit]
 Description=Hyperlite API (FastAPI + libvirt)
 # hyperlite-daemon first, as pveproxy comes after pvedaemon: the API writes the accounts through it (step 4b).
-After=network-online.target libvirtd.service hyperlite-daemon.service
+After=network-online.target libvirtd.service hyperlite-daemon.service hyperlite-cfs.service
 # hyperlite-scheduler runs the schedulers (app/scheduler), hyperlite-ha-lrm and hyperlite-ha-crm HA (app/ha_services):
 # started with the API, after it.
-Wants=network-online.target hyperlite-daemon.service hyperlite-scheduler.service hyperlite-ha-lrm.service hyperlite-ha-crm.service
+Wants=network-online.target hyperlite-daemon.service hyperlite-scheduler.service hyperlite-ha-lrm.service hyperlite-ha-crm.service hyperlite-cfs.service
 Requires=libvirtd.service
 
 [Service]
@@ -19,6 +19,8 @@ WorkingDirectory=/usr/lib/hyperlite
 # at the first start of 1.1 they are still in /root/hyperlite/.env until the first ExecStartPre moves them; the
 # second refuses to start without them.
 EnvironmentFile=-/etc/hyperlite/priv/env
+# Where the node's keys are once /etc/hyperlite is the cluster's tree (docs/design/cfs-files.md, section 15).
+EnvironmentFile=-/etc/hyperlite/local/priv/env
 Environment=PYTHONUNBUFFERED=1
 # The schedulers are hyperlite-scheduler's (installer/hyperlite-scheduler.service): the API starts none of them.
 Environment=HYPERLITE_SCHEDULER_SERVICE=1
@@ -38,9 +40,12 @@ Environment=TMPDIR=/var/lib/hyperlite/tmp
 # a return to the previous version (docs/design/privilege-separation.md, section 9).
 # "+": as root, whatever user the service runs as (www-data from 4e): they move, check and make root's files.
 ExecStartPre=+/bin/bash /usr/lib/hyperlite/scripts/migrate_layout.sh forward
-ExecStartPre=+/usr/bin/test -s /etc/hyperlite/priv/env
+ExecStartPre=+/bin/sh -c 'test -s /etc/hyperlite/priv/env || test -s /etc/hyperlite/local/priv/env'
 ExecStartPre=+/bin/mkdir -p /var/lib/hyperlite/tmp
 ExecStartPre=+/usr/lib/hyperlite/scripts/ensure-tls-cert.sh
+# The node's files into the cluster's tree, once (docs/design/cfs-files.md, section 15): here, where the API, the
+# scheduler and HA are stopped. Nothing when done already.
+ExecStartPre=+/bin/sh -c 'cd /usr/lib/hyperlite && exec python3 -m app.core.node_files move'
 ExecStartPre=+/usr/lib/hyperlite/scripts/write-motd.sh
 ExecStart=/usr/lib/hyperlite/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile /etc/hyperlite/local/hyperlite.key --ssl-certfile /etc/hyperlite/local/hyperlite.crt --timeout-graceful-shutdown 5
 # A dashboard keeps connections open (terminals, polling): without a bound on the graceful shutdown a restart

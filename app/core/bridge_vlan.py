@@ -410,7 +410,12 @@ def aware_bridges():
 
 
 def _write_aware(bridges):
+    from app.core import node_files
+
     path = _aware_file()
+    if node_files.is_node_file(path):  # in the cluster's tree (docs/design/cfs-files.md, section 15)
+        node_files.write(path, "".join(f"{b}\n" for b in sorted(set(bridges))), 0o644)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text("".join(f"{b}\n" for b in sorted(set(bridges))))

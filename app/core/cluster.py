@@ -46,7 +46,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import cluster_lead, db_health, paths
+from app.core import cluster_lead, db_health, node_files, paths
 from app.core.audit import log_action
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,13 @@ def _ensure_cluster_keypair():
     (hyperlite_automation). A key that opens root access on other physical
     HOSTS must never be the same one as the key installed in guest VMs, which
     are potentially less sensitive."""
-    CLUSTER_SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     priv = CLUSTER_SSH_KEY_DIR / "hyperlite_cluster"
     pub = CLUSTER_SSH_KEY_DIR / "hyperlite_cluster.pub"
+    if node_files.is_node_file(priv):  # in the cluster's tree (docs/design/cfs-files.md, section 15)
+        if not priv.exists():
+            node_files.keygen(priv, "hyperlite-cluster")
+        return priv, pub
+    CLUSTER_SSH_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not priv.exists():
         subprocess.run(
             ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", "hyperlite-cluster"],
@@ -283,9 +287,13 @@ def ensure_reverse_trust(node):
     Fully best-effort: called automatically when a node is registered, but a
     failure here must NEVER make the registration itself fail (the local host ->
     node direction, by far the most used, keeps working independently)."""
-    REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     priv = REVERSE_KEY_DIR / f"{node['name']}_ed25519"
     pub = REVERSE_KEY_DIR / f"{node['name']}_ed25519.pub"
+    if node_files.is_node_file(priv):
+        if not priv.exists():
+            node_files.keygen(priv, f"hyperlite-reverse-{node['name']}")
+    else:
+        REVERSE_KEY_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not priv.exists():
         subprocess.run(
             ["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(priv), "-C", f"hyperlite-reverse-{node['name']}"],
@@ -342,7 +350,11 @@ def rename_reverse_trust(old_name, new_name):
     for suffix in ("_ed25519", "_ed25519.pub"):
         source, target = REVERSE_KEY_DIR / f"{old_name}{suffix}", REVERSE_KEY_DIR / f"{new_name}{suffix}"
         if source.exists() and not target.exists():
-            source.rename(target)
+            if node_files.is_node_file(source):
+                node_files.write(target, source.read_bytes(), 0o600)
+                node_files.remove(source)
+            else:
+                source.rename(target)
     auth_path = _authorized_keys_path()
     if not auth_path.exists():
         return
@@ -369,8 +381,11 @@ def revoke_reverse_trust(node_name):
     if auth_path.exists():
         lines = [line for line in auth_path.read_text().splitlines(keepends=True) if marker not in line]
         auth_path.write_text("".join(lines))
-    (REVERSE_KEY_DIR / f"{node_name}_ed25519").unlink(missing_ok=True)
-    (REVERSE_KEY_DIR / f"{node_name}_ed25519.pub").unlink(missing_ok=True)
+    for path in (REVERSE_KEY_DIR / f"{node_name}_ed25519", REVERSE_KEY_DIR / f"{node_name}_ed25519.pub"):
+        if node_files.is_node_file(path):
+            node_files.remove(path)
+        else:
+            path.unlink(missing_ok=True)
 
 
 def get_reverse_key_remote_path():
