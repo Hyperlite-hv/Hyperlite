@@ -893,6 +893,59 @@ What the API still wrote itself is now done elsewhere:
 - **Asked of the daemon** through `shadow.writer()`, once the process is not root:
   - a new row's cluster-wide id: `cfs.next_id`, public, since a counter only goes up;
   - the rolling update's lock: `cfs.lock` / `cfs.unlock`, for an administrator, and for that lock's name only.
-- **Still in the API, moving with #298's split:**
-  - the cluster's creation, join and leave (`cluster_setup`);
-  - `statd.changed`'s publish (`STAT_PUT`, already root-only in cfs).
+- **Then moved with #298's split:**
+  - the cluster's creation, join and leave (`cluster_setup`): 14.9;
+  - `statd.changed`'s publish (`STAT_PUT`, already root-only in cfs): `statd.publish`, asked by an API that is not root.
+
+### 14.8 4e: libvirt read through its read-only socket, the migration's checks in the daemon (2026-10-26)
+
+Once the API runs as `www-data`, polkit refuses it libvirt's read-write socket. Its reads go through the read-only one
+(`open_conn(readonly=True)`): this node's directly, another member's through the daemon's tunnel (`node_tunnel`).
+
+Two kinds of call fail on that socket, so they move into hyperlite-daemon:
+
+- **Writes hidden in a read.** `lookup_pool(conn, "default")` defined and autostarted the `default` pool, and set its
+  autostart again at every lookup. A pool already there, started and autostarted, is now only read. Through a
+  read-only connection, the daemon makes or starts a missing one (`storage.ensure_default_pool`, on that connection's
+  node).
+- **The migratable definition.** `VIR_DOMAIN_XML_MIGRATABLE` implies libvirt's secure flag, which the read-only socket
+  refuses. Every compatibility check reads it, so the checks are the daemon's, for an administrator. The daemon opens
+  both nodes' libvirt itself, another member's with the cluster's key:
+  - `vm.migration_check`: one VM's report, for `GET /vms/{name}/migration-check` and before a migration starts
+    (`migration.start`, for the route and for load balancing);
+  - `node.compatibility`: from this node to another, for a node's registration and `GET /nodes/{name}/compatibility`;
+  - `node.vm_plan`: which VMs of a node can leave it and why the others stay, for the drain plan, entering maintenance
+    and the rolling update.
+
+No route opens a read-write connection any more; `tests/test_api_libvirt_readonly.py` scans them.
+
+### 14.9 4e: creating, joining and leaving a cluster done by the daemon (2026-10-26)
+
+`cluster_setup` writes what is root's: Corosync's key (0400) and configuration, hyperlite-cfs's mode, root's
+`authorized_keys`, and the cluster's keys in `/etc/hyperlite/priv/env` (0600). It also enables and restarts Corosync and
+hyperlite-cfs. As on Proxmox VE, where `pvecm` runs as root, the routes now ask hyperlite-daemon:
+
+- `cluster.setup_create`, `cluster.setup_join_information`, `cluster.setup_join`, `cluster.setup_primary` and
+  `cluster.setup_remove_member`, for an administrator;
+- `cluster.setup_accept_member`, public: the joining node has no session on this member, and its one-time ticket stands for
+  the administrator who copied the join information. `cluster_setup` checks the ticket in the daemon, as before.
+
+After a join, the daemon restarts with the API: it loads the env file's keys, which the join replaced with the
+cluster's, only at its start. A `ClusterError` is the daemon's refusal (409, its sentence for the administrator). hyperlite-cfs not answering is
+`unavailable` (503), and a ticket that is not valid is `forbidden` (403). The cluster's state (`GET /cluster`) stays a
+read in the API: the shared configuration and the quorum come from the cfs socket, which www-data may read (14.7).
+
+### 14.10 4e: the switch (2026-11-01)
+
+With 14.3 to 14.9 in, the API does no root work of its own: `hyperlite.service` runs as `User=www-data`,
+`Group=www-data`. Its `ExecStartPre` steps stay root's (`+`), and systemd, root, still reads the node's env file for it.
+What it reads, writes and connects to, checked as `www-data` on a production node before the switch:
+
+- read and written: the main database with its `-wal` and `-shm`, `tmp`, `spool`, `/run/lock/hyperlite`,
+  `/var/log/hyperlite`;
+- read: `access.db`, the TLS key and certificate;
+- connected to: hyperlite-daemon's socket, hyperlite-cfs's socket, libvirt's read-only socket;
+- refused, as it must be: `/etc/hyperlite/priv`.
+
+The API's own `HOME` is `www-data`'s: nothing it does needs root's. `GET /host/preflight`, replayed by the API, checks
+that hyperlite-daemon answers instead of asking to be root (`preflight.run(service=True)`).
