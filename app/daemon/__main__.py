@@ -55,6 +55,10 @@ if __name__ == "__main__":
     except Exception:  # the follow loop below still applies the saved rules
         logging.getLogger(__name__).exception("The unconfirmed host firewall change could not be rolled back")
     host_firewall.start_follow_loop()
+    # Every VM and container numbered (VMID, app/core/vmid.py): the ones made before, then any new one.
+    from app.core import vmid
+
+    vmid.start_numbering_loop()
 
     # The copy between SQLite and hyperlite-cfs, both ways: root's, as the permissions' file and the cluster's tree are
     # (app/daemon/ops/cfs.py).

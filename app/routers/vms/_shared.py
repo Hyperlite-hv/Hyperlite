@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 import libvirt
 from fastapi import APIRouter, Depends
 
-from app.core import cluster_view, firmware, guest_agent, iscsi, lvm_storage, privileged, vm_snapshots
+from app.core import cluster_view, firmware, guest_agent, iscsi, lvm_storage, privileged, vm_snapshots, vmid
 from app.core.libvirt_utils import (
     get_vm_uptime_s,
 )
@@ -115,6 +115,8 @@ def _summary(domain, root, state, leases, ssh_users, os_labels, agent_ips=None):
     return {
         "name": name,
         "id": domain.ID() if active else None,
+        # The guest's number in the cluster (app/core/vmid.py); None until hyperlite-daemon gave it one.
+        "vmid": vmid.of_root(root),
         "uuid": domain.UUIDString(),
         "state": STATE_NAMES.get(state, "unknown"),
         "vcpu": nvcpu,

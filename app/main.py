@@ -2,9 +2,11 @@ import faulthandler
 import ipaddress
 import logging
 import os
+import re
 import signal
 import threading
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
@@ -154,6 +156,36 @@ app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
 DASHBOARD_DIST = str(paths.WWW)
 # Read once: the built index.html only changes with an update, which restarts the service.
 _INLINE_SCRIPT_HASHES = inline_script_hashes(f"{DASHBOARD_DIST}/index.html")
+
+
+_GUEST_PATH = re.compile(r"^(/api/v1/(vms|containers)/)([0-9]{1,9})(/.*)?$")
+
+
+@app.middleware("http")
+async def guests_by_vmid(request: Request, call_next):
+    """A VMID where a guest's name goes (/vms/123/start): the request goes on with the name, to the member the guest
+    runs on when it is another one (app/core/vmid.py). A name made of digits that a guest of this node has wins."""
+    found = _GUEST_PATH.match(request.scope["path"])
+    if found and "node" not in request.query_params:
+        from app.core import vmid
+
+        try:
+            target = await run_in_threadpool(
+                vmid.resolve, "vm" if found.group(2) == "vms" else "container", found.group(3)
+            )
+        except Exception:  # libvirt or the cluster's status not answering: the request goes on as it came
+            logger.warning("VMID %s not resolved", found.group(3), exc_info=True)
+            target = None
+        if target:
+            name, node = target
+            path = f"{found.group(1)}{quote(name, safe='')}{found.group(4) or ''}"
+            request.scope["path"] = path
+            request.scope["raw_path"] = path.encode()
+            if node:
+                query = request.scope.get("query_string", b"")
+                extra = f"node={quote(node, safe='')}".encode()
+                request.scope["query_string"] = query + b"&" + extra if query else extra
+    return await call_next(request)
 
 
 @app.middleware("http")

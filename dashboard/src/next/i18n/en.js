@@ -4093,4 +4093,6 @@ export default {
   "fwg.empty": "no active rule",
   "fwg.missing": "no longer exists",
   "fwg.hint": "Their rules apply to incoming traffic, before the rules below. They are edited in Datacenter › Firewall, and each change applies wherever the group is used.",
+  "vmid.title": "The VM's number in the cluster (VMID), usable in the API instead of its name",
+  "vmid.pending": "given shortly",
 };
