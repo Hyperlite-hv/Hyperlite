@@ -22,6 +22,11 @@ describe("pool form: the same rules as the API, for the fields each kind uses", 
     expect(poolFormErrors(zfs)).toEqual({});
     expect(poolFormErrors({ ...zfs, node: "antho" })).toEqual({ type: "stor.e.zfsLocal" });
     expect(poolFormErrors({ ...zfs, size_gb: "0" })).toEqual({ size_gb: "stor.e.size" });
+    // On disks (#419): as many disks as the layout needs, the size no longer asked.
+    const onDisks = { ...zfs, zfs_mode: "disks", size_gb: "", zfs_layout: "raidz1", zfs_disks: ["/dev/disk/by-id/a", "/dev/disk/by-id/b"] };
+    expect(poolFormErrors(onDisks)).toEqual({ zfs_disks: "stor.e.zfsDisks" });
+    expect(poolFormErrors({ ...onDisks, zfs_disks: [...onDisks.zfs_disks, "/dev/disk/by-id/c"] })).toEqual({});
+    expect(poolFormErrors({ ...onDisks, zfs_layout: "mirror" })).toEqual({});
   });
   it("iSCSI: a portal, a port, an IQN, and CHAP user and password together or neither", () => {
     const ok = { ...base, type: "iscsi", iscsi_host: "192.168.1.20", iscsi_target: "iqn.2005-10.org.freenas.ctl:vms" };

@@ -1289,6 +1289,20 @@ export async function fetchStorageSupport() {
 export async function checkPoolPermissions(name) {
   return realFetch(`/storage/${encodeURIComponent(name)}/check-permissions`, { method: "POST" });
 }
+// ZFS pools on this node's disks (docs/design/zfs-disks.md): the free disks, a pool's health, scrub, and its disks.
+export async function fetchZfsDisks() {
+  return realFetch("/storage/zfs/disks");
+}
+export async function fetchZfsHealth(name) {
+  return realFetch(`/storage/${encodeURIComponent(name)}/zfs`);
+}
+export async function zfsScrub(name, stop = false) {
+  return realFetch(`/storage/${encodeURIComponent(name)}/zfs/scrub`, { method: "POST", ...jsonBody({ stop }) });
+}
+// action: "attach" (one disk to `target`), "add" (a new vdev of `layout`), "replace" (the disk `target` by one).
+export async function zfsPoolDisks(name, body) {
+  return realFetch(`/storage/${encodeURIComponent(name)}/zfs/disks`, { method: "POST", ...jsonBody(body) });
+}
 export async function createStoragePool(payload, node) {
   const qs = node ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/storage${qs}`, { method: "POST", ...jsonBody(payload) });

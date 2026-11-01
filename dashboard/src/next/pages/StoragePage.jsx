@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Layers, Plus, Trash2 } from "lucide-react";
-import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchSharedPools, renameStoragePool, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions } from "../../api/client";
+import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchSharedPools, renameStoragePool, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions, fetchZfsDisks } from "../../api/client";
+import ZfsHealthDrawer, { ZfsDiskPicker, ZFS_LAYOUTS } from "../components/ZfsHealthDrawer";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -17,7 +18,7 @@ import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
 import { askNewName } from "../lib/rename";
 
-const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default", lvm_vg: "", lvm_device: "", lvm_thin_pool: "" };
+const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default", lvm_vg: "", lvm_device: "", lvm_thin_pool: "", zfs_mode: "disks", zfs_layout: "mirror", zfs_disks: [] };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
 // The same rules as the API (app/routers/storage.py, app/core/iscsi.py), checked before the request.
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
@@ -67,8 +68,12 @@ export function poolFormErrors(form) {
   }
   if (form.type === "zfs") {
     if (form.node !== "local") e.type = "stor.e.zfsLocal";
-    const n = Number(form.size_gb);
-    if (!Number.isInteger(n) || n < 1 || n > 4096) e.size_gb = "stor.e.size";
+    if (form.zfs_mode === "disks") {
+      if ((form.zfs_disks || []).length < ZFS_LAYOUTS[form.zfs_layout]) e.zfs_disks = "stor.e.zfsDisks";
+    } else {
+      const n = Number(form.size_gb);
+      if (!Number.isInteger(n) || n < 1 || n > 4096) e.size_gb = "stor.e.size";
+    }
   }
   if (form.type === "iscsi") {
     if (req(form.iscsi_host)) e.iscsi_host = "stor.e.required"; else if (!HOST_RE.test(form.iscsi_host.trim())) e.iscsi_host = "stor.e.host";
@@ -92,6 +97,9 @@ function CreatePoolDrawer({ open, onClose }) {
   const [attempted, setAttempted] = useState(false);
   const [support, setSupport] = useState(null);
   useEffect(() => { if (open) fetchStorageSupport().then(setSupport).catch(() => setSupport(null)); }, [open]);
+  const [freeDisks, setFreeDisks] = useState(null);
+  const wantDisks = open && form.type === "zfs" && form.zfs_mode === "disks";
+  useEffect(() => { if (wantDisks) fetchZfsDisks().then((r) => setFreeDisks(r.disks || [])).catch(() => setFreeDisks([])); }, [wantDisks]);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const shared = SHARED.includes(form.type) && nodes.length > 1;
   const scope = shared ? form.scope : "un";
@@ -121,7 +129,9 @@ function CreatePoolDrawer({ open, onClose }) {
         : form.type === "smb" ? { name: form.name, type: "smb", smb_host: form.smb_host.trim(), smb_share: form.smb_share.trim(), smb_user: form.smb_user.trim(), smb_password: form.smb_password, smb_domain: form.smb_domain.trim() || null, smb_version: form.smb_version }
         : form.type === "iscsi" ? { name: form.name, type: "iscsi", iscsi_host: form.iscsi_host.trim(), iscsi_port: Number(form.iscsi_port), iscsi_target: form.iscsi_target.trim(), chap_user: form.chap_user.trim() || null, chap_password: form.chap_user.trim() ? form.chap_password : null }
         : form.type === "lvm" ? { name: form.name, type: "lvm", lvm_vg: form.lvm_vg.trim(), lvm_device: form.lvm_device.trim() || null, lvm_thin_pool: form.lvm_thin_pool.trim() || null }
+        : form.zfs_mode === "disks" ? { name: form.name, type: "zfs", zfs_layout: form.zfs_layout, zfs_disks: form.zfs_disks }
         : { name: form.name, type: "zfs", size_gb: Number(form.size_gb) };
+      if (form.type === "zfs" && form.zfs_mode === "disks" && !(await confirmAction({ title: t("zfs.eraseTitle"), message: t("zfs.eraseMsg", { disks: form.zfs_disks.join(", ") }), confirmLabel: t("zfs.eraseConfirm"), danger: true }))) { setBusy(false); return; }
       const where = scope === "all" ? { all_nodes: true } : scope === "choix" ? { nodes: form.chosen } : {};
       // "local" is the frontend sentinel of the local host: the backend only accepts registered remote nodes.
       const created = await createStoragePool({ ...payload, ...where }, scope === "un" && form.node !== "local" ? form.node : undefined);
@@ -226,7 +236,18 @@ function CreatePoolDrawer({ open, onClose }) {
         </fieldset>
         <p className="nx-hint">{t("stor.iscsiHelp")}</p>
       </>}
-      {form.type === "zfs" && <Field label={t("stor.zfsSize")} hint={t("stor.zfsHelp")} error={err("size_gb")} unit="Go">{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.size_gb_loopback_file")} type="number" min="1" max="4096" value={form.size_gb} onChange={set("size_gb")} />}</Field>}
+      {form.type === "zfs" && <>
+        <div className="nx-f">
+          <span className="nx-f-label" id="zfs-mode">{t("zfs.on")}</span>
+          <div className="nx-seg2" role="group" aria-labelledby="zfs-mode">
+            {[["disks", t("zfs.onDisks")], ["file", t("zfs.onFile")]].map(([v, label]) => <button key={v} type="button" aria-pressed={form.zfs_mode === v} onClick={() => setForm((f) => ({ ...f, zfs_mode: v }))}>{label}</button>)}
+          </div>
+        </div>
+        {form.zfs_mode === "disks" ? <>
+          <Field label={t("zfs.layout")} hint={t(`zfs.layoutHelp.${form.zfs_layout}`)}>{(p) => <select {...p} className="nx-inp" value={form.zfs_layout} onChange={set("zfs_layout")}>{Object.keys(ZFS_LAYOUTS).map((l) => <option key={l} value={l}>{t(`zfs.layout.${l}`)}</option>)}</select>}</Field>
+          <ZfsDiskPicker disks={freeDisks} chosen={form.zfs_disks} onChange={(zfs_disks) => setForm((f) => ({ ...f, zfs_disks }))} error={err("zfs_disks") || (attempted && errors.zfs_disks ? t("stor.e.zfsDisks", { n: ZFS_LAYOUTS[form.zfs_layout] }) : null)} min={ZFS_LAYOUTS[form.zfs_layout]} />
+        </> : <Field label={t("stor.zfsSize")} hint={t("stor.zfsHelp")} error={err("size_gb")} unit="Go">{(p) => <input {...p} className="nx-inp nx-mono" aria-label={t("a11y.size_gb_loopback_file")} type="number" min="1" max="4096" value={form.size_gb} onChange={set("size_gb")} />}</Field>}
+      </>}
       {form.type === "lvm" && <>
         <Field label={t("stor.lvmVg")} hint={t("stor.lvmVgHelp")} error={err("lvm_vg")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.lvm_vg} onChange={set("lvm_vg")} placeholder={ex("vmdata")} />}</Field>
         <Field label={t("stor.lvmDevice")} hint={t("stor.lvmDeviceHelp")} error={err("lvm_device")}>{(p) => <input {...p} className="nx-inp nx-mono" value={form.lvm_device} onChange={set("lvm_device")} placeholder={ex("/dev/sdb")} />}</Field>
@@ -245,6 +266,7 @@ export default function StoragePage() {
   const { pools, nodes, refreshAll, pushToast } = useInfraStore(useShallow((s) => ({ pools: s.storagePools, nodes: s.nodes, refreshAll: s.refreshAll, pushToast: s.pushToast })));
   const caps = capabilities(useAuthStore((s) => s.role));
   const [creating, setCreating] = useState(false);
+  const [zfsPool, setZfsPool] = useState(null);
   const [open, setOpen] = useState(null);
   const [volumes, setVolumes] = useState({});
   const [volumeErrors, setVolumeErrors] = useState({});
@@ -374,8 +396,10 @@ export default function StoragePage() {
         )}
       </div>
       <CreatePoolDrawer open={creating} onClose={() => setCreating(false)} />
+      <ZfsHealthDrawer pool={zfsPool} onClose={() => setZfsPool(null)} admin={caps.admin} />
       <ActionsContextMenu ctx={ctx} label={(p) => t("ctx.menuOf", { name: p.name })} entries={(p) => [
         { key: "volumes", icon: "volumes", label: t("stor.volumes"), run: () => toggleVolumes(p) },
+        p.type === "zfs" && p.node === "local" && { key: "zfs", icon: "details", label: t("zfs.health"), run: () => setZfsPool(p.name) },
         p.path && { key: "path", icon: "copy", label: t("ctx.copyPath"), run: () => navigator.clipboard?.writeText(p.path) },
         p.type === "netfs" && { key: "perm", icon: "admin", label: t(p.protocol === "smb" ? "stor.smbPermCheck" : "stor.nfsPermCheck"), run: () => checkPerm(p), disabled: !caps.admin || p.state !== "active", reason: !caps.admin ? t("menu.reason.admin") : t("stor.nfsPermInactive") },
         "-",
