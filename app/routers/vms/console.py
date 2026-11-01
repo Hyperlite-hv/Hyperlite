@@ -15,7 +15,7 @@ import libvirt
 from fastapi import Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
 
-from app.core import cluster_view, privileged, pty_session, spice, spice_proxy
+from app.core import cluster_view, peer_auth, privileged, pty_session, spice, spice_proxy
 from app.core.audit import log_action
 from app.core.libvirt_utils import has_serial, open_conn
 from app.core.security import require_role, require_vm_privilege
@@ -102,6 +102,7 @@ def create_console_ticket(name: str, node: str | None = None, user: dict = Depen
 
         ticket = secrets.token_urlsafe(24)
         CONSOLE_TICKETS[ticket] = (name, int(port), now + CONSOLE_TICKET_TTL, node, user["username"])
+        peer_auth.keep_with_ticket(ticket, CONSOLE_TICKET_TTL)
         log_action(user["username"], "create_console_ticket", name, "success")
         return {"ticket": ticket, "expires_in_s": CONSOLE_TICKET_TTL}
     finally:
@@ -117,6 +118,7 @@ async def vm_console(websocket: WebSocket, name: str):
         return
 
     vm_name, _port, expiry, node, username = entry
+    peer_auth.take_ticket_credential(ticket)
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
@@ -218,6 +220,7 @@ def create_terminal_ticket(name: str, node: str | None = None, user: dict = Depe
 
         ticket = secrets.token_urlsafe(24)
         TERMINAL_TICKETS[ticket] = (name, ip, ssh_user, now + TERMINAL_TICKET_TTL, node, user["username"])
+        peer_auth.keep_with_ticket(ticket, TERMINAL_TICKET_TTL)
         log_action(user["username"], "create_terminal_ticket", name, "success")
         return {"ticket": ticket, "user": ssh_user, "expires_in_s": TERMINAL_TICKET_TTL}
     finally:
@@ -233,6 +236,7 @@ async def vm_terminal(websocket: WebSocket, name: str):
         return
 
     vm_name, _ip, _ssh_user, expiry, node, username = entry
+    peer_auth.take_ticket_credential(ticket)
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
@@ -303,6 +307,7 @@ def create_serial_ticket(name: str, node: str | None = None, user: dict = Depend
 
         ticket = secrets.token_urlsafe(24)
         SERIAL_TICKETS[ticket] = (name, now + SERIAL_TICKET_TTL, node, user["username"])
+        peer_auth.keep_with_ticket(ticket, SERIAL_TICKET_TTL)
         log_action(user["username"], "create_serial_ticket", name, "success")
         return {"ticket": ticket, "expires_in_s": SERIAL_TICKET_TTL}
     finally:
@@ -318,6 +323,7 @@ async def vm_serial(websocket: WebSocket, name: str):
         return
 
     vm_name, expiry, node, username = entry
+    peer_auth.take_ticket_credential(ticket)
     if vm_name != name or time.time() > expiry:
         await websocket.close(code=4401)
         return
@@ -403,6 +409,7 @@ def create_spice_ticket(
         )["password"]
         ca_pem, subject = tls["ca"], tls["subject"]
         ticket = spice_proxy.issue(name, node, port)
+        peer_auth.keep_with_ticket(ticket, spice.TICKET_TTL_S)
         log_action(user["username"], "create_spice_ticket", name, "success")
         body = spice.vv_file(
             title=name, ticket=ticket, port=port, password=password, proxy=proxy, ca_pem=ca_pem, subject=subject
