@@ -62,6 +62,8 @@ from app.routers.file_restore import router as file_restore_router
 from app.routers.groups import router as groups_router
 from app.routers.ha import router as ha_router
 from app.routers.host import router as host_router
+from app.routers.host_firewall import router as host_firewall_router
+from app.routers.host_network import router as host_network_router
 from app.routers.host_system import router as host_system_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
@@ -216,6 +218,8 @@ _API_ROUTERS = (
     cluster_update_router,
     certificate_router,
     host_system_router,
+    host_network_router,
+    host_firewall_router,
     metric_servers_router,
     backup_groups_router,
     replication_router,
