@@ -35,6 +35,9 @@ LOOPBACK = "127.0.0.1"
 API_URL = f"https://{LOOPBACK}:8000"  # each node's own API, on the node itself (not a repository address)
 UPDATE_TIMEOUT_S = 3600
 RESTART_TIMEOUT_S = 300
+# A node's update task ends a moment before its service restarts: until then the old process answers, beside the new
+# package, which reads as a rollback. A rollback is only believed once it has lasted this long.
+ROLLBACK_SETTLE_S = 120
 REBOOT_TIMEOUT_S = 1200
 POLL_S = 5
 
@@ -430,12 +433,16 @@ def _update_peer(task_id, username, node, target, stop_blocked):
     if result["status"] != "succeeded":
         raise RollingError(f"{name}: the update failed: {result.get('error')}")
 
+    settled = time.monotonic() + ROLLBACK_SETTLE_S
+
     def answers():
         try:
             s, check = peer_api(node, username, "GET", "/update/check", timeout=120)
         except PeerUnreachable:
             return None
-        return check if s == 200 else None
+        if s != 200 or (check.get("rolled_back") and time.monotonic() < settled):
+            return None
+        return check
 
     check = _wait(f"{name}: the service after its update", answers, RESTART_TIMEOUT_S)
     if check.get("rolled_back"):

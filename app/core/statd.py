@@ -8,10 +8,16 @@ its age: up to STALE_S it is current, up to GONE_S it is shown as stale, beyond 
 change made outside Hyperlite (a guest shutting itself down) shows within PERIOD_S.
 
 Outside a cluster nothing is sent: the lists read this node directly, as before.
+
+On an installed node hyperlite-ha-lrm sends the periodic summary (app/ha_services: the heartbeat goes with the
+watchdog), and the API only asks for one at once after a change. Sending is root's (hyperlite-cfs refuses STAT_PUT to
+anyone else): an API that is not root asks hyperlite-daemon (statd.publish) on a thread that keeps the proof of the
+request that made the change (tasks.start_thread).
 """
 
 import json
 import logging
+import os
 import threading
 import time
 import zlib
@@ -26,11 +32,42 @@ MEMINFO = Path("/proc/meminfo")
 DEBOUNCE_S = 0.5  # several changes in a row (a VM created then started): one summary
 
 _wake = threading.Event()
+_loop_runs = [False]  # this process runs the periodic loop (start): a change only wakes it
+_pending = [False]  # a summary asked at once is about to go (several changes in a row: one summary)
+_pending_lock = threading.Lock()
 
 
 def changed():
     """Something changed through Hyperlite: send this node's summary soon instead of at the next period."""
-    _wake.set()
+    if _loop_runs[0]:
+        _wake.set()
+        return
+    with _pending_lock:
+        if _pending[0]:
+            return
+        _pending[0] = True
+    from app.core import tasks
+
+    tasks.start_thread(_publish_soon, name="statd-changed")
+
+
+def _publish_soon():
+    """The summary asked by a change, DEBOUNCE_S later: sent here as root, else by hyperlite-daemon. A failure is only
+    said: the periodic summary follows within PERIOD_S."""
+    time.sleep(DEBOUNCE_S)
+    with _pending_lock:
+        _pending[0] = False
+    try:
+        if not _in_cluster():
+            return
+        if os.geteuid() == 0:
+            publish()
+        else:
+            from app.core import privileged
+
+            privileged.run("statd.publish")
+    except Exception as e:
+        logger.info("This node's status not sent at once (%s): it goes at the next period", e)
 
 
 def _in_cluster():
@@ -212,6 +249,7 @@ def _loop(stop):
 
 
 def start():
+    _loop_runs[0] = True
     _sent[0] = time.monotonic()  # a grace for the first summary
     stop = threading.Event()
     threading.Thread(target=_loop, args=(stop,), daemon=True, name="statd").start()
