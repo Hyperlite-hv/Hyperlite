@@ -16,6 +16,14 @@ ETC=/etc/hyperlite
 PRIV=$ETC/priv
 OLD=/root/hyperlite  # up to 1.0
 
+# The bridge (docs/design/cfs-files.md, section 8): a version from step 3 on keeps the node's files in the cluster's
+# tree. Reinstalled over it (a rollback), this one puts them back on disk first, before their absence could be taken
+# for a first installation and new keys made over the node's. Never replaces a file; nothing to do on any other node.
+if ! ( cd "$CODE" && python3 -m app.core.node_files restore ); then
+    log "ERROR: the node's files could not be put back in $ETC from the cluster's tree: nothing changed. See above."
+    exit 1
+fi
+
 FRESH_INSTALL=0
 [ ! -f "$PRIV/env" ] && [ ! -f "$OLD/.env" ] && FRESH_INSTALL=1
 
@@ -128,8 +136,9 @@ if ! ( cd "$CODE" && "$CODE/venv/bin/python3" -c \
     "from app.core.host_system import ensure_auto_updates_default; ensure_auto_updates_default()" ) >/dev/null 2>&1; then
     log "WARNING: the night security updates could not be set up (Node > Updates)."
 fi
-# Only a daemon an administrator started (a cluster) is restarted onto the new binary; a disabled one stays stopped.
-if ! systemctl try-restart hyperlite-cfs.service; then
+# Only a daemon an administrator enabled (a cluster) is restarted onto the new binary; a disabled one stays stopped.
+# Not try-restart: the bridge's restore above may have stopped it to unmount the tree.
+if systemctl is-enabled --quiet hyperlite-cfs.service && ! systemctl restart hyperlite-cfs.service; then
     log "WARNING: hyperlite-cfs did not restart: systemctl status hyperlite-cfs"
 fi
 # hyperlite-daemon: the root side of the API (docs/design/privilege-separation.md). Restarting it never touches the
