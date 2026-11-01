@@ -99,3 +99,5 @@ def test_the_package_lays_the_directories_out_for_the_apis_group():
     unit = (ROOT / "installer" / "hyperlite.service").read_text()
     pre = [line for line in unit.splitlines() if line.startswith("ExecStartPre=")]
     assert pre and all(line.startswith("ExecStartPre=+") for line in pre)  # root's work, whatever the service's user
+    assert "\nUser=www-data\n" in unit and "\nGroup=www-data\n" in unit  # as pveproxy (4e)
+    assert "HOME=/root" not in unit  # www-data cannot even enter /root

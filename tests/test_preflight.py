@@ -141,3 +141,14 @@ def test_script_runs_with_only_the_standard_library():
     )
     assert result.returncode in (0, 1), result.stderr
     assert "checks" in json.loads(result.stdout)
+
+
+def test_the_running_api_is_not_root_and_asks_the_daemon(monkeypatch, tmp_path):
+    """GET /host/preflight runs in the API, www-data: not being root is expected there, the daemon not answering is not."""
+    monkeypatch.setattr(preflight.os, "geteuid", lambda: 33)
+    socket_path = tmp_path / "daemon.sock"
+    monkeypatch.setattr(preflight, "DAEMON_SOCKET", str(socket_path))
+    assert statuses(preflight.check_system(offline=True, service=True))["root"] == "blocking"
+    socket_path.touch()
+    assert statuses(preflight.check_system(offline=True, service=True))["root"] == "ok"
+    assert statuses(preflight.check_system(offline=True))["root"] == "blocking"  # the installer still wants root

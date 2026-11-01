@@ -154,7 +154,11 @@ def _apt_source_url():
     return None
 
 
-def check_system(offline=False):
+# hyperlite-daemon's socket (app/daemon/__init__.py): the running service's root work goes through it.
+DAEMON_SOCKET = "/run/hyperlite/daemon.sock"
+
+
+def check_system(offline=False, service=False):
     out = []
     machine = platform.machine()
     if machine in ("x86_64", "AMD64"):
@@ -164,6 +168,11 @@ def check_system(offline=False):
 
     if os.geteuid() == 0:
         out.append(_c("root", OK, "Running as root"))
+    elif service and os.path.exists(DAEMON_SOCKET):
+        # The API runs as www-data, as Proxmox VE's pveproxy: what needs root is hyperlite-daemon's.
+        out.append(_c("root", OK, "The API runs unprivileged; hyperlite-daemon does root's work"))
+    elif service:
+        out.append(_c("root", BLOCKING, "hyperlite-daemon is not running", action="systemctl restart hyperlite-daemon"))
     else:
         out.append(_c("root", BLOCKING, "Must be run as root", action="run again with sudo"))
 
@@ -479,10 +488,11 @@ def summarize(checks):
     }
 
 
-def run(python=None, requirements=None, only=None, offline=False):
+def run(python=None, requirements=None, only=None, offline=False, service=False):
+    """service: replayed by the running API (GET /host/preflight), which is not root."""
     checks = []
     if only in (None, "system"):
-        checks += check_system(offline=offline)
+        checks += check_system(offline=offline, service=service)
     if only in (None, "python"):
         checks += check_python(python, requirements)
     return {"summary": summarize(checks), "checks": checks}
