@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-01
+
+### Changed
+
+- The API reads this node's libvirt, and its containers', through libvirt's read-only socket, as it will have to once it runs as www-data; enabling HA on a VM turns libvirt's autostart off through hyperlite-daemon.
+
+- Creating, joining and leaving a cluster are done by hyperlite-daemon: Corosync's key and configuration, its
+  services and the node's keys are root's, so the API no longer writes them.
+
+- The migration's compatibility checks, a node's compatibility and the drain plan are made by hyperlite-daemon,
+  which reads the VMs' migratable definitions; the API reads libvirt only through its read-only socket.
+
+### Fixed
+
+- The tunnel of a live migration between sites opens each channel with the administrator's proof, so
+  hyperlite-daemon accepts them once the API no longer runs as root.
+
+### Security
+
+- The HTTPS API runs as `www-data`, as Proxmox VE's pveproxy, instead of root. Everything that needs root goes through
+  hyperlite-daemon, which checks each call's proof and rights, and the API reads libvirt through its read-only socket.
+  A flaw in a route no longer gives root, and the API can no longer read `/etc/hyperlite/priv`; the node's session and
+  encryption keys still reach it through its environment, until they move to the daemon. The host's preflight check,
+  replayed from the dashboard, no longer reports "Must be run as root".
+
 ## [1.5.2] - 2026-10-31
 
 ### Changed
