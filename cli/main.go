@@ -93,6 +93,13 @@ func parseFlags(args []string, passthrough bool) (flags, error) {
 			return f, fmt.Errorf("unknown option %s", a)
 		default:
 			f.rest = append(f.rest, a)
+			if passthrough {
+				// The first positional is the VM name: everything after it is the
+				// remote command, verbatim, so its own flags (-y, --, --server …)
+				// reach ssh instead of hyperlite (#672).
+				f.rest = append(f.rest, args[i+1:]...)
+				return f, nil
+			}
 		}
 	}
 	return f, nil
