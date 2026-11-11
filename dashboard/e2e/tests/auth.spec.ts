@@ -54,7 +54,7 @@ test.describe("Authentication", () => {
     await uiLogin(page);
     await page.reload();
     await expect(page.locator(".nx-root")).toBeVisible();
-    await page.locator(".nx-sidebar-user").click();
+    await page.locator(".nx-rail-user").click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     expect(await page.evaluate(() => window.localStorage.getItem("hyperlite_token"))).toBeNull();
