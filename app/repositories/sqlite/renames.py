@@ -53,10 +53,17 @@ def _tables(db):
 def _move(db, tables, table, column, old, new, extra="", params=()):
     if table not in tables:
         return
-    db.execute(
-        f"UPDATE OR REPLACE {table} SET {column} = ? WHERE {column} = ?{extra}",  # noqa: S608 - fixed names above
-        (new, old, *params),
-    )
+    # A row REPLACE deletes (a leftover under the new name) must reach the cluster as a deletion: without recursive
+    # triggers SQLite fires no delete trigger for it, the tree kept the row, and the next apply on every node failed
+    # on the unique name.
+    db.execute("PRAGMA recursive_triggers = ON")
+    try:
+        db.execute(
+            f"UPDATE OR REPLACE {table} SET {column} = ? WHERE {column} = ?{extra}",  # noqa: S608 - fixed names above
+            (new, old, *params),
+        )
+    finally:
+        db.execute("PRAGMA recursive_triggers = OFF")
 
 
 # Objects known by an id, whose name is only a label: renaming them changes nothing else. A resource pool's, a group's,
