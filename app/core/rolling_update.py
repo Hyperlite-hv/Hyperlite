@@ -379,7 +379,14 @@ def _drain(task_id, username, label, target):
         if label in nodes_router._draining:
             raise RollingError(f"{label} is already being drained")
         nodes_router._draining.add(label)
-    plan = nodes_router._plan(label, target)
+    try:
+        plan = nodes_router._plan(label, target)
+    except BaseException:
+        # A peer briefly unreachable while planning: the reservation goes with it, or every later drain, maintenance
+        # or rename of this node was refused ("already being drained") until the service restarted.
+        with nodes_router._draining_lock:
+            nodes_router._draining.discard(label)
+        raise
     if not plan["migratable"]:
         with nodes_router._draining_lock:
             nodes_router._draining.discard(label)
