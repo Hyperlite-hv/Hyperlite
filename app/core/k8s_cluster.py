@@ -26,6 +26,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import UTC, datetime
 
 from app.core import paths
@@ -169,7 +170,8 @@ def ensure_artifacts(tag):
         dest = folder / name
         if dest.exists() and _sha256(dest) == expected:
             continue
-        part = folder / f".{name}.part"
+        # One partial file per download: two clusters fetching the same release at once each write and check their own.
+        part = folder / f".{name}.{uuid.uuid4().hex}.part"
         url = RELEASE_URL.format(tag=quoted, file=name)
         with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_S) as r, open(part, "wb") as out:  # noqa: S310
             while chunk := r.read(1 << 20):

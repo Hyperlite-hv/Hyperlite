@@ -101,8 +101,11 @@ def _host_mem_mb():
 
 
 def _sample_vm(domain, name, now):
-    if not domain.isActive():
-        return None
+    try:
+        if not domain.isActive():
+            return None
+    except libvirt.libvirtError:
+        return None  # gone since the listing (deleted, a transient VM stopped): the other VMs are still sampled
     try:
         info = domain.info()
         nvcpu = info[3] or 1
