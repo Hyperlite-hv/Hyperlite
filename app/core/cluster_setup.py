@@ -606,7 +606,14 @@ def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=No
                 with contextlib.suppress(Exception):
                     SqliteNodeStore().delete(name)
             raise
-        answer = {"configuration": conf, "corosync_key": corosync_key, "keys": keys, "ssh_keys": _member_keys(client)}
+        answer = {
+            "configuration": conf,
+            "corosync_key": corosync_key,
+            "keys": keys,
+            "ssh_keys": _member_keys(client),
+            # What the new node shows to take itself out again if it gives up (withdraw_member).
+            "withdraw": _issue_withdrawal(name),
+        }
         _wait_for_written(client, conf, self_node.name(), name)
         sync()  # last: this node's Corosync knows the new member before it calls, and may lose the quorum until it does
     log_action("system", "cluster_join", name, "success", f"{name} ({address}) joined {conf['cluster']}")
@@ -802,19 +809,26 @@ def join(information, address, confirmation, username):
     _preflight()
     me = self_node.name()
     answer = _call_member(info, _member_request(info["ticket"], me, address))
-    # The member lists this node from now on: when this node gives up, the member must take it out again.
-    take_out = f"{info['address']} already lists this node: remove {me} there (Cluster card) before joining again"
+    # The member lists this node from now on: when this node gives up, it asks the member to take it out again, or
+    # says how to do it by hand.
+    withdraw_token = answer.get("withdraw") if isinstance(answer, dict) else None
+
+    def take_out():
+        if _withdraw(info, me, withdraw_token):
+            return f"{info['address']} took this node out again: the join can be tried again"
+        return f"{info['address']} already lists this node: remove {me} there (Cluster card) before joining again"
+
     try:
         conf = _check_conf(answer["configuration"])
         key = base64.b64decode(answer["corosync_key"], validate=True)
         member_keys = answer.get("ssh_keys") or {}
         keys = _check_env_keys(answer["keys"])
     except ClusterError as e:
-        raise ClusterError(f"{e}. {take_out}") from None
+        raise ClusterError(f"{e}. {take_out()}") from None
     except (KeyError, TypeError, ValueError, AttributeError):
-        raise ClusterError(f"The member answered something unexpected. {take_out}") from None
+        raise ClusterError(f"The member answered something unexpected. {take_out()}") from None
     if not any(m["name"] == me and m["address"] == address for m in conf["members"]) or not 128 <= len(key) <= 4096:
-        raise ClusterError("The member answered something unexpected")
+        raise ClusterError(f"The member answered something unexpected. {take_out()}")
 
     # From here on, this node's configuration gives way to the cluster's. Everything changed is saved first: when
     # Corosync or hyperlite-cfs do not come up in the cluster, this node is put back as it was, its keys included.
@@ -854,7 +868,7 @@ def join(information, address, confirmation, username):
         logger.exception("Joining %s failed: this node is put back as it was", conf["cluster"])
         _undo_join(files, services, moved, in_tree)
         reason = str(e) if isinstance(e, ClusterError) else "the join failed (see journalctl -u hyperlite)"
-        raise ClusterError(f"{reason}. This node is back as it was. {take_out}") from None
+        raise ClusterError(f"{reason}. This node is back as it was. {take_out()}") from None
     log_action(username, "cluster_join", conf["cluster"], "success", f"{me} ({address})")
     _restart_service()
     return {"cluster": conf["cluster"], "restart": True}
@@ -877,14 +891,23 @@ def finish_join(db):
 def remove_member(name, confirmation, username):
     """Take a member out for good (it must be off: it would come back with the same key otherwise)."""
     from app.core.audit import log_action
-    from app.repositories.cfs import shadow
-    from app.repositories.sqlite.nodes import SqliteNodeStore
 
     name = _node_name(name)
     if self_node.is_self(name):
         raise ClusterError("A node cannot remove itself: remove it from another member")
     if confirmation != name:
         raise ClusterError(f"Type the member's name, {name}, to confirm")
+    conf = _take_out(name)
+    log_action(username, "cluster_remove_member", name, "success", conf["cluster"])
+    return state()
+
+
+def _take_out(name):
+    """The member's entries removed from the cluster's configuration, then from Corosync (sync). Returns the new
+    configuration."""
+    from app.repositories.cfs import shadow
+    from app.repositories.sqlite.nodes import SqliteNodeStore
+
     with _members_lock:
         client = _client()
         conf = shared_conf()
@@ -902,8 +925,57 @@ def remove_member(name, confirmation, username):
         peer_auth.forget(name)
         sync()
     SqliteNodeStore().delete(name)
-    log_action(username, "cluster_remove_member", name, "success", conf["cluster"])
-    return state()
+    return conf
+
+
+# A node let in gets a secret it shows to be taken out again when it gives up before it ever joined (Corosync or
+# hyperlite-cfs did not come up there). Without it the member kept listing a node that never came, and counted its vote:
+# a two-node cluster stayed without quorum until an administrator removed it by hand. Kept in memory for as long as
+# the new node may still be trying.
+WITHDRAW_TTL_S = JOIN_WAIT_S + 600
+_withdrawals = {}  # node name -> (sha256 of its secret, expiry on the monotonic clock)
+_withdrawals_lock = threading.Lock()
+
+
+def _issue_withdrawal(name):
+    token = secrets.token_urlsafe(32)
+    with _withdrawals_lock:
+        _withdrawals[name] = (hashlib.sha256(token.encode()).hexdigest(), time.monotonic() + WITHDRAW_TTL_S)
+    return token
+
+
+def withdraw_member(name, token):
+    """A node that gave up joining takes itself out, with the secret this member gave it when it let it in."""
+    from app.core.audit import log_action
+
+    name = _node_name(name)
+    with _withdrawals_lock:
+        entry = _withdrawals.get(name)
+        valid = (
+            entry is not None
+            and time.monotonic() < entry[1]
+            and isinstance(token, str)
+            and hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), entry[0])
+        )
+        if valid:
+            del _withdrawals[name]
+    if not valid:
+        raise PermissionError("Unknown or expired withdrawal: remove the node by hand")
+    conf = _take_out(name)
+    log_action("system", "cluster_join_withdrawn", name, "success", f"{name} gave up joining {conf['cluster']}")
+    return {"withdrawn": name}
+
+
+def _withdraw(info, me, token):
+    """Ask the member to take this node out again; True when it did. A member before this version, or one that cannot
+    be reached, leaves it to the administrator (the message says how)."""
+    if not token:
+        return False
+    try:
+        status, _answer = _post_member(info, MEMBERS_PATH + "/withdraw", {"name": me, "token": token})
+    except ClusterError:
+        return False
+    return status == 200
 
 
 def set_primary(name, username):
