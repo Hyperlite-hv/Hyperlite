@@ -4,6 +4,62 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-11-12
+
+### Fixed
+
+- A scheduled backup that fails is tried again within the hour, and logged, instead of being skipped until its next
+  period (#663).
+- A manual backup refused before its copy starts (VM gone, a disk it cannot copy, libvirt unreachable) is a failed task
+  in the journal and the audit log, instead of a 202 with nothing behind it (#663).
+- Deleting a VM of another node, or migrating one, says which disks could not be removed there instead of ignoring the
+  ssh error (#663).
+- A VM creation that fails halfway removes the disks and drives it made, so it can be tried again under the same name
+  (#663).
+- Two copies of one ISO image between remote nodes no longer share a relay file (#663).
+
+- Replicated configuration: a change from another node that breaks a rule of this node's database (two nodes giving
+  the same name to two objects at once) is left out and named, and everything else is still applied. It used to block
+  every later change from every node until the database was copied again (#664).
+- Renaming a VM onto the name of a leftover record (a backup job) deletes that record in the whole cluster: the
+  deletion was not sent, and the next apply failed on every node (#664).
+
+- Rebooting or powering off a node: a libvirt error while waiting for the guests to stop (libvirtd restarting, the
+  connection lost) no longer reads as "stopped", which could take the node down with VMs still running. The guest
+  counts as running and the connection is opened again (#665).
+- The reboot or power-off is audited with its outcome (done, or cancelled because guests kept running) instead of
+  "success" at the request (#665).
+
+- Automation: a job step that times out or is cancelled stops what it started in the background too; a step like
+  `long_task & sleep 600` kept the run open for ever (#669).
+- A node drain that fails while it is being planned (a peer briefly unreachable) releases the node: every later drain,
+  maintenance or rename of it was refused as "already being drained" until the service restarted (#669).
+
+- Cluster membership: the reverse SSH trust of a node is matched by its whole name, so registering `node1` after
+  `node10` gives it its line, and removing `node1` no longer removes `node10`'s (#675).
+- A join that fails no longer deletes a node registered over SSH under the joiner's name before it (#675).
+
+- Updates: a download of the installed package that hangs (or fails on a node without network) no longer fails the
+  whole update; an update from a file keeps the installed package from its own repository (#676).
+- A second update can no longer start next to one that runs longer than 15 minutes: the guard follows the update's
+  own unit (#676).
+- A rolling update waits for each node to answer with the new version, instead of moving on while the old process
+  still answers (#676).
+
+- Dashboard: a network error or a 502/503 of `/auth/me` while the page loads (the service restarting) no longer signs
+  the user out in every tab; only a 401 ends the session (#668).
+- Web terminal: a large paste reaches the program whole instead of being cut, or ending the session (#667).
+- Creating a role or a resource pool reports "already exists" only when the name is taken; another failure is its own
+  error (#673).
+- `hyperlite ssh`: the remote command keeps its own options (`-y`, `--server`, `--`), read no more by the command
+  itself (#672).
+- Installer: a failed `postinstall.sh` is an error the installer shows, instead of a reboot into a Debian without
+  Hyperlite (#671).
+- Publishing: a test publication no longer cancels a pending stable one (#670).
+- A connection reset by hyperlite-daemon (restarted during a call) answers 503, not a raw 500 (#677).
+- Cloud-init: a user or host name with a trailing newline is refused; an ISO name with `..` answers 422, not 500
+  (#678).
+
 ## [1.17.0] - 2026-11-11
 
 ### Changed
