@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
+import { FrameContext } from "../lib/frame";
 import { Info, X } from "lucide-react";
 import { useT } from "../i18n";
 import { stateInfo } from "../lib/enums";
@@ -45,11 +46,13 @@ export function Loading({ style }) {
   );
 }
 
-export function PageHeader({ title, count, desc, help, actions, level = 1 }) {
+export function PageHeader({ title, count, desc, help, actions, level: asked = 1 }) {
   const t = useT();
+  const framed = useContext(FrameContext);
+  const level = framed && asked === 1 ? 2 : asked;
   const H = `h${level}`;
   return (
-    <div className={`nx-ph${level > 1 ? " nx-ph--sub" : ""}`}>
+    <div className={`nx-ph${level > 1 ? " nx-ph--sub" : ""}${framed && asked === 1 ? " nx-ph--framed" : ""}`}>
       <div className="nx-ph-text">
         <div className="nx-ph-title">
           <H>{title}</H>

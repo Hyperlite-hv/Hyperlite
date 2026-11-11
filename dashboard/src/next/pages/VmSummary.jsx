@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Archive, Camera, Eraser, Heart, TriangleAlert } from "lucide-react";
+import { Archive, Camera, Eraser, Heart, MoveHorizontal, TriangleAlert } from "lucide-react";
 import { fetchSnapshots, fetchVMBackups, fetchHaProtected, fetchTasks, fetchVMDisks, fetchVMNetwork, fetchBackupSchedule, fetchVMAutoCleanup } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
@@ -14,6 +14,7 @@ import { useVmHistory } from "./VmPerformance";
 import NotesCard from "../components/NotesCard";
 import { useAuthStore } from "../../store/useAuthStore";
 import { capabilities } from "../lib/capabilities";
+import MigrateDialog from "../components/MigrateDialog";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
 const base = (p) => (p ? String(p).split("/").pop() : "");
@@ -37,6 +38,7 @@ export default function VmSummary({ resource: vm }) {
   const [disks, setDisks] = useState(null);
   const [net, setNet] = useState(null);
   const [recent, setRecent] = useState(null);
+  const [migrating, setMigrating] = useState(false);
   const name = vm?.name;
   const node = vm?.node;
   const remote = isRemoteVm(vm);
@@ -59,7 +61,10 @@ export default function VmSummary({ resource: vm }) {
   useEffect(() => { loadRecent().catch(() => setRecent([])); }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!vm) return null;
-  const nodeName = nodes.find((n) => n.id === vm.node)?.name || vm.node;
+  const nodeObj = nodes.find((n) => n.id === vm.node);
+  const nodeName = nodeObj?.name || vm.node;
+  const canMigrate = caps.admin && running && nodes.length > 1;
+  const moves = (recent || []).filter((r) => /migrat|drain|evacuat|recover/.test(r.type || "")).slice(0, 3);
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
   const rows = (hist.rows || []).slice(-60);
   const last = rows[rows.length - 1];
@@ -91,29 +96,26 @@ export default function VmSummary({ resource: vm }) {
         { id: "net", label: t("ns.network"), value: netV, unit: netU, sub: live && rx != null ? t("vm.rxtx", { r: rate(rx), t: rate(tx) }) : running ? t("ns.collecting") : t("vm.stoppedShort"), onClick: goPerf },
       ]} />
 
-      <div className="nx-cols2">
-        <Card title={t("vm.config")}>
-          <dl className="nx-dl2">
-            <dt>{t("vm.os")}</dt><dd>{vm.os || na}</dd>
-            <dt>{t("ns.node")}</dt><dd><button type="button" className="nx-lnk" style={{ fontWeight: 500 }} onClick={() => navigateTo("node", vm.node, "summary")}>{nodeName}</button></dd>
-            <dt>{t("vh.processor")}</dt><dd className="nx-mono">{vm.vcpu} vCPU</dd>
-            <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memory_mb, lang)}</dd>
-            <dt>{t("vh.disks")}</dt>
-            <dd>{disks == null ? "…" : disks === false ? na : disks.length === 0 ? <span className="nx-muted">{t("vh.noDisks")}</span> : (
-              <ul className="nx-plainlist">{disks.map((d) => <li key={d.target} className="nx-mono">{d.type === "cdrom" ? <>{[d.target, t("vh.cdDrive")].join(" · ")}<span className="nx-muted"> · {d.source ? base(d.source) : t("vh.emptyDrive")}</span></> : <>{[d.target, d.bus?.toUpperCase(), d.size_gb ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(d.size_gb)} ${lang === "fr" ? "Go" : "GB"}` : null].filter(Boolean).join(" · ")}{d.pool ? <span className="nx-muted"> ({d.pool})</span> : d.source ? <span className="nx-muted"> · {base(d.source)}</span> : null}</>}</li>)}</ul>
-            )}</dd>
-            <dt>{t("ns.network")}</dt>
-            <dd>{net == null ? "…" : net === false ? na : net.length === 0 ? <span className="nx-muted">—</span> : (
-              <ul className="nx-plainlist">{net.map((i) => <li key={i.mac} className="nx-mono">{i.network || i.type_source || "—"} · {i.mac}</li>)}</ul>
-            )}</dd>
-            <dt>{t("vmlist.ip")}</dt><dd>{vm.ip ? <span className="nx-mono">{vm.ip}</span> : <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
-            <dt>{t("vm.ssh")}</dt><dd>{vm.ssh_user ? <span className="nx-mono">{`${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}`}</span> : na}</dd>
-            <dt>{t("vm.tools")}</dt><dd>{vm.guest_agent ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.guest_agent}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
-            <dt>{t("wz.firmware")}</dt><dd>{vm.firmware ? t(`fw.${vm.firmware}`) : na}</dd>
-            <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"}</dd>
-            <dt>VMID</dt><dd title={t("vmid.title")}>{vm.vmid != null ? <span className="nx-mono">{vm.vmid}</span> : <span className="nx-muted">{t("vmid.pending")}</span>}</dd>
-            <dt>UUID</dt><dd className="nx-break">{vm.uuid ? <span className="nx-mono nx-muted">{vm.uuid}</span> : na}</dd>
-          </dl>
+      <div className="nx-vmgrid">
+        <Card title={t("vm.placement")} actions={canMigrate ? <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setMigrating(true)}><MoveHorizontal size={14} aria-hidden="true" />{t("vm.changeNode")}</button> : null}>
+          <div className="nx-place">
+            <div className="nx-place-c">
+              <small>{t("vm.currentNode")}</small>
+              <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{nodeName}</button>
+              <span className="nx-muted">{nodeObj?.cpu_utilisation != null ? t("vm.nodeLoad", { cpu: Math.round(nodeObj.cpu_utilisation), mem: Math.round(pct(nodeObj.used_memory_mb, nodeObj.memoire_totale_mo) ?? 0) }) : t("ns.collecting")}</span>
+            </div>
+            <div className="nx-place-c">
+              <small>{t("vm.ifNodeFails", { node: nodeName })}</small>
+              <strong>{remote ? "—" : ha == null ? "…" : ha ? t("vm.restartsElsewhere") : t("vm.staysDown")}</strong>
+              <span className="nx-muted">{remote ? null : ha ? t("vm.haHow") : <button type="button" className="nx-lnk nx-lnk--accent" onClick={() => navigateTo("datacenter", null, "ha")}>{t("vm.protectHa")}</button>}</span>
+            </div>
+          </div>
+          {moves.length > 0 && (
+            <div className="nx-place-h">
+              <small>{t("vm.moves")}</small>
+              <ul>{moves.map((r) => <li key={r.id}><span className="nx-mono nx-muted">{formatDateTime(r.started_at || r.created_at, lang)}</span><span>{taskLabel(r.type)}{r.node ? ` · ${r.node}` : ""}</span><span className="nx-muted">{r.username || t("ov.system")}</span></li>)}</ul>
+            </div>
+          )}
         </Card>
         <Card title={t("vm.protection")}>
           {remote ? <p className="nx-muted" style={{ margin: 0 }}>{t("vm.remoteLocalOnly")}</p> : (
@@ -133,8 +135,48 @@ export default function VmSummary({ resource: vm }) {
         </Card>
       </div>
 
-      <NotesCard kind="vm" name={vm.name} node={vm.node} canEdit={caps.admin} />
+      <div className="nx-vmgrid">
+        <Card title={t("vm.hwTitle")} flush actions={caps.admin && !remote ? <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "hardware")}>{t("vm.editHw")}</button> : null}>
+          <table className="nx-table nx-table--fit">
+            <thead><tr><th scope="col">{t("vm.hwItem")}</th><th scope="col">{t("vm.hwDetail")}</th><th scope="col">{t("vm.hwWhere")}</th><th scope="col" className="nx-num">{t("vm.hwSize")}</th></tr></thead>
+            <tbody>
+              {disks == null ? <tr><td colSpan={4}>…</td></tr> : disks === false ? <tr><td colSpan={4}>{na}</td></tr> : disks.map((d) => (
+                <tr key={d.target}>
+                  <td>{d.type === "cdrom" ? t("vh.cdDrive") : t("vm.hwDisk")} <span className="nx-mono nx-muted">{d.target}</span></td>
+                  <td className="nx-mono">{d.type === "cdrom" ? (d.source ? base(d.source) : t("vh.emptyDrive")) : [d.bus?.toUpperCase(), d.source ? base(d.source) : null].filter(Boolean).join(" · ")}</td>
+                  <td>{d.pool || "—"}</td>
+                  <td className="nx-num nx-mono">{d.size_gb ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(d.size_gb)} ${lang === "fr" ? "Go" : "GB"}` : "—"}</td>
+                </tr>
+              ))}
+              {Array.isArray(net) && net.map((i) => (
+                <tr key={i.mac}>
+                  <td>{t("vm.hwNic")} <span className="nx-mono nx-muted">{i.model || ""}</span></td>
+                  <td className="nx-mono">{i.mac}</td>
+                  <td>{i.network || i.type_source || "—"}{i.vlan != null ? ` · VLAN ${i.vlan}` : ""}</td>
+                  <td className="nx-num nx-muted">—</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+        <Card title={t("vm.config")}>
+          <dl className="nx-dl2">
+            <dt>{t("vm.os")}</dt><dd>{vm.os || na}</dd>
+            <dt>{t("vh.processor")}</dt><dd className="nx-mono">{vm.vcpu} vCPU</dd>
+            <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memory_mb, lang)}</dd>
+            <dt>{t("vmlist.ip")}</dt><dd>{vm.ip ? <span className="nx-mono">{vm.ip}</span> : <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
+            <dt>{t("vm.ssh")}</dt><dd>{vm.ssh_user ? <span className="nx-mono">{`${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}`}</span> : na}</dd>
+            <dt>{t("vm.tools")}</dt><dd>{vm.guest_agent ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.guest_agent}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
+            <dt>{t("wz.firmware")}</dt><dd>{vm.firmware ? t(`fw.${vm.firmware}`) : na}</dd>
+            <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"}</dd>
+            <dt>VMID</dt><dd title={t("vmid.title")}>{vm.vmid != null ? <span className="nx-mono">{vm.vmid}</span> : <span className="nx-muted">{t("vmid.pending")}</span>}</dd>
+            <dt>UUID</dt><dd className="nx-break">{vm.uuid ? <span className="nx-mono nx-muted">{vm.uuid}</span> : na}</dd>
+          </dl>
+        </Card>
+      </div>
 
+      <div className="nx-cols2">
+        <NotesCard kind="vm" name={vm.name} node={vm.node} canEdit={caps.admin} />
       <Card title={t("ns.activity")}>
         {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
           <ul className="nx-list2">
@@ -149,6 +191,8 @@ export default function VmSummary({ resource: vm }) {
           </ul>
         )}
       </Card>
+      </div>
+      {migrating && <MigrateDialog vm={vm} nodes={nodes} onClose={() => setMigrating(false)} />}
     </>
   );
 }

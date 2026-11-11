@@ -278,7 +278,7 @@ export async function fetchNodes() {
 // GET /vms exists.
 function mapVm(v, nodeId) {
   return {
-    name: v.name, node: nodeId, type: "vm", state: v.state,
+    name: v.name, vmid: v.vmid ?? null, node: nodeId, type: "vm", state: v.state,
     vcpu: v.vcpu, memory_mb: v.memory_mb, used_memory_mb: null,
     disk_gb: null, disque_utilise_go: null,
     ip: v.ip, ssh_user: v.ssh_user, uuid: v.uuid,
