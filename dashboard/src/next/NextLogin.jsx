@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
 import "./next.css";
 import "./refonte.css";
+import "./shell.css";
 import { useAuthStore } from "../store/useAuthStore";
 import { fetchSsoStatus } from "../api/client";
 import { getAssertion, webauthnSupported } from "./lib/webauthn";
@@ -76,14 +77,7 @@ export default function NextLogin() {
   }
 
   return (
-    <div className="nx-login">
-      <div className="nx-login-l">
-        <EnclaveMark size={44} rails="var(--color-text-primary)" core="var(--color-accent)" />
-        <b>{t("app.name")}</b>
-        <p>{t("login.tagline")}</p>
-        {env && <span className="nx-envbadge" title={t("env.title", { label: env })}>{env}</span>}
-        {health && <span className="nx-login-v">{[health.hyperlite_version, health.hostname].filter(Boolean).join(" · ")}</span>}
-      </div>
+    <div className="nx-login nx-login--c">
       <div className="nx-login-r">
         {preAuthToken ? (
           <form className="nx-login-box" onSubmit={onSubmit2FA}>
@@ -109,7 +103,14 @@ export default function NextLogin() {
           </form>
         ) : (
           <form className="nx-login-box" onSubmit={onSubmit}>
-            <h1>{t("login.title")}</h1>
+            <div className="nx-login-head">
+              <EnclaveMark size={40} rails="var(--color-text-primary)" core="var(--color-accent)" />
+              <div>
+                <h1>{t("login.titleApp")}</h1>
+                <p>{health?.hostname ? t("login.via", { host: health.hostname }) : t("login.tagline")}</p>
+              </div>
+            </div>
+            {env && <span className="nx-envbadge" title={t("env.title", { label: env })}>{env}</span>}
             <div className="nx-f">
               <label htmlFor="login-username">{t("login.username")}</label>
               <input id="login-username" className="nx-inp" autoComplete="username" autoFocus value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -133,6 +134,10 @@ export default function NextLogin() {
           </form>
         )}
       </div>
+      <footer className="nx-login-foot">
+        <span>{t("app.name")}{health?.hyperlite_version ? <span className="nx-mono"> {health.hyperlite_version}</span> : null}</span>
+        {typeof location !== "undefined" && location.protocol === "https:" && <span>{t("login.secure")}</span>}
+      </footer>
     </div>
   );
 }

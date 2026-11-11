@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Laptop, XCircle } from "lucide-react";
 import "./next.css";
 import "./refonte.css";
+import "./shell.css";
 import { useAuthStore } from "../store/useAuthStore";
 import { fetchCliRequest, decideCliRequest } from "../api/client";
 import EnclaveMark from "../components/EnclaveMark";

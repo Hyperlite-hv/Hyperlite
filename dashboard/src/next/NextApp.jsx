@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import "./next.css";
 import "./refonte.css";
+import "./shell.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import ConfirmHost from "../components/ConfirmHost";
@@ -14,7 +15,14 @@ import { refreshInventory, refreshExtras } from "./lib/inventory";
 import TopBar from "./layout/TopBar";
 import Workspace from "./layout/Workspace";
 import Palette from "./layout/Palette";
-import Sidebar from "./layout/Sidebar";
+import Rail from "./layout/Rail";
+import Navigator from "./layout/Navigator";
+import Tray from "./layout/Tray";
+import { useShallow } from "zustand/react/shallow";
+import { useInfraStore } from "../store/useInfraStore";
+import { useAuthStore } from "../store/useAuthStore";
+import { capabilities } from "./lib/capabilities";
+import { SECTIONS, sectionOf, sectionPages } from "./lib/sections";
 
 const SIDEBAR_KEY = "hyperlite-next-sidebar";
 function readSidebarCollapsed() { try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; } }
@@ -32,6 +40,17 @@ export default function NextApp() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [wizards, setWizards] = useState({});
+  const { selection, activeTab, navigateTo } = useInfraStore(useShallow((s) => ({ selection: s.selection, activeTab: s.activeTab, navigateTo: s.navigateTo })));
+  const admin = capabilities(useAuthStore((s) => s.role)).admin;
+  const section = sectionOf(selection, activeTab);
+  // A section of the rail opens its first page; the inventory keeps the page shown when it already belongs to it.
+  const openSection = useCallback((id) => {
+    if (id === section && id === "inventory") return;
+    const sec = SECTIONS.find((x) => x.id === id);
+    const first = sectionPages(sec, { admin, apiDocs: true })[0] || "summary";
+    navigateTo("datacenter", null, id === "inventory" ? "summary" : first);
+    if (window.innerWidth < 1024) setSidebarOpen(true);
+  }, [section, admin, navigateTo]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -95,9 +114,10 @@ export default function NextApp() {
     <TooltipProvider delayDuration={300}>
       <div className="nx-root" data-sidebar={sidebarState}>
         <a className="nx-skip" href="#nx-main" onClick={(e) => { e.preventDefault(); document.getElementById("nx-main")?.focus(); }}>{t("skip")}</a>
-        <Sidebar collapsed={sidebarCollapsed} />
-        {sidebarOpen && <div className="nx-scrim" style={{ zIndex: 39 }} onClick={() => setSidebarOpen(false)} />}
-        <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleSidebar={toggleSidebar} wizards={wizards} setWizards={setWizards} />
+        <Rail section={section} onSection={openSection} />
+        <Navigator section={section} />
+        {sidebarOpen && <div className="nx-scrim nx-scrim--nav" onClick={() => setSidebarOpen(false)} />}
+        <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleNavigator={toggleSidebar} wizards={wizards} setWizards={setWizards} />
         <Routes>
           <Route path="/" element={<Navigate to="/datacenter" replace />} />
           <Route path="/datacenter" element={<Workspace />} />
@@ -106,6 +126,7 @@ export default function NextApp() {
           <Route path="/container/:id" element={<Workspace />} />
           <Route path="*" element={<Navigate to="/datacenter" replace />} />
         </Routes>
+        <Tray />
         <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} setWizards={setWizards} />
         <MaintenanceHost />
         <NodePowerHost />
