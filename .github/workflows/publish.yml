@@ -75,9 +75,12 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: write # the ISO release
-    # One publication at a time, whatever the branch: both push to the same mirror. Never cancelled halfway.
+    # One publication at a time per channel, never cancelled halfway. A group keeps one pending run only: with one group
+    # for both branches, a test push waiting behind a run silently cancelled a pending stable publication. Two channels
+    # publishing at once cannot overwrite each other: the second push to the mirror is refused, never forced
+    # (scripts/publish-gh-pages.sh), and that run fails loudly, to be run again.
     concurrency:
-      group: publish
+      group: publish-${{ github.ref_name }}
       cancel-in-progress: false
     env:
       ISO: ${{ github.ref_name == 'master' && !inputs.skip_iso }}
