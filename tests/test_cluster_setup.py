@@ -823,3 +823,38 @@ def test_a_join_only_removes_a_nodes_row_it_created(database):
     assert cluster_setup._register("hv3", "192.0.2.13") is True
     assert cluster_setup._register("hv3", "192.0.2.13") is False  # already there: not this call's to remove
     assert any(n.name == "hv3" for n in SqliteNodeStore().list())
+
+
+def test_a_node_that_gave_up_takes_itself_out_with_its_secret(monkeypatch):
+    taken = []
+    monkeypatch.setattr(cluster_setup, "_take_out", lambda name: taken.append(name) or {"cluster": "prod"})
+    monkeypatch.setattr(cluster_setup, "_withdrawals", {})
+    token = cluster_setup._issue_withdrawal("hv3")
+    with pytest.raises(PermissionError):
+        cluster_setup.withdraw_member("hv3", "not-the-secret")
+    with pytest.raises(PermissionError):
+        cluster_setup.withdraw_member("hv4", token)  # another node's name: never
+    assert cluster_setup.withdraw_member("hv3", token) == {"withdrawn": "hv3"} and taken == ["hv3"]
+    with pytest.raises(PermissionError):
+        cluster_setup.withdraw_member("hv3", token)  # spent
+
+    token = cluster_setup._issue_withdrawal("hv5")
+    monkeypatch.setattr(cluster_setup.time, "monotonic", lambda: 10**12)  # long after: expired
+    with pytest.raises(PermissionError):
+        cluster_setup.withdraw_member("hv5", token)
+    assert taken == ["hv3"]
+
+
+def test_a_join_that_fails_asks_the_member_to_take_it_out_again(host, monkeypatch):
+    calls = []
+    answer = {**_answer(), "withdraw": "s3cret"}
+    answer["corosync_key"] = "not base64!"  # the member's answer is refused before anything changes here
+    monkeypatch.setattr(cluster_setup, "_call_member", lambda info, body: answer)
+    monkeypatch.setattr(cluster_setup, "_post_member", lambda info, path, body: calls.append((path, body)) or (200, {}))
+    with pytest.raises(cluster_setup.ClusterError, match="took this node out again"):
+        cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")
+    assert calls == [(cluster_setup.MEMBERS_PATH + "/withdraw", {"name": "hv-test", "token": "s3cret"})]
+
+    monkeypatch.setattr(cluster_setup, "_post_member", lambda info, path, body: (404, {"detail": "Not Found"}))
+    with pytest.raises(cluster_setup.ClusterError, match="remove hv-test there"):
+        cluster_setup.join(_blob(), "192.0.2.11", "prod", "alice")  # a member before this version: by hand
