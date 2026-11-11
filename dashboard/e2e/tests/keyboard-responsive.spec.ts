@@ -53,7 +53,7 @@ test.describe("Keyboard-only use", () => {
 
   test("the account security dialog closes with Escape", async ({ page }) => {
     await uiLogin(page);
-    await page.locator(".nx-sidebar-user").click();
+    await page.locator(".nx-rail-user").click();
     await page.getByRole("menuitem", { name: "Account security" }).click();
     await expect(page.getByRole("dialog", { name: "Account security" })).toBeVisible();
     await page.keyboard.press("Escape");

@@ -235,12 +235,12 @@ test.describe("Rebuilt interface: sidebar, inventory and object pages", () => {
 
   test("language and theme switches from the user menu apply immediately and persist", async ({ page }) => {
     await nextLogin(page);
-    await page.locator(".nx-sidebar-user").click();
+    await page.locator(".nx-rail-user").click();
     await page.getByRole("menuitem", { name: "Français" }).click();
     await expect(page.getByRole("navigation", { name: "Navigation principale" })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("navigation", { name: "Navigation principale" })).toBeVisible();
-    await page.locator(".nx-sidebar-user").click();
+    await page.locator(".nx-rail-user").click();
     await page.getByRole("menuitem", { name: "Clair" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });

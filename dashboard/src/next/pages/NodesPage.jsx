@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronRight, Copy, CopyCheck, Plus, Trash2 } from "lucide-react";
-import { fetchClusterPubkey, addRemoteNode, deleteRemoteNode, testNodeConnection, fetchConfigCopies, copyConfigNow } from "../../api/client";
+import { ChevronRight, Copy, CopyCheck, ListFilter, Plus, Trash2 } from "lucide-react";
+import { fetchClusterPubkey, addRemoteNode, deleteRemoteNode, testNodeConnection, fetchConfigCopies, copyConfigNow, fetchNodeMetricsHistory } from "../../api/client";
+import { nodeTone } from "../lib/nodeState";
+import { usePolling } from "../lib/polling";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT, useLangStore } from "../i18n";
 import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
-import { formatDateTime, formatSizeMb, formatUptimeLong, formatVersionInt } from "../lib/format";
+import { formatDateTime, formatSizeMb, formatUptimeLong } from "../lib/format";
 import { refreshInventory } from "../lib/inventory";
 import { useIntent } from "../lib/intents";
-import StatusIndicator from "../components/StatusIndicator";
 import { useContextTarget } from "../components/ContextMenu";
 import { NodeContextMenu } from "../components/ObjectActions";
 import { PageHeader, Meter, Chip, SideDrawer, Field, TableWrap, Card } from "../components/ui";
@@ -132,6 +133,39 @@ function ConfigCopyCard({ nodes }) {
   );
 }
 
+// The last 24 hours of a node's processor load, one cell per hour (empty while nothing was recorded).
+function useHeat(nodes) {
+  const [heat, setHeat] = useState({});
+  const ids = nodes.map((n) => n.id).join("|");
+  const load = () => {
+    const now = Date.now();
+    nodes.forEach((n) => fetchNodeMetricsHistory(n.id, "24h").then((rows) => {
+      const sums = Array(24).fill(0), counts = Array(24).fill(0);
+      for (const r of Array.isArray(rows) ? rows : []) {
+        if (r.cpu_pct == null) continue;
+        const h = 23 - Math.floor((now - new Date(r.ts).getTime()) / 3600000);
+        if (h >= 0 && h < 24) { sums[h] += r.cpu_pct; counts[h] += 1; }
+      }
+      setHeat((prev) => ({ ...prev, [n.id]: sums.map((v, i) => (counts[i] ? v / counts[i] : null)) }));
+    }).catch(() => {}));
+  };
+  useEffect(load, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
+  usePolling(load, 300000);
+  return heat;
+}
+
+function Heat({ cells, label }) {
+  const t = useT();
+  if (!cells) return <span className="nx-muted">…</span>;
+  const known = cells.filter((v) => v != null);
+  const avg = known.length ? Math.round(known.reduce((a, v) => a + v, 0) / known.length) : null;
+  return (
+    <span className="nx-heat" role="img" aria-label={avg == null ? t("nd.heatNone", { name: label }) : t("nd.heatAvg", { name: label, p: avg, max: Math.round(Math.max(...known)) })}>
+      {cells.map((v, i) => <span key={i} style={v == null ? undefined : { "--h": `${Math.round(12 + v * 0.88)}%` }} data-empty={v == null || undefined} />)}
+    </span>
+  );
+}
+
 // Nodes: this host plus the registered remote nodes (libvirt over SSH, no agent), with their live load
 // recorded by the backend collector.
 export default function NodesPage() {
@@ -141,7 +175,16 @@ export default function NodesPage() {
   const { nodes, vms, pushToast, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, pushToast: s.pushToast, navigateTo: s.navigateTo })));
   const ctx = useContextTarget(); // right click on a node: its actions
   const [adding, setAdding] = useState(false);
+  const [q, setQ] = useState("");
+  const [view, setView] = useState("all"); // all | watch | maintenance
   useIntent("node", () => caps.admin && setAdding(true));
+  const sorted = useMemo(() => [...nodes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })), [nodes]);
+  const heat = useHeat(sorted);
+  const watch = sorted.filter((n) => ["warning", "danger"].includes(nodeTone(n).tone));
+  const maint = sorted.filter((n) => n.maintenance);
+  const shown = (view === "watch" ? watch : view === "maintenance" ? maint : sorted).filter((n) => !q || [n.name, n.ip].some((x) => x && String(x).toLowerCase().includes(q.trim().toLowerCase())));
+  const cores = nodes.reduce((a, n) => a + (n.cpu_coeurs || 0), 0);
+  const mem = nodes.reduce((a, n) => a + (n.memoire_totale_mo || 0), 0);
 
   async function remove(n) {
     if (!(await confirmAction({ title: t("nd.removeTitle", { name: n.name }), message: t("nd.removeMsg"), confirmLabel: t("nd.remove"), danger: true }))) return;
@@ -152,39 +195,47 @@ export default function NodesPage() {
   return (
     <>
       <PageHeader title={t("tab.nodes")} count={nodes.length} help={t("nd.intro")}
-        actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" />{t("nd.add")}</button>} />
+        actions={caps.admin && <button type="button" className="nx-btn" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" />{t("nd.addSsh")}</button>} />
+      <div className="nx-fleetbar">
+        <label className="nx-navi-filter nx-fleet-q">
+          <ListFilter size={14} aria-hidden="true" />
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("nd.filter")} aria-label={t("nd.filter")} />
+        </label>
+        <div className="nx-seg" role="group" aria-label={t("nd.views")}>
+          {[["all", sorted.length], ["watch", watch.length], ["maintenance", maint.length]].map(([id, n]) => (
+            <button key={id} type="button" aria-pressed={view === id} onClick={() => setView(id)}>{t(`nd.view.${id}`)} <span className="nx-mono">{n}</span></button>
+          ))}
+        </div>
+        <span className="nx-muted nx-fleet-hint">{t("nd.heatHint")}</span>
+      </div>
       <div className="nx-card2 nx-card2--flush">
         <TableWrap>
-          <table className="nx-table nx-table--fit">
+          <table className="nx-table nx-table--fit nx-fleet">
             <thead><tr>
-              <th scope="col">{t("ns.col.state")}</th><th scope="col">{t("nd.node")}</th><th scope="col">{t("nd.connection")}</th>
-              <th scope="col">{t("ns.cpu")}</th><th scope="col">{t("ns.memory")}</th><th scope="col">{t("ns.storage")}</th>
-              <th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col" data-optional>{t("nd.version")}</th><th scope="col" data-optional>{t("ns.uptime")}</th>
+              <th scope="col">{t("nd.node")}</th><th scope="col">{t("ns.col.state")}</th>
+              <th scope="col">{t("ns.cpu")}</th><th scope="col">{t("ns.memory")}</th>
+              <th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col" data-optional>{t("nd.load24")}</th><th scope="col" data-optional>{t("ns.uptime")}</th>
               <th scope="col"><span className="nx-sr">{t("actions")}</span></th>
             </tr></thead>
             <tbody>
-              {nodes.map((n) => {
+              {shown.length === 0 && <tr><td colSpan={8} className="nx-muted">{t("nd.noneShown")}</td></tr>}
+              {shown.map((n) => {
                 const local = n.id === "local";
                 const nodeVms = vms.filter((v) => v.node === n.id);
                 const run = nodeVms.length ? nodeVms.filter((v) => v.state === "active").length : n.vms_running ?? 0;
                 const total = nodeVms.length || (n.vms_running ?? 0) + (n.vms_stopped ?? 0);
-                const lib = formatVersionInt(n.libvirt_version);
+                const st = nodeTone(n);
                 return (
                   <tr key={n.id} className={ctx.is("node", n.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("node", n)}>
-                    <td><StatusIndicator kind="node" wire={n.state} /></td>
                     <th scope="row" className="nx-nm">
                       <button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.name}</button>
-                      <small>{[n.cpu_coeurs && t("nd.cores", { n: n.cpu_coeurs }), n.memoire_totale_mo && formatSizeMb(n.memoire_totale_mo, lang)].filter(Boolean).join(" · ") || (local ? t("nd.thisHost") : "")}</small>
+                      <small className="nx-mono">{local ? t("node.roleLocal") : n.member ? n.ip : `${n.ssh_user || "root"}@${n.ip}:${n.ssh_port || 22}`}</small>
                     </th>
-                    <td className="nx-nm" title={local ? t("nd.localConn") : undefined}>
-                      <Chip tone={local ? "accent" : undefined}>{local ? t("node.roleLocal") : t("node.roleMember")}</Chip>
-                      {!local && <small className="nx-mono">{`${n.ssh_user || "root"}@${n.ip}:${n.ssh_port || 22}`}</small>}
-                    </td>
+                    <td><span className="nx-stw"><span className="nx-tree-dot" data-tone={st.tone} aria-hidden="true" />{t(st.key)}</span></td>
                     <td><Meter value={n.cpu_utilisation} label={`${t("ns.cpu")} ${n.name}`} /></td>
                     <td><Meter value={pct(n.used_memory_mb, n.memoire_totale_mo)} label={`${t("ns.memory")} ${n.name}`} /></td>
-                    <td><Meter value={pct(n.stockage_utilise_go, n.stockage_total_go)} label={`${t("ns.storage")} ${n.name}`} /></td>
                     <td className="nx-num nx-mono">{run} / {total}</td>
-                    <td className="nx-mono" data-optional>{lib ? `libvirt ${lib}` : <span className="nx-muted">—</span>}</td>
+                    <td data-optional><Heat cells={heat[n.id]} label={n.name} /></td>
                     <td className="nx-mono nx-muted" data-optional>{formatUptimeLong(n.uptime_s, lang) || "—"}</td>
                     <td><div className="nx-ra">
                       {caps.admin && !local && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.remove_node_x", { v: n.name })} title={t("nd.remove")} onClick={() => remove(n)}><Trash2 size={15} aria-hidden="true" /></button>}
@@ -196,6 +247,10 @@ export default function NodesPage() {
             </tbody>
           </table>
         </TableWrap>
+        <div className="nx-fleet-foot">
+          <span>{t("nd.totals", { cores, mem: formatSizeMb(mem, lang) || "—", vms: vms.length })}</span>
+          <span className="nx-heat-key" aria-hidden="true">{t("nd.low")}<span /><span /><span />{t("nd.high")}</span>
+        </div>
       </div>
       {caps.admin && <ConfigCopyCard nodes={nodes} />}
       {ctx.target && <NodeContextMenu key={ctx.target.obj.id} node={ctx.target.obj} at={ctx.target.at} returnFocus={ctx.target.el} onDone={ctx.close} />}

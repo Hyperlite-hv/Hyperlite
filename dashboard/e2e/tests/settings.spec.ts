@@ -7,7 +7,7 @@ import { apiLogin, expect, goTo, PREFIX, test, uiLogin } from "../support/fixtur
 
 // The account menu is the user button at the bottom of the sidebar.
 async function accountMenu(page: Page, item: string) {
-  await page.locator(".nx-sidebar-user").click();
+  await page.locator(".nx-rail-user").click();
   await page.getByRole("menuitem", { name: item }).click();
 }
 
