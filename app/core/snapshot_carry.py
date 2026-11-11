@@ -43,8 +43,16 @@ def stash(domain):
         current = domain.snapshotCurrent(0).getName()
     except libvirt.libvirtError:
         current = None
-    for name in reversed(ordered):  # children first: a parent's record goes last
-        by_name[name].delete(libvirt.VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
+    removed = []
+    try:
+        for name in reversed(ordered):  # children first: a parent's record goes last
+            by_name[name].delete(libvirt.VIR_DOMAIN_SNAPSHOT_DELETE_METADATA_ONLY)
+            removed.append(name)
+    except libvirt.libvirtError:
+        # Halfway: the records already taken off are defined again, or they were lost with the exception (the caller
+        # never got them to restore).
+        restore(domain, {"snapshots": [x for x in xmls if x[0] in removed], "current": current})
+        raise
     return {"snapshots": xmls, "current": current}
 
 

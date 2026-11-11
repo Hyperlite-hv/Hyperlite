@@ -1098,9 +1098,12 @@ def _init_db():
                 last_error TEXT
             )
         """)
-        # The local host used to be stored under a machine-specific label; it is now always "local".
-        for table in ("ha_protected_vms", "tasks"):
-            conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608
+        # The local host used to be stored under a machine-specific label; it is now always "local". Once: run at every
+        # start, it turned the rows of a node really named kvm-lab into this node's.
+        if not conn.execute("SELECT 1 FROM app_settings WHERE key = 'migrated_kvm_lab_label'").fetchone():
+            for table in ("ha_protected_vms", "tasks"):
+                conn.execute(f"UPDATE {table} SET node = 'local' WHERE node = 'kvm-lab'")  # noqa: S608
+            conn.execute("INSERT INTO app_settings (key, value) VALUES ('migrated_kvm_lab_label', '1')")
         # Last, once every table exists: the triggers that record configuration changes for hyperlite-cfs, then the
         # node's own name in the tables every node of a cluster shares (the triggers record that rewrite).
         from app.core import cluster_setup, self_node

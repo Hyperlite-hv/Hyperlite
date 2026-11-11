@@ -226,3 +226,27 @@ def test_the_nodes_are_asked_at_once(monkeypatch):
     used = network_alloc.cluster_used_ips("default")
     assert "192.168.122.9" in used
     assert peak[0] > 8 and time.monotonic() - t0 < 1.0  # 41 nodes of 50 ms each: 2 s one after the other
+
+
+def test_a_carry_failing_on_its_second_network_undoes_the_first():
+    """Two networks: the first reservation is made on the destination, the second refused. The first is taken back
+    rather than left there with nobody told (the exception gave the caller nothing to undo)."""
+
+    class Refusing(FakeNetwork):
+        def update(self, command, section, index, xml, flags):
+            raise libvirt.libvirtError("refused")
+
+    mac = "52:54:00:aa:bb:cc"
+    src = FakeConn({"a": FakeNetwork(hosts={mac: "10.1.0.7"}), "b": FakeNetwork(hosts={mac: "10.2.0.7"})})
+    first = FakeNetwork()
+    dest = FakeConn({"a": first, "b": Refusing()})
+    xml = (
+        "<domain><devices>"
+        + "".join(
+            f"<interface type='network'><mac address='{mac}'/><source network='{n}'/></interface>" for n in ("a", "b")
+        )
+        + "</devices></domain>"
+    )
+    with pytest.raises(libvirt.libvirtError):
+        network_alloc.carry_reservations(src, dest, xml)
+    assert mac not in first.hosts
