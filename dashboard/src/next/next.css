@@ -20,39 +20,37 @@
      Written in rem (= the browser's default size, 16px unless the user changed it) so the user's own
      font-size preference still scales everything. */
   font-size: clamp(0.9375rem, calc(0.5625rem + 0.3125vw), 1.125rem);
-  /* Surfaces */
-  --color-bg-app: #19161A;
-  --color-bg-sidebar: #141215;
-  --color-bg-workspace: #1C191D;
-  --color-bg-surface: #242026;
-  --color-bg-surface-raised: #2C272E;
-  --color-bg-hover: #2E292F;
-  --color-bg-selected: #3A2631;
-  /* Borders. Default: the edge of tables and panels, clearly visible (about 2:1; at 1.3:1 the surfaces
-     "floated" with no readable limit). Card: the edge of the sections on a page, one step above their surface, so a
-     page of cards is not a grid of light outlines on the dark background. Subtle: separators inside them (rows).
-     Strong: controls, 3:1. */
-  --color-border-card: #2A262C;
-  --color-border-subtle: #3A343B;
-  --color-border-default: #524A53;
-  --color-border-strong: #7A7079;
-  --color-border-focus: #CE9DB2;
-  /* Text */
-  --color-text-primary: #F1ECEE;
-  /* Three distinct levels (secondary and muted used to be nearly the same colour), all at 4.5:1 or more. */
-  --color-text-secondary: #C9C1C6;
-  --color-text-muted: #A89FA5;
-  --color-text-disabled: #6A6268;
-  --color-text-on-accent: #19161A;
-  /* Functional: brand plum, telemetry teal (info, charts), desaturated status colours */
-  --color-accent: #CE9DB2;
+  /* Surfaces: near-black graphite with a cool cast; the plum stays for the brand only */
+  --color-bg-app: #0B0D10;
+  --color-bg-sidebar: #0F1216;
+  --color-bg-rail: #07090C;
+  --color-bg-workspace: #0B0D10;
+  --color-bg-surface: #12161B;
+  --color-bg-surface-raised: #171C22;
+  --color-bg-hover: #1D232B;
+  --color-bg-selected: #2A1D25;
+  /* Borders. Card: the edge of the sections on a page. Subtle: separators inside them (rows). Default: tables and
+     panels, clearly visible. Strong: controls, 3:1. */
+  --color-border-card: #222932;
+  --color-border-subtle: #2B323C;
+  --color-border-default: #4A5361;
+  --color-border-strong: #6E7787;
+  --color-border-focus: #E2A9C3;
+  /* Text: three distinct levels, all at 4.5:1 or more */
+  --color-text-primary: #E7EAEE;
+  --color-text-secondary: #B3BCC8;
+  --color-text-muted: #8D97A5;
+  --color-text-disabled: #5A6370;
+  --color-text-on-accent: #0B0D10;
+  /* Functional: brand plum, status colours */
+  --color-accent: #E2A9C3;
   --color-accent-2: #8DB3BD;
-  --color-info: #6FAAB6;
-  --color-success: #4FAF86;
-  --color-warning: #D9A441;
-  --color-danger: #E0776F;
-  --color-offline: #A0979D;
-  --color-unknown: #A0979D;
+  --color-info: #7FA7E8;
+  --color-success: #3DBE8B;
+  --color-warning: #F0A54A;
+  --color-danger: #F2716A;
+  --color-offline: #8D97A5;
+  --color-unknown: #8D97A5;
   --color-success-subtle: color-mix(in oklab, var(--color-success) 14%, var(--color-bg-surface));
   --color-warning-subtle: color-mix(in oklab, var(--color-warning) 14%, var(--color-bg-surface));
   --color-danger-subtle: color-mix(in oklab, var(--color-danger) 14%, var(--color-bg-surface));
@@ -96,31 +94,31 @@
    dark enough to be link text and to carry white button text. */
 :root[data-ui="next"][data-theme="light"] {
   color-scheme: light;
-  --color-bg-app: #E2DDDA; --color-bg-sidebar: #EEEAE7; --color-bg-workspace: #E2DDDA;
-  --color-bg-surface: #EEEAE7; --color-bg-surface-raised: #E8E3E0;
-  --color-bg-hover: #DED8D5; --color-bg-selected: #EAD9E1;
-  --color-border-card: #CCC5C2; --color-border-subtle: #CCC5C2; --color-border-default: #ADA5A1;
-  --color-border-strong: #7F767A; --color-border-focus: #6E3550;
-  --color-text-primary: #1F1A1D; --color-text-secondary: #3A3336;
-  --color-text-muted: #5A5256; --color-text-disabled: #948C90; --color-text-on-accent: #FFFFFF;
-  --color-accent: #6E3550; --color-accent-2: #365F69; --color-info: #2A5B66; --color-success: #225A42;
-  --color-warning: #734A0E; --color-danger: #933129; --color-offline: #574F53; --color-unknown: #574F53;
+  --color-bg-app: #F3F4F6; --color-bg-sidebar: #FAFBFC; --color-bg-rail: #12161C; --color-bg-workspace: #F3F4F6;
+  --color-bg-surface: #FFFFFF; --color-bg-surface-raised: #F8F9FB;
+  --color-bg-hover: #EEF0F3; --color-bg-selected: #F4E9EE;
+  --color-border-card: #E2E5EA; --color-border-subtle: #E2E5EA; --color-border-default: #B4BBC6;
+  --color-border-strong: #7A8494; --color-border-focus: #6E3550;
+  --color-text-primary: #0E131A; --color-text-secondary: #3F4957;
+  --color-text-muted: #5D6776; --color-text-disabled: #98A2B3; --color-text-on-accent: #FFFFFF;
+  --color-accent: #6E3550; --color-accent-2: #365F69; --color-info: #2F5DB0; --color-success: #0F6E4F;
+  --color-warning: #A14A04; --color-danger: #B42318; --color-offline: #5D6776; --color-unknown: #5D6776;
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 12%, var(--color-bg-surface));
-  --shadow-float: 0 2px 10px rgba(31, 26, 29, 0.12);
+  --shadow-float: 0 4px 16px rgba(14, 19, 26, 0.12);
 }
 
-/* The navigation column stays dark graphite in both themes: it frames the workspace. */
-:root[data-ui="next"][data-theme="light"] .nx-sidebar,
+/* The section rail stays dark graphite in both themes: it frames the workspace. */
+:root[data-ui="next"][data-theme="light"] .nx-rail,
 :root[data-ui="next"][data-theme="light"] .nx-login-l {
   color-scheme: dark;
-  --color-bg-sidebar: #141215; --color-bg-surface: #242026; --color-bg-surface-raised: #2C272E;
-  --color-bg-hover: #2E292F; --color-bg-selected: #3A2631; --color-bg-workspace: #1C191D;
-  --color-border-card: #2A262C; --color-border-subtle: #3A343B; --color-border-default: #524A53; --color-border-strong: #7A7079;
-  --color-border-focus: #CE9DB2;
-  --color-text-primary: #F1ECEE; --color-text-secondary: #C9C1C6; --color-text-muted: #A89FA5;
-  --color-text-disabled: #6A6268; --color-text-on-accent: #19161A;
-  --color-accent: #CE9DB2; --color-info: #6FAAB6; --color-success: #4FAF86; --color-warning: #D9A441;
-  --color-danger: #E0776F; --color-offline: #A0979D; --color-unknown: #A0979D;
+  --color-bg-sidebar: #12161C; --color-bg-rail: #12161C; --color-bg-surface: #1A1F26; --color-bg-surface-raised: #20262E;
+  --color-bg-hover: #222832; --color-bg-selected: #2E2630; --color-bg-workspace: #12161C;
+  --color-border-card: #262C35; --color-border-subtle: #2E3540; --color-border-default: #4A5361; --color-border-strong: #6E7787;
+  --color-border-focus: #E2A9C3;
+  --color-text-primary: #F1F3F5; --color-text-secondary: #B3BCC8; --color-text-muted: #9AA4B2;
+  --color-text-disabled: #5A6370; --color-text-on-accent: #0B0D10;
+  --color-accent: #E2A9C3; --color-info: #7FA7E8; --color-success: #3DBE8B; --color-warning: #F0A54A;
+  --color-danger: #F2716A; --color-offline: #9AA4B2; --color-unknown: #9AA4B2;
   color: var(--color-text-primary);
 }
 

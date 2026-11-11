@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -12,7 +12,10 @@ import { selectionToPath, withTab } from "../lib/urls";
 import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
 import { formatUptimeLong, formatVersionInt } from "../lib/format";
-import { Box, Monitor, Server } from "lucide-react";
+import { Box, Monitor, Server, Workflow } from "lucide-react";
+import { CLUSTER_TABS } from "../lib/sections";
+import { FrameContext } from "../lib/frame";
+import UpdateDialog from "../components/UpdateDialog";
 import { PageHeader, StatePill } from "../components/ui";
 import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions";
 import { ContainerHeaderActions } from "../pages/ContainerPages";
@@ -149,6 +152,44 @@ function NodeHead({ node, setTab }) {
   );
 }
 
+// The cluster's header: its name, size and the actions that concern all of it, over the cluster's own tabs.
+function ClusterHead({ tab }) {
+  const t = useT();
+  const { nodes, vms, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, navigateTo: s.navigateTo })));
+  const cluster = useFreshness((s) => s.cluster);
+  const caps = capabilities(useAuthStore((s) => s.role));
+  const [update, setUpdate] = useState(false);
+  const inCluster = Boolean(cluster?.in_cluster);
+  const members = inCluster ? nodes.filter((n) => n.id === "local" || n.member) : nodes;
+  const running = vms.filter((v) => v.state === "active").length;
+  const sub = [
+    inCluster ? t("chead.cluster", { n: members.length }) : t("chead.nodes", { n: nodes.length }),
+    t("chead.vms", { n: vms.length, r: running }),
+    inCluster && cluster.quorum === false ? t("chead.noQuorum") : null,
+  ].filter(Boolean).join(" · ");
+  const go = (id) => navigateTo("datacenter", null, id);
+  return (
+    <>
+      <div className="nx-chead">
+        <span className="nx-chead-ico" aria-hidden="true"><Workflow size={20} /></span>
+        <div className="nx-chead-txt"><h1>{inCluster ? cluster.name : t("crumb.datacenter")}</h1><p>{sub}</p></div>
+        {caps.admin && (
+          <div className="nx-chead-acts">
+            <button type="button" className="nx-btn" onClick={() => go("cfs")}>{inCluster ? t("chead.addNode") : t("chead.makeCluster")}</button>
+            <button type="button" className="nx-btn" onClick={() => setUpdate(true)}>{t("chead.update")}</button>
+          </div>
+        )}
+      </div>
+      <div className="nx-ctabs" role="tablist" aria-label={t("chead.tabs")}>
+        {CLUSTER_TABS.map((id) => (
+          <button key={id} type="button" role="tab" id={`nx-ctab-${id}`} aria-selected={tab === id} aria-controls="nx-panel" tabIndex={tab === id ? 0 : -1} onClick={() => go(id)}>{t(`ctab.${id}`)}</button>
+        ))}
+      </div>
+      {update && <UpdateDialog onClose={() => setUpdate(false)} />}
+    </>
+  );
+}
+
 export default function Workspace({ children }) {
   const t = useT();
   const activeTab = useUrlSync();
@@ -208,12 +249,21 @@ export default function Workspace({ children }) {
       {remote && <div className="nx-banner nx-banner--info" role="status">{t("res.remoteBanner")}</div>}
       <div className="nx-content" data-legacy="true">
         {children}
-        {isDc ? (
+        {isDc && CLUSTER_TABS.includes(tab) ? (
+          <FrameContext.Provider value={true}>
+            <div className="nx-cframe">
+              <ClusterHead tab={tab} />
+              <div className="nx-page" id="nx-panel" role="tabpanel" aria-labelledby={`nx-ctab-${tab}`}>
+                {loading ? null : Active?.ownHeader ? pageEl : (<><PageHeader title={t(`ctab.${tab}`)} />{pageEl}</>)}
+              </div>
+            </div>
+          </FrameContext.Provider>
+        ) : isDc ? (
           <div className="nx-page" id="nx-panel">
             {ADMIN_ONLY.has(tab) && !caps.admin ? (<><PageHeader title={t(`tab.${tab}`)} /><PermissionNotice requires={t("top.role.admin")} /></>)
               : loading ? null
               : Active?.ownHeader ? pageEl
-              : (<><PageHeader title={tab === "summary" ? t("nav.overview") : t(`tab.${tab}`)} />{pageEl}</>)}
+              : (<><PageHeader title={t(`tab.${tab}`)} />{pageEl}</>)}
           </div>
         ) : !isObj ? (
           <div className="nx-page"><div className="nx-legacy"><p>{t("res.storagePlaceholder")}</p></div></div>
