@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks, fetchContainers, fetchPools } from "../../api/client";
+import { fetchNodes, fetchVMs, fetchStoragePools, fetchNetworks, fetchContainers, fetchPools, fetchCluster, fetchTasks } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -8,6 +8,8 @@ import { useAuthStore } from "../../store/useAuthStore";
 export const useFreshness = create((set) => ({
   updatedAt: null, failing: false, lastError: null, loaded: false,
   containers: [], containersLoaded: false, pools: null, poolsState: "idle", // idle | ok | forbidden | error
+  // The cluster this node belongs to (GET /cluster), and the tasks running anywhere in it, for the shell.
+  cluster: null, running: [],
   markOk() { set({ updatedAt: Date.now(), failing: false, lastError: null, loaded: true }); },
   markFail(e) { set({ failing: true, lastError: e?.message || String(e) }); },
   setExtras(patch) { set(patch); },
@@ -40,6 +42,10 @@ export async function refreshInventory({ initial = false } = {}) {
 
 export async function refreshExtras() {
   const f = useFreshness.getState();
+  // Both are optional: on a failure the shell keeps what it last knew.
+  fetchCluster().then((cluster) => f.setExtras({ cluster })).catch(() => {});
+  fetchTasks({ status: "running", limit: 20, sort: "created_at", position: "desc" })
+    .then((r) => f.setExtras({ running: r.filter((x) => x.status === "running") })).catch(() => {});
   try {
     const containers = await fetchContainers();
     f.setExtras({ containers: Array.isArray(containers) ? containers : [], containersLoaded: true });

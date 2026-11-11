@@ -219,12 +219,12 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
   );
   const dialogs = (
     <>
-      {migrate && <MigrateDialog vm={vm} targets={targets} onClose={() => { setMigrate(false); onDialogClose?.(); }} />}
+      {migrate && <MigrateDialog vm={vm} nodes={nodes} onClose={() => { setMigrate(false); onDialogClose?.(); }} />}
       {siteMove && <SiteMoveDialog vm={vm} onClose={() => { setSiteMove(false); onDialogClose?.(); }} />}
       {cleanupOpen && <CleanupDrawer vm={vm} state={cleanup} onClose={() => { setCleanupOpen(false); onDialogClose?.(); }} onSaved={setCleanup} />}
     </>
   );
-  return { items, dialogs, dialogOpen: migrate || siteMove || cleanupOpen };
+  return { items, dialogs, dialogOpen: migrate || siteMove || cleanupOpen, migrate: { state: mig, open: () => setMigrate(true), show: nodes.length > 1 } };
 }
 
 // VM header: the contextual primary (Console when running, Start when stopped), Stop, and ONE grouped Actions
@@ -251,6 +251,7 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
       {running
         ? <HeadBtn primary state={c} icon={SquareTerminal} label={t("actions.primary.console")} onClick={() => vmActions.openConsole(vm)} />
         : <HeadBtn primary state={st} icon={Play} label={t("menu.start")} onClick={() => vmActions.run(vm, "start")} />}
+      {menu.migrate.show && <HeadBtn state={menu.migrate.state} icon={MoveHorizontal} label={t("head.migrate")} onClick={menu.migrate.open} />}
       {(running || sp.enabled) && <HeadBtn state={sp} icon={Square} label={t("menu.stop")} onClick={() => vmActions.run(vm, "stop")} />}
       <span className="nx-relative">
         <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{t("actions")}<ChevronDown size={14} aria-hidden="true" /></button>

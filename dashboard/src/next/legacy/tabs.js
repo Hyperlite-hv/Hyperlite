@@ -13,7 +13,7 @@ import CompatibilityPage from "../pages/CompatibilityPage";
 import NodeSummary from "../pages/NodeSummary";
 import { NodeSystemPage, NodeNetworkPage, NodeDiskPage, NodeShellPage, NodeCompatPage } from "../pages/NodePages";
 import VmList from "../pages/VmList";
-import Overview from "../pages/Overview";
+import Overview, { ClusterPerf } from "../pages/Overview";
 import ActivityPage from "../pages/ActivityPage";
 import StoragePage from "../pages/StoragePage";
 import NetworkPage from "../pages/NetworkPage";
@@ -39,7 +39,7 @@ import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPerm
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
-  summary: Overview, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
+  summary: Overview, perf: ClusterPerf, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, firewall: FirewallPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
   nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage, sites: SitesPage,
 };
