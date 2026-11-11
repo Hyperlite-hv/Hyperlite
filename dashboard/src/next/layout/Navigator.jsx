@@ -192,7 +192,7 @@ export default function Navigator({ section }) {
   const sec = SECTIONS.find((s) => s.id === section) || SECTIONS[0];
   const inventory = sec.id === "inventory";
   return (
-    <aside className="nx-navi" aria-label={t(sec.label)}>
+    <nav className="nx-navi" aria-label={t("nav.main")}>
       <div className="nx-navi-head">
         <h2>{t(sec.label)}</h2>
         {inventory && (
@@ -210,6 +210,6 @@ export default function Navigator({ section }) {
           <div className="nx-navi-scroll"><InventoryTree filter={filter} /></div>
         </>
       ) : <div className="nx-navi-scroll"><SectionList section={sec} /></div>}
-    </aside>
+    </nav>
   );
 }

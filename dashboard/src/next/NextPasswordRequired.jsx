@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
 import "./next.css";
 import "./refonte.css";
+import "./shell.css";
 import { changeMyPassword } from "../api/client";
 import { useAuthStore } from "../store/useAuthStore";
 import EnclaveMark from "../components/EnclaveMark";

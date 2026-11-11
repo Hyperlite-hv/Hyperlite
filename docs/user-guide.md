@@ -45,15 +45,21 @@ account menu).
    - create accounts for the other people instead of sharing `admin` ([section 14](#14-users-roles-and-permissions));
    - check that the host has what you need (**Compatibility**).
 
-The **Home** page then shows the state of the datacenter: nodes, VMs, containers, alerts, storage pools and recent
-activity.
+The cluster's **Summary** then shows its state: quorum, high availability, alerts, nodes in maintenance, the capacity
+used on each node (with the room kept to survive the loss of a node), the nodes and the recent activity.
 
 ## 2. Finding your way around
 
-- **Sidebar**: the sections (Infrastructure, Cluster, Protection, Library, Operations, Administration). Its toggle
-  button hides it; it can be resized.
-- **Top bar**: the breadcrumb, the search (**Ctrl+K**) to jump to any node, VM or page, the activity button (alerts and
-  running tasks), and **Create** (virtual machine, container, storage pool, virtual network, user).
+- **Rail** (the dark column on the left): the sections (Inventory, Storage, Network, Protection, Monitoring,
+  Automation, and Administration for administrators), then your account menu.
+- **Navigator**, next to it: in Inventory, the tree of the cluster, its nodes and their VMs (with their VMID), the
+  containers and the library; the filter finds a VM by name, address or VMID. In the other sections, their pages. Its
+  toggle button (**Ctrl+B**) hides it; on a narrow screen it opens over the page.
+- **The cluster's pages** (Summary, Nodes, Virtual machines, Performance, High availability, Load balancing,
+  Compatibility) sit under the cluster's header, as tabs.
+- **Top bar**: where you are, the search (**Ctrl+K**) to jump to any node, VM or page, the running operations, the
+  alerts, and **Create** (virtual machine, container, storage pool, virtual network, user). While operations run, a strip
+  at the bottom lists them with their progress.
 - **Object pages** (a node, a VM, a container) have a header with the state and the main actions, and tabs. A tab with
   several pages (VM **Hardware**) shows them in a menu on its left.
 - **Right-click** any row of a list (VMs, nodes, containers, pools, networks, ISO images, snapshots, backups, users…)
@@ -566,7 +572,7 @@ Not renamable, and why: the `default` pool and the system networks (Hyperlite re
 
 ## 16. Your account and preferences
 
-The account menu (bottom of the sidebar):
+The account menu (your initials, at the bottom of the rail):
 
 - **Language** (English, Français) and **Theme** (dark, light, system).
 - **Check for updates** (administrators).

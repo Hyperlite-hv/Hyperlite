@@ -246,3 +246,11 @@ button.nx-htile:focus-visible { outline: 2px solid var(--color-border-focus); ou
 .nx-track { background: var(--color-bg-hover); }
 .nx-track > span[data-tone="info"] { background: var(--color-accent); }
 .nx-meter-v { font-family: var(--font-ui); }
+
+/* ---------- Sign-in: one centred card ---------- */
+.nx-login--c { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+.nx-login--c .nx-login-box { width: min(25rem, 100%); padding: 2rem; border-color: var(--color-border-card); box-shadow: 0 1px 2px rgba(14, 19, 26, 0.04); }
+.nx-login-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+.nx-login-head h1 { margin: 0; font-size: var(--font-size-xl); font-weight: 700; letter-spacing: -0.01em; }
+.nx-login-head p { margin: 2px 0 0; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.nx-login-foot { display: flex; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-6); font-size: var(--font-size-xs); color: var(--color-text-muted); }

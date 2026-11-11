@@ -85,7 +85,7 @@ for (const [theme, lang] of [["dark", "en"], ["light", "fr"]] as const) {
       for (const k of new Set(text.match(KEY_TOKEN) || [])) if (seenKeys.has(k)) expect.soft(k, `${label}: raw translation key shown "${k}"`).toBe("");
       // wrong-language text in the rebuilt chrome (sidebar + top bar + page heading)
       if (lang === "en") {
-        const chrome = await page.locator(".nx-sidebar, .nx-top, .nx-main h1").allInnerTexts();
+        const chrome = await page.locator(".nx-rail, .nx-navi, .nx-top, .nx-main h1").allInnerTexts();
         expect.soft(chrome.join(" ").match(FRENCH)?.[0] ?? "", `${label}: French text in the English interface`).toBe("");
       }
       // accessibility (WCAG 2 A/AA): serious and critical only
@@ -165,13 +165,13 @@ test("dialogs, menus and the palette stay inside the screen with every action re
       await page.waitForTimeout(350);
     };
     await openDrawer();
-    await page.locator(".nx-sidebar-user").click({ timeout: 8000 });
+    await page.locator(".nx-rail-user").click({ timeout: 8000 });
     await inside("User menu", page.getByRole("menu"));
     await page.getByRole("menuitem", { name: "Account security" }).click();
     await inside("Account security", page.getByRole("dialog"));
     await page.keyboard.press("Escape");
     await openDrawer();
-    await page.locator(".nx-sidebar-user").click({ timeout: 8000 });
+    await page.locator(".nx-rail-user").click({ timeout: 8000 });
     await page.getByRole("menuitem", { name: /Check for updates/ }).click();
     await inside("Updates dialog", page.getByRole("dialog"));
     await page.keyboard.press("Escape");
@@ -195,7 +195,7 @@ test("keyboard: tab order reaches the skip link, sidebar, inventory, search and 
       if (!el || el === document.body) return null;
       const cs = getComputedStyle(el);
       const ring = (parseFloat(cs.outlineWidth) > 0 && cs.outlineStyle !== "none") || cs.boxShadow !== "none";
-      return { tag: el.tagName, name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 40), ring, zone: el.closest(".nx-sidebar") ? "sidebar" : el.closest(".nx-top") ? "top" : el.closest("main") ? "main" : "other", role: el.getAttribute("role") };
+      return { tag: el.tagName, name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 40), ring, zone: el.closest(".nx-rail, .nx-navi") ? "sidebar" : el.closest(".nx-top") ? "top" : el.closest("main") ? "main" : "other", role: el.getAttribute("role") };
     });
     if (info) { seen.push(`${info.zone}:${info.name}`); if (!info.ring) invisible++; }
   }
@@ -230,12 +230,12 @@ test("dialogs and menus open, are named, trap focus and close with Escape", asyn
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   // user menu: account security, updates
-  await page.locator(".nx-sidebar-user").click();
+  await page.locator(".nx-rail-user").click();
   await page.getByRole("menuitem", { name: "Account security" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.locator(".nx-sidebar-user").click();
+  await page.locator(".nx-rail-user").click();
   await page.getByRole("menuitem", { name: /Check for updates/ }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");

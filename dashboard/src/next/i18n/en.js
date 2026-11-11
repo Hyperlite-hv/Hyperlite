@@ -4289,4 +4289,7 @@ export default {
   "nd.heatNone": "{name}: no load recorded over 24 h",
   "nd.heatAvg": "{name}: {p} % on average over 24 h, peak {max} %",
   "nd.addSsh": "Add a host over SSH",
+  "login.titleApp": "Sign in to Hyperlite",
+  "login.via": "Node {host}",
+  "login.secure": "Encrypted connection",
 };

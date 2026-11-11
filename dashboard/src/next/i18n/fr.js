@@ -4320,4 +4320,7 @@ export default {
   "nd.heatNone": "{name} : aucune charge enregistrée sur 24 h",
   "nd.heatAvg": "{name} : {p} % en moyenne sur 24 h, pointe à {max} %",
   "nd.addSsh": "Ajouter un hôte piloté en SSH",
+  "login.titleApp": "Connexion à Hyperlite",
+  "login.via": "Nœud {host}",
+  "login.secure": "Connexion chiffrée",
 };
