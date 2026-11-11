@@ -349,6 +349,21 @@ def test_to_1_0_a_node_whose_update_fails_stops_the_run_with_why(to_1_0, databas
     assert status == "failed" and "pve2: the update failed: dpkg: the new version did not configure" in error
 
 
+def test_a_drain_whose_planning_fails_releases_its_reservation(monkeypatch):
+    from app.core import maintenance
+    from app.routers import nodes as nodes_router
+
+    monkeypatch.setattr(maintenance, "enter", lambda label, user: None)
+
+    def unreachable(label, target):
+        raise RuntimeError("peer unreachable")
+
+    monkeypatch.setattr(nodes_router, "_plan", unreachable)
+    with pytest.raises(RuntimeError, match="unreachable"):
+        rolling_update._drain("t", "admin", "n2", "n3")
+    assert "n2" not in nodes_router._draining
+
+
 def test_the_old_process_answering_is_not_taken_for_the_new_version(cluster, database):
     """For 2 s after its task succeeded the node still runs the old version: its 200 is not the restart."""
     fake = cluster(old_answers=3)
