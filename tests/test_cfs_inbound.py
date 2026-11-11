@@ -347,3 +347,18 @@ def test_a_rename_onto_a_leftover_deletes_it_in_the_cluster_too(cluster):
     shadow.drain()
     assert jobs() == ["new"] and rows("SELECT vm_name FROM backup_jobs") == [{"vm_name": "new"}]
     assert not inbound.apply() and inbound.report()["problem"] is None
+
+
+def test_a_tree_that_moved_while_it_was_read_is_not_applied(cluster, monkeypatch):
+    """A change of this node went out between the read and the transaction: the older tree would undo it."""
+    cluster.remote("/db/groups/9", {"id": 9, "name": "ops"})
+    real = shadow._read_tree_versions
+
+    def read_then_move(client, prefix):
+        out = real(client, prefix)
+        if prefix.endswith("groups"):
+            cluster.version += 1  # this node's change copied out meanwhile
+        return out
+
+    monkeypatch.setattr(shadow, "_read_tree_versions", read_then_move)
+    assert inbound.apply() is None and rows("SELECT * FROM groups") == []

@@ -71,6 +71,9 @@ def list_host_interfaces(sys_net=None, addresses=None):
             except OSError:
                 return None
 
+        # A port of a bridge or a bond (sysfs "master") carries no traffic of its own: a macvtap on it never reaches
+        # the network. Its master is offered instead.
+        master = (path / "master").resolve().name if (path / "master").exists() else None
         result.append(
             {
                 "name": name,
@@ -78,7 +81,8 @@ def list_host_interfaces(sys_net=None, addresses=None):
                 "state": read("operstate"),
                 "mac": read("address"),
                 "addresses": addresses.get(name, []),
-                "usable": kind in USABLE,
+                "usable": kind in USABLE and master is None,
+                "master": master,
             }
         )
     # Bridges first (the host and its VMs reach each other), then NICs, bonds, VLANs; Wi-Fi last.

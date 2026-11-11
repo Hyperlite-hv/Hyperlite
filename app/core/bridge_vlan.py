@@ -422,6 +422,41 @@ def _write_aware(bridges):
     tmp.replace(path)
 
 
+def _pending_file():
+    """The trials waiting for their confirmation, kept beside the timers: a daemon restarted during one (its timer
+    gone with it) undoes it at its next start. Under /run: a reboot undoes the trial anyway."""
+    from app.core import paths
+
+    return paths.RUN / "vlan-trials"
+
+
+def _pending():
+    try:
+        return {b for b in _pending_file().read_text().split() if BRIDGE_NAME_RE.fullmatch(b)}
+    except FileNotFoundError:
+        return set()
+
+
+def _set_pending(bridges):
+    path = _pending_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("".join(f"{b}\n" for b in sorted(bridges)))
+    tmp.replace(path)
+
+
+def undo_unconfirmed():
+    """At the daemon's start: a trial left by the previous process was never confirmed, and its timer is gone. It is
+    undone now, as the timer would have done. Returns the bridges undone."""
+    left = _pending()
+    for bridge in sorted(left):
+        logger.warning("Bridge %s: VLAN-aware change left unconfirmed by a restart, undone", bridge)
+        disable(bridge)
+    if left:
+        _set_pending(set())
+    return sorted(left)
+
+
 def start_trial(bridge, seconds=TRIAL_S):
     """Make the bridge VLAN-aware now, undone after `seconds` unless confirm_trial gets the token back."""
     with _trials_lock:
@@ -430,6 +465,7 @@ def start_trial(bridge, seconds=TRIAL_S):
         if filters_vlans(bridge):
             raise VlanError(f"Bridge {bridge} is VLAN-aware already")
         enable(bridge)
+        _set_pending(_pending() | {bridge})
         token = secrets.token_urlsafe(24)
         timer = threading.Timer(seconds, _expire, args=(bridge, token))
         timer.daemon = True
@@ -445,6 +481,7 @@ def _expire(bridge, token):
         del _trials[bridge]
     logger.warning("Bridge %s: VLAN-aware change not confirmed in time, undone", bridge)
     disable(bridge)
+    _set_pending(_pending() - {bridge})
 
 
 def confirm_trial(bridge, token):
@@ -456,6 +493,7 @@ def confirm_trial(bridge, token):
         current[1].cancel()
         del _trials[bridge]
     _write_aware([*aware_bridges(), bridge])
+    _set_pending(_pending() - {bridge})
 
 
 def turn_off(bridge):

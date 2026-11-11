@@ -298,6 +298,13 @@ def _rebuild(conn, table):
     for statement in others:
         conn.execute(statement)
     if seq is not None:
+        # The rebuilt table of an empty one has no row here until its first insert: the counter is put back whole,
+        # or ids already given out (and maybe still named elsewhere) would be given again.
+        conn.execute(
+            "INSERT INTO sqlite_sequence (name, seq) SELECT ?, ? WHERE NOT EXISTS "
+            "(SELECT 1 FROM sqlite_sequence WHERE name = ?)",
+            (table, seq[0], table),
+        )
         conn.execute("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = ?", (seq[0], table))
 
 

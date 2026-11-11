@@ -69,10 +69,13 @@ def test_upgrade_adds_columns_missing_from_an_older_schema(tmp_path, monkeypatch
     assert "auth_source" in columns
 
 
-def test_legacy_local_node_label_is_migrated(database):
+def test_legacy_local_node_label_is_migrated_once(database):
+    """A database from before the label: its rows become "local" at the next start, and only then. Run at every start,
+    it turned the rows of a node really named kvm-lab into this node's."""
     from app.core.database import get_conn, init_db
 
     with get_conn() as conn:
+        conn.execute("DELETE FROM app_settings WHERE key = 'migrated_kvm_lab_label'")  # a database from before
         conn.execute(
             "INSERT INTO tasks (id, type, status, created_at, node) VALUES ('t1', 'x', 'succeeded', 'now', 'kvm-lab')"
         )
@@ -80,6 +83,13 @@ def test_legacy_local_node_label_is_migrated(database):
     init_db()
     with get_conn() as conn:
         assert conn.execute("SELECT node FROM tasks WHERE id = 't1'").fetchone()[0] == "local"
+        conn.execute(
+            "INSERT INTO tasks (id, type, status, created_at, node) VALUES ('t2', 'x', 'succeeded', 'now', 'kvm-lab')"
+        )
+        conn.commit()
+    init_db()
+    with get_conn() as conn:
+        assert conn.execute("SELECT node FROM tasks WHERE id = 't2'").fetchone()[0] == "kvm-lab"
 
 
 OLD_ACL = (
