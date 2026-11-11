@@ -3,6 +3,9 @@ command as root on this host, or over SSH with the automation key on one of its 
 command is arbitrary code by design, an administrator's, as the host shell is (section 8, decision 3): the API decides
 who may run one, the daemon runs it, and reads the VM's address and account itself, never from the API."""
 
+import contextlib
+import os
+import signal
 import subprocess
 import threading
 from typing import Literal
@@ -56,19 +59,43 @@ def step(args, ctx):
         raise DaemonError("invalid_arguments", "A step on a VM names the VM")
     else:
         argv = _vm_ssh(args.target, args.command)
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace")
+    # Its own process group: a timeout or a cancel stops what the step started in the background too. Killing the
+    # shell alone left a grandchild holding the pipes, and the run never ended.
+    proc = subprocess.Popen(
+        argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace", start_new_session=True
+    )
     with _lock:
         _running[args.task_id] = proc
     try:
         out, err = proc.communicate(timeout=STEP_TIMEOUT_S)
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
+        _signal_group(proc, signal.SIGKILL)
+        _drain(proc)
         return {"stdout": "", "stderr": f"Timed out after {STEP_TIMEOUT_S}s", "exit": 124}
     finally:
         with _lock:
             _running.pop(args.task_id, None)
     return {"stdout": _output(out), "stderr": _output(err), "exit": proc.returncode}
+
+
+def _signal_group(proc, sig):
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(proc.pid, sig)
+
+
+def _drain(proc):
+    """What is left of a killed step's output, never waited for longer than a few seconds."""
+    try:
+        return proc.communicate(timeout=GRACE_S)
+    except subprocess.TimeoutExpired:
+        for pipe in (proc.stdout, proc.stderr):
+            with contextlib.suppress(OSError):
+                pipe.close()
+        return "", ""
+
+
+# What a stopped step's processes get before their pipes are closed.
+GRACE_S = 5
 
 
 class CancelArgs(Args):
@@ -82,5 +109,5 @@ def cancel(args, ctx):
         proc = _running.get(args.task_id)
     if proc is None or proc.poll() is not None:
         return {"cancelled": False}
-    proc.terminate()
+    _signal_group(proc, signal.SIGTERM)
     return {"cancelled": True}
