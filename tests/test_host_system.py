@@ -271,3 +271,44 @@ def test_with_systemd_resolved_the_real_servers_are_shown_never_its_own_stub(hos
         hs.set_dns(["127.0.0.53"], [])
     hs.set_dns(["192.168.3.1"], [])  # what the form shows can be saved back as it is
     assert "DNS=192.168.3.1" in (host["tmp"] / "resolved_dropin").read_text()
+
+
+def test_a_libvirt_error_while_waiting_never_reads_as_a_stopped_guest(monkeypatch, daemon_libvirt):
+    """libvirtd restarting during the wait said nothing of the guests: they counted as stopped and the node went down
+    with them running. Only "no such domain" means gone; the connection is opened again for the next round."""
+    import libvirt
+
+    from app.core import guest_agent
+
+    class Broken:
+        def lookupByName(self, name):
+            err = libvirt.libvirtError("connection lost")
+            err.get_error_code = lambda: libvirt.VIR_ERR_SYSTEM_ERROR
+            raise err
+
+        def close(self):
+            pass
+
+    class Gone:
+        def lookupByName(self, name):
+            err = libvirt.libvirtError("no domain")
+            err.get_error_code = lambda: libvirt.VIR_ERR_NO_DOMAIN
+            raise err
+
+        def close(self):
+            pass
+
+    import app.core.libvirt_utils as lu
+
+    opened = []
+    monkeypatch.setattr(lu, "open_conn", lambda node=None, readonly=False: opened.append(1) or Broken())
+    monkeypatch.setattr(lu, "open_lxc_conn", lambda readonly=False: Broken())
+    daemon_libvirt(Gone())
+    monkeypatch.setattr(guest_agent, "shutdown", lambda dom: "acpi")
+    lines = []
+    left = hs.stop_guests([("vm", "web")], lines.append, timeout_s=0.02, poll_s=0.01)
+    assert left == ["web"] and len(opened) > 1  # reopened after the error, still counted as running
+    assert any("Cannot read the state of web" in line for line in lines)
+
+    monkeypatch.setattr(lu, "open_conn", lambda node=None, readonly=False: Gone())
+    assert hs.stop_guests([("vm", "web")], lines.append, timeout_s=0.02, poll_s=0.01) == []
