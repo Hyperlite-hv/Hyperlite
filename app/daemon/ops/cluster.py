@@ -404,6 +404,20 @@ def setup_accept_member(args, ctx):
     )
 
 
+class WithdrawMemberArgs(Args):
+    name: str = Field(min_length=1, max_length=NODE_NAME)
+    token: str = Field(min_length=1, max_length=100)
+
+
+@operation("cluster.setup_withdraw_member", WithdrawMemberArgs, needs=PUBLIC)
+def setup_withdraw_member(args, ctx):
+    """A node that gave up joining takes itself out (cluster_setup.withdraw_member): no account, the secret it was
+    given when it was let in stands for it."""
+    from app.core import cluster_setup
+
+    return _setup(cluster_setup.withdraw_member, args.name, args.token)
+
+
 class PrimaryArgs(Args):
     name: str | None = Field(None, max_length=NODE_NAME)
 

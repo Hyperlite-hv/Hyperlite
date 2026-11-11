@@ -4595,6 +4595,26 @@
     "title": "WebAuthnRegister",
     "type": "object"
    },
+   "WithdrawRequest": {
+    "properties": {
+     "name": {
+      "maxLength": 63,
+      "title": "Name",
+      "type": "string"
+     },
+     "token": {
+      "maxLength": 100,
+      "title": "Token",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "token"
+    ],
+    "title": "WithdrawRequest",
+    "type": "object"
+   },
    "ZfsPoolDisks": {
     "description": "attach: one disk to the vdev or disk `target` (a mirror more, a RAIDZ grown); add: a new vdev of `layout`\n(more room); replace: the disk `target` by a free one (ZFS rebuilds it).",
     "properties": {
@@ -9698,6 +9718,46 @@
      }
     },
     "summary": "Accept Member",
+    "tags": [
+     "cluster"
+    ]
+   }
+  },
+  "/api/v1/cluster/members/withdraw": {
+   "post": {
+    "description": "Called by a node that gave up joining, not by a browser: the secret it was given when it was let in stands for\nit, and it takes only itself out.",
+    "operationId": "withdraw_member_api_v1_cluster_members_withdraw_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WithdrawRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Withdraw Member",
     "tags": [
      "cluster"
     ]

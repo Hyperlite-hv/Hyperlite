@@ -26,6 +26,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import UTC, datetime
 
 from app.core import paths
@@ -169,7 +170,8 @@ def ensure_artifacts(tag):
         dest = folder / name
         if dest.exists() and _sha256(dest) == expected:
             continue
-        part = folder / f".{name}.part"
+        # One partial file per download: two clusters fetching the same release at once each write and check their own.
+        part = folder / f".{name}.{uuid.uuid4().hex}.part"
         url = RELEASE_URL.format(tag=quoted, file=name)
         with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT_S) as r, open(part, "wb") as out:  # noqa: S310
             while chunk := r.read(1 << 20):
@@ -411,14 +413,20 @@ def start_create(name, workers, vcpu, memory_mb, disk_gb, network, username):
         if name in _busy:
             raise ClusterError(f"Cluster '{name}' is already being created", 409)
         _busy.add(name)
-    server, agents = vm_names(name, workers)
-    task_id = create_task("create_k8s_cluster", name, username=username)
-    _store().create_k8s_cluster(
-        name, network, server, json.dumps(agents), vcpu, memory_mb, disk_gb, task_id, username, _now()
-    )
-    start_thread(
-        _provision, name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id, task_id=task_id
-    )
+    try:
+        server, agents = vm_names(name, workers)
+        task_id = create_task("create_k8s_cluster", name, username=username)
+        _store().create_k8s_cluster(
+            name, network, server, json.dumps(agents), vcpu, memory_mb, disk_gb, task_id, username, _now()
+        )
+        start_thread(
+            _provision, name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id, task_id=task_id
+        )
+    except BaseException:
+        # Released by _provision once it runs; a failure before it starts left the name "being created" for good.
+        with _busy_lock:
+            _busy.discard(name)
+        raise
     return task_id
 
 
@@ -490,7 +498,12 @@ def delete_cluster(name, username):
         if name in _busy:
             raise ClusterError(f"Cluster '{name}' is being created: wait for it to finish or fail", 409)
         _busy.add(name)
-    task_id = create_task("delete_k8s_cluster", name, username=username)
+    try:
+        task_id = create_task("delete_k8s_cluster", name, username=username)
+    except BaseException:
+        with _busy_lock:
+            _busy.discard(name)
+        raise
     try:
         _update(name, status="deleting")
         conn = open_conn(readonly=True)

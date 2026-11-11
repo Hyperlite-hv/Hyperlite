@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-11-12
+
+### Fixed
+
+- A node that gives up joining a cluster (Corosync or hyperlite-cfs did not come up there) asks the member to take it
+  out again, with a secret the member gave it when it let it in. The member kept listing it and counting its vote: a
+  two-node cluster stayed without quorum until an administrator removed it by hand. A member before this version still
+  says how to remove it (#608).
+
+- Replicated configuration: a tree read just before a change of this node went out is no longer applied over it (#681).
+- The one-time rename of the old `kvm-lab` label runs once, no longer at every start, where it took over the rows of
+  a node really named so (#681).
+- Rebuilding an empty table during the schema migration keeps its id counter, so ids given out before are never given
+  again (#681).
+- A VLAN-aware trial left unconfirmed by a restart of hyperlite-daemon is undone at its next start (#681).
+- A NIC that is a port of a bridge or a bond is no longer offered as the base of a macvtap network (#681).
+- A Kubernetes cluster or an ISO copy that fails before it starts no longer stays "already running" until the service
+  restarts (#681).
+- A migration whose address reservation fails on one network takes back the ones it made on the others (#681).
+- Moving a VM's snapshot records for a migration puts back the ones already taken off when one refuses (#681).
+
+- Metrics: a VM deleted between the listing and its sample no longer costs the whole tick of every other VM (#681).
+- A notification that cannot go out because its channels cannot be read is logged instead of dropped silently (#681).
+- Two Kubernetes clusters fetching the same k3s release at once no longer share one partial download file (#681).
+
 ## [1.17.1] - 2026-11-12
 
 ### Fixed

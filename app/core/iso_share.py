@@ -341,6 +341,18 @@ def start_copy(name, source_id, target_ids, username, after=None):
         _active.update((name, key) for key, _ in resolved)
 
     tasks = []
+    started = set()
+    try:
+        _start_jobs(name, source, source_key, resolved, total, username, after, tasks, started)
+    except BaseException:
+        # A target whose job never started keeps no marker: it was "already running" until the service restarted.
+        with _active_lock:
+            _active.difference_update((name, key) for key, _ in resolved if key not in started)
+        raise
+    return tasks
+
+
+def _start_jobs(name, source, source_key, resolved, total, username, after, tasks, started):
     for key, node in resolved:
         task_id = create_task("copy_iso", name, node=key, username=username)
         tasks.append({"node": key, "task_id": task_id})
@@ -372,7 +384,7 @@ def start_copy(name, source_id, target_ids, username, after=None):
                 after(ok)
 
         start_thread(job, task_id=task_id)
-    return tasks
+        started.add(key)
 
 
 def _delete_remote(node, name):

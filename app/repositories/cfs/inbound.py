@@ -142,6 +142,11 @@ def apply():
             if db.execute("SELECT COUNT(*) FROM cfs_outbox").fetchone()[0]:
                 db.rollback()
                 return None  # this node's own changes go out first
+            if client.status().version != status.version:
+                # A change of this node went out between the read of the tree and this transaction: the tree read
+                # before it would undo it here until the next round. Read again at the next round.
+                db.rollback()
+                return None
             top = db.execute("SELECT COALESCE(MAX(id), 0) FROM cfs_outbox").fetchone()[0]
             changes = []
             for name, table in tables.items():

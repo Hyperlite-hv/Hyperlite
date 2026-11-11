@@ -119,6 +119,27 @@ def accept_member(payload: MemberRequest):
         raise HTTPException(status_code=503, detail="hyperlite-cfs does not answer on this member") from None
 
 
+class WithdrawRequest(BaseModel):
+    name: str = Field(max_length=63)
+    token: str = Field(max_length=100)
+
+
+@router.post("/members/withdraw")
+def withdraw_member(payload: WithdrawRequest):
+    """Called by a node that gave up joining, not by a browser: the secret it was given when it was let in stands for
+    it, and it takes only itself out."""
+    try:
+        return privileged.run(
+            "cluster.setup_withdraw_member", timeout=CREATE_TIMEOUT_S, name=payload.name, token=payload.token
+        )
+    except DaemonError as e:
+        if e.kind in ("forbidden", "refused", "invalid_arguments"):
+            log_action("system", "cluster_join_withdrawn", payload.name[:63], "failed", e.detail)
+            raise HTTPException(status_code=403 if e.kind == "forbidden" else 409, detail=e.detail) from None
+        logger.warning("Taking %s out again failed: %s", payload.name[:63], e.detail)
+        raise HTTPException(status_code=503, detail="hyperlite-cfs does not answer on this member") from None
+
+
 @router.post("/principal")
 def set_primary(payload: PrimaryRequest, user: dict = Depends(require_role("admin"))):
     """The primary node counts twice in the quorum: with one other node, it keeps the quorum alone."""

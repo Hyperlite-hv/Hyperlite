@@ -67,3 +67,19 @@ def test_no_snapshot_nothing_to_carry_and_a_failure_is_reported():
     assert snapshot_carry.restore(_Dom(), None) == []
     stashed = snapshot_carry.stash(_Dom([("broken", None), ("fine", None)]))
     assert snapshot_carry.restore(_Dom(), stashed) == ["broken"]
+
+
+def test_a_stash_failing_halfway_defines_again_what_it_took_off():
+    import pytest
+
+    dom = _Dom([("base", None), ("after", "base")], current="after")
+    original = dom.snaps["base"].delete
+
+    def refuse(flags):
+        raise libvirt.libvirtError("busy")
+
+    dom.snaps["base"].delete = refuse  # the child goes first, then the parent refuses
+    with pytest.raises(libvirt.libvirtError):
+        snapshot_carry.stash(dom)
+    assert dom.deleted == ["after"] and dom.defined == [("after", True)]
+    assert original  # the parent's record never left
