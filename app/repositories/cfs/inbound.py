@@ -149,25 +149,43 @@ def apply():
                 remote = trees[name]
                 # Deletions, then updates, then new rows: a name freed elsewhere (a group renamed, another created
                 # under its old name) is free here too before a row takes it again.
-                changes += [(0, table, json.loads(local[p])) for p in local.keys() - remote.keys()]
+                changes += [(0, table, p, json.loads(local[p])) for p in local.keys() - remote.keys()]
                 changes += [
-                    (1 if p in local else 2, table, {k: _decode(v) for k, v in json.loads(data).items()})
+                    (1 if p in local else 2, table, p, {k: _decode(v) for k, v in json.loads(data).items()})
                     for p, data in remote.items()
                     if local.get(p) != data
                 ]
-            for order, table, row in sorted(changes, key=lambda c: c[0]):
+            refused = []
+            for order, table, path, row in sorted(changes, key=lambda c: c[0]):
                 if order == 0:
                     _delete(db, table, row)
-                else:
+                    written += 1
+                    continue
+                # One row breaking a rule of this database (two nodes made the same unique name within seconds) is
+                # left out, with its reason: applying nothing else, from anyone, until the database was copied again
+                # blocked the whole cluster's configuration on this node.
+                db.execute("SAVEPOINT cfs_row")
+                try:
                     _upsert(db, table, _fill(table, row))
-                written += 1
-            db.execute(
-                "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (APPLIED, str(status.version)),
-            )
+                    written += 1
+                except sqlite3.IntegrityError as e:
+                    db.execute("ROLLBACK TO cfs_row")
+                    refused.append((table.name, path, str(e)))
+                db.execute("RELEASE cfs_row")
+            if not refused:
+                # Recorded only once everything is here: with a row left out, the next round tries it again.
+                db.execute(
+                    "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (APPLIED, str(status.version)),
+                )
             db.execute("DELETE FROM cfs_outbox WHERE id > ?", (top,))  # what was just written came from the tree
-            # This node now holds every entry as the tree does: their versions are the ones its changes start from.
-            shadow.record_bases(db, {p: v for tree in versioned.values() for p, (_, v) in tree.items()})
+            # This node now holds every entry as the tree does, but the rows left out: their versions are the ones its
+            # changes start from.
+            left_out = {path for _, path, _ in refused}
+            shadow.record_bases(
+                db, {p: v for tree in versioned.values() for p, (_, v) in tree.items() if p not in left_out}
+            )
             db.commit()
         except sqlite3.IntegrityError as e:
             db.rollback()
@@ -184,7 +202,17 @@ def apply():
         state.applied += written
         state.last_at = datetime.now(UTC).isoformat()
         state.again = False
-    _problem(None)
+    if refused:
+        for name, path, error in refused:
+            logger.warning("hyperlite-cfs: %s (%s) left out, refused by SQLite: %s", path, name, error)
+        listed = ", ".join(f"{path} ({error})" for _, path, error in refused[:5])
+        _problem(
+            f"{len(refused)} change(s) from another node break a rule of this node's database and were left out: "
+            f"{listed}. Usually two nodes gave the same name to two objects at once: rename or delete one of them. "
+            "Everything else is applied."
+        )
+    else:
+        _problem(None)
     return written
 
 
