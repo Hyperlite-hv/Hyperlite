@@ -320,7 +320,9 @@ def host(monkeypatch, tmp_path):
     dev("vnet3")
     dev("veth5")
     monkeypatch.setattr(bridge_vlan, "SYS_NET", sys_net)
-    from app.core import host_interfaces
+    from app.core import host_interfaces, paths
+
+    monkeypatch.setattr(paths, "RUN", tmp_path / "run")  # the pending trials, never the host's /run
 
     monkeypatch.setattr(host_interfaces, "SYS_NET", sys_net)
     calls = []
@@ -478,3 +480,19 @@ def test_the_api_keeps_a_bridge_vlan_aware_while_a_vm_has_vlans_on_it(client, au
     bridge_vlan.set_port(dom, "52:54:00:00:00:01", None, None)
     assert client.delete("/networks/lan/vlan-aware", headers=admin).status_code == 200
     assert not host["filtering"]()
+
+
+def test_a_trial_left_by_a_restart_is_undone_at_the_next_start(host):
+    """The timer goes with the process: the trial is recorded beside it and undone when the daemon starts again."""
+    bridge_vlan.start_trial("br0", seconds=60)
+    assert host["filtering"]() and bridge_vlan._pending() == {"br0"}
+    bridge_vlan._trials.pop("br0")[1].cancel()  # the daemon restarted: its timers are gone
+    assert bridge_vlan.undo_unconfirmed() == ["br0"]
+    assert not host["filtering"]() and bridge_vlan._pending() == set() and not host["aware"].exists()
+    assert bridge_vlan.undo_unconfirmed() == []
+
+
+def test_a_confirmed_trial_is_not_undone_at_the_next_start(host):
+    token = bridge_vlan.start_trial("br0", seconds=60)
+    bridge_vlan.confirm_trial("br0", token)
+    assert bridge_vlan.undo_unconfirmed() == [] and host["filtering"]()
