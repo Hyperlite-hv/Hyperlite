@@ -377,13 +377,17 @@ def create(name, address, username):
 
 
 def _register(node, address):
-    """The shared nodes table lists every member; each node leaves its own row out (app/repositories/sqlite/nodes.py)."""
+    """The shared nodes table lists every member; each node leaves its own row out (app/repositories/sqlite/nodes.py).
+    Returns True when the row is this call's, False when one was there already (then a rollback leaves it)."""
     from app.domain.common import AlreadyExists
     from app.domain.node import NodeSpec
     from app.repositories.sqlite.nodes import SqliteNodeStore
 
-    with contextlib.suppress(AlreadyExists):
+    try:
         SqliteNodeStore().create(NodeSpec(name=node, hostname=address), _now().isoformat(), "online")
+    except AlreadyExists:
+        return False
+    return True
 
 
 # ---- Letting a node in ----
@@ -581,7 +585,7 @@ def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=No
             published[f"{peer_https.STATE_DIR}/{shadow.component(name)}"] = {"sha256": fingerprint}
         if auth_keys:
             published[peer_auth._path(name)] = auth_keys
-        _register(name, address)
+        created = _register(name, address)
         try:
             # The nodes row goes to the cluster through the shadow copy, which the API confirms before the answer:
             # too late here, once sync() below took the quorum away. The cluster refused it, the answer was an error,
@@ -598,8 +602,9 @@ def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=No
             for path in (ssh_entry, *published):
                 with contextlib.suppress(Exception):
                     client.delete(path)
-            with contextlib.suppress(Exception):
-                SqliteNodeStore().delete(name)
+            if created:  # a node registered over SSH under this name before is not this join's to remove
+                with contextlib.suppress(Exception):
+                    SqliteNodeStore().delete(name)
             raise
         answer = {"configuration": conf, "corosync_key": corosync_key, "keys": keys, "ssh_keys": _member_keys(client)}
         _wait_for_written(client, conf, self_node.name(), name)

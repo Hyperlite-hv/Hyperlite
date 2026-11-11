@@ -814,3 +814,12 @@ def test_a_member_that_does_not_write_it_is_waited_for_a_while_only(host, monkey
     host.commands.clear()
     cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
     assert host.commands == ["corosync-cfgtool -R"] and "pve-b did not write version 3" in caplog.text
+
+
+def test_a_join_only_removes_a_nodes_row_it_created(database):
+    """A node registered over SSH under the joiner's name keeps its row when the join is undone."""
+    from app.repositories.sqlite.nodes import SqliteNodeStore
+
+    assert cluster_setup._register("hv3", "192.0.2.13") is True
+    assert cluster_setup._register("hv3", "192.0.2.13") is False  # already there: not this call's to remove
+    assert any(n.name == "hv3" for n in SqliteNodeStore().list())
