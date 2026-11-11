@@ -13,6 +13,7 @@ DNS: written where the system reads it: a systemd-resolved drop-in when resolv.c
 would be overwritten at the next lease: that case is refused with the reason rather than accepted and lost.
 """
 
+import contextlib
 import ipaddress
 import logging
 import os
@@ -22,6 +23,8 @@ import socket
 import subprocess
 import time
 from pathlib import Path
+
+import libvirt
 
 logger = logging.getLogger(__name__)
 
@@ -585,6 +588,16 @@ def running_guests():
     return found
 
 
+def _reopen(kind):
+    """A read-only connection again after one was lost, or None while libvirt does not answer."""
+    from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
+
+    try:
+        return open_conn(readonly=True) if kind == "vm" else open_lxc_conn_if_any(readonly=True)
+    except libvirt.libvirtError:
+        return None
+
+
 def stop_guests(guests, log, timeout_s=180, poll_s=3):
     """Ask each running guest to shut down, through hyperlite-daemon (vm.power, container.stop), then wait, reading
     them through read-only connections. Returns the names still running at the end."""
@@ -611,11 +624,22 @@ def stop_guests(guests, log, timeout_s=180, poll_s=3):
         while True:
             left = []
             for kind, name in guests:
+                if conns[kind] is None:
+                    conns[kind] = _reopen(kind)
                 try:
-                    if conns[kind].lookupByName(name).isActive():
+                    if conns[kind] is None or conns[kind].lookupByName(name).isActive():
                         left.append(name)
-                except Exception:  # noqa: S112 -- gone (transient domain): it is stopped
-                    continue
+                except libvirt.libvirtError as e:
+                    if e.get_error_code() == libvirt.VIR_ERR_NO_DOMAIN:
+                        continue  # gone (a transient domain): it is stopped
+                    # Any other error (libvirtd restarting, the connection lost) says nothing of the guest: it is
+                    # counted as running, and the connection opened again at the next round. Reading it as stopped
+                    # powered the node off with VMs still running.
+                    log(f"Cannot read the state of {name}: {e}")
+                    left.append(name)
+                    with contextlib.suppress(libvirt.libvirtError):
+                        conns[kind].close()
+                    conns[kind] = None
             if not left or waited >= timeout_s:
                 return left
             time.sleep(poll_s)
