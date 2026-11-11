@@ -12,6 +12,7 @@ it as needed.
 """
 
 import json
+import logging
 import smtplib
 import urllib.error
 import urllib.request
@@ -20,6 +21,8 @@ from email.message import EmailMessage
 
 from app.core import secrets_crypto
 from app.core.http_safety import require_http_url
+
+logger = logging.getLogger(__name__)
 
 
 def _store():
@@ -207,6 +210,8 @@ def notify(event, title, message, result="success"):
     try:
         channels = [c for c in list_channels() if c["enabled"] and (not c["events"] or event in c["events"])]
     except Exception:
+        # Never raised to the caller, but never silent either: a notification that could not go out is in the log.
+        logger.warning("Notification %s not sent: the channels could not be read", event, exc_info=True)
         return
     for channel in channels:
         try:
