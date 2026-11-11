@@ -1,0 +1,1 @@
+- VM summary: the VMID is shown again instead of "VMID assigned shortly"; the dashboard's VM list dropped the field.
