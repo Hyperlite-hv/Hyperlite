@@ -513,19 +513,26 @@ def _run_backup_locked(vm_name, target_dir, job_id, username):
     from app.core import privileged
     from app.daemon.registry import DaemonError
 
-    conn = open_conn(readonly=True)
-    try:
-        try:
-            domain = conn.lookupByName(vm_name)
-        except libvirt.libvirtError:
-            raise RuntimeError(f"VM '{vm_name}' not found") from None
-        error = block_disk_error(domain, "A backup")
-        if error:
-            raise RuntimeError(error)
-        mode = "live" if domain.isActive() else "cold"
-    finally:
-        conn.close()
+    # The task exists before the first check: a backup refused here (VM gone, a disk type it cannot copy, libvirt
+    # unreachable) is a failed task in the journal and the audit log, not a 202 with nothing behind it.
     task_id = create_task("backup_vm", vm_name, node=None, username=username)
+    try:
+        conn = open_conn(readonly=True)
+        try:
+            try:
+                domain = conn.lookupByName(vm_name)
+            except libvirt.libvirtError:
+                raise RuntimeError(f"VM '{vm_name}' not found") from None
+            error = block_disk_error(domain, "A backup")
+            if error:
+                raise RuntimeError(error)
+            mode = "live" if domain.isActive() else "cold"
+        finally:
+            conn.close()
+    except Exception as e:
+        finish_task(task_id, "failed", str(e))
+        log_action(username, "backup_vm", vm_name, "failed", str(e))
+        raise
     backup_id = _store().create(vm_name, job_id, "", mode, _now().isoformat(), task_id)
     register_cancel(task_id, lambda: _cancel_in_daemon(task_id, username))
     try:
@@ -1316,6 +1323,10 @@ def _hosted_vms():
         conn.close()
 
 
+# How soon a failed scheduled backup is tried again.
+SCHEDULE_RETRY = timedelta(hours=1)
+
+
 def run_due_schedules(now):
     """The per-VM jobs whose time has come."""
     hosted = _hosted_vms() if cluster_lead.in_cluster() else None
@@ -1331,7 +1342,14 @@ def run_due_schedules(now):
         except vm_locks.VmBusy:
             continue  # another operation runs on this VM: the job stays due and is retried next tick
         except Exception as e:
+            # A failed run is retried within the hour rather than skipped until the next period; the regular time
+            # comes back as soon as a run succeeds.
+            logger.warning("Scheduled backup of %s failed: %s", job["vm_name"], e)
             log_action("scheduler", "backup_job_failed", job["vm_name"], "failed", str(e))
+            regular = _next_run(job["frequency"], job["time"], now)
+            next_run = min(regular, now + SCHEDULE_RETRY)
+            _store().record_schedule_run(job["id"], now.isoformat(), next_run.isoformat())
+            continue
         next_run = _next_run(job["frequency"], job["time"], now)
         _store().record_schedule_run(job["id"], now.isoformat(), next_run.isoformat())
 
