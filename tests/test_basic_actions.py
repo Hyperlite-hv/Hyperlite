@@ -527,3 +527,20 @@ def test_the_registry_test_matches_the_former_expression_in_linear_time():
     start = time.monotonic()
     assert _has_registry("." * 200_000) is False
     assert time.monotonic() - start < 0.5
+
+
+def test_removing_node1_leaves_node10s_trust_line(tmp_path, monkeypatch):
+    """The markers were matched as substrings: removing node1 deleted node10's line too."""
+    from app.core import cluster
+
+    auth = tmp_path / "authorized_keys"
+    auth.write_text(
+        'from="10.0.0.10" ssh-ed25519 AAA hyperlite-reverse-node10\n'
+        'from="10.0.0.1" ssh-ed25519 BBB hyperlite-reverse-node1\n'
+    )
+    monkeypatch.setattr(cluster, "REVERSE_KEY_DIR", tmp_path / "reverse")
+    monkeypatch.setattr(cluster, "_authorized_keys_path", lambda: auth)
+    cluster.revoke_reverse_trust("node1")
+    assert auth.read_text() == 'from="10.0.0.10" ssh-ed25519 AAA hyperlite-reverse-node10\n'
+    assert cluster._has_marker(auth.read_text(), "hyperlite-reverse-node10")
+    assert not cluster._has_marker(auth.read_text(), "hyperlite-reverse-node1")

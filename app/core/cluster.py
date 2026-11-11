@@ -334,13 +334,19 @@ def ensure_reverse_trust(node):
     auth_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     existing = auth_path.read_text() if auth_path.exists() else ""
     marker = f"{REVERSE_KEY_TAG}-{node['name']}"
-    if marker not in existing:
+    if not any(_has_marker(line, marker) for line in existing.splitlines()):
         line = (
             f'from="{node["hostname"]}",no-port-forwarding,no-X11-forwarding,no-agent-forwarding {pub_line} {marker}\n'
         )
         with open(auth_path, "a") as f:
             f.write(line)
         auth_path.chmod(0o600)
+
+
+def _has_marker(line, marker):
+    """The marker ends the line, whole: "hyperlite-reverse-node1" is in node10's line too, which a substring test
+    skipped when node1 was registered after it, and deleted with node1's."""
+    return line.rstrip("\n").endswith(" " + marker)
 
 
 def rename_reverse_trust(old_name, new_name):
@@ -379,7 +385,7 @@ def revoke_reverse_trust(node_name):
     marker = f"{REVERSE_KEY_TAG}-{node_name}"
     auth_path = _authorized_keys_path()
     if auth_path.exists():
-        lines = [line for line in auth_path.read_text().splitlines(keepends=True) if marker not in line]
+        lines = [line for line in auth_path.read_text().splitlines(keepends=True) if not _has_marker(line, marker)]
         auth_path.write_text("".join(lines))
     for path in (REVERSE_KEY_DIR / f"{node_name}_ed25519", REVERSE_KEY_DIR / f"{node_name}_ed25519.pub"):
         if node_files.is_node_file(path):
