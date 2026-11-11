@@ -67,6 +67,15 @@ func parseFlags(args []string, passthrough bool) (flags, error) {
 	var f flags
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		// In passthrough (hyperlite ssh VM ...), once the VM is named, the first argument that is not one of ours starts
+		// what goes to ssh: from there nothing is read, so the remote command keeps its own -y, --server or --.
+		if passthrough && len(f.rest) > 0 && !isOwnFlag(a) {
+			if a == "--" { // the separator itself is not part of the command
+				i++
+			}
+			f.rest = append(f.rest, args[i:]...)
+			return f, nil
+		}
 		switch {
 		case a == "--server" || a == "--listen":
 			if i+1 >= len(args) {
@@ -96,6 +105,12 @@ func parseFlags(args []string, passthrough bool) (flags, error) {
 		}
 	}
 	return f, nil
+}
+
+// isOwnFlag: an option of this command (not one for ssh or the remote command).
+func isOwnFlag(a string) bool {
+	return a == "--server" || a == "--listen" || a == "--yes" || a == "-y" || a == "--stdio" ||
+		strings.HasPrefix(a, "--server=") || strings.HasPrefix(a, "--listen=")
 }
 
 func run(args []string) error {

@@ -3,6 +3,9 @@ import { setAuthToken, setUnauthorizedHandler } from "../api/client";
 import { apiPath } from "../api/prefix";
 
 const KEY_TOKEN = "hyperlite_token";
+// GET /auth/me at load: tries and the wait between them (grows each time) before giving up without signing out.
+const ME_ATTEMPTS = 4;
+const ME_RETRY_MS = 1500;
 const KEY_USERNAME = "hyperlite_username";
 const KEY_ROLE = "hyperlite_role";
 
@@ -71,16 +74,30 @@ export const useAuthStore = create((set, get) => ({
       return;
     }
     setAuthToken(token);
-    try {
-      const res = await fetch(apiPath("/auth/me"), { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error("session expired");
-      const me = await res.json();
-      set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local", mustChangePassword: !!me.password_change_required, status: "authenticated" });
-    } catch {
-      clearStoredSession();
-      setAuthToken(null);
-      set({ status: "anonymous" });
+    // Only a 401 ends the session. A network error or a 502/503 (the service restarting for a certificate or an
+    // update) used to clear the stored token, which signed out every open tab through the storage listener: the
+    // check is tried again a few times, then the sign-in page shows without touching the stored session.
+    for (let attempt = 0; attempt < ME_ATTEMPTS; attempt++) {
+      let res = null;
+      try {
+        res = await fetch(apiPath("/auth/me"), { headers: { Authorization: `Bearer ${token}` } });
+      } catch {
+        res = null; // unreachable for now
+      }
+      if (res && res.status === 401) break;
+      if (res && res.ok) {
+        try {
+          const me = await res.json();
+          set({ token, username: me.username, role: me.role, totpEnabled: !!me.totp_enabled, authSource: me.auth_source || "local", mustChangePassword: !!me.password_change_required, status: "authenticated" });
+          return;
+        } catch { /* an unreadable answer: tried again */ }
+      }
+      if (attempt < ME_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, ME_RETRY_MS * (attempt + 1)));
+      else { setAuthToken(null); set({ status: "anonymous" }); return; }
     }
+    clearStoredSession();
+    setAuthToken(null);
+    set({ status: "anonymous" });
   },
 
   // Called by AccountSecurityModal after enabling/disabling 2FA, so the rest of the

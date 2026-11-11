@@ -1,3 +1,5 @@
+import sqlite3
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -6,6 +8,7 @@ from app.core import renaming
 from app.core.audit import log_action
 from app.core.listing import item, listing
 from app.core.security import require_role
+from app.domain.common import AlreadyExists
 from app.services import account_service
 
 router = APIRouter(prefix="/acl", tags=["acl"])
@@ -54,7 +57,9 @@ def create_custom_role(payload: CustomRoleCreate, user: dict = Depends(require_r
         role_id = perm.create_custom_role(name, payload.privileges)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    except Exception:
+    except (AlreadyExists, sqlite3.IntegrityError):
+        # Only the name taken: another failure (a locked database, the daemon down) is its own error, never
+        # "already exists".
         raise HTTPException(status_code=422, detail=f"A role named '{name}' already exists") from None
     log_action(user["username"], "create_custom_role", f"{name} ({','.join(payload.privileges)})", "success")
     return {"id": role_id, "key": f"custom:{role_id}", "name": name, "privileges": payload.privileges}
