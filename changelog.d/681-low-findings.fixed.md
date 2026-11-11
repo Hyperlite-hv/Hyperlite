@@ -1,3 +1,0 @@
-- Metrics: a VM deleted between the listing and its sample no longer costs the whole tick of every other VM (#681).
-- A notification that cannot go out because its channels cannot be read is logged instead of dropped silently (#681).
-- Two Kubernetes clusters fetching the same k3s release at once no longer share one partial download file (#681).
