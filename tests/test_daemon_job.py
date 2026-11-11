@@ -102,3 +102,30 @@ def test_a_step_prints_at_most_the_limit_and_ends_at_its_timeout(monkeypatch):
     monkeypatch.setattr(job, "STEP_TIMEOUT_S", 0.2)
     result = privileged.run("job.step", task_id="t3", target_type="host", command="sleep 5")
     assert result["exit"] == 124 and "Timed out" in result["stderr"]
+
+
+def test_a_step_that_times_out_stops_what_it_left_in_the_background(monkeypatch):
+    """Killing the shell alone left `sleep` holding the pipes: communicate() waited for it and the run never ended."""
+    monkeypatch.setattr(job, "STEP_TIMEOUT_S", 0.5)
+    monkeypatch.setattr(job, "GRACE_S", 2)
+    started = time.monotonic()
+    result = privileged.run("job.step", task_id="t-bg", target_type="host", command="sleep 60 & sleep 60")
+    assert result["exit"] == 124 and time.monotonic() - started < 5
+
+
+def test_a_cancelled_step_stops_its_whole_process_group():
+    done = {}
+    t = threading.Thread(
+        target=lambda: done.update(
+            privileged.run("job.step", task_id="t-cancel", target_type="host", command="sleep 60 & sleep 60")
+        )
+    )
+    started = time.monotonic()
+    t.start()
+    for _ in range(50):
+        if "t-cancel" in job._running:
+            break
+        time.sleep(0.05)
+    assert privileged.run("job.cancel", task_id="t-cancel") == {"cancelled": True}
+    t.join(10)
+    assert not t.is_alive() and time.monotonic() - started < 10

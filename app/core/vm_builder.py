@@ -1,5 +1,7 @@
 import contextlib
+import contextvars
 import json
+import logging
 import os
 import re
 import shutil
@@ -133,11 +135,52 @@ def disk_file(target_dir, vm_name, index):
     return safe_child(target_dir, f"{vm_name}.qcow2" if index == 0 else f"{vm_name}-{index + 1}.qcow2")
 
 
+# What a VM creation has made so far (files, zvols), so that a creation failing halfway removes them: its retry was
+# refused otherwise ("A disk file ... already exists"), and the disks stayed with no VM.
+logger = logging.getLogger(__name__)
+
+_made = contextvars.ContextVar("vm_builder_made", default=None)
+
+
+@contextlib.contextmanager
+def undone_on_failure():
+    """Within it, the files and zvols made by this module are removed if the block raises."""
+    made = []
+    token = _made.set(made)
+    try:
+        yield made
+    except BaseException:
+        _undo(made)
+        raise
+    finally:
+        _made.reset(token)
+
+
+def _record(kind, *what):
+    made = _made.get()
+    if made is not None:
+        made.append((kind, *what))
+
+
+def _undo(made):
+    from app.core import zfs_storage
+
+    for kind, *what in reversed(made):
+        try:
+            if kind == "file":
+                Path(what[0]).unlink(missing_ok=True)
+            elif kind == "zvol":
+                zfs_storage.delete_zvol(*what)
+        except Exception:
+            logger.warning("Left after a failed VM creation: %s %s", kind, what, exc_info=True)
+
+
 def _new_file(path):
     """A new VM's disk is a new file: never one there already, which may be another VM's disk (VM "web-2" and the
     second disk of "web", GHSA-vfmj-3v3j-48fq). The creation checks it first (app/routers/vms/create.py)."""
     if path.exists():
         raise ValueError(f"A disk file '{path.name}' already exists in this storage pool: choose another VM name")
+    _record("file", path)
     return path
 
 
@@ -209,6 +252,7 @@ def create_zvol_disk(zfs_pool, vm_name, index, disk_gb, blank=False, import_sour
         virtual_size = json.loads(info.stdout)["virtual-size"]
         size_gb = max(1, -(-virtual_size // (1024**3)))  # arrondi au Go superieur
         dev_path = zfs_storage.create_zvol(zfs_pool, zvol_name, size_gb)
+        _record("zvol", zfs_pool, zvol_name)
         subprocess.run(
             ["qemu-img", "convert", "-O", "raw", str(import_source), dev_path],
             check=True,
@@ -218,6 +262,7 @@ def create_zvol_disk(zfs_pool, vm_name, index, disk_gb, blank=False, import_sour
         return dev_path
 
     dev_path = zfs_storage.create_zvol(zfs_pool, zvol_name, disk_gb)
+    _record("zvol", zfs_pool, zvol_name)
     if index == 0 and not blank:
         ensure_base_image()
         subprocess.run(
@@ -353,6 +398,8 @@ def create_cloudinit_iso(vm_name, username, password, ssh_pubkey=None, target_di
 
         # safe_child: the name comes from a request; the drive is written, then its mode changed, in that directory only.
         iso_path = safe_child(target_dir or IMAGES_DIR, f"{vm_name}-cloudinit.iso")
+        if not iso_path.exists():
+            _record("file", iso_path)
         subprocess.run(
             ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
             check=True,
@@ -385,6 +432,8 @@ def create_cloudinit_reseed_iso(vm_name):
         meta_data.write_text(f"instance-id: {vm_name}-{uuid.uuid4()}\nlocal-hostname: {vm_name}\n")
 
         iso_path = safe_child(IMAGES_DIR, f"{vm_name}-cloudinit.iso")
+        if not iso_path.exists():
+            _record("file", iso_path)
         subprocess.run(
             ["cloud-localds", str(iso_path), str(user_data), str(meta_data)],
             check=True,

@@ -12,6 +12,7 @@ through it. What is kept is said, with its reason, as vSphere's and Proxmox VE's
 
 import logging
 import shlex
+import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -139,16 +140,25 @@ def kept(conn, name, found, local=True):
 
 def _remove_on_node(node, paths, name):
     """Another node's files, removed there over SSH with the cluster's key (hyperlite-daemon's): its paths are paths
-    on that node, which a local unlink() would miss, or worse."""
+    on that node, which a local unlink() would miss, or worse. Returns {path: reason} of the files left there, which
+    the deletion reports as kept rather than gone."""
     from app.core.cluster import _run_ssh, get_node
 
     remote = get_node(node)
     if remote is None:
-        return
+        return {str(path): f"node {node} is no longer registered" for path in paths}
+    left = {}
     for path in paths:
-        result = _run_ssh(remote, ["rm", "-f", "--", shlex.quote(str(path))])
+        try:
+            result = _run_ssh(remote, ["rm", "-f", "--", shlex.quote(str(path))])
+        except (OSError, subprocess.SubprocessError) as e:
+            left[str(path)] = f"not removed on {node}: {e}"
+            continue
         if result.returncode != 0:
-            logger.warning("Disk %s of the deleted VM %s left on %s: %s", path, name, node, result.stderr.strip())
+            left[str(path)] = f"not removed on {node}: {result.stderr.strip()[:200] or 'ssh failed'}"
+    for path, reason in left.items():
+        logger.warning("Disk %s of the deleted VM %s left: %s", path, name, reason)
+    return left
 
 
 def delete(conn, name, node=None):
@@ -175,7 +185,7 @@ def delete(conn, name, node=None):
     for path in keep:
         logger.warning("Disk %s of the deleted VM %s kept: %s", path, name, keep[path])
     if node:
-        _remove_on_node(node, found.files, name)
+        keep.update(_remove_on_node(node, found.files, name))
         delete_logical_volumes(conn, found, name, node)
         return keep
     for path in found.files:

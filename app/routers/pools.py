@@ -1,3 +1,5 @@
+import sqlite3
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -6,6 +8,7 @@ from app.core import renaming
 from app.core.audit import log_action
 from app.core.listing import item, listing
 from app.core.security import require_role
+from app.domain.common import AlreadyExists
 
 router = APIRouter(prefix="/pools", tags=["pools"])
 
@@ -31,7 +34,9 @@ def create_pool(payload: PoolCreate, user: dict = Depends(require_role("admin"))
         raise HTTPException(status_code=422, detail="Pool name required")
     try:
         pool_id = perm.create_pool(name, payload.description)
-    except Exception:
+    except (AlreadyExists, sqlite3.IntegrityError):
+        # Only the name taken: another failure (a locked database, the daemon down) is its own error, never
+        # "already exists".
         raise HTTPException(status_code=422, detail=f"A pool named '{name}' already exists") from None
     log_action(user["username"], "create_pool", name, "success")
     return {"id": pool_id, "name": name, "description": payload.description, "vms": []}

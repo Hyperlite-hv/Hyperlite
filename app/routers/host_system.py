@@ -205,24 +205,27 @@ def power(payload: PowerRequest, user: dict = Depends(require_role("admin"))):
             detail=f"Running on this node: {names}. Move them (maintenance mode) or choose to shut them down first",
         )
     task_id = create_task(f"node_{payload.action}", hostname, None, user["username"])
-    log_action(user["username"], f"node_{payload.action}", hostname, "success", f"{len(guests)} guests to stop")
+    action = f"node_{payload.action}"
+    # Audited when its outcome is known: a power action cancelled because guests kept running read "success" when it
+    # was audited at the request.
+    log_action(user["username"], f"{action}_requested", hostname, "success", f"{len(guests)} guests to stop")
 
     def work():
         try:
             if guests:
                 left = host_system.stop_guests(guests, lambda line: task_log(task_id, line))
                 if left:
-                    finish_task(
-                        task_id,
-                        "failed",
-                        f"Still running after the wait, {payload.action} cancelled: {', '.join(left)}",
-                    )
+                    msg = f"Still running after the wait, {payload.action} cancelled: {', '.join(left)}"
+                    finish_task(task_id, "failed", msg)
+                    log_action(user["username"], action, hostname, "failed", msg)
                     return
             privileged.run("host.schedule_power", user=user["username"], action=payload.action)
             task_log(task_id, f"{payload.action} in {host_system.POWER_DELAY_S} s")
             finish_task(task_id, "succeeded")
+            log_action(user["username"], action, hostname, "success", f"in {host_system.POWER_DELAY_S} s")
         except Exception as e:  # the task must end whatever happened, with the cause in its log
             finish_task(task_id, "failed", str(e))
+            log_action(user["username"], action, hostname, "failed", str(e))
 
     start_thread(work, task_id=task_id, name="node-power")
     return {"task": task_id}

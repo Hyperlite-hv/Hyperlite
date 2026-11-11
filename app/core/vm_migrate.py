@@ -74,9 +74,12 @@ def delete_paths_on_node(paths, node_name):
 
     for p in paths:
         try:
-            _ssh(node_name, "rm", "-f", "--", shlex.quote(str(p)))
+            _node, result = _ssh(node_name, "rm", "-f", "--", shlex.quote(str(p)))
         except (RuntimeError, OSError, subprocess.SubprocessError) as e:
             logger.warning("%s left on %s after the migration: %s", p, node_name, e)
+            continue
+        if result.returncode != 0:
+            logger.warning("%s left on %s after the migration: %s", p, node_name, result.stderr.strip()[:200])
 
 
 def copy_file_to_node(local_path, node_name, remote_path):

@@ -37,6 +37,7 @@ def _store():
     return registry.objects().sync
 
 
+# fullmatch everywhere: "$" also matches before a trailing newline, so match() let "bob\n" through.
 USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 KEY_RE = re.compile(
     r"^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521)|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) [A-Za-z0-9+/=]+( [^\r\n]{0,200})?$"
@@ -138,7 +139,7 @@ def delete_state(vm_name):
 
 
 def validate(username, password, keys):
-    if not USER_RE.match(username or ""):
+    if not USER_RE.fullmatch(username or ""):
         raise CloudInitError("Invalid user name: lowercase letters, digits, '_' or '-', up to 32 characters")
     if password is not None:
         if len(password) < 8:
@@ -153,7 +154,7 @@ def validate(username, password, keys):
         key = " ".join(str(raw).split())
         if not key:
             continue
-        if not KEY_RE.match(key):
+        if not KEY_RE.fullmatch(key):
             raise CloudInitError(f"Not an SSH public key: {key[:40]}…")
         if key not in cleaned:
             cleaned.append(key)
@@ -174,7 +175,7 @@ def _ip_list(values, what):
 
 def _domain(value, what):
     labels = str(value).strip().rstrip(".").split(".")
-    if len(".".join(labels)) > 253 or not all(LABEL_RE.match(label) for label in labels):
+    if len(".".join(labels)) > 253 or not all(LABEL_RE.fullmatch(label) for label in labels):
         raise CloudInitError(f"{what}: '{value}' is not a domain name")
     return ".".join(labels).lower()
 
@@ -184,7 +185,7 @@ def validate_custom(custom, macs):
     an entry of `network` without a MAC address is the first interface."""
     out = empty_custom()
     if custom.get("hostname"):
-        if not LABEL_RE.match(custom["hostname"]):
+        if not LABEL_RE.fullmatch(custom["hostname"]):
             raise CloudInitError("hostname: letters, digits and '-', up to 63 characters, as a DNS label")
         out["hostname"] = custom["hostname"].lower()
     if custom.get("domain"):
@@ -193,7 +194,7 @@ def validate_custom(custom, macs):
     for i, entry in enumerate(custom.get("network") or []):
         what = f"network[{i}]"
         mac = (entry.get("mac") or (macs[0] if macs else "")).lower()
-        if not MAC_RE.match(mac) or mac not in [m.lower() for m in macs]:
+        if not MAC_RE.fullmatch(mac) or mac not in [m.lower() for m in macs]:
             raise CloudInitError(f"{what}: the VM has no interface with the MAC address '{mac or entry.get('mac')}'")
         if mac in seen:
             raise CloudInitError(f"{what}: the interface {mac} is configured twice")

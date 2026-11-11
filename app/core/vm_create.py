@@ -16,7 +16,7 @@ from typing import Literal
 import libvirt
 from pydantic import BaseModel, Field
 
-from app.core import cloudinit_edit, disk_images, disk_library, firmware, lvm_storage, zfs_storage
+from app.core import cloudinit_edit, disk_images, disk_library, firmware, lvm_storage, vm_builder, zfs_storage
 from app.core.error_messages import describe_exception
 from app.core.guest_hardware import guest_profile
 from app.core.libvirt_utils import (
@@ -221,7 +221,10 @@ def create(conn, payload, pending=frozenset(), check_only=False):
 
     iso_path = None
     if payload.iso:
-        candidate = safe_child(disk_library.ISOS, payload.iso)
+        try:
+            candidate = safe_child(disk_library.ISOS, payload.iso)
+        except ValueError:
+            raise CreateError("refused", "Invalid ISO name") from None
         if not candidate.exists() and payload.iso not in pending:
             errors.append(f"ISO '{payload.iso}' not found")
         else:
@@ -409,154 +412,156 @@ def create(conn, payload, pending=frozenset(), check_only=False):
     except libvirt.libvirtError:
         logger.debug("Ignored exception in create_vm()", exc_info=True)
 
-    try:
-        if luns and extra_imports:
-            raise ValueError("Imported data disks are not written to iSCSI LUNs: choose another storage pool")
-        if luns:
-            # iSCSI: each disk is a whole LUN, attached as a raw block device like a zvol. Disk 0 receives the
-            # system image unless an ISO installs one; the others are blank data disks.
-            if import_mode:
-                system_source = import_disk_path
-            elif install_mode:
-                system_source = None
-            else:
-                ensure_base_image()
-                system_source = BASE_IMAGE
-            for i, (device, capacity) in enumerate(luns):
-                prepare_lun(device, capacity, system_source if i == 0 else None)
-            disk_paths = [(device, "block") for device, _ in luns]
-        elif zfs_pool_name:
-            # Raw zvols: each path is a /dev/zvol/... device marked 'block' for
-            # build_domain_xml (see create_zvol_disk in vm_builder.py), never a qcow2 file
-            # path.
-            if import_mode:
+    # A creation failing past this point removes the disks and drives it made (vm_builder.undone_on_failure).
+    with vm_builder.undone_on_failure():
+        try:
+            if luns and extra_imports:
+                raise ValueError("Imported data disks are not written to iSCSI LUNs: choose another storage pool")
+            if luns:
+                # iSCSI: each disk is a whole LUN, attached as a raw block device like a zvol. Disk 0 receives the
+                # system image unless an ISO installs one; the others are blank data disks.
+                if import_mode:
+                    system_source = import_disk_path
+                elif install_mode:
+                    system_source = None
+                else:
+                    ensure_base_image()
+                    system_source = BASE_IMAGE
+                for i, (device, capacity) in enumerate(luns):
+                    prepare_lun(device, capacity, system_source if i == 0 else None)
+                disk_paths = [(device, "block") for device, _ in luns]
+            elif zfs_pool_name:
+                # Raw zvols: each path is a /dev/zvol/... device marked 'block' for
+                # build_domain_xml (see create_zvol_disk in vm_builder.py), never a qcow2 file
+                # path.
+                if import_mode:
+                    disk_paths = [
+                        (create_zvol_disk(zfs_pool_name, payload.name, 0, 1, import_source=import_disk_path), "block")
+                    ] + [
+                        (
+                            create_zvol_disk(
+                                zfs_pool_name, payload.name, i, disk.size_gb, import_source=extra_imports.get(i)
+                            ),
+                            "block",
+                        )
+                        for i, disk in enumerate(payload.disks[1:], start=1)
+                    ]
+                else:
+                    disk_paths = [
+                        (
+                            create_zvol_disk(
+                                zfs_pool_name,
+                                payload.name,
+                                i,
+                                disk.size_gb,
+                                blank=(install_mode and i == 0),
+                                import_source=extra_imports.get(i),
+                            ),
+                            "block",
+                        )
+                        for i, disk in enumerate(payload.disks)
+                    ]
+            elif lvm_pool is not None:
+                # Thick logical volumes made through libvirt, or thin ones in the pool's thin pool, the image written
+                # raw into disk 0 (app/core/lvm_storage.py).
+                thin = lvm_storage.thin_pool_of(lvm_storage.group_of(lvm_pool))
+                if import_mode:
+                    system_source = import_disk_path
+                elif install_mode:
+                    system_source = None
+                else:
+                    ensure_base_image()
+                    system_source = BASE_IMAGE
                 disk_paths = [
-                    (create_zvol_disk(zfs_pool_name, payload.name, 0, 1, import_source=import_disk_path), "block")
-                ] + [
                     (
-                        create_zvol_disk(
-                            zfs_pool_name, payload.name, i, disk.size_gb, import_source=extra_imports.get(i)
-                        ),
-                        "block",
-                    )
-                    for i, disk in enumerate(payload.disks[1:], start=1)
-                ]
-            else:
-                disk_paths = [
-                    (
-                        create_zvol_disk(
-                            zfs_pool_name,
+                        lvm_storage.create_vm_disk(
+                            lvm_pool,
                             payload.name,
                             i,
                             disk.size_gb,
-                            blank=(install_mode and i == 0),
-                            import_source=extra_imports.get(i),
+                            base_image=system_source if i == 0 and not import_mode else None,
+                            import_source=import_disk_path if i == 0 and import_mode else extra_imports.get(i),
+                            thin_pool=thin["name"] if thin else None,
                         ),
                         "block",
                     )
                     for i, disk in enumerate(payload.disks)
                 ]
-        elif lvm_pool is not None:
-            # Thick logical volumes made through libvirt, or thin ones in the pool's thin pool, the image written
-            # raw into disk 0 (app/core/lvm_storage.py).
-            thin = lvm_storage.thin_pool_of(lvm_storage.group_of(lvm_pool))
-            if import_mode:
-                system_source = import_disk_path
-            elif install_mode:
-                system_source = None
+            elif import_mode:
+                # Disk 0 = conversion of the imported file (qemu-img detects the source format by
+                # itself); any additional disks are always blank as usual.
+                disk_paths = [create_disk_from_import(payload.name, import_disk_path, target_dir=target_dir)] + [
+                    create_disk_from_import(payload.name, extra_imports[i], target_dir=target_dir, index=i)
+                    if i in extra_imports
+                    else create_disk(payload.name, disk.size_gb, index=i, target_dir=target_dir)
+                    for i, disk in enumerate(payload.disks[1:], start=1)
+                ]
             else:
-                ensure_base_image()
-                system_source = BASE_IMAGE
-            disk_paths = [
-                (
-                    lvm_storage.create_vm_disk(
-                        lvm_pool,
-                        payload.name,
-                        i,
-                        disk.size_gb,
-                        base_image=system_source if i == 0 and not import_mode else None,
-                        import_source=import_disk_path if i == 0 and import_mode else extra_imports.get(i),
-                        thin_pool=thin["name"] if thin else None,
-                    ),
-                    "block",
+                disk_paths = [
+                    create_disk_from_import(payload.name, extra_imports[i], target_dir=target_dir, index=i)
+                    if i in extra_imports
+                    else create_disk(
+                        payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0), target_dir=target_dir
+                    )
+                    for i, disk in enumerate(payload.disks)
+                ]
+            cloudinit_path = None
+            customised = None
+            if import_mode:
+                # Reuses the "reseed" of cloning: if the imported disk has cloud-init on it (the
+                # most frequent case: a Hyperlite export, or a generic cloud image), a new
+                # instance-id forces cloud-init to run again at first boot and to regenerate its
+                # network for the current MAC. Without it, cloud-init keeps the network
+                # configuration of its very first run, which often pins the interface by MAC
+                # ADDRESS (seen in testing: /etc/netplan/50-cloud-init.yaml with
+                # `match: {macaddress: ...}`). Since this VM necessarily has a new MAC (see
+                # generate_mac above), no interface matches anymore and the network never comes
+                # up. Harmless if the disk has no cloud-init (the ISO is simply a CD-ROM that is
+                # never read).
+                cloudinit_path = create_cloudinit_reseed_iso(payload.name)
+            elif not install_mode:
+                ssh_pubkey = get_or_create_automation_pubkey()
+                cloudinit_path = create_cloudinit_iso(
+                    payload.name,
+                    username=payload.username,
+                    password=payload.password,
+                    ssh_pubkey=ssh_pubkey,
+                    target_dir=target_dir,
                 )
-                for i, disk in enumerate(payload.disks)
-            ]
-        elif import_mode:
-            # Disk 0 = conversion of the imported file (qemu-img detects the source format by
-            # itself); any additional disks are always blank as usual.
-            disk_paths = [create_disk_from_import(payload.name, import_disk_path, target_dir=target_dir)] + [
-                create_disk_from_import(payload.name, extra_imports[i], target_dir=target_dir, index=i)
-                if i in extra_imports
-                else create_disk(payload.name, disk.size_gb, index=i, target_dir=target_dir)
-                for i, disk in enumerate(payload.disks[1:], start=1)
-            ]
-        else:
-            disk_paths = [
-                create_disk_from_import(payload.name, extra_imports[i], target_dir=target_dir, index=i)
-                if i in extra_imports
-                else create_disk(
-                    payload.name, disk.size_gb, index=i, blank=(install_mode and i == 0), target_dir=target_dir
-                )
-                for i, disk in enumerate(payload.disks)
-            ]
-        cloudinit_path = None
-        customised = None
-        if import_mode:
-            # Reuses the "reseed" of cloning: if the imported disk has cloud-init on it (the
-            # most frequent case: a Hyperlite export, or a generic cloud image), a new
-            # instance-id forces cloud-init to run again at first boot and to regenerate its
-            # network for the current MAC. Without it, cloud-init keeps the network
-            # configuration of its very first run, which often pins the interface by MAC
-            # ADDRESS (seen in testing: /etc/netplan/50-cloud-init.yaml with
-            # `match: {macaddress: ...}`). Since this VM necessarily has a new MAC (see
-            # generate_mac above), no interface matches anymore and the network never comes
-            # up. Harmless if the disk has no cloud-init (the ISO is simply a CD-ROM that is
-            # never read).
-            cloudinit_path = create_cloudinit_reseed_iso(payload.name)
-        elif not install_mode:
-            ssh_pubkey = get_or_create_automation_pubkey()
-            cloudinit_path = create_cloudinit_iso(
-                payload.name,
-                username=payload.username,
-                password=payload.password,
-                ssh_pubkey=ssh_pubkey,
-                target_dir=target_dir,
-            )
-            if payload.ssh_keys or payload.customize is not None:
-                # The drive just made, rewritten with the rest before the VM ever boots (the same writer as PUT
-                # /vms/{name}/cloud-init, so that route reads it back).
-                keys, custom = customisation(payload, mac)
-                cloudinit_edit.write_drive(
-                    payload.name, Path(cloudinit_path), payload.username, payload.password, keys, custom, [mac]
-                )
-                customised = {"keys": keys, "custom": custom}
-    except subprocess.CalledProcessError as e:
-        raise CreateError("failed", f"Error while preparing the disk/cloud-init: {e.stderr or e}") from e
-    except zfs_storage.ZfsError as e:
-        raise CreateError("failed", f"ZFS error while preparing the disk: {e.message}") from e
-    except (lvm_storage.LvmError, libvirt.libvirtError) as e:
-        # LVM: a full volume group, or a volume name already taken in it.
-        msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
-        raise CreateError("failed", f"Error while preparing the disk: {msg}") from e
-    except ValueError as e:
-        raise CreateError("refused", str(e)) from e
+                if payload.ssh_keys or payload.customize is not None:
+                    # The drive just made, rewritten with the rest before the VM ever boots (the same writer as PUT
+                    # /vms/{name}/cloud-init, so that route reads it back).
+                    keys, custom = customisation(payload, mac)
+                    cloudinit_edit.write_drive(
+                        payload.name, Path(cloudinit_path), payload.username, payload.password, keys, custom, [mac]
+                    )
+                    customised = {"keys": keys, "custom": custom}
+        except subprocess.CalledProcessError as e:
+            raise CreateError("failed", f"Error while preparing the disk/cloud-init: {e.stderr or e}") from e
+        except zfs_storage.ZfsError as e:
+            raise CreateError("failed", f"ZFS error while preparing the disk: {e.message}") from e
+        except (lvm_storage.LvmError, libvirt.libvirtError) as e:
+            # LVM: a full volume group, or a volume name already taken in it.
+            msg = describe_exception(e) if isinstance(e, libvirt.libvirtError) else str(e)
+            raise CreateError("failed", f"Error while preparing the disk: {msg}") from e
+        except ValueError as e:
+            raise CreateError("refused", str(e)) from e
 
-    xml = build_domain_xml(
-        payload.name,
-        payload.vcpu,
-        payload.memory_mb,
-        disk_paths,
-        cloudinit_path,
-        payload.network,
-        iso_path=iso_path,
-        drivers_iso_path=drivers_iso_path,
-        mac=mac,
-        disk_bus=disk_bus,
-        interface_model="e1000e" if compatible_devices else "virtio",
-        firmware=payload.firmware,
-    )
-    conn.defineXML(xml)
+        xml = build_domain_xml(
+            payload.name,
+            payload.vcpu,
+            payload.memory_mb,
+            disk_paths,
+            cloudinit_path,
+            payload.network,
+            iso_path=iso_path,
+            drivers_iso_path=drivers_iso_path,
+            mac=mac,
+            disk_bus=disk_bus,
+            interface_model="e1000e" if compatible_devices else "virtio",
+            firmware=payload.firmware,
+        )
+        conn.defineXML(xml)
     # The disks and ISOs were written by qemu-img/cloud-localds, not through libvirt:
     # without a refresh their pool does not list them.
     refresh_pools_for_paths(conn, [*disk_paths, cloudinit_path])

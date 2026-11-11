@@ -278,7 +278,8 @@ def _copy(name, source, target, task_id, total):
             src = None
         else:
             # Remote to remote: relay through the local host, since the nodes do not trust each other.
-            relay = isos_dir() / f".{name}.relay{PART_SUFFIX}"
+            # One relay file per copy: two copies of one image at once each finish and remove their own.
+            relay = isos_dir() / f".{name}.{task_id}.relay{PART_SUFFIX}"
             _scp(["-P", str(source["ssh_port"]), f"{_target(source)}:{source_file}", str(relay)])
             src = str(relay)
 

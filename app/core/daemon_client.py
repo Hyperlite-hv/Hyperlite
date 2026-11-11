@@ -66,6 +66,9 @@ def call_fds(op, args=None, user=None, timeout=TIMEOUT_S):
         raise DaemonError("unavailable", "hyperlite-daemon is not running") from e
     except TimeoutError as e:
         raise DaemonError("unavailable", f"hyperlite-daemon did not answer within {timeout:g} s") from e
+    except (ConnectionResetError, BrokenPipeError) as e:
+        # The daemon restarted during the call (its package was updated): a 503 the dashboard says, not a raw 500.
+        raise DaemonError("unavailable", "hyperlite-daemon closed the connection before answering: try again") from e
     try:
         answer = json.loads(line)
     except ValueError as e:

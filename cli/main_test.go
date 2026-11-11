@@ -163,3 +163,18 @@ func TestOnlyTheServersOwnApprovalPageIsOpened(t *testing.T) {
 		}
 	}
 }
+
+func TestTheRemoteCommandKeepsItsOwnFlags(t *testing.T) {
+	f, err := parseFlags([]string{"vm", "sudo", "apt", "install", "-y", "nginx"}, true)
+	if err != nil || f.yes || strings.Join(f.rest, " ") != "vm sudo apt install -y nginx" {
+		t.Fatalf("got %+v %v", f, err)
+	}
+	f, _ = parseFlags([]string{"vm", "--", "ls", "--server", "x"}, true)
+	if f.server != "" || strings.Join(f.rest, " ") != "vm ls --server x" {
+		t.Fatalf("got %+v", f)
+	}
+	f, _ = parseFlags([]string{"-y", "vm", "--server", "https://a", "uptime"}, true)
+	if !f.yes || f.server != "https://a" || strings.Join(f.rest, " ") != "vm uptime" {
+		t.Fatalf("got %+v", f)
+	}
+}
