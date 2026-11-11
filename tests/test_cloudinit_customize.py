@@ -220,3 +220,14 @@ def test_the_drive_xml_names_the_interfaces_in_order():
         encoding="unicode",
     )
     assert ce.interface_macs(domain) == [MACS[1], MACS[0]]
+
+
+def test_a_trailing_newline_is_refused_in_every_field():
+    import pytest
+
+    from app.core import cloudinit_edit
+
+    with pytest.raises(cloudinit_edit.CloudInitError, match="user name"):
+        cloudinit_edit.validate("bob\n", None, [])
+    assert not cloudinit_edit.LABEL_RE.fullmatch("web\n") and cloudinit_edit.LABEL_RE.fullmatch("web")
+    assert cloudinit_edit.validate("bob", None, []) == []  # the same without the newline is accepted
