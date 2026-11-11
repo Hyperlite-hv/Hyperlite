@@ -73,7 +73,7 @@ async def bridge(websocket: WebSocket, master_fd):
                     except (ValueError, KeyError, TypeError):
                         logger.debug("Unreadable terminal size", exc_info=True)
                 else:
-                    os.write(master_fd, msg.encode())
+                    await _write_all(loop, master_fd, msg.encode())
 
     tasks = {asyncio.ensure_future(pty_to_ws()), asyncio.ensure_future(ws_to_pty())}
     try:
@@ -85,6 +85,31 @@ async def bridge(websocket: WebSocket, master_fd):
             loop.remove_reader(master_fd)
         with contextlib.suppress(OSError):
             os.close(master_fd)
+
+
+def _wake(future):
+    if not future.done():
+        future.set_result(None)
+
+
+async def _write_all(loop, fd, data):
+    """Everything typed or pasted reaches the program: a non-blocking pty takes part of a large paste (the rest was
+    lost) or none of it while its buffer is full (BlockingIOError ended the session). Waits for the fd to be writable
+    between the parts."""
+    view = memoryview(data)
+    while view:
+        try:
+            written = os.write(fd, view)
+        except BlockingIOError:
+            written = 0
+        view = view[written:]
+        if view:
+            ready = loop.create_future()
+            loop.add_writer(fd, _wake, ready)
+            try:
+                await ready
+            finally:
+                loop.remove_writer(fd)
 
 
 @dataclass
