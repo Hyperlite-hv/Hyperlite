@@ -195,3 +195,36 @@ def test_a_route_that_lets_the_daemons_error_through_still_says_it_is_missing():
         503,
         {"detail": "hyperlite-daemon is not running", "code": "unavailable"},
     )
+
+
+def test_a_connection_reset_by_the_daemon_is_unavailable_not_a_500(monkeypatch, tmp_path):
+    from app.core import daemon_client
+    from app.daemon.registry import DaemonError
+
+    class Reset:
+        def __init__(self, *a):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def settimeout(self, t):
+            pass
+
+        def connect(self, path):
+            pass
+
+        def sendall(self, data):
+            pass
+
+    monkeypatch.setattr(daemon_client.socket, "socket", Reset)
+    monkeypatch.setattr(daemon_client, "_read_answer", lambda sock: (_ for _ in ()).throw(ConnectionResetError()))
+    try:
+        daemon_client.call("health")
+    except DaemonError as e:
+        assert e.kind == "unavailable" and "closed the connection" in e.detail
+    else:
+        raise AssertionError("a reset connection must raise DaemonError")

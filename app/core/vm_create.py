@@ -221,7 +221,10 @@ def create(conn, payload, pending=frozenset(), check_only=False):
 
     iso_path = None
     if payload.iso:
-        candidate = safe_child(disk_library.ISOS, payload.iso)
+        try:
+            candidate = safe_child(disk_library.ISOS, payload.iso)
+        except ValueError:
+            raise CreateError("refused", "Invalid ISO name") from None
         if not candidate.exists() and payload.iso not in pending:
             errors.append(f"ISO '{payload.iso}' not found")
         else:
