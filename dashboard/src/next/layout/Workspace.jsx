@@ -90,7 +90,7 @@ function VmHead({ vm, node, tab, setTab }) {
     <div className="nx-oh">
       <span className="nx-otile" aria-hidden="true"><Monitor size={20} /></span>
       <div className="nx-oh-main">
-        <h1>{vm.name}</h1>
+        <div className="nx-oh-title"><h1>{vm.name}</h1>{vm.vmid != null && <span className="nx-vmid" title={t("vmid.title")}>{vm.vmid}</span>}</div>
         <div className="nx-ometa">
           <StatePill kind="vm" wire={vm.state} />
           {vm.os && <span>{vm.os}</span>}
