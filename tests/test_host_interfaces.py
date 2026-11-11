@@ -148,3 +148,12 @@ def test_unusable_interfaces_are_refused(api, client, auth_headers, iface, detai
     )
     assert r.status_code == 422 and detail in r.text
     assert api.defined == []
+
+
+def test_a_port_of_a_bridge_is_not_offered_as_a_macvtap_base(sysnet):
+    from app.core.host_interfaces import list_host_interfaces
+
+    (sysnet / "eno1" / "master").symlink_to(sysnet / "br0")
+    listed = {i["name"]: i for i in list_host_interfaces(sysnet, addresses={})}
+    assert listed["eno1"]["usable"] is False and listed["eno1"]["master"] == "br0"
+    assert listed["br0"]["usable"] is True and listed["br0"]["master"] is None

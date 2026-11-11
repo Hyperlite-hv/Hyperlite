@@ -130,6 +130,12 @@ def serve(path=None):
     os.chown(path, 0, gid)
     os.chmod(path, 0o660)
     logger.info("hyperlite-daemon listening on %s", path)
+    try:
+        from app.core import bridge_vlan
+
+        bridge_vlan.undo_unconfirmed()  # a trial whose timer went with the previous process
+    except Exception:
+        logger.exception("Undoing the VLAN-aware trials left by the previous start failed")
     notify_ready()
     try:
         server.serve_forever()

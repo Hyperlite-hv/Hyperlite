@@ -213,14 +213,25 @@ def carry_reservations(src_conn, dest_conn, domain_xml):
         plan.append((dest_net, network_name, mac, ip, dest.get(mac)))
 
     moved, added = [], []
-    for dest_net, network_name, mac, ip, current in plan:
-        moved.append((network_name, mac))
-        if current == ip:
-            continue
-        if current:
-            _update_host(dest_net, libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE, mac, current)
-        _update_host(dest_net, libvirt.VIR_NETWORK_UPDATE_COMMAND_ADD_LAST, mac, ip)
-        added.append((network_name, mac))
+    undo = []  # what to do again, last first, if a later reservation fails: the caller gets nothing to undo then
+    try:
+        for dest_net, network_name, mac, ip, current in plan:
+            moved.append((network_name, mac))
+            if current == ip:
+                continue
+            if current:
+                _update_host(dest_net, libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE, mac, current)
+                undo.append((dest_net, libvirt.VIR_NETWORK_UPDATE_COMMAND_ADD_LAST, mac, current))
+            _update_host(dest_net, libvirt.VIR_NETWORK_UPDATE_COMMAND_ADD_LAST, mac, ip)
+            undo.append((dest_net, libvirt.VIR_NETWORK_UPDATE_COMMAND_DELETE, mac, ip))
+            added.append((network_name, mac))
+    except libvirt.libvirtError:
+        for dest_net, command, mac, ip in reversed(undo):
+            try:
+                _update_host(dest_net, command, mac, ip)
+            except libvirt.libvirtError:
+                logger.warning("Reservation %s %s left as it was half-carried", mac, ip, exc_info=True)
+        raise
     return moved, added
 
 
