@@ -97,3 +97,44 @@ def test_a_refused_start_ends_the_task_with_its_reason(client, auth_headers, mon
     from app.repositories import registry
 
     assert registry.tasks().sync.latest_running("hyperlite_update", "2000-01-01") is None  # not left running
+
+
+def test_a_download_that_hangs_costs_the_kept_package_not_the_update(tmp_path, monkeypatch):
+    import subprocess
+
+    from app.routers import update
+
+    monkeypatch.setattr(update, "PREVIOUS_DIR", tmp_path)
+    monkeypatch.setattr(update, "_raw_installed_version", lambda: "1:1.16.0")
+    monkeypatch.setattr(update, "_raw_candidate_version", lambda: "1:1.17.0")
+    monkeypatch.setattr(update.version, "knows_layout", lambda v: True)
+    logged, seen = [], []
+    monkeypatch.setattr(update, "task_log", lambda task_id, line: logged.append(line))
+
+    def hangs(argv, **kw):
+        seen.append(argv)
+        raise subprocess.TimeoutExpired(argv, 300)
+
+    monkeypatch.setattr(update.subprocess, "run", hangs)
+    update._keep_previous("t", ["-o", "Dir::Etc::sourcelist=/x"])  # no exception: the update goes on
+    assert seen[0][:3] == ["apt-get", "-o", "Dir::Etc::sourcelist=/x"]
+    assert any("could not be kept" in line for line in logged)
+
+
+def test_an_update_longer_than_the_window_still_blocks_a_second_one(database, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.database import get_conn
+    from app.routers import update
+
+    old = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+    with get_conn() as db:
+        db.execute(
+            "INSERT INTO tasks (id, type, target, status, username, created_at) VALUES ('u1', 'hyperlite_update', 'hyperlite', 'running', 'ana', ?)",
+            (old,),
+        )
+        db.commit()
+    monkeypatch.setattr(update, "_update_unit_active", lambda: True)
+    assert update._update_in_progress() == "ana"
+    monkeypatch.setattr(update, "_update_unit_active", lambda: False)
+    assert update._update_in_progress() is None  # a task left running by a crash blocks nothing

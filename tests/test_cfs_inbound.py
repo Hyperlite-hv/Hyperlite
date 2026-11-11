@@ -186,12 +186,21 @@ def test_every_column_left_out_can_be_left_out_of_an_insert(database):
                     assert column in table.fill, f"{name}.{column}"
 
 
-def test_a_change_this_database_refuses_is_reported_and_nothing_is_applied(cluster):
+def test_a_change_this_database_refuses_is_left_out_and_the_rest_applied(cluster):
+    """Two nodes made group "ops" within seconds: the second row is left out with its reason, and everything else
+    still comes in. It used to block every later change, from every node, until the database was copied again."""
     cluster.remote("/db/groups/1", {"id": 1, "name": "ops"})
     cluster.remote("/db/groups/2", {"id": 2, "name": "ops"})  # two groups with one name: the unique column refuses
-    assert inbound.apply() is None
-    assert "groups" in inbound.report()["problem"]
-    assert rows("SELECT * FROM groups") == []  # all or nothing
+    cluster.remote("/db/groups/3", {"id": 3, "name": "dev"})
+    assert inbound.apply() == 2
+    problem = inbound.report()["problem"]
+    assert "/db/groups/2" in problem and "rename" in problem
+    assert rows("SELECT id, name FROM groups ORDER BY id") == [{"id": 1, "name": "ops"}, {"id": 3, "name": "dev"}]
+
+    cluster.remote("/db/groups/2", {"id": 2, "name": "ops-2"})  # an administrator renames one of them
+    assert inbound.apply() == 1 and inbound.report()["problem"] is None
+    assert [r["name"] for r in rows("SELECT name FROM groups ORDER BY id")] == ["ops", "ops-2", "dev"]
+    assert inbound.apply() is None  # nothing left to try again
 
 
 def test_a_sign_out_on_one_node_revokes_the_session_on_every_node(cluster):
@@ -314,3 +323,27 @@ def test_a_change_made_at_start_still_loses_to_the_clusters_newer_one(cluster):
     write("UPDATE groups SET name = 'set-at-start' WHERE id = 7")
     shadow.refresh_bases()
     assert shadow.drain() == 0 and json.loads(cluster.files["/db/groups/7"])["name"] == "by-the-majority"
+
+
+def test_a_rename_onto_a_leftover_deletes_it_in_the_cluster_too(cluster):
+    """UPDATE OR REPLACE dropped the leftover backup job of the new name without a deletion in the outbox: the tree
+    kept it, and the next apply on every node failed on UNIQUE(vm_name)."""
+    from app.repositories.sqlite.renames import SqliteRenameStore
+
+    with get_conn() as db:
+        for vm in ("old", "new"):
+            db.execute(
+                "INSERT INTO backup_jobs (vm_name, frequency, time, target_dir, next_run) VALUES (?, 'daily', '02:00', '/b', 'x')",
+                (vm,),
+            )
+        db.commit()
+    shadow.drain()
+
+    def jobs():
+        return sorted(json.loads(d)["vm_name"] for p, d in cluster.files.items() if p.startswith("/db/backup_jobs/"))
+
+    assert jobs() == ["new", "old"]
+    SqliteRenameStore().vm_records("old", "new", "local", "", lambda xml, name: xml)
+    shadow.drain()
+    assert jobs() == ["new"] and rows("SELECT vm_name FROM backup_jobs") == [{"vm_name": "new"}]
+    assert not inbound.apply() and inbound.report()["problem"] is None

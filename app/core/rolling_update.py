@@ -412,6 +412,7 @@ def _update_peer(task_id, username, node, target, stop_blocked):
     if crosses_1_0(check):
         _update_peer_to_1_0(task_id, username, node, check)
         return True
+    expected = check.get("remote_commit")
     plan = _drain(task_id, username, name, target)
 
     status, body = peer_api(node, username, "POST", "/update/apply", {"system": True})
@@ -441,6 +442,10 @@ def _update_peer(task_id, username, node, target, stop_blocked):
         except PeerUnreachable:
             return None
         if s != 200 or (check.get("rolled_back") and time.monotonic() < settled):
+            return None
+        # The old process answers for 2 s after its task succeeded: only the version expected (or a rollback) says
+        # the restart happened.
+        if expected and not check.get("rolled_back") and check.get("commit_local") != expected:
             return None
         return check
 

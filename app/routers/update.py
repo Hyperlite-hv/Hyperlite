@@ -276,7 +276,7 @@ def _previous():
     return {"version": kept, "file": debs[-1]}
 
 
-def _keep_previous(task_id):
+def _keep_previous(task_id, apt_opts=()):
     """Before Hyperlite changes: keep the installed version's package (from the mirror's pool, which keeps every
     version). Best effort: without it, the return to the previous version is just not offered."""
     installed, candidate = _raw_installed_version(), _raw_candidate_version()
@@ -291,9 +291,19 @@ def _keep_previous(task_id):
     work = PREVIOUS_DIR / ".download"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir()
-    r = subprocess.run(
-        ["apt-get", "download", f"hyperlite={installed}"], cwd=str(work), capture_output=True, text=True, timeout=300
-    )
+    # apt_opts: an update from a file reads its own repository (offline_update.local_apt_options), which is where the
+    # installed version's package is when the node has no network.
+    try:
+        r = subprocess.run(
+            ["apt-get", *apt_opts, "download", f"hyperlite={installed}"],
+            cwd=str(work),
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        # Best effort: a download that hangs costs the return to the previous version, never the update itself.
+        r = subprocess.CompletedProcess([], 1, "", str(e))
     debs = list(work.glob("hyperlite_*.deb"))
     if r.returncode != 0 or not debs:
         # A package kept by an earlier update is older than the version now replaced: offering it as "the version
@@ -784,7 +794,7 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
 
         rolled_back = bool(version.STARTUP_VERSION and old_version and old_version != version.STARTUP_VERSION)
         if not rolled_back:
-            _keep_previous(task_id)
+            _keep_previous(task_id, apt_opts)
         if rolled_back and not offline:
             # After a rollback the package is already "installed" at the version that did not start: reinstall it.
             step(35, "Installing Hyperlite again (the last update was rolled back)")
@@ -891,9 +901,34 @@ def _update_in_progress():
     updates forever."""
     from app.repositories import registry
 
+    store = registry.tasks().sync
     cutoff = (datetime.now(UTC) - UPDATE_IN_PROGRESS_WINDOW).isoformat()
-    username = registry.tasks().sync.latest_running("hyperlite_update", cutoff)
+    username = store.latest_running("hyperlite_update", cutoff)
+    if username is None and _update_unit_active():
+        # The job has no time limit any more (a long full-upgrade): while its unit runs, an older task still counts.
+        username = store.latest_running("hyperlite_update", "")
     return (username or "another administrator") if username is not None else None
+
+
+def _update_unit_active():
+    """True while an update job's unit (hyperlite-daemon starts each in hyperlite-update-job-<task>) is running."""
+    try:
+        r = subprocess.run(
+            [
+                "systemctl",
+                "list-units",
+                "--state=active,activating",
+                "--no-legend",
+                "--plain",
+                "hyperlite-update-job-*",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return r.returncode == 0 and bool(r.stdout.strip())
 
 
 class ApplyRequest(BaseModel):

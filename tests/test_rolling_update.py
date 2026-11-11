@@ -19,8 +19,10 @@ NODES = [
 class FakeCluster:
     """The other nodes' APIs: each update succeeds (or fails for `failing`), a reboot is needed on `reboot`."""
 
-    def __init__(self, failing=(), reboot=(), blocked=(), current=(), stale=0, rolled=()):
+    def __init__(self, failing=(), reboot=(), blocked=(), current=(), stale=0, rolled=(), old_answers=0):
         self.failing, self.reboot, self.blocked, self.current = set(failing), set(reboot), set(blocked), set(current)
+        # old_answers: how many checks the old process answers with its own version (not rolled back) after the task.
+        self.old_answers = old_answers
         # stale: how many checks the old process still answers after the task ended; rolled: nodes rolled back.
         self.stale, self.rolled = stale, set(rolled)
         self.calls, self.drained, self.rebooted = [], [], []
@@ -31,7 +33,13 @@ class FakeCluster:
         self.calls.append((name, method, path))
         if path == "/update/check" and name not in self.drained_names():
             # Asked before the node is emptied: what it has to update.
-            return 200, {"verifiable": True, "up_to_date": name in self.current, "system": {"packages": 0}}
+            return 200, {
+                "verifiable": True,
+                "up_to_date": name in self.current,
+                "commit_local": self.version[name],
+                "remote_commit": "1.0.1",
+                "system": {"packages": 0},
+            }
         assert maintenance.get(name), f"{name} is updated while out of maintenance"
         if (method, path) == ("POST", "/update/apply"):
             return 202, {"task_id": f"t-{name}"}
@@ -44,6 +52,9 @@ class FakeCluster:
             pending = name in self.reboot and name not in self.rebooted
             old = name in self.rolled or self.stale > 0
             self.stale -= 1
+            if not old and self.old_answers > 0:
+                self.old_answers -= 1
+                return 200, {"verifiable": True, "commit_local": "1.0.0", "rolled_back": False, "system": {}}
             return 200, {
                 "verifiable": True,
                 "commit_local": "1.0.0" if old else self.version[name],
@@ -351,3 +362,10 @@ def test_a_drain_whose_planning_fails_releases_its_reservation(monkeypatch):
     with pytest.raises(RuntimeError, match="unreachable"):
         rolling_update._drain("t", "admin", "n2", "n3")
     assert "n2" not in nodes_router._draining
+
+
+def test_the_old_process_answering_is_not_taken_for_the_new_version(cluster, database):
+    """For 2 s after its task succeeded the node still runs the old version: its 200 is not the restart."""
+    fake = cluster(old_answers=3)
+    assert _run(database, [])[0] == "succeeded"
+    assert fake.old_answers == 0  # waited through every old answer
