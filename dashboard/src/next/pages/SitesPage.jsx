@@ -19,7 +19,7 @@ function nodesOf(s) {
   return { online: nodes.filter((n) => n.online).length, total: nodes.length, free: nodes.reduce((a, n) => a + (n.mem_free_mb || 0), 0) };
 }
 
-// Datacenter › Sites: every Hyperlite cluster this one views (docs/design/multi-cluster.md), as Proxmox Datacenter
+// Datacenter › Sites: every Hyperlite cluster this one views (docs/design/multi-cluster.md)
 // Manager, but served by any node of any cluster: their state at a glance, a search through all their VMs, and the
 // remotes, each recorded from one of its nodes with its certificate compared and a viewer's token there; with a
 // manage token, their VMs' power actions and moves (components/SiteDetails.jsx).

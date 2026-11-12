@@ -165,8 +165,8 @@ QUORUM_WAIT_S = 10
 
 
 def _boot_when_writable():
-    # In a cluster, a node that just started often has no quorum yet: its VMs start once it has (as Proxmox's
-    # pve-guests waits for it), never on a node cut off from the others. The boot id is claimed only then.
+    # In a cluster, a node that just started often has no quorum yet: its VMs start once it has, never on
+    # a node cut off from the others. The boot id is claimed only then.
     from app.core import cluster_lead
 
     while cluster_lead.paused("Start at boot"):

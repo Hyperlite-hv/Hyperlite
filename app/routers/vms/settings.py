@@ -83,14 +83,12 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
         conn.close()
 
 
-# --- Resource limits and reservations: a simplified equivalent of vSphere
-# Resource Pools (reservation/limit/shares), applied through the cgroup
+# --- Resource limits and reservations (reservation/limit/shares), applied through the cgroup
 # mechanisms that libvirt exposes directly (schedulerParametersFlags and
 # memoryParameters). No manual XML manipulation is needed, unlike the rest of
 # this file: these two calls exist as is in the libvirt API.
 #
-# Deliberate simplifications (to be documented for the user, no over-engineering
-# at the level of full vSphere):
+# Deliberate simplifications (to be documented for the user, no over-engineering):
 # - CPU "shares": RELATIVE priority under real contention for the host core(s)
 #   (cgroup cpu.shares, default 1024). It is not an absolute guarantee and has no
 #   effect as long as the host is not saturated.

@@ -2,7 +2,7 @@
 
 Status: **done**.
 
-Proxmox VE numbers every guest (VMID, from 100, unique in the cluster), and its API, storage and scripts use it.
+The reference platform numbers every guest (VMID, from 100, unique in the cluster), and its API, storage and scripts use it.
 Hyperlite named guests by node and name only. Now every VM and container also has a VMID:
 
 - **Handed out once in the cluster**: a counter in hyperlite-cfs (`/cluster/vmid-next`), moved on with a
@@ -20,5 +20,5 @@ Hyperlite named guests by node and name only. Now every VM and container also ha
   wins over a number. Names stay identifiers: nothing that used them changes (API v1 additions only).
 - **Shown** in the VM list (before the name, and searchable), on the VM's summary and in the containers' list.
 
-Not done: disk and storage names keep the VM's name (Proxmox's `vm-100-disk-0`); renaming them would change every
+Not done: disk and storage names keep the VM's name; renaming them would change every
 existing disk path.

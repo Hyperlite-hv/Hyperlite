@@ -1,5 +1,5 @@
-"""A template made from a VM: converted (the VM becomes the template and leaves the list, as Proxmox VE's "Convert to
-template") or copied (the VM stays, as vSphere's "Clone to Template"). Seen on a real node: an administrator converted a
+"""A template made from a VM: converted (the VM becomes the template and leaves the list"Convert to
+template") or copied (the VM stays"Clone to Template"). Seen on a real node: an administrator converted a
 VM expecting a copy, and the VM was gone from the list."""
 
 import shutil

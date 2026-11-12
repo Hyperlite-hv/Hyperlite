@@ -1,5 +1,5 @@
 # Hyperlite's directories and the API's group (docs/design/privilege-separation.md, section 14.6), installed as
-# /etc/tmpfiles.d/hyperlite.conf by the package. hyperlite.service runs as www-data from 4e, as Proxmox VE's pveproxy:
+# /etc/tmpfiles.d/hyperlite.conf by the package. hyperlite.service runs as www-data from 4e:
 # root's services make what it reads and writes, with that group; what holds root's secrets keeps root's alone.
 #
 # /var/lib/hyperlite: the API's group writes the database's -wal and -shm there; traversable by QEMU (libvirt-qemu
@@ -21,6 +21,6 @@ z /var/log/hyperlite/access.log*      0640 www-data adm      -
 z /etc/hyperlite/access.db            0640 root     www-data -
 z /var/lib/hyperlite/access           0750 root     www-data -
 z /var/lib/hyperlite/access/access.db 0640 root     www-data -
-# The web interface's certificate and key, as /etc/pve/local/pveproxy-ssl.key.
+# The web interface's certificate and key.
 z /etc/hyperlite/local                0750 root     www-data -
 z /etc/hyperlite/local/hyperlite.key  0640 root     www-data -

@@ -2,7 +2,7 @@
 
 Status: **done**: part 1 (backups kept as files, 1.12.0) and part 2 (backups in a backup store).
 
-Proxmox VE starts a VM restored from Proxmox Backup Server at once and copies its disks while it runs. Hyperlite now
+The reference platform starts a VM restored from a dedicated backup server at once and copies its disks while it runs. Hyperlite now
 does the same for a backup kept as files (a directory backup), restored as a new VM.
 
 ## How
@@ -25,7 +25,7 @@ does the same for a backup kept as files (a directory backup), restored as a new
 
 ## Limits
 
-- **A new VM only**, not over the original one (as Proxmox's).
+- **A new VM only**, not over the original one.
 - **A backup kept as files** must have qcow2 images (Hyperlite's directory backups do). A backup in a store is served
   instead (part 2, below).
 - **The VM's disks go where a restore puts them** (the images directory), in qcow2.
@@ -40,7 +40,7 @@ and mode given back (libvirt had left it to `libvirt-qemu`).
 ## Part 2: a backup in a store
 
 A store's disk is an index of 4 MiB chunks, compressed and maybe encrypted: QEMU cannot open it. hyperlite-daemon
-serves it, as Proxmox Backup Server serves a backup to Proxmox VE's live restore:
+serves it's live restore:
 
 - **`app/core/nbd_export.py`**: a read-only NBD server on a Unix socket, in the daemon, for the time of the restore.
   Each read is answered from the chunks it falls in, read from the store and decrypted (`Store.get`); the 16 chunks read

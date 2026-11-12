@@ -1,5 +1,5 @@
 """The root part of a live migration between clusters (docs/design/multi-cluster.md, section 9.2), run by
-hyperlite-daemon (app/daemon/ops/transfer.py, transfer.live_*): libvirt's own migration (as Proxmox VE's, the disks
+hyperlite-daemon (app/daemon/ops/transfer.py, transfer.live_*): libvirt's own migration (the disks
 mirrored while the VM runs, then its memory), carried by three Unix sockets per migration in RUN/<incoming>/, the same
 path at both ends: `libvirt` (the target's libvirt, behind app/core/site_relay.py there), `memory` (QEMU's migration
 stream) and `disks` (the target QEMU's NBD server). At the source they listen, the daemon hands them to the API, which

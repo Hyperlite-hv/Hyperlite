@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds/refreshes the signed APT repository (classic Debian layout: dists/ +
-# pool/, like download.proxmox.com) from the .deb files produced by
+# pool/, like a public package mirror) from the .deb files produced by
 # build-deb.sh. Output goes to installer/apt-repo/, meant to be published as is
 # (GitHub Pages gh-pages branch, or any static web server).
 #
@@ -9,7 +9,7 @@
 # machine; only the PUBLIC key is published (in the repository itself,
 # hyperlite-archive-keyring.asc), so any appliance can verify the authenticity
 # of the packages without having to trust the transport network/server (the same
-# principle as the Proxmox no-subscription repository).
+# principle).
 set -e
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

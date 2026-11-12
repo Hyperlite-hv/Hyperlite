@@ -1,5 +1,5 @@
-"""HA's two services (docs/design/privilege-separation.md, section 14, 4c), split as Proxmox VE splits pve-ha-lrm and
-pve-ha-crm, so a hang or a crash of the cluster's decisions never stops the watchdog's feeding and resets a healthy node.
+"""HA's two services (docs/design/privilege-separation.md, section 14, 4c), split
+Its cluster resource manager, so a hang or a crash of the cluster's decisions never stops the watchdog's feeding and resets a healthy node.
 
 - hyperlite-ha-lrm, every node: the watchdog (ha_selffence), the monitoring of its own HA VMs (ha_monitor), the node's
   heartbeat (statd: the leader judges a member lost by it, so it stops with the feeding, never apart from it), and the

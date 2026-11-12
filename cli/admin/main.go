@@ -1,5 +1,5 @@
-// Command hyperlite-admin drives a node, and through it the cluster, from the node's shell, as qm, pct and pvesh do on
-// Proxmox VE (docs/design/admin-cli.md): every action is a call to the node's own API v1, so it is checked, recorded as a
+// Command hyperlite-admin drives a node, and through it the cluster, from the node's shell
+// (docs/design/admin-cli.md): every action is a call to the node's own API v1, so it is checked, recorded as a
 // task and audited as from the dashboard.
 package main
 
@@ -21,7 +21,7 @@ var version = "dev"
 const usage = `hyperlite-admin: administer this Hyperlite node and its cluster through API v1.
 
 Usage:
-  hyperlite-admin get    <path> [items]   Any route of API v1, as pvesh does on Proxmox VE
+  hyperlite-admin get    <path> [items]   Any route of API v1
   hyperlite-admin post   <path> [items]   (the path without /api/v1, e.g. /vms/web1/start)
   hyperlite-admin put    <path> [items]
   hyperlite-admin patch  <path> [items]

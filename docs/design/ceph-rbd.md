@@ -70,7 +70,7 @@ Snapshots and clones of an image are native and instant.
 
 ## 6. Questions for the maintainer
 
-1. Is there a Ceph cluster to connect to, or one planned (and which version)? Proxmox's own Ceph can be used from
+1. Is there a Ceph cluster to connect to, or one planned (and which version)? The reference platform's own Ceph can be used from
    Hyperlite as an external cluster.
 2. If none exists yet: can three small machines or VMs host a test Ceph (with `cephadm`) for step 1?
 3. Which pool name and Ceph user should the documentation show (for example `vms` and `client.hyperlite`)?

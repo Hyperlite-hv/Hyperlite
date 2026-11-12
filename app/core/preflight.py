@@ -169,7 +169,7 @@ def check_system(offline=False, service=False):
     if os.geteuid() == 0:
         out.append(_c("root", OK, "Running as root"))
     elif service and os.path.exists(DAEMON_SOCKET):
-        # The API runs as www-data, as Proxmox VE's pveproxy: what needs root is hyperlite-daemon's.
+        # The API runs as www-data: what needs root is hyperlite-daemon's.
         out.append(_c("root", OK, "The API runs unprivileged; hyperlite-daemon does root's work"))
     elif service:
         out.append(_c("root", BLOCKING, "hyperlite-daemon is not running", action="systemctl restart hyperlite-daemon"))

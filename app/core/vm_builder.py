@@ -111,7 +111,7 @@ POOL_BASE_NAME = "hyperlite-base-debian-12.qcow2"
 def ensure_pool_base_image(pool_dir):
     """The base cloud image inside a storage pool, copied there once. A VM's system disk only holds its changes over
     the base image: on a shared pool, a base image left in this node's /var/lib/libvirt/images could not be opened
-    by the other nodes, and the VM could not migrate ("Cannot access backing file"). As Proxmox keeps templates in the
+    by the other nodes, and the VM could not migrate ("Cannot access backing file").
     storage of the disks based on them."""
     target = Path(pool_dir) / POOL_BASE_NAME
     with _base_image_lock:
@@ -290,7 +290,7 @@ def create_disk_from_import(vm_name, source_path, target_dir=None, index=0):
 
 
 def hash_guest_password(password):
-    """The SHA-512 crypt of a guest password, as /etc/shadow holds it (as Proxmox puts it on its cloud-init drive). The
+    """The SHA-512 crypt of a guest password, as /etc/shadow holds it. The
     drive stays attached to the VM, in its pool and its copies: it never holds the password in clear. Through openssl
     (a dependency of the package; Python 3.13 has no crypt module), the password on its standard input, never on a
     command line."""

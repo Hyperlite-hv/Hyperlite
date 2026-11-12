@@ -1,6 +1,6 @@
 """The backups (docs/design/privilege-separation.md, section 13, the backups domain, part 1a): a directory backup, its
-restore, verification and deletion, and a VM's export, each run whole by the daemon as vzdump runs as root in a task
-of pvedaemon. An operation names the VM and the backup's directory, which the daemon checks itself
+restore, verification and deletion, and a VM's export, each run whole by the daemon as root, in a
+task. An operation names the VM and the backup's directory, which the daemon checks itself
 (app/core/backups.py: backup_target, backup_dir), never trusting the records the API writes. The API keeps the
 routes, the schedules, the retention decisions, the records, the locks and the audit log."""
 
@@ -126,8 +126,7 @@ class DeleteArgs(Args):
 
 
 def _retention_in_its_backups_task(user, args):
-    """Deleting a backup is an administrator's (the routes that do it by hand; Proxmox VE asks Datastore.Allocate on the
-    storage), but for the retention a backup runs in its own task: that task's account, still running it, for that
+    """Deleting a backup is an administrator's (the routes that do it by hand), but for the retention a backup runs in its own task: that task's account, still running it, for that
     backup's VM, with vm.snapshot on it."""
     from app.core import permissions
     from app.repositories import registry

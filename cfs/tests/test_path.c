@@ -8,7 +8,7 @@
 int main(void)
 {
     CHECK(cfs_path_valid("/cluster/settings.json", false));
-    CHECK(cfs_path_valid("/nodes/pve1/qemu/100.json", false));
+    CHECK(cfs_path_valid("/nodes/node1/qemu/100.json", false));
     CHECK(cfs_path_valid("/a", false));
     CHECK(cfs_path_valid("/", true));
     CHECK(!cfs_path_valid("/", false));
@@ -35,14 +35,14 @@ int main(void)
     CHECK(!cfs_path_valid(deep, false));
 
     CHECK(cfs_path_is_private("/priv/authkey"));
-    CHECK(cfs_path_is_private("/nodes/pve1/priv/key"));
+    CHECK(cfs_path_is_private("/nodes/node1/priv/key"));
     CHECK(cfs_path_is_private("/priv"));
     CHECK(!cfs_path_is_private("/private/x"));
     CHECK(!cfs_path_is_private("/nodes/privx/y"));
     CHECK(!cfs_path_is_private("/cluster/settings.json"));
 
     CHECK(cfs_name_valid("vm:100"));
-    CHECK(cfs_name_valid("migrate@pve1"));
+    CHECK(cfs_name_valid("migrate@node1"));
     CHECK(!cfs_name_valid(""));
     CHECK(!cfs_name_valid("a b"));
     CHECK(!cfs_name_valid("a/b"));

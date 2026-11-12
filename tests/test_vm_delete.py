@@ -1,6 +1,5 @@
-"""A deleted VM takes its own disks only, as on Proxmox VE (app/core/vm_delete.py): a disk another VM uses or reads
-through, or a file no storage pool holds, stays, and the answer says so. vSphere's "Delete from disk" took a disk
-shared with another VM along."""
+"""A deleted VM takes its own disks only (app/core/vm_delete.py): a disk another VM uses or reads
+through, or a file no storage pool holds, stays, and the answer says so."""
 
 import libvirt
 import pytest

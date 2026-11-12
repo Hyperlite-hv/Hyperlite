@@ -1,4 +1,4 @@
-"""The tunnel of a live migration between clusters (docs/design/multi-cluster.md, section 9.2, as Proxmox's mtunnel):
+"""The tunnel of a live migration between clusters (docs/design/multi-cluster.md, section 9.2):
 one WebSocket over the pinned HTTPS connection from the source's node to the target's node, with the manage token,
 carrying the three channels of app/core/site_live.py. Each connection the source's daemon accepts on one of its
 sockets (its libvirt, its QEMU) becomes a channel; the target opens its end through its own daemon
@@ -53,7 +53,7 @@ class SourceTunnel:
             compression=None,
             max_size=FRAME.size + CHUNK,
             open_timeout=30,
-        )  # the TLS is the pinned socket's own: websockets speaks HTTP over it
+        )  # The TLS is the pinned socket's own: websockets speaks HTTP over it
         self.listeners = [socket.socket(fileno=fd) for fd in listeners]
         self.channels, self._next, self._lock, self.error = {}, 1, threading.Lock(), None
         self._stop = threading.Event()

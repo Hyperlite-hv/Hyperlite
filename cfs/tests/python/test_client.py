@@ -55,32 +55,32 @@ def daemon(tmp_path):
 
 def test_files_versions_and_compare_and_set(daemon):
     with CfsClient(daemon) as c:
-        v1 = c.put("/nodes/pve1/qemu/100.json", b'{"name": "web"}', expected=cfs_client.MUST_NOT_EXIST)
-        entry = c.get("/nodes/pve1/qemu/100.json")
+        v1 = c.put("/nodes/node1/qemu/100.json", b'{"name": "web"}', expected=cfs_client.MUST_NOT_EXIST)
+        entry = c.get("/nodes/node1/qemu/100.json")
         assert entry.data == b'{"name": "web"}' and entry.version == v1 and entry.mtime > 0
 
-        v2 = c.put("/nodes/pve1/qemu/100.json", b'{"name": "web", "cores": 4}', expected=v1)
+        v2 = c.put("/nodes/node1/qemu/100.json", b'{"name": "web", "cores": 4}', expected=v1)
         with pytest.raises(Conflict):
-            c.put("/nodes/pve1/qemu/100.json", b"stale", expected=v1)
+            c.put("/nodes/node1/qemu/100.json", b"stale", expected=v1)
         assert v2 > v1
 
-        assert [(ch.name, ch.is_dir) for ch in c.list("/nodes/pve1")] == [("qemu", True)]
-        assert c.rename("/nodes/pve1/qemu/100.json", "/nodes/pve2/qemu/100.json", expected=v2) > v2
+        assert [(ch.name, ch.is_dir) for ch in c.list("/nodes/node1")] == [("qemu", True)]
+        assert c.rename("/nodes/node1/qemu/100.json", "/nodes/node2/qemu/100.json", expected=v2) > v2
         with pytest.raises(NotFound):
-            c.get("/nodes/pve1/qemu/100.json")
-        c.delete("/nodes/pve2/qemu/100.json")
+            c.get("/nodes/node1/qemu/100.json")
+        c.delete("/nodes/node2/qemu/100.json")
         assert c.list("/") == []
 
 
 def test_ids_locks_and_status(daemon):
     with CfsClient(daemon) as c:
         assert [c.next_id(), c.next_id()] == [100, 101]
-        c.lock("vm:100", "migrate@pve1", ttl=30)
+        c.lock("vm:100", "migrate@node1", ttl=30)
         with pytest.raises(Locked) as held:
-            c.lock("vm:100", "backup@pve2")
-        assert held.value.reason == "migrate@pve1"
-        c.unlock("vm:100", "migrate@pve1")
-        c.lock("vm:100", "backup@pve2")
+            c.lock("vm:100", "backup@node2")
+        assert held.value.reason == "migrate@node1"
+        c.unlock("vm:100", "migrate@node1")
+        c.lock("vm:100", "backup@node2")
 
         status = c.status()
         assert status.mode == "local" and status.quorate and len(status.checksum) == 64

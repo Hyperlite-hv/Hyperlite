@@ -179,7 +179,7 @@ def open_local():
 def get_vm_uptime_s(vm_name):
     """Time since the start of this VM's qemu PROCESS (not the guest OS's internal
     uptime, which libvirt does not expose without qemu-guest-agent; same
-    convention as Proxmox). Reads the PID file that libvirt writes for every
+    convention). Reads the PID file that libvirt writes for every
     active domain, then the "starttime" field of /proc/<pid>/stat (field 22,
     in clock ticks since the HOST boot) to derive the process age by
     difference with /proc/uptime. Returns None when the VM is stopped or the

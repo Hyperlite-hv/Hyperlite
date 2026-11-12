@@ -239,7 +239,7 @@ def snapshot(disks, snapshot_name, node=None):
 
 def rollback(disks, snapshot_name, node=None):
     """Bring each disk (VM stopped) back to the snapshot. The snapshot stays: each disk becomes a new thin snapshot
-    of it, as Proxmox VE does, so every snapshot remains a point the VM can go back to (unlike `lvconvert --merge`,
+    of it, so every snapshot remains a point the VM can go back to (unlike `lvconvert --merge`,
     which consumes it). The old volume is kept aside until every disk is done, and put back if one fails."""
     for vg, lv in disks:
         if not any(v["name"] == _snap_name(lv, snapshot_name) for v in logical_volumes(vg, node)):

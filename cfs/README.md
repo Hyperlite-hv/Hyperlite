@@ -1,6 +1,6 @@
 # hyperlite-cfs
 
-Hyperlite's replicated cluster configuration, the counterpart of Proxmox VE's `pmxcfs`. The design is
+Hyperlite's replicated cluster configuration. The design is
 [`docs/design/hyperlite-cfs.md`](../docs/design/hyperlite-cfs.md) and the architecture around it is section 15.2 of
 [`docs/design/control-plane-v2-migration.md`](../docs/design/control-plane-v2-migration.md).
 
@@ -81,7 +81,7 @@ again** (`POST /cfs/shadow/seed`) copies SQLite again.
 When the daemon runs in cluster mode, the tree is the source of truth and the other way works too
 (`app/repositories/cfs/inbound.py`): whenever the daemon's version moves, the changes other nodes made are written into
 this node's SQLite, and rows the tree no longer has are deleted, in one transaction. SQLite stays each node's working
-copy, as `pmxcfs` keeps a database on every node. Safeguards: this node's own changes go out first; a daemon older than
+copy. Safeguards: this node's own changes go out first; a daemon older than
 the version last applied here (reset or replaced), an empty tree while this node has configuration, or a change SQLite
 refuses (a unique name) applies nothing and shows a problem on the page until an administrator copies the right
 database again. In local mode nothing is applied: there is no other writer.
@@ -98,7 +98,7 @@ rows alike; while the daemon does not answer, a node of a cluster creates nothin
 
 ### Creating and joining a cluster
 
-From Administration › Replicated configuration (`app/core/cluster_setup.py`), as Proxmox's "Create cluster" and "Join
+From Administration › Replicated configuration (`app/core/cluster_setup.py`)"Create cluster" and "Join
 cluster"; every node needs Corosync (`apt install corosync`) and an address on a network the members share.
 
 - **Create** on a first node: Corosync gets a new key (`/etc/corosync/authkey`) and a configuration with this node
@@ -121,8 +121,8 @@ it does, or until `hyperlite-cfs expected-votes` lowers the votes (above) so the
 the build works and the daemon starts; the CI runs it on Debian 12, Debian 13 and Ubuntu 24.04.
 
 When the nodes a partition misses are down for good (a two-node cluster without a QDevice, after one node died), the
-partition is read-only. `build/hyperlite-cfs expected-votes 1` makes it writable again, the counterpart of Proxmox's
-`pvecm expected 1`: it lists the missing nodes, explains the risk, and asks for the cluster's name before it changes
+partition is read-only. `build/hyperlite-cfs expected-votes 1` makes it writable again
+Its cluster command: it lists the missing nodes, explains the risk, and asks for the cluster's name before it changes
 anything (`--confirm NAME` for a script).
 
 The socket is created with mode `0600` (root only) unless `--socket-mode` says otherwise. Entries with a `priv`
@@ -141,7 +141,7 @@ component (`/priv/...`, `/nodes/<name>/priv/...`) are refused to every client th
 | `src/corosync.c` | the Corosync transport: CPG with agreed ordering, the ring number, and the quorum service of the current ring |
 | `src/server.c` | the socket: one thread, `poll()`, peer credentials, answers when the cluster applied the change |
 | `src/main.c` | arguments, signals, local mode (a loopback in place of Corosync) or cluster mode |
-| `src/expected.c` | `hyperlite-cfs expected-votes`: the counterpart of `pvecm expected`, with its typed confirmation |
+| `src/expected.c` | `hyperlite-cfs expected-votes`, with its typed confirmation |
 | `tests/` | C tests (`test_*.c`, `test_node.c` simulates a cluster), the Python client against the daemon (`python/`), three nodes on a real Corosync (`cluster/`: scenarios, fault tests and soak, with the checker in `harness.py`) |
 | `fuzz/` | the libFuzzer targets (requests, messages between nodes) and their seed corpora |
 

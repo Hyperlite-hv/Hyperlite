@@ -1,4 +1,4 @@
-"""VLANs for VMs on a VLAN-aware Linux bridge (docs/design/network.md, 3.1 A), as Proxmox VE's `tag` and `trunks`.
+"""VLANs for VMs on a VLAN-aware Linux bridge (docs/design/network.md, 3.1 A)`tag` and `trunks`.
 
 libvirt applies an interface's <vlan> only on Open vSwitch and SR-IOV, and refuses it on a Linux bridge even when the
 bridge filters VLANs ("vlan tag not supported for this connection type", checked on libvirt 10). So the VLAN of an
@@ -9,10 +9,10 @@ port of the bridge itself:
 - when an interface is added or changed on a running VM;
 - when the service starts, for the VMs already running.
 
-A port is set as Proxmox VE's tap script does: the access VLAN as its PVID, untagged (VLAN 1 without one), the trunk
+A port is set: the access VLAN as its PVID, untagged (VLAN 1 without one), the trunk
 VLANs tagged. If setting it fails, the port is left with no VLAN at all rather than on the bridge's default one.
 
-A bridge is made VLAN-aware as Proxmox VE's `bridge-vlan-aware yes` with `bridge-vids 2-4094` does: vlan_filtering on,
+A bridge is made VLAN-aware`bridge-vlan-aware yes` with `bridge-vids 2-4094` does: vlan_filtering on,
 VLANs 2-4094 tagged on its uplinks (a NIC, a bond, a VLAN interface) and on the bridge itself; what is untagged (the
 host's own address, the VMs and containers) stays on VLAN 1. The change is a trial until the dashboard confirms it from
 a new request (start_trial, confirm_trial), and undone otherwise; confirmed, the bridge is listed in AWARE_FILE and made
@@ -45,7 +45,7 @@ MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
 # One trunk entry: a VLAN or a range. The list is split on its separators first, so no pattern runs over the whole
 # input (a pattern with repeated optional spaces backtracks on long runs of them).
 TRUNK_PART_RE = re.compile(r"^(\d{1,4})(?:-(\d{1,4}))?$")
-# A port without an access VLAN takes the bridge's default one, as on Proxmox VE.
+# A port without an access VLAN takes the bridge's default one.
 DEFAULT_PVID = 1
 TIMEOUT_S = 15
 
@@ -92,7 +92,7 @@ def filters_vlans(bridge, node=None):
 
 
 def parse_trunks(text):
-    """Trunk VLANs as Proxmox VE (`10;20-30`) or vSphere (`10,20-30`) write them: a sorted list of (first, last)."""
+    """Trunk VLANs written `10;20-30` or `10,20-30`: a sorted list of (first, last)."""
     if text is None or str(text).strip() == "":
         return []
     ranges = []

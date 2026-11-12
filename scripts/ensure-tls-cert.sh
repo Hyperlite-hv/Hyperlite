@@ -26,14 +26,14 @@ if [ "$IN_TREE" = 1 ]; then
     KEY="$OUT/hyperlite.key" CRT="$OUT/hyperlite.crt" CNF="$OUT/openssl-hyperlite.cnf"
 else
     mkdir -p "$TLS_DIR"
-    # Read by the API, which serves HTTPS with them (www-data from 4e), as /etc/pve/local/pveproxy-ssl.key.
+    # Read by the API, which serves HTTPS with them (www-data from 4e).
     chgrp www-data "$TLS_DIR" 2>/dev/null || true
     chmod 750 "$TLS_DIR"
 fi
 
 HOSTNAME_FQDN=$(hostname -f 2>/dev/null || hostname)
 # First non-loopback IPv4 found: enough for a convenience self-signed certificate
-# (the user has to accept the browser warning anyway, as on Proxmox), no need to
+# (the user has to accept the browser warning anyway), no need to
 # list every IP. hostname -I does not guarantee IPv4/IPv6 order, so an IPv4
 # address (x.x.x.x pattern) is filtered explicitly; otherwise the certificate may
 # end up with an IPv6 in its SAN while the user connects over IPv4 (seen in

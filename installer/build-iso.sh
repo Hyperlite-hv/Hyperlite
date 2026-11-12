@@ -100,7 +100,7 @@ cp "$SCRIPT_DIR/packages.list" "$HL_DIR/packages.list"
 chmod +x "$HL_DIR"/*.sh
 
 # The offline bundle (installer/build-offline-bundle.sh): every Debian package the installation
-# needs, so it runs without a network, as with Proxmox. Without it the installation downloads them.
+# needs, so it runs without a network. Without it the installation downloads them.
 OFFLINE_BUNDLE="${HYPERLITE_OFFLINE_BUNDLE:-$SCRIPT_DIR/offline-bundle}"
 if [ -s "$OFFLINE_BUNDLE/debs/packages.index" ] && [ -s "$OFFLINE_BUNDLE/install.list" ]; then
     rsync -a "$OFFLINE_BUNDLE/" "$HL_DIR/offline/"

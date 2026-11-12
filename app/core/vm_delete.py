@@ -4,11 +4,10 @@ hyperlite-daemon deletes a VM of this node (vm.delete, app/daemon/ops/vm.py, doc
 section 13); another node's keeps the API's path over SSH until the cluster domain. The API keeps the confirmation, the
 lock, the task, and forgets what it records of the VM (app/core/vm_records.py).
 
-Which disks go is Proxmox VE's rule rather than vSphere's: vSphere's "Delete from disk" deletes every disk attached to
-the VM, a disk another VM shares included; Proxmox VE deletes a VM's own volumes only, on a storage it manages, and
-never the base of a linked clone. A disk is therefore kept when it is outside every storage pool of the node (a file
-or a device attached by hand: Hyperlite did not make it), when another VM uses it, or when another VM's disk reads
-through it. What is kept is said, with its reason, as vSphere's and Proxmox VE's tasks do."""
+Which disks go: a VM's own volumes only, on a storage the node manages, and never the base of a linked clone. A disk is
+therefore kept when it is outside every storage pool of the node (a file or a device attached by hand: Hyperlite did
+not make it), when another VM uses it, or when another VM's disk reads through it. What is kept is said, with its
+reason."""
 
 import logging
 import shlex

@@ -75,8 +75,7 @@ def _write_upload(source, partial):
 
 
 async def store_upload(file, library, name, user, task_id, failed, replace=False):
-    """An upload written into the spool, then moved into its library by hyperlite-daemon (app/core/disk_library.py,
-    as pveproxy writes an upload and pvedaemon stores it). Returns its size in bytes; any failure ends the task with
+    """An upload written into the spool, then moved into its library by hyperlite-daemon (app/core/disk_library.py). Returns its size in bytes; any failure ends the task with
     its reason and leaves nothing in the spool."""
     spool_name, partial = disk_library.spool_file()
     try:

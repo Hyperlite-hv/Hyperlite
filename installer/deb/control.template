@@ -12,5 +12,4 @@ Description: Hyperlite hypervisor (FastAPI + libvirt/QEMU-KVM)
  Hyperlite is a self-hosted web hypervisor: a FastAPI and libvirt backend
  with a React dashboard. This package installs or upgrades the application
  in /usr/lib/hyperlite (its web interface in /usr/share/hyperlite/www), keeps
- the node's data in /var/lib/hyperlite and its secrets in /etc/hyperlite, as
- Proxmox VE does, and restarts its systemd services.
+ the node's data in /var/lib/hyperlite and its secrets in /etc/hyperlite, and restarts its systemd services.

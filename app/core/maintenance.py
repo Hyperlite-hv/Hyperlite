@@ -1,4 +1,4 @@
-"""Node maintenance mode: the equivalent of vSphere's "Enter maintenance mode" and Proxmox's node maintenance.
+"""Node maintenance mode.
 
 A node in maintenance receives no new VM or container, and is never the target of a migration or an HA recovery.
 Draining it live-migrates its running VMs, one after another, to a node the admin picked; every migration is its

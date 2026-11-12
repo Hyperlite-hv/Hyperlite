@@ -1,6 +1,5 @@
 """Interactive shell directly on the physical host (the server running
-Hyperlite), the equivalent of vSphere's DCUI/ESXi Shell but a full shell rather
-than a restricted menu.
+Hyperlite): a full shell rather than a restricted menu.
 
 SECURITY WARNING: hyperlite-daemon opens it as root (console.host_shell), so this
 shell is full root access to the physical machine, strictly

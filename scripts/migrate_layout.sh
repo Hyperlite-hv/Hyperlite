@@ -1,15 +1,15 @@
 #!/bin/bash
-# Moves Hyperlite's files between the layout up to 1.0 (/root/hyperlite...) and the one of 1.1 and later, modelled on
-# Proxmox VE's (app/core/paths.py, docs/design/privilege-separation.md, section 9):
+# Moves Hyperlite's files between the layout up to 1.0 (/root/hyperlite...) and the one of 1.1 and later
+# (app/core/paths.py, docs/design/privilege-separation.md, section 9):
 #
-#   ISO images        data/isos            -> /var/lib/hyperlite/template/iso      (Proxmox: /var/lib/vz/template/iso)
+#   ISO images        data/isos            -> /var/lib/hyperlite/template/iso
 #   VM templates      data/templates       -> /var/lib/hyperlite/template/vm
-#   backups           data/backups         -> /var/lib/hyperlite/dump              (Proxmox: /var/lib/vz/dump)
+#   backups           data/backups         -> /var/lib/hyperlite/dump
 #   VM exports        data/vm-exports      -> /var/lib/hyperlite/dump/export
 #   container backups /root/hyperlite-container-backups -> /var/lib/hyperlite/dump/container
-#   disks to import   data/imported-disks  -> /var/lib/hyperlite/import            (Proxmox: /var/lib/vz/import)
-#   node TLS          data/tls             -> /etc/hyperlite/local                 (Proxmox: /etc/pve/local/pve-ssl.*)
-#   node secrets      .env, data/ssh, data/initial-admin-password.txt -> /etc/hyperlite/priv  (Proxmox: /etc/pve/priv)
+#   disks to import   data/imported-disks  -> /var/lib/hyperlite/import
+#   node TLS          data/tls             -> /etc/hyperlite/local
+#   node secrets      .env, data/ssh, data/initial-admin-password.txt -> /etc/hyperlite/priv
 #   the rest          database, k3s, bin, tmp, update backups -> /var/lib/hyperlite; the configuration copy
 #                     staged here goes to config-copy-staging (config-copy is where a node RECEIVES one: never touched)
 #
@@ -219,13 +219,13 @@ if [ "$1" = back ]; then
         empty_dir "$d" && rmdir -- "$d"
     done
 fi
-# Root's only, whichever way the files went, as /etc/pve/priv: the secrets, the archives and copies that hold them.
+# Root's only, whichever way the files went: the secrets, the archives and copies that hold them.
 for d in "$E/priv" "$E/priv/ssh" "$N/update-backups" "$N/config-copy-staging" "$N/legacy-data"; do
     [ -d "$d" ] && chmod 700 "$d"
 done
 [ -f "$N/hyperlite.db.before-v1" ] && chmod 600 "$N/hyperlite.db.before-v1"
-# Root's and the API's group (www-data from 4e, as Proxmox VE's pveproxy; docs/design/privilege-separation.md, section
-# 14.6): the web interface's certificate and key, as /etc/pve/local/pveproxy-ssl.key, and the database the API writes.
+# Root's and the API's group (www-data from 4e; docs/design/privilege-separation.md, section
+# 14.6): the web interface's certificate and key, and the database the API writes.
 # The mode is set whatever happens to the group (a test run as another user, a system without www-data).
 share() { # share MODE PATH: the API's group, then MODE
     chgrp www-data "$2" 2> /dev/null || true

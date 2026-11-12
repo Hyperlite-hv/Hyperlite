@@ -1,5 +1,4 @@
-"""The backup store (docs/design/backup-store.md): disks cut in fixed-size chunks named by their digest, as Proxmox
-Backup Server's datastore. A chunk held once serves every backup of every VM that has the same content, and a backup
+"""The backup store (docs/design/backup-store.md): disks cut in fixed-size chunks named by their digest. A chunk held once serves every backup of every VM that has the same content, and a backup
 is an index of chunks: a complete image, never a delta of another, so any backup is deleted or restored alone.
 
     <store>/.store.json                  the store's id, format and chunk size, whether it is encrypted

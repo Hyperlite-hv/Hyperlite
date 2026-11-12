@@ -1,5 +1,4 @@
-"""The firewall of the nodes themselves, at the cluster's and at each node's level, with security groups and IP sets,
-as Proxmox VE's datacenter and node firewalls (docs/design/host-firewall.md).
+"""The firewall of the nodes themselves, at the cluster's and at each node's level, with security groups and IP sets (docs/design/host-firewall.md).
 
 One document, an application setting replicated to every member (`host_firewall`), holds it all:
 
@@ -22,7 +21,7 @@ libvirt's networks.
 A change is applied first on the node it is made from, with the rollback timer of the host's network
 (app/core/rollback_timer.py), and saved for the cluster once confirmed from the browser. Each daemon then applies the
 saved document every FOLLOW_S seconds when it changed (`follow`), the members with no timer: the pinned rules keep
-the cluster together whatever the rules say.
+The cluster together whatever the rules say.
 """
 
 import contextlib

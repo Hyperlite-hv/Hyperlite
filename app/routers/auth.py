@@ -217,7 +217,7 @@ def _session_response(token, user):
 
 def _sign_in(op, log_user=None, **args):
     """hyperlite-daemon's answer to `op` (app/core/sign_in.py): it checks the proof and signs; this endpoint keeps the
-    locks, the audit log and the answer. Without the daemon nobody signs in, as Proxmox VE without pvedaemon."""
+    locks, the audit log and the answer. Without the daemon nobody signs in."""
     try:
         return sign_in.ask(op, log_user=log_user, **args)
     except DaemonError as e:
@@ -708,7 +708,7 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
 
 @router.post("/users/{username}/second-factor/reset")
 def reset_second_factor(username: str, user: dict = Depends(require_role("admin"))):
-    """An administrator removes an account's second factors (its TOTP and its security keys), as Proxmox VE's
+    """An administrator removes an account's second factors (its TOTP and its security keys)
     administrators may (POST /auth/users/{name}/second-factor/reset): the way back for an owner who lost them, or for an SSO account whose factor someone else
     enrolled with its session alone (GHSA-7wjv-ggfp-7x9c). The owner signs in with the password alone after."""
     if not account_service.get(username):

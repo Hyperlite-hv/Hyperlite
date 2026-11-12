@@ -13,7 +13,7 @@ customers, so no billing.
 What a VM is made from does not change: Hyperlite prepares no operating system itself. A VM comes from
 
 - **the Debian cloud image** or **a template** (a VM turned into a template), customized at first boot by
-  cloud-init: name, account, password, SSH keys, as Proxmox VE does with its cloud-init templates;
+  cloud-init: name, account, password, SSH keys;
 - **an ISO**, installed by hand from the console by the person who asked for the VM.
 
 ## 2. Decisions (Antho)
@@ -21,7 +21,7 @@ What a VM is made from does not change: Hyperlite prepares no operating system i
 - 2026-10-20: **no automatic creation of operating systems**. The unattended installation from an ISO (Kickstart,
   autoinstall) is removed before 1.0 (#503); the Windows unattended installation, the catalogue of cloud images
   prepared with the agent and the ISO recognized by its content, planned in the first draft, are dropped. Cloud-init
-  stays, as on Proxmox VE. Templates stay.
+  stays. Templates stay.
 - 2026-10-20: self-service is **kept for later**: this document, for 1.1.
 - 2026-10-12, still valid: internal teams only, no billing; predefined sizes plus a custom size the administrator
   allows or not; a private network per team, possible and optional; approval optional, offer by offer.

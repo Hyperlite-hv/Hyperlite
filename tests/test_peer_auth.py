@@ -61,7 +61,7 @@ def cfs(monkeypatch, tmp_path):
     fake = FakeCfs()
     monkeypatch.setattr(peer_auth, "_client", lambda: fake)
     monkeypatch.setattr(peer_auth, "_mode", lambda: "cluster")
-    members = [{"name": n, "nodeid": i} for i, n in enumerate((ME, "pve-a", "pve-b"), 1)]
+    members = [{"name": n, "nodeid": i} for i, n in enumerate((ME, "node-a", "node-b"), 1)]
     monkeypatch.setattr(cluster_setup, "shared_conf", lambda: {"cluster": "lab", "version": 3, "members": members})
     monkeypatch.setattr(paths, "VAR", tmp_path / "var")
     fake.members = members
@@ -80,7 +80,7 @@ def _hs256(sub, iat=None):
 
 def _publish_all(cfs):
     """Every other member runs this version: it published its keys."""
-    return {n: Member(cfs, n) for n in ("pve-a", "pve-b")}
+    return {n: Member(cfs, n) for n in ("node-a", "node-b")}
 
 
 # ---- Publishing ----
@@ -97,10 +97,10 @@ def test_this_node_publishes_its_public_keys_once(cfs):
 
 
 def test_a_member_removed_takes_its_keys_with_it(cfs):
-    Member(cfs, "pve-a")
-    peer_auth.forget("pve-a")
-    assert peer_auth.published("pve-a") is None
-    peer_auth.forget("pve-a")  # already gone: nothing to say
+    Member(cfs, "node-a")
+    peer_auth.forget("node-a")
+    assert peer_auth.published("node-a") is None
+    peer_auth.forget("node-a")  # already gone: nothing to say
 
 
 # ---- The member called ----
@@ -108,7 +108,7 @@ def test_a_member_removed_takes_its_keys_with_it(cfs):
 
 def test_a_call_signed_by_a_member_for_this_node_is_a_session_of_its_user(client, make_user, cfs):
     make_user("ana", "viewer")
-    a = Member(cfs, "pve-a")
+    a = Member(cfs, "node-a")
     r = _me(client, a.ticket("ana"))
     assert r.status_code == 200 and r.json()["username"] == "ana"
 
@@ -119,10 +119,10 @@ def test_a_call_signed_by_a_member_for_this_node_is_a_session_of_its_user(client
 )
 def test_a_call_is_refused_unless_its_member_signed_it_for_this_node(client, make_user, cfs, case):
     make_user("ana", "admin")
-    a, b = Member(cfs, "pve-a"), Member(cfs, "pve-b")
+    a, b = Member(cfs, "node-a"), Member(cfs, "node-b")
     token = {
-        "other_audience": lambda: a.ticket("ana", aud="pve-b"),
-        "not_a_member": lambda: Member(cfs, "pve-old").ticket("ana"),
+        "other_audience": lambda: a.ticket("ana", aud="node-b"),
+        "not_a_member": lambda: Member(cfs, "node-old").ticket("ana"),
         "key_of_another_member": lambda: a.ticket("ana", kid=b.kid, private=b.private),
         "unknown_key": lambda: a.ticket("ana", kid="0" * 16, private=Ed25519PrivateKey.generate()),
         "too_long": lambda: a.ticket("ana", life=3600),
@@ -134,11 +134,11 @@ def test_a_call_is_refused_unless_its_member_signed_it_for_this_node(client, mak
 
 def test_tickets_this_node_signs_for_others_are_no_session_here(client, make_user, cfs, monkeypatch):
     make_user("ana", "admin")
-    monkeypatch.setattr(peer_auth, "_members", lambda: ["pve-a"])
+    monkeypatch.setattr(peer_auth, "_members", lambda: ["node-a"])
     session = security.create_access_token({"sub": "ana"})
     peer_auth.remember(session)
-    tickets_for = peer_auth.peer(session, ["pve-a"])
-    assert _me(client, tickets_for["pve-a"]).status_code == 401  # signed here for pve-a
+    tickets_for = peer_auth.peer(session, ["node-a"])
+    assert _me(client, tickets_for["node-a"]).status_code == 401  # signed here for node-a
     assert _me(client, peer_auth.delegate(session)).status_code == 401  # a task ticket proves an account to the daemon
 
 
@@ -148,8 +148,8 @@ def test_tickets_this_node_signs_for_others_are_no_session_here(client, make_use
 def test_the_daemon_signs_one_ticket_per_member_for_the_account_the_credential_proves(make_user, cfs):
     make_user("ana", "viewer")
     session = security.create_access_token({"sub": "ana"})
-    out = peer_auth.peer(session, ["pve-a", "pve-b"])
-    assert set(out) == {"pve-a", "pve-b"}
+    out = peer_auth.peer(session, ["node-a", "node-b"])
+    assert set(out) == {"node-a", "node-b"}
     own = {k["kid"]: k for k in tickets._public_keys()}
     for target, token in out.items():
         header = jwt.get_unverified_header(token)
@@ -165,7 +165,7 @@ def test_the_daemon_refuses_what_proves_no_account(client, make_user, cfs, datab
     make_user("ana", "admin")
     session = security.create_access_token({"sub": "ana"})
     if credential == "peer_ticket":
-        session = Member(cfs, "pve-a").ticket("ana")
+        session = Member(cfs, "node-a").ticket("ana")
     elif credential == "pending_password":
         with database.get_conn() as conn:
             conn.execute("UPDATE users SET must_change_password = 1 WHERE username = 'ana'")
@@ -175,7 +175,7 @@ def test_the_daemon_refuses_what_proves_no_account(client, make_user, cfs, datab
     elif credential == "garbage":
         session = "not a token"
     answer = dispatch(
-        {"op": "auth.peer", "args": {"credential": session, "targets": ["pve-a"]}}, Context(None, None, 1, 0)
+        {"op": "auth.peer", "args": {"credential": session, "targets": ["node-a"]}}, Context(None, None, 1, 0)
     )
     assert answer["ok"] is False and answer["error"] == "forbidden", answer
 
@@ -183,8 +183,8 @@ def test_the_daemon_refuses_what_proves_no_account(client, make_user, cfs, datab
 def test_the_daemon_signs_only_for_members(make_user, cfs):
     make_user("ana", "admin")
     session = security.create_access_token({"sub": "ana"})
-    with pytest.raises(PermissionError, match="pve-old"):
-        peer_auth.peer(session, ["pve-a", "pve-old"])
+    with pytest.raises(PermissionError, match="node-old"):
+        peer_auth.peer(session, ["node-a", "node-old"])
 
 
 def test_a_task_ticket_is_an_administrators_and_lets_a_run_call_the_members(make_user, cfs):
@@ -193,7 +193,7 @@ def test_a_task_ticket_is_an_administrators_and_lets_a_run_call_the_members(make
     task = peer_auth.delegate(security.create_access_token({"sub": "ana"}))
     claims = jwt.decode(task, options={"verify_signature": False})
     assert claims["typ"] == "task" and claims["exp"] - claims["iat"] == peer_auth.TASK_LIFETIME_S
-    assert jwt.decode(peer_auth.peer(task, ["pve-a"])["pve-a"], options={"verify_signature": False})["sub"] == "ana"
+    assert jwt.decode(peer_auth.peer(task, ["node-a"])["node-a"], options={"verify_signature": False})["sub"] == "ana"
     with pytest.raises(PermissionError):
         peer_auth.delegate(task)  # not from a task ticket
     with pytest.raises(PermissionError):
@@ -206,7 +206,7 @@ def test_a_task_ticket_ends_with_a_password_change(make_user, cfs):
     time.sleep(1.1)  # whole seconds: the change comes after the ticket
     security.set_password("ana", "another horse battery")
     with pytest.raises(PermissionError):
-        peer_auth.peer(task, ["pve-a"])
+        peer_auth.peer(task, ["node-a"])
 
 
 # ---- The calling member ----
@@ -214,20 +214,20 @@ def test_a_task_ticket_ends_with_a_password_change(make_user, cfs):
 
 def test_a_member_that_published_keys_gets_a_peer_ticket_an_older_one_the_shared_key(make_user, cfs):
     make_user("ana", "admin")
-    Member(cfs, "pve-a")
+    Member(cfs, "node-a")
     peer_auth.remember(security.create_access_token({"sub": "ana"}))
-    new = peer_auth.ticket_for({"name": "pve-a"}, "ana")
-    old = peer_auth.ticket_for({"name": "pve-b"}, "ana")
+    new = peer_auth.ticket_for({"name": "node-a"}, "ana")
+    old = peer_auth.ticket_for({"name": "node-b"}, "ana")
     assert jwt.get_unverified_header(new)["alg"] == "EdDSA"
-    assert jwt.decode(new, options={"verify_signature": False})["aud"] == "pve-a"
+    assert jwt.decode(new, options={"verify_signature": False})["aud"] == "node-a"
     assert jwt.get_unverified_header(old)["alg"] == "HS256"
 
 
 def test_no_ticket_without_a_credential(cfs):
-    Member(cfs, "pve-a")
+    Member(cfs, "node-a")
     peer_auth.CREDENTIAL.set(None)
     with pytest.raises(peer_auth.NoTicket):
-        peer_auth.ticket_for({"name": "pve-a"}, "ana")
+        peer_auth.ticket_for({"name": "node-a"}, "ana")
 
 
 def test_the_credential_follows_the_threads_that_call_the_members():
@@ -249,7 +249,7 @@ def test_a_cluster_view_calls_each_member_with_a_ticket_for_it(client, auth_head
     headers = auth_headers("ana", role="viewer")
     _publish_all(cfs)
     nodes = [{"name": n, "hostname": f"{n}.lan", "ssh_user": "root", "ssh_port": 22, "status": "online"}
-             for n in ("pve-a", "pve-b")]  # fmt: skip
+             for n in ("node-a", "node-b")]  # fmt: skip
     monkeypatch.setattr(cluster, "list_nodes", lambda: nodes)
     seen = {}
 
@@ -261,7 +261,7 @@ def test_a_cluster_view_calls_each_member_with_a_ticket_for_it(client, auth_head
     r = client.get("/tasks?cluster=true", headers=headers)
     assert r.status_code == 200 and r.json()["unreachable"] == []
     assert {n: (c["typ"], c["aud"], c["sub"]) for n, c in seen.items()} == {
-        "pve-a": ("peer", "pve-a", "ana"), "pve-b": ("peer", "pve-b", "ana")
+        "node-a": ("peer", "node-a", "ana"), "node-b": ("peer", "node-b", "ana")
     }  # fmt: skip
 
 
@@ -270,9 +270,9 @@ def test_a_cluster_view_calls_each_member_with_a_ticket_for_it(client, auth_head
 
 def test_the_shared_key_is_accepted_while_a_member_has_not_published_keys(client, make_user, cfs):
     make_user("ana", "admin")
-    Member(cfs, "pve-a")  # pve-b runs an older version
+    Member(cfs, "node-a")  # node-b runs an older version
     assert _me(client, _hs256("ana")).status_code == 200
-    Member(cfs, "pve-b")  # now every member runs this one
+    Member(cfs, "node-b")  # now every member runs this one
     assert _me(client, _hs256("ana")).status_code == 401
 
 

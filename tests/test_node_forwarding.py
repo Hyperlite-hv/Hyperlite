@@ -28,31 +28,31 @@ SENT = [
 @pytest.mark.parametrize(("method", "path", "body"), SENT)
 def test_a_request_naming_another_member_is_answered_by_it(client, auth_headers, peers, method, path, body):  # noqa: F811
     route, _, query = path.partition("?")
-    peers.answers[("pve-a", route)] = (202, {"task_id": TASK_A})
-    url = f"{route}?{query + '&' if query else ''}node=pve-a"
+    peers.answers[("node-a", route)] = (202, {"task_id": TASK_A})
+    url = f"{route}?{query + '&' if query else ''}node=node-a"
     r = client.request(method, url, json=body, headers=auth_headers("ana"))
     assert r.status_code == 202 and r.json() == {"task_id": TASK_A}
     # The member gets the same request without the parameter, in the same user's name.
-    assert peers.calls == [("pve-a", "ana", method, path)]
+    assert peers.calls == [("node-a", "ana", method, path)]
     assert peers.bodies == [body]
 
 
 def test_its_refusal_comes_back_and_a_silent_member_is_named(client, auth_headers, peers):  # noqa: F811
     headers = auth_headers("olga", "viewer")
     # The member checks the rights: its refusal is the answer.
-    peers.answers[("pve-a", "/vms/web")] = (403, {"detail": "vm.delete is required"})
-    r = client.delete("/vms/web?confirm=true&node=pve-a", headers=headers)
+    peers.answers[("node-a", "/vms/web")] = (403, {"detail": "vm.delete is required"})
+    r = client.delete("/vms/web?confirm=true&node=node-a", headers=headers)
     assert r.status_code == 403 and r.json()["detail"] == "vm.delete is required"
     # Never a 401 (it would sign the dashboard out of this node), and a member down is named.
-    peers.answers[("pve-a", "/vms/web")] = (401, {"detail": "Could not validate credentials"})
-    assert client.get("/vms/web?node=pve-a", headers=headers).status_code == 502
-    peers.down.add("pve-a")
-    r = client.get("/vms/web?node=pve-a", headers=headers)
-    assert r.status_code == 502 and "pve-a" in r.json()["detail"]
+    peers.answers[("node-a", "/vms/web")] = (401, {"detail": "Could not validate credentials"})
+    assert client.get("/vms/web?node=node-a", headers=headers).status_code == 502
+    peers.down.add("node-a")
+    r = client.get("/vms/web?node=node-a", headers=headers)
+    assert r.status_code == 502 and "node-a" in r.json()["detail"]
 
 
 def test_without_a_session_nothing_is_sent(client, peers):  # noqa: F811
-    assert client.delete("/vms/web?confirm=true&node=pve-a").status_code == 401
+    assert client.delete("/vms/web?confirm=true&node=node-a").status_code == 401
     assert peers.calls == []
 
 
@@ -65,11 +65,11 @@ def test_this_node_is_answered_here(client, auth_headers, peers, node):  # noqa:
 
 def test_a_node_over_ssh_only_is_reached_only_by_routes_taking_node(client, auth_headers, peers):  # noqa: F811
     headers = auth_headers("ana")
-    # DELETE /isos/{f} takes `node` itself: it handles pve-old here, as before (here: no such image there).
-    r = client.delete("/isos/debian.iso?confirm=true&node=pve-old", headers=headers)
+    # DELETE /isos/{f} takes `node` itself: it handles node-old here, as before (here: no such image there).
+    r = client.delete("/isos/debian.iso?confirm=true&node=node-old", headers=headers)
     assert r.status_code == 404 and "not a member" not in r.json()["detail"]
-    # GET /isos does not: it would list this node's images under pve-old's name. Refused, as is a node that is none.
-    for node in ("pve-old", "pve-z"):
+    # GET /isos does not: it would list this node's images under node-old's name. Refused, as is a node that is none.
+    for node in ("node-old", "node-z"):
         r = client.get(f"/isos?node={node}", headers=headers)
         assert r.status_code == 409 and f"{node} is not a member" in r.json()["detail"]
     assert peers.calls == []
@@ -85,17 +85,19 @@ def test_a_console_ticket_stays_here_where_its_websocket_opens(client, auth_head
         "spice-ticket",
         "tunnel-ticket",
     ):
-        client.post(f"/vms/web/{path}?node=pve-a", headers=headers)
+        client.post(f"/vms/web/{path}?node=node-a", headers=headers)
     assert peers.calls == []
 
 
 def test_a_websocket_is_never_sent():
-    ws = HTTPConnection({"type": "websocket", "path": "/vms/web/console", "query_string": b"node=pve-a", "headers": []})
-    assert asyncio.run(cluster_view.on_node(ws, "pve-a")) is None
+    ws = HTTPConnection(
+        {"type": "websocket", "path": "/vms/web/console", "query_string": b"node=node-a", "headers": []}
+    )
+    assert asyncio.run(cluster_view.on_node(ws, "node-a")) is None
 
 
 def test_a_file_is_sent_to_the_member_from_its_spool(client, auth_headers, peers, monkeypatch):  # noqa: F811
-    """As Proxmox VE relays an upload to the node that stores it: the form again, its file read while it is sent."""
+    """An upload is relayed to the node that stores it: the form again, its file read while it is sent."""
     import email
 
     from app.core import peer_auth, peer_https
@@ -110,13 +112,13 @@ def test_a_file_is_sent_to_the_member_from_its_spool(client, auth_headers, peers
     monkeypatch.setattr(peer_https, "send", send)
     monkeypatch.setattr(peer_auth, "ticket_for", lambda node, user: f"ticket-of-{user}")
     r = client.post(
-        "/isos?node=pve-a",
+        "/isos?node=node-a",
         files={"file": ('debian".iso\r\nX-Evil: 1', b"ISO" * 100, "application/octet-stream")},
         headers=auth_headers("ana"),
     )
     assert r.status_code == 201 and r.json()["name"] == "debian.iso"
     [(node, token, path, content_type, length, body)] = sent
-    assert (node, token, path) == ("pve-a", "ticket-of-ana", "/api/v1/isos")
+    assert (node, token, path) == ("node-a", "ticket-of-ana", "/api/v1/isos")
     assert length == len(body) and b"ISO" * 100 in body
     # The member reads the same form; a name cannot end the part's header or add one.
     form = email.message_from_bytes(f"Content-Type: {content_type}\r\n\r\n".encode() + body)
@@ -132,11 +134,11 @@ def test_a_file_needs_the_members_https(client, auth_headers, peers, monkeypatch
     from app.core import peer_auth, peer_https
 
     def unavailable(*a, **k):
-        raise peer_https.Unavailable("pve-a published no certificate fingerprint")
+        raise peer_https.Unavailable("node-a published no certificate fingerprint")
 
     monkeypatch.setattr(peer_https, "send", unavailable)
     monkeypatch.setattr(peer_auth, "ticket_for", lambda node, user: "t")
-    r = client.post("/isos?node=pve-a", files={"file": ("debian.iso", b"ISO")}, headers=auth_headers("ana"))
+    r = client.post("/isos?node=node-a", files={"file": ("debian.iso", b"ISO")}, headers=auth_headers("ana"))
     assert r.status_code == 502 and "over HTTPS only" in r.json()["detail"]
 
 
@@ -149,18 +151,18 @@ def test_a_write_may_take_as_long_as_its_work_a_read_does_not(client, auth_heade
 
     monkeypatch.setattr(rolling_update, "peer_api", api)
     headers = auth_headers("ana")
-    client.get("/vms/web/disks?node=pve-a", headers=headers)
-    client.post("/vms/web/stop?node=pve-a&force_after=180", headers=headers)
+    client.get("/vms/web/disks?node=node-a", headers=headers)
+    client.post("/vms/web/stop?node=node-a&force_after=180", headers=headers)
     assert timeouts == [("GET", 60), ("POST", cluster_view.SEND_WRITE_TIMEOUT_S)]
     assert cluster_view.SEND_WRITE_TIMEOUT_S >= 900
 
 
 def test_a_task_started_with_node_is_followed_with_node(client, auth_headers, peers):  # noqa: F811
-    peers.answers[("pve-a", f"/tasks/{TASK_A}")] = (200, {"id": TASK_A, "status": "running"})
-    peers.answers[("pve-a", f"/tasks/{TASK_A}/log")] = (200, {"items": [], "total": 0})
+    peers.answers[("node-a", f"/tasks/{TASK_A}")] = (200, {"id": TASK_A, "status": "running"})
+    peers.answers[("node-a", f"/tasks/{TASK_A}/log")] = (200, {"items": [], "total": 0})
     headers = auth_headers("ana")
-    assert client.get(f"/tasks/{TASK_A}?node=pve-a", headers=headers).json()["status"] == "running"
-    assert client.get(f"/tasks/{TASK_A}/log?node=pve-a", headers=headers).status_code == 200
+    assert client.get(f"/tasks/{TASK_A}?node=node-a", headers=headers).json()["status"] == "running"
+    assert client.get(f"/tasks/{TASK_A}/log?node=node-a", headers=headers).status_code == 200
     assert [c[3] for c in peers.calls] == [f"/tasks/{TASK_A}", f"/tasks/{TASK_A}/log"]
 
 
@@ -184,5 +186,5 @@ def test_a_session_whose_password_must_change_sends_nothing(client, auth_headers
 
     headers = auth_headers("newbie")
     flag_weak_password("newbie")
-    assert client.delete("/vms/web?confirm=true&node=pve-a", headers=headers).status_code == 403
+    assert client.delete("/vms/web?confirm=true&node=node-a", headers=headers).status_code == 403
     assert peers.calls == []

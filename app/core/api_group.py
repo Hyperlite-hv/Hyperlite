@@ -1,6 +1,4 @@
-"""The API's group (docs/design/privilege-separation.md, section 14.6): hyperlite.service runs as www-data from 4e, as
-Proxmox VE's pveproxy does. What root's services make and the API reads or writes is given that group, as
-/etc/pve/local/pveproxy-ssl.key is root:www-data 0640; what holds root's secrets keeps root's alone."""
+"""The API's group (docs/design/privilege-separation.md, section 14.6): hyperlite.service runs as www-data from 4e. What root's services make and the API reads or writes is given that group:www-data 0640; what holds root's secrets keeps root's alone."""
 
 import contextlib
 import grp

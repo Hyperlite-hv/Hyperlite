@@ -1,11 +1,9 @@
-"""Hyperlite update from its own Git repository: the equivalent of the vSphere
-Lifecycle Manager, with Git as the source of truth instead of a proprietary
-patch repository.
+"""Hyperlite update from its own package repository.
 
 It only touches the Hyperlite management layer (API code + interface). VMs that
 are already running, driven directly by libvirt/QEMU independently of the
 Hyperlite process, are neither stopped nor restarted by an update (the same
-principle as a vCenter reboot, which does not affect VMs already running under
+principle, which does not affect VMs already running under
 ESXi).
 
 A real constraint of this repository's workflow: development commits directly
@@ -260,7 +258,7 @@ def _raw_candidate_version():
 
 def _previous():
     """The kept package of the previous version: {"version", "file"} or None. Never one older than 1.0.2: from 1.1 the
-    files live where Proxmox VE keeps its own (app/core/paths.py), and 1.0.2 is the first version that moves them back
+    files live in the layout of app/core/paths.py, and 1.0.2 is the first version that moves them back
     when it is installed again (scripts/migrate_layout.sh back); an older one would start without its database, its
     keys and its certificate. Nor, for the same kind of reason, a dated version (before 1.0, which renamed the database
     and the cluster's configuration)."""

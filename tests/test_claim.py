@@ -47,7 +47,7 @@ def test_check_names_the_claims_that_hold_a_file_and_skips_the_issue_itself():
 
 
 def test_the_page_parses_the_marker_the_script_writes():
-    page = (ROOT / "docs" / "proxmox-parity.html").read_text()
+    page = (ROOT / "docs" / "roadmap.html").read_text()
     assert r"/<!-- claim (\{.*?\}) -->[\s\S]*?<!-- \/claim -->/" in page
     assert f'labels={claim.LABEL}"' in page or f"labels={claim.LABEL}&" in page
     assert f"STALE_DAYS = {claim.STALE_DAYS}" in page

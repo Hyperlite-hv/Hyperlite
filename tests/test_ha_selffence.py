@@ -107,7 +107,7 @@ def test_libvirt_not_answering_keeps_it_armed_and_fed(node):
 
 
 def test_never_armed_outside_a_cluster_or_without_ha_vm(node):
-    node["mode"] = "local"  # a single node, as serveur-antho
+    node["mode"] = "local"  # a single node
     ha_selffence.tick()
     assert not ha_selffence.report()["armed"] and written(node) == b""
     node["mode"], node["ha_vm"] = "cluster", False

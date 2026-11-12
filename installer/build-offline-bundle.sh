@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds what the ISO carries so that an installation needs no network, as with Proxmox:
+# Builds what the ISO carries so that an installation needs no network:
 #   OUT/debs/      every Debian package the appliance installs, with all their dependencies, and an APT index
 #                  (Hyperlite's own package carries its Python environment and its wheels: docs/design/clean-package.md);
 #   OUT/install.list  the packages postinstall.sh installs: installer/packages.list plus the "standard" and

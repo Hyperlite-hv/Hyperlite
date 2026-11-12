@@ -2,7 +2,7 @@
 
 Status: **accepted** (Antho, 2026-10-21, section 8). Target: 1.1.
 
-The decision itself is older: on 2026-10-01 the maintainers chose Proxmox VE's service layout, with
+The decision itself is older: on 2026-10-01 the maintainers chose the reference platform's service layout, with
 `hyperlite-proxy` (the API, unprivileged) and `hyperlite-daemon` (the privileged actions, root, local socket)
 (`docs/design/control-plane-v2-migration.md`, section 15.2.1). This document says how to get there from today's code,
 in steps that each ship on their own.
@@ -40,7 +40,7 @@ designed does what it always did.
 |---|---|---|
 | **A. systemd hardening of today's process** (`ProtectSystem`, `ProtectHome`, `CapabilityBoundingSet`, `SystemCallFilter`…) | Days of work; limits what a flaw can reach (no kernel modules, no `/boot`, fewer capabilities) | Still root: libvirt, `/etc`, SSH to the peers stay reachable |
 | **B. sudo or polkit rules per command** | No new daemon | 39 programs with free arguments: each rule is a hole (`qemu-img` writes anywhere, `ssh` runs anything) |
-| **C. Proxmox's layout: proxy + daemon** (decided) | The network-facing code has no rights; the root code is small and audited | The biggest: every privileged call site moves behind an operation |
+| **C. The reference platform's layout: proxy + daemon** (decided) | The network-facing code has no rights; the root code is small and audited | The biggest: every privileged call site moves behind an operation |
 
 **Proposed: A first, then C**, A as the safety net while C is built, and kept afterwards on both services.
 
@@ -113,22 +113,22 @@ step 4, so the move can be done domain by domain and released between them.
 
 ## 9. Step 1 in detail: moving out of /root/hyperlite
 
-Modelled on Proxmox VE's layout (Antho, 2026-10-21: "everything as Proxmox does it"):
+Modelled on the reference platform's layout (Antho, 2026-10-21: "everything"):
 
-| What | Proxmox VE | Hyperlite from 1.1 | Up to 1.0 |
+| What | The reference platform | Hyperlite from 1.1 | Up to 1.0 |
 |---|---|---|---|
-| code, interface | `/usr/share/perl5/PVE`, `/usr/share/pve-manager` | `/usr/lib/hyperlite`, `/usr/share/hyperlite/www` | `/root/hyperlite` |
-| cluster configuration | `/etc/pve` (pmxcfs) | `/etc/hyperlite` (hyperlite-cfs, mounted as files later: #525) | database + hyperlite-cfs |
-| cluster secrets | `/etc/pve/priv` | hyperlite-cfs `/priv` | `.env` |
-| node secrets, SSH keys | `/etc/pve/priv`, `/root/.ssh` | `/etc/hyperlite/priv` (`env`, `ssh/`) | `.env`, `data/ssh` |
-| node TLS | `/etc/pve/local/pve-ssl.*` | `/etc/hyperlite/local` | `data/tls` |
+| code, interface | `/usr/share/perl5/the reference platform`, its own files | `/usr/lib/hyperlite`, `/usr/share/hyperlite/www` | `/root/hyperlite` |
+| cluster configuration | Its cluster configuration directory | `/etc/hyperlite` (hyperlite-cfs, mounted as files later: #525) | database + hyperlite-cfs |
+| cluster secrets | Its cluster configuration directory | hyperlite-cfs `/priv` | `.env` |
+| node secrets, SSH keys | Its cluster configuration directory, `/root/.ssh` | `/etc/hyperlite/priv` (`env`, `ssh/`) | `.env`, `data/ssh` |
+| node TLS | Its cluster configuration directory*` | `/etc/hyperlite/local` | `data/tls` |
 | ISO images | `/var/lib/vz/template/iso` | `/var/lib/hyperlite/template/iso` | `data/isos` |
 | VM templates | (VMs) | `/var/lib/hyperlite/template/vm` | `data/templates` |
 | backups, exports | `/var/lib/vz/dump` | `/var/lib/hyperlite/dump`, `dump/export`, `dump/container` | `data/backups`, `data/vm-exports`, `/root/hyperlite-container-backups` |
 | disks to import | `/var/lib/vz/import` | `/var/lib/hyperlite/import` | `data/imported-disks` |
-| database, k3s, tools, update backups | `/var/lib/pve-cluster`, `/var/lib/pve-manager` | `/var/lib/hyperlite` (`hyperlite.db`, `k3s`, `bin`, `tmp`, `update-backups`, `config-copy-staging`) | `/root/hyperlite`, `/root/hyperlite-backups` |
-| logs | `/var/log/pve`, `/var/log/pveproxy` | `/var/log/hyperlite` | the same |
-| the API's account | `www-data` (pveproxy) | `www-data` | root |
+| database, k3s, tools, update backups | Its own files, its own files | `/var/lib/hyperlite` (`hyperlite.db`, `k3s`, `bin`, `tmp`, `update-backups`, `config-copy-staging`) | `/root/hyperlite`, `/root/hyperlite-backups` |
+| logs | Its own files, `/var/log/the reference HTTPS proxy` | `/var/log/hyperlite` | the same |
+| the API's account | `www-data` | `www-data` | root |
 
 `/var/lib/hyperlite/config-copy`, where a node receives a controller's configuration, stays where it is in both
 layouts. `scripts/migrate_layout.sh` holds the exact list of moves.
@@ -187,12 +187,12 @@ Known limit, during a rolling update only: a node still on 1.0 that writes into 
 image migrated to it from a node already on 1.1) has, at its own update, the same item in both layouts; the move then
 refuses, the update rolls back by itself, and the log names both paths.
 
-## 10. Secrets, the way Proxmox VE keeps them (Antho, 2026-10-21)
+## 10. Secrets, the way the reference platform keeps them (Antho, 2026-10-21)
 
-Proxmox keeps no secret in environment variables: they are files in `/etc/pve/priv/`, inside the replicated cluster
-file system, readable by root only; the web proxy (`pveproxy`, `www-data`) verifies session tickets with the public
+The reference platform keeps no secret in environment variables: they are files in the reference configuration directory/`, inside the replicated cluster
+file system, readable by root only; the web proxy verifies session tickets with the public
 half of a key pair (`authkey.pub`) while only root holds the private half (`priv/authkey.key`), rotated every 24 hours;
-logins and the use of stored credentials happen in `pvedaemon`, root. Hyperlite does the same:
+logins and the use of stored credentials happen in the reference privileged daemon, root. Hyperlite does the same:
 
 - **No `.env`.** Cluster secrets live in hyperlite-cfs under `/priv/` (refused to every client but root, already in its
   design, section 6), node secrets in `/etc/hyperlite/priv/` (root, 0600). The two keys of `.env` move there at the
@@ -205,21 +205,21 @@ logins and the use of stored credentials happen in `pvedaemon`, root. Hyperlite 
 - **Stored credentials stay in the daemon.** LDAP bind, SMTP, OIDC client secret, TOTP secrets, fencing credentials are
   decrypted and used by daemon operations (`auth.ldap_bind`, `notify.send_mail`, `auth.oidc_exchange`, `auth.totp_check`,
   `fence.*`); the proxy never reads them.
-- **Encrypted at rest**, beyond Proxmox: the values under `/priv/` stay encrypted with the encryption key, so a copy of
+- **Encrypted at rest**, beyond the reference platform: the values under `/priv/` stay encrypted with the encryption key, so a copy of
   the database (an update backup, a disk image) does not expose them.
-- **The TLS key** of the web interface stays readable by the proxy's group, as `pve-ssl.key` is by `www-data`: the proxy
+- **The TLS key** of the web interface stays readable by the proxy's group, as its TLS key is by `www-data`: the proxy
   terminates HTTPS.
 
 These move with the domains of step 3 (authentication first); step 1 only moves the files.
 
 ## 11. Decisions (Antho, 2026-10-21, continued)
 
-5. **The layout as Proxmox VE's**, table of section 9.
-6. **The API runs as `www-data`**, as `pveproxy` does.
-7. **The cluster configuration as files in `/etc/hyperlite`**, as pmxcfs mounts `/etc/pve`: hyperlite-cfs gets a FUSE
+5. **The layout, table of section 9.
+6. **The API runs as `www-data`**, as the reference HTTPS proxy does.
+7. **The cluster configuration as files in `/etc/hyperlite`**Its cluster configuration directory: hyperlite-cfs gets a FUSE
    mount, after the split (#525).
-8. **The daemon checks who asks** (2026-10-25): the caller's proof and permissions on every operation, as pvedaemon
-   and vSphere do; it replaces decision 3's "decided in the proxy" (section 14).
+8. **The daemon checks who asks** (2026-10-25): the caller's proof and permissions on every operation
+   and the commercial reference do; it replaces decision 3's "decided in the proxy" (section 14).
 
 ## 12. Step 3, first domain: authentication (2026-10-21)
 
@@ -227,13 +227,13 @@ Where it starts: every session token is a JWT signed HS256 with `HYPERLITE_SECRE
 `/etc/hyperlite/priv/env` and that every member of a cluster shares (the API of one member calls another's with a token
 it signs itself: `rolling_update.peer_api`, `cluster_view.forward_to`). Whoever controls the API can sign any session.
 
-Target, as Proxmox VE (`authkey.key` held by root, `pveproxy` verifies with `authkey.pub`):
+Target:
 
 - **Key pairs held by hyperlite-daemon**: Ed25519, the private key in `/etc/hyperlite/priv/authkey.key` (root, 0600),
   rotated every 24 hours. The public keys in `/etc/hyperlite/authkeys.json` (0644), the newest first, kept 8 days: a
   session of "Stay signed in" (7 days) stays valid across rotations without being renewed.
 - **The API verifies only** (EdDSA, the key named by the token's `kid`); it never reads the private key.
-- **The daemon signs**, and in the end only after checking the credentials itself (Proxmox: the ticket is made by the
+- **The daemon signs**, and in the end only after checking the credentials itself (the reference platform: the ticket is made by the
   process that checked the password).
 
 In three pull requests, each released and checked on the test VM:
@@ -250,7 +250,7 @@ Development and tests run without a daemon: `HYPERLITE_AUTH_SIGNING=local` makes
 ### 12.1 PR C in detail: calls between members (2026-10-21)
 
 **Where it starts.** A member calls another member's API in a user's name in three places:
-- the cluster views (`cluster_view.gather`, `forward`, `forward_to`: tasks, audit, backups, VMs of a member without a
+- The cluster views (`cluster_view.gather`, `forward`, `forward_to`: tasks, audit, backups, VMs of a member without a
   status, a request about a guest another member holds);
 - the rolling update (`rolling_update.peer_api`), from the admin's request and then for the length of the run in a
   background thread;
@@ -260,8 +260,8 @@ Each call carries an HS256 token that `security.create_peer_token` signs with `H
 holds that key and accepts the token as a session of the user it names, for 4 hours. Whoever reads the key can act as
 any account on every member.
 
-**How Proxmox VE does it.** Its ticket is valid on every node because `authkey.key` is shared through pmxcfs (under
-`priv/`, root only). pveproxy forwards a request to the node it names (`proxyto`) with the user's own ticket: no node
+**How the reference platform does it.** Its ticket is valid on every node because `authkey.key` is shared through the reference cluster file system (under
+`priv/`, root only). Its HTTPS proxy forwards a request to the node it names (`proxyto`) with the user's own ticket: no node
 signs a ticket for a user it has not checked. Hyperlite keeps one key pair per node (no private key travels). The same
 property comes from two rules: a member signs a call only for a user it has just checked, and the receiving member
 checks the signature with the keys of the member that signed it.
@@ -330,7 +330,7 @@ and its audience. It can act on other members only in the name of a user whose c
 - a request in progress;
 - a rolling update that an admin started.
 
-This is the limit Proxmox VE has too: pveproxy sees the tickets it forwards. While the API runs as root (until step 4),
+This is the limit the reference platform has too: the reference HTTPS proxy sees the tickets it forwards. While the API runs as root (until step 4),
 it can still read `authkey.key`. PR C removes the shared key that any member's API could use against all the others.
 Step 4 removes the rest.
 
@@ -372,7 +372,7 @@ claimed on #511 with `.github/scripts/claim.py`:
 | VMs, part 2b: a VM's devices (`app/core/vm_devices.py`): disks (`vm.attach_disk`, the image check included; `vm.detach_disk`), interfaces with their VLANs (`vm.set_interface`, `vm.attach_interface`, `vm.detach_interface`; the daemon sets the ports itself, so `network.vlan_apply_vm` is gone), host devices (`vm.attach_hostdev`, `vm.detach_hostdev`), CD-ROM drives (`vm.set_cdrom`, `vm.eject_cdrom`, an ISO of the daemon's own library) | done |
 | VMs, part 2c: a VM's firewall (`vm.set_firewall`, the nwfilter built from checked rules, `app/core/vm_firewall.py`), hook script (`vm.set_hookscript`, checked again in the root library), name (`vm.rename`, with the files named after it, `app/core/vm_rename.py`) and cloud-init drive (`vm.cloudinit_write`: written private to root, the API keeping the state) | done |
 | VMs, part 3a: creation (`vm.create`, `app/core/vm_create.py`): the specification of POST /vms checked again by the daemon (its unknown fields refused at any depth), the disks, the cloud-init drive, the DHCP reservation and the definition made by it; `check_only` runs the checks alone (`?wait=false`, an ISO being copied from another node). The API keeps the lock, the task and what it records | done |
-| VMs, part 3b: deletion (`vm.delete`, `app/core/vm_delete.py`), from DELETE /vms/{name} and the automatic clean-up: the daemon checks the VM is stopped again, and deletes its own disks only, as Proxmox VE does, never vSphere's way of taking a disk shared with another VM along: a disk another VM uses or reads through (a linked clone's base), or a file outside every storage pool, is kept and reported (`kept_disks`). The API forgets the VM's records | done |
+| VMs, part 3b: deletion (`vm.delete`, `app/core/vm_delete.py`), from DELETE /vms/{name} and the automatic clean-up: the daemon checks the VM is stopped again, and deletes its own disks only, never the commercial reference's way of taking a disk shared with another VM along: a disk another VM uses or reads through (a linked clone's base), or a file outside every storage pool, is kept and reported (`kept_disks`). The API forgets the VM's records | done |
 | VMs, part 3c: clones (`vm.clone`, `app/core/vm_clone.py`) and templates (`template.make`, `template.deploy`, `template.rename`, `template.delete`, `app/core/vm_templates.py`): the copies, the new definitions and the template files are the daemon's, which checks the source's state, the names, the room and a template's linked clones again; the Kubernetes clusters' VMs started and stopped through `vm.power` | done |
 | VMs, part 4: snapshots (`vm.snapshot_create`, `vm.snapshot_restore`, `vm.snapshot_delete`, `vm.lvm_snapshots`, `app/core/vm_snapshots.py`): libvirt's, ZFS's and LVM-thin's, checked again by the daemon (a rollback only under a stopped VM, a name ZFS would read as a list or a range refused); every check runs first with `check_only`, so the route answers a refusal before it starts the task | done |
 | Containers, part 1: start, stop, settings, rename and deletion (`container.*`, `app/core/container_ops.py`), the filesystem found in the definition and accepted in Hyperlite's container directories only (below) | done |
@@ -418,8 +418,7 @@ claimed on #511 with `.github/scripts/claim.py`:
 
 **Another node's work stays with the cluster domain.** Some storage routes act on another node from this one: a
 `?node=` naming a node registered over SSH only, and the shared pools created, renamed or removed on every node
-(`app/core/shared_pools.py`), through that node's libvirt over SSH. The daemon's operations act on this node only, as
-pvedaemon's do. The work itself is one function of `app/core` taking the libvirt connection, so this node's goes
+(`app/core/shared_pools.py`), through that node's libvirt over SSH. The daemon's operations act on this node only's do. The work itself is one function of `app/core` taking the libvirt connection, so this node's goes
 through the daemon and another node's keeps its SSH connection from the API, with the same checks and the same
 answers. The cluster domain moves the second: a member is asked through its own API (`app/core/cluster_view.py`,
 which already forwards `?node=`), whose daemon does the work; a node registered over SSH only is reached by the
@@ -437,8 +436,8 @@ pools' files (owned by root or by QEMU, mode 0600). It moves in four parts, each
 | With the VM domain | The disks VM creation, clones, templates and linked clones make (`app/core/vm_builder.py`, `app/core/linked_disks.py`), and the check of an image Hyperlite did not write before a VM uses it (`app/core/disk_images.py`, `qemu-img info`): they go with the domain that uses them | moved with `vm.*` |
 | A domain of its own: backups | Backups, restores, replication and exports, an OVA export included (`app/core/backups.py`, `replication.py`, `vm_export.py`, `checkpoints.py`, `backup_integrity.py`): added after the VMs to section 5's list, with the live restore of #513 | `backup.*` |
 
-**An upload goes through a spool, as on Proxmox VE.** pveproxy writes an upload into a temporary file it owns, and
-pvedaemon copies it into the storage. Hyperlite does the same. The API streams the upload into
+**An upload goes through a spool, and
+Its privileged daemon copies it into the storage. Hyperlite does the same. The API streams the upload into
 `/var/lib/hyperlite/spool`, a directory it owns, on the libraries' own file system, so storing one is a rename, not a
 second copy of gigabytes. `disk.library_store` takes that file's name in the spool, never a path. It checks the name
 again, refuses an ISO that would replace another, moves the file into the library, gives it the owner and mode QEMU
@@ -495,8 +494,8 @@ pinned), and every node over SSH as root with the cluster's key (`paths.SSH_DIR 
 `/etc/hyperlite/priv`): libvirt over `qemu+ssh` for a node registered over SSH only and for a migration, `scp` for the
 ISO and file copies, commands for the stats, the boot id, the LVM, SMB, VLAN and hook-script work of another node, and
 the peer calls' fallback when HTTPS cannot be used. About 75 call sites in 27 files. A process that holds that key is
-root on every node: once the API runs as `www-data` it must not read it. As on Proxmox VE, where the nodes trust each
-other's root over SSH and pveproxy only forwards a request to the node that owns the guest, **only hyperlite-daemon
+root on every node: once the API runs as `www-data` it must not read it., where the nodes trust each
+other's root over SSH and the reference HTTPS proxy only forwards a request to the node that owns the guest, **only hyperlite-daemon
 holds the cluster's keys**, and the API asks it for named work on a named node, never for a command or a libvirt URI:
 
 - **The node is named, its address read by the daemon** from the node registry (the `nodes` table), the host key pinned
@@ -560,7 +559,7 @@ node, which needs no key and no root.
 **The backups domain (proposed, 2026-10-25, agreed with backups-store on #298).** A backup reads a VM's disks
 (`qemu-img`, an external snapshot then a block commit, libvirt's backup API, `qemu-nbd`), its NVRAM and TPM state,
 and writes a directory or a store's chunks; a restore writes disks, the firmware state and a definition; a store's
-keys are root's. As Proxmox VE runs vzdump as root in a task of pvedaemon, **a backup, a restore, a verification, a
+keys are root's., **a backup, a restore, a verification, a
 deletion, an export, a replication point or a store's job is one daemon operation that runs the whole job**, its
 progress written into the task as the migration's. The API keeps the routes, the schedules, the retention decisions,
 the records (`backups`, `backup_jobs`), the locks and the audit log; the daemon answers what it wrote (the path, the
@@ -596,7 +595,7 @@ account itself, keeps at most 1 MiB of each output and stops the step when the r
 **Who may open a root session: a question for step 4.** As decided (section 8), the API decides who may open the host
 shell, a container's shell or a terminal, and the daemon runs what the API asks. So a compromised API can still open a
 root shell, as it can still ask for a VM with a host disk or a hook script: the operations that are root by design.
-A proof on the consoles alone would not close that. What would, as pvedaemon checks the ticket of every call pveproxy
+A proof on the consoles alone would not close that. What would
 hands it: the daemon checking the user's own session on every operation, a token only its keys sign (section 12),
 and its role in it. The API tokens would then need a store the API cannot write, and so would the accounts' roles.
 That belongs to step 4, with the database's owner.
@@ -616,9 +615,9 @@ When the last domain has moved, step 4 runs the API as `www-data`. Measured on 2
 
 ## 14. Step 4: the daemon checks who asks (Antho, 2026-10-25)
 
-**Decision**: "the most secure, and what Proxmox VE and vSphere do". hyperlite-daemon no longer takes the API's word
-for who asks: **it checks the caller's own proof and permissions on every operation**, as pvedaemon checks the ticket
-of each call pveproxy hands it, and as vCenter's and ESXi's services check the session of each call against their own
+**Decision**: "the most secure, and what the reference platform and the commercial reference do". hyperlite-daemon no longer takes the API's word
+for who asks: **it checks the caller's own proof and permissions on every operation**
+of each call the reference HTTPS proxy hands it, and's services check the session of each call against their own
 permissions. A flaw in the API then gives what its current caller may do, not root. Section 8's decision 3 (the API
 decides who may open the host shell) is replaced by this one.
 
@@ -635,8 +634,8 @@ and call the daemon as `system` or `scheduler`.
   keys, an API token against its hash. `ctx.user` becomes the proven user; a request without a valid proof is
   `forbidden`. A WebSocket's ticket (the consoles) carries the proof of the request that made the ticket.
 - **Permissions the API cannot write.** The accounts, the API tokens' hashes, the roles, the ACLs, the resource pools
-  and the second factors move to a store only the daemon writes (`/etc/hyperlite/priv`, as Proxmox VE keeps
-  `user.cfg`, `token.cfg` and `priv/` in pmxcfs, written by pvedaemon): their routes become daemon operations
+  and the second factors move to a store only the daemon writes (`/etc/hyperlite/priv`
+  `user.cfg`, `token.cfg` and `priv/` in the reference cluster file system, written by the reference privileged daemon): their routes become daemon operations
   (`auth.user_*`, `auth.token_*`, `auth.acl_*`). The API reads them to answer, never to decide.
 - **Each operation declares what it needs.** `@operation(name, Args, needs=...)`: a privilege on the object it names
   (`vm.power` on that VM, `container.console` on that container, `storage.allocate` on that pool) or the
@@ -644,7 +643,7 @@ and call the daemon as `system` or `scheduler`.
   The registry checks it against the proven user before the operation runs (`app/core/permissions.py`, evaluated by
   the daemon on its own store). The routes keep their checks for their answers; the daemon's is the one that holds.
 - **The schedulers leave the API.** What runs without a person behind it runs as root in a process of its own,
-  `hyperlite-scheduler`, as Proxmox VE's pvescheduler and vSphere's vpxd run the scheduled tasks: the backups, the
+  `hyperlite-scheduler`'s vpxd run the scheduled tasks: the backups, the
   replication, the cleanup, the start at boot, the stores' jobs, the update check. HA's watch and recovery move with
   HA's owner (#333). The API keeps no `system` identity: the daemon refuses `system` from the API's socket.
 - **Calls between members** carry the member's own signature (section 12.1, PR C), checked by the receiving daemon.
@@ -667,13 +666,13 @@ process:
 
 - **The claims on a guest** (`app/core/vm_locks.py`, `container_snapshots.claim`): one operation at a time on a VM or a
   container. They become files of `/run/lock/hyperlite`, each locked with `flock(2)` by the process that works on the
-  guest and naming what holds it (`app/core/shared_claims.py`), as Proxmox VE's services lock a guest with
+  guest and naming what holds it (`app/core/shared_claims.py`)
   `/run/lock/qemu-server/lock-<vmid>.conf`. The kernel lets go of a lock when its process stops, even killed. Not
   under `/run/hyperlite`, which is hyperlite-daemon's and removed when it stops. The directory must be root's or the
   service's and written by nobody else, since `/run/lock` is writable by every account; with 4e it becomes root's
   and the API's group's (`tmpfiles.d`).
 - **A task's runner and its cancellation** (`app/core/tasks.py`, proposed on #298): each task records the process
-  that runs it, `<service>:<pid>:<start time>` (`task_runners`), as Proxmox VE's UPID names a task's process. A task
+  that runs it, `<service>:<pid>:<start time>` (`task_runners`)'s process. A task
   is abandoned only when that process is gone, so a restart of the API no longer closes the scheduler's tasks. A
   cancellation for a task another process runs is written for it (`task_cancel_requests`); that process's watcher
   thread reads its own tasks' every 2 s and calls their cancellers. Local tables, whatever each service's user is (4e),
@@ -687,8 +686,8 @@ API starts none of these schedulers. The schema is made by one service at a time
 and the scheduler renews the node's lead under the node's name, so the stores' copies run on the leading node as
 before.
 
-**4c, HA's two services** (`app/ha_services`, drs' split chosen by Antho, taken over on #298), as Proxmox VE's
-pve-ha-lrm and pve-ha-crm, so a hang or a crash of the cluster's decisions never stops the watchdog's feeding:
+**4c, HA's two services** (`app/ha_services`, drs' split chosen by Antho, taken over on #298)
+Its local resource manager and its cluster resource manager, so a hang or a crash of the cluster's decisions never stops the watchdog's feeding:
 
 - `hyperlite-ha-lrm`, every node: the watchdog (`ha_selffence`), the monitoring of its own HA VMs (`ha_monitor`), the
   load-balancing moves asked of it (`drs` carry-out loop) and **the node's heartbeat** (`statd`). The leader declares a
@@ -702,7 +701,7 @@ pve-ha-lrm and pve-ha-crm, so a hang or a crash of the cluster's decisions never
   LOST_S (60 s) and then the reset, restarts its VMs elsewhere. The heartbeat carries the node's load, which the API's
   collector publishes (`metrics.load`).
 - **The CRM holds a lock of its own** (`hyperlite-ha-lead`), renewed only while its recovery and evaluation rounds
-  run: a CRM that hangs on the leader loses it, and another member's takes over, as Proxmox VE's CRM holds the
+  run: a CRM that hangs on the leader loses it, and another member's takes over
   manager lock. The pages show whether this node's CRM leads.
 - What the API's pages read in their memory is published in a local table (`service_state`): load balancing's state
   and the dry run's, each round; the API's resume and a manual move's cool-down are written there for the CRM.
@@ -711,8 +710,8 @@ pve-ha-lrm and pve-ha-crm, so a hang or a crash of the cluster's decisions never
 
 ### 14.1 4b in detail: the permissions written by the daemon only (2026-10-25)
 
-Agreed with cfs-files on #298: the store stays in hyperlite-cfs, our pmxcfs. `users`, `api_tokens` and
-`webauthn_credentials` (under `priv/`) are Proxmox VE's `priv/shadow.cfg` and `token.cfg`; `groups`, `group_members`,
+Agreed with cfs-files on #298: the store stays in hyperlite-cfs, our the reference cluster file system. `users`, `api_tokens` and
+`webauthn_credentials` (under `priv/`) are the reference platform's `priv/shadow.cfg` and `token.cfg`; `groups`, `group_members`,
 `custom_roles`, `acl`, `pools`, `pool_members` and `revoked_sessions` are its `user.cfg`. #525 only adds a read-only
 file view of the same tree, so nothing 4b writes moves when it lands.
 
@@ -720,15 +719,14 @@ file view of the same tree, so nothing 4b writes moves when it lands.
 `identity.py`, `access.py`), 39 methods, called from the account service, `permissions.py`, the API tokens, the
 security keys, the second factor, the sign-out, LDAP and SSO. Sign-in already runs in the daemon (section 12).
 
-**The seam is the repository**, as pvedaemon is the only writer of `user.cfg` whatever the API path:
+**The seam is the repository**`user.cfg` whatever the API path:
 
 - Each writing method of those repositories is marked `@daemon_write("access.<method>")`. In the API, it becomes a
   call to hyperlite-daemon with the method's arguments; in the daemon (or in an operation run in process: the test
   suite, the e2e backend), it runs its SQL. No caller changes, and a new writing method without the mark is caught
   by a test that scans the repositories' SQL.
 - Each operation has its own argument model in `app/daemon/ops/access.py`: names, ids and roles with their limits,
-  never SQL or a path. 4d adds each one's `needs` (`User.Modify`, `Permissions.Modify` on the ACL's path, as Proxmox
-  VE's `/access` methods).
+  never SQL or a path. 4d adds each one's `needs` (`User.Modify`, `Permissions.Modify` on the ACL's path`/access` methods).
 - **What needs a secret moves to the daemon itself**, since the API loses the node's keys in 4e:
   - a second factor's secret is made, sealed and stored by the daemon (`access.totp_start`, which answers the secret
     once for the QR code); a code is checked there, once (`access.totp_check`), before it is enabled
@@ -771,7 +769,7 @@ its caller's proof. What it does not hold yet: the API, still root, may call wit
 
 From 4e the API runs as `www-data`, and it writes the main database (tasks, audit, metrics). Had the permission tables
 stayed in it, a compromised API could have changed a role or an ACL and the daemon, which reads them to check each
-operation (14), would have trusted the change. As Proxmox VE keeps `user.cfg` and `priv/` root's, they move to
+operation (14), would have trusted the change.`user.cfg` and `priv/` root's, they move to
 `/etc/hyperlite/access.db` (`app/core/database.py`, `ACCESS_TABLES`): the accounts, API tokens, security keys, revoked
 sessions, groups, roles, resource pools, ACLs and the SSO and LDAP settings.
 
@@ -796,7 +794,7 @@ sessions, groups, roles, resource pools, ACLs and the SSO and LDAP settings.
   so a rollback that extracts it never restores an older one. A cluster-copy bundle (`config_copy`) still holds one
   database, the permission tables included; a promoted node sets its own file aside and moves them in at its start.
 
-The file is `0640 root:www-data` (14.6), as `/etc/pve` is readable by `www-data` on Proxmox VE. The API checks an API
+The file is `0640 root:www-data` (14.6), as the reference configuration directory is readable by `www-data` on the reference platform. The API checks an API
 token itself, so the hashes stay readable to it, as before.
 
 ### 14.4 4e: the copy to and from hyperlite-cfs done by the daemon (2026-10-25)
@@ -829,7 +827,7 @@ So, from this step on:
 
 Before a session exists, a request carries no proof. From 4e the API runs as `www-data`, and the daemon refuses a call
 from it that has no proof (14, 4d). So anything a sign-in writes has to be written by the daemon's sign-in operations
-themselves. On Proxmox VE, pveproxy likewise hands the ticket request to pvedaemon, which writes `user.cfg`.
+themselves. On the reference platform, the reference HTTPS proxy likewise hands the ticket request to the reference privileged daemon, which writes `user.cfg`.
 
 - **The last sign-in** is recorded by `sign_in._signed_in`, inside `auth.password`, `auth.totp`, `auth.webauthn` and
   `auth.sso`, when a session is signed. A password change's fresh token is not a sign-in. The API's own `record_login`
@@ -846,7 +844,7 @@ themselves. On Proxmox VE, pveproxy likewise hands the ticket request to pvedaem
 ### 14.6 4e: the files the API reads and writes, given its group (2026-10-25)
 
 multi-cluster ran the lab with `hyperlite.service` under `User=www-data` (#298) and listed every refusal. What the API
-needs of root's files goes to the group `www-data`, as on Proxmox VE (`/etc/pve/local/pveproxy-ssl.key` is
+needs of root's files goes to the group `www-data` (the reference configuration directory HTTPS proxy-ssl.key` is
 `root:www-data 0640`); root's secrets stay root's alone (`/etc/hyperlite/priv`, the update archives, `spool-staging`).
 
 | What | Mode | Who sets it |
@@ -867,7 +865,7 @@ comes last, once the API no longer does root's work itself (#298: the cluster's 
 keys, the writes to hyperlite-cfs).
 
 The file is root's only (0600) for now. When the API's unit changes user, it gets `www-data`'s group read (0640), as
-`/etc/pve` is readable by `www-data` on Proxmox VE: the API checks a password or a token itself, so the hashes stay
+Its cluster configuration directory is readable by `www-data` on the reference platform: the API checks a password or a token itself, so the hashes stay
 readable to it, as before.
 
 ### 14.7 4e: hyperlite-cfs takes a change from root only (2026-10-25)
@@ -878,7 +876,7 @@ The API reads the replicated configuration (the members' statuses, the tree's en
 Reading must not mean writing, though. Every member applies the tree as root, including the permissions (14.3). If
 `www-data` could put `/db/acl/...` there, it would grant itself rights on every member. So `hyperlite-cfs` now refuses
 any change (`PUT`, `DELETE`, `RENAME`, `LOCK`, `UNLOCK`, `NEXT_ID`) from a peer that is neither root nor its own user (a
-test's). `/etc/pve` is the same for `www-data` on Proxmox VE. Each refusal of a client's identity is one line in its log,
+test's). Its cluster configuration directory is the same for `www-data` on the reference platform. Each refusal of a client's identity is one line in its log,
 with the uid.
 
 What the API still wrote itself is now done elsewhere:
@@ -923,7 +921,7 @@ No route opens a read-write connection any more; `tests/test_api_libvirt_readonl
 
 `cluster_setup` writes what is root's: Corosync's key (0400) and configuration, hyperlite-cfs's mode, root's
 `authorized_keys`, and the cluster's keys in `/etc/hyperlite/priv/env` (0600). It also enables and restarts Corosync and
-hyperlite-cfs. As on Proxmox VE, where `pvecm` runs as root, the routes now ask hyperlite-daemon:
+hyperlite-cfs., where its cluster command runs as root, the routes now ask hyperlite-daemon:
 
 - `cluster.setup_create`, `cluster.setup_join_information`, `cluster.setup_join`, `cluster.setup_primary` and
   `cluster.setup_remove_member`, for an administrator;

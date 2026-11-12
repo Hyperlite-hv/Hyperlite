@@ -30,7 +30,7 @@ def fake(database, monkeypatch):
 
 @pytest.fixture()
 def members(monkeypatch):
-    state = {"members": ["pve-b", "pve-c"], "statuses": {}}
+    state = {"members": ["node-b", "node-c"], "statuses": {}}
     monkeypatch.setattr(cluster_view, "members", lambda: [{"name": n} for n in state["members"]])
     monkeypatch.setattr(statd, "table", lambda: state["statuses"])
     return state
@@ -42,30 +42,30 @@ def status(api):
 
 def test_a_member_before_1_0_holds_the_cluster_read_only_by_name(client, auth_headers, fake, members):
     headers = auth_headers("ana")
-    members["statuses"] = {"pve-b": status(0), "pve-c": status(1)}
+    members["statuses"] = {"node-b": status(0), "node-c": status(1)}
     r = client.post("/groups", json={"name": "ops"}, headers=headers)
-    assert r.status_code == 503 and "pve-b still runs an older version" in r.json()["detail"]
+    assert r.status_code == 503 and "node-b still runs an older version" in r.json()["detail"]
     assert client.get("/groups", headers=headers).status_code == 200  # reading still works
-    members["statuses"]["pve-b"] = status(1)  # updated
+    members["statuses"]["node-b"] = status(1)  # updated
     assert client.post("/groups", json={"name": "ops"}, headers=headers).status_code == 201
 
 
 def test_a_member_that_sends_nothing_holds_nothing_back(fake, members):
-    members["statuses"] = {"pve-c": status(1)}  # pve-b is down
+    members["statuses"] = {"node-c": status(1)}  # node-b is down
     assert cluster_v1.behind() == [] and cluster_v1.read_only_reason() is None
 
 
 def test_the_leader_rewrites_the_old_rows_once_every_member_runs_1_0(fake, members):
-    members["statuses"] = {"pve-b": status(0), "pve-c": status(1)}
+    members["statuses"] = {"node-b": status(0), "node-c": status(1)}
     old = {"id": 7, "name": "ops"}  # groups have no French column: a table that has some
     fake.remote("/db/groups/7", old)
     fake.remote("/db/backup_jobs/3", {"id": 3, "vm_name": "web", "frequence": "quotidien", "heure": "02:00",
                                      "cible_dir": "/srv/b", "actif": 1, "retention_count": 7,
                                      "prochaine_execution": "2026-10-20T02:00:00+00:00"})  # fmt: skip
-    assert cluster_v1.step() is False  # pve-b still runs an older version: nothing rewritten
+    assert cluster_v1.step() is False  # node-b still runs an older version: nothing rewritten
     assert json.loads(fake.files["/db/backup_jobs/3"])["frequence"] == "quotidien"
 
-    members["statuses"]["pve-b"] = status(1)
+    members["statuses"]["node-b"] = status(1)
     assert cluster_v1.step() is False  # rewritten this round, checked again at the next
     row = json.loads(fake.files["/db/backup_jobs/3"])
     assert row["frequency"] == "daily" and row["target_dir"] == "/srv/b" and "frequence" not in row
@@ -77,24 +77,24 @@ def test_the_leader_rewrites_the_old_rows_once_every_member_runs_1_0(fake, membe
 def test_the_cluster_configuration_is_rewritten_too(fake, members):
     from app.core import cluster_setup
 
-    members["statuses"] = {"pve-b": status(1)}
+    members["statuses"] = {"node-b": status(1)}
     fake.put(
         cluster_setup.CONF_PATH,
         json.dumps(
             {
                 "cluster": "labo",
                 "version": 5,
-                "membres": [{"nom": "pve-a", "nodeid": 1, "adresse": "10.0.0.1", "voix": 1}],
+                "membres": [{"nom": "node-a", "nodeid": 1, "adresse": "10.0.0.1", "voix": 1}],
             }
         ).encode(),
     )
     cluster_v1.step()
     conf = json.loads(fake.files[cluster_setup.CONF_PATH])
-    assert conf["members"] == [{"name": "pve-a", "nodeid": 1, "address": "10.0.0.1", "votes": 1}]
+    assert conf["members"] == [{"name": "node-a", "nodeid": 1, "address": "10.0.0.1", "votes": 1}]
 
 
 def test_a_change_made_after_the_rewrite_goes_out(fake, members):
-    members["statuses"] = {"pve-b": status(1)}
+    members["statuses"] = {"node-b": status(1)}
     fake.remote("/db/backup_jobs/3", {"id": 3, "vm_name": "web", "frequence": "quotidien", "heure": "02:00",
                                      "cible_dir": "/srv/b", "actif": 1, "retention_count": 7,
                                      "prochaine_execution": "2026-10-20T02:00:00+00:00"})  # fmt: skip
@@ -115,17 +115,17 @@ def test_an_unreadable_member_list_never_reads_as_nobody_behind(fake, members, m
         raise ValueError("The cluster's configuration is not valid")
 
     monkeypatch.setattr(cluster_view, "members", unreadable)
-    members["statuses"] = {"pve-b": status(0)}
-    assert cluster_v1.behind() == ["pve-b"]
+    members["statuses"] = {"node-b": status(0)}
+    assert cluster_v1.behind() == ["node-b"]
 
 
 def test_this_nodes_changes_wait_while_a_member_is_behind(fake, members):
-    members["statuses"] = {"pve-b": status(0)}
+    members["statuses"] = {"node-b": status(0)}
     with get_conn() as db:
         db.execute("INSERT INTO groups (name) VALUES ('ops')")
         db.commit()
-    assert shadow.drain() == 0 and shadow.pending() == 1  # nothing in the new names reaches pve-b
-    members["statuses"]["pve-b"] = status(1)
+    assert shadow.drain() == 0 and shadow.pending() == 1  # nothing in the new names reaches node-b
+    members["statuses"]["node-b"] = status(1)
     assert shadow.drain() == 1 and shadow.pending() == 0
 
 
@@ -134,9 +134,9 @@ def test_the_dashboard_is_told_the_cluster_waits_for_its_update_not_that_it_lost
 ):
     from app.core import cluster_lead
 
-    members["statuses"] = {"pve-b": status(0), "pve-c": status(1)}
+    members["statuses"] = {"node-b": status(0), "node-c": status(1)}
     monkeypatch.setattr(cluster_lead, "_quorum", (0.0, None))
-    assert cluster_lead.read_only_cause() == ("update_to_1_0", ["pve-b"])
-    members["statuses"]["pve-b"] = status(1)
+    assert cluster_lead.read_only_cause() == ("update_to_1_0", ["node-b"])
+    members["statuses"]["node-b"] = status(1)
     monkeypatch.setattr(cluster_lead, "_quorum", (0.0, None))
     assert cluster_lead.read_only_cause() == (None, [])

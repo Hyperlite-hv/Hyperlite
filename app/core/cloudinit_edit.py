@@ -1,7 +1,7 @@
 """Cloud-init after creation: change the account's password and SSH keys of a VM made from a cloud image.
 
 The VM keeps its cloud-init drive (<name>-cloudinit.iso). Writing a new one with a new instance id makes cloud-init
-apply it at the next boot, as Proxmox does with its regenerated drive. What must not change with it:
+apply it at the next boot. What must not change with it:
 - the guest's SSH host keys: `ssh_deletekeys: false`, otherwise every client would see a changed host key;
 - Hyperlite's automation key, which automation jobs use to reach the VM: always kept in the keys.
 A password goes through `chpasswd` (applied to an existing account; the `users` module only creates accounts) and is
@@ -44,7 +44,7 @@ KEY_RE = re.compile(
 )
 MAX_KEYS = 20
 
-# What a VM's drive may also carry (CUSTOM), as vSphere's guest customisation and Proxmox VE's cloud-init options: the
+# What a VM's drive may also carry (CUSTOM)'s cloud-init options: the
 # host name and domain, static addresses per interface (by MAC address, the others on DHCP), resolvers, and a
 # cloud-config of the user's added to Hyperlite's own.
 CUSTOM = ("hostname", "domain", "network", "dns", "dns_search", "user_data")

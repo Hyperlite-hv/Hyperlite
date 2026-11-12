@@ -1,4 +1,4 @@
-"""CPU pinning and NUMA placement of a VM (vSphere "Scheduling Affinity", Proxmox `affinity`).
+"""CPU pinning and NUMA placement of a VM.
 
 Three choices, applied to the VM definition and, when it runs, to the live VM:
   - no pinning (the default): the host scheduler places the vCPUs anywhere;

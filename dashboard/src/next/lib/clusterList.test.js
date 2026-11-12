@@ -3,7 +3,7 @@ import { listOf } from "./clusterList";
 
 describe("listOf", () => {
   it("reads the cluster shape", () => {
-    expect(listOf({ items: [{ id: 1, on: "pve-a" }], unreachable: ["pve-b"] })).toEqual([{ id: 1, on: "pve-a" }]);
+    expect(listOf({ items: [{ id: 1, on: "node-a" }], unreachable: ["node-b"] })).toEqual([{ id: 1, on: "node-a" }]);
   });
   it("reads a plain list as it is, instead of showing nothing", () => {
     expect(listOf([{ id: 2 }])).toEqual([{ id: 2 }]);
