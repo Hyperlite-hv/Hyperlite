@@ -1,4 +1,4 @@
-# A backup store as Proxmox Backup Server's (#337, #420)
+# A backup store (#337, #420)
 
 Status: **accepted (maintainer, 2026-10-24).** Section 2 holds the maintainer's choices.
 It follows `docs/design/backups-pro.md`, whose steps 1 (manifest and verify) and 5 (daily, weekly and monthly
@@ -17,9 +17,9 @@ retention) are done, and replaces its steps 2 to 4 and 6.
 
 ## 2. Decisions (maintainer, 2026-10-24)
 
-| Question | Proxmox VE | vSphere | Hyperlite |
+| Question | The reference platform | The commercial reference | Hyperlite |
 |---|---|---|---|
-| Incremental, deduplication | Proxmox Backup Server: 4 MiB chunks named by their digest, deduplicated across every guest; QEMU's dirty bitmaps, only changed blocks read; every backup a complete image | Changed Block Tracking (CBT) through VADP; storage and deduplication left to a third party (Veeam...) | **A chunk store as PBS's**, inside Hyperlite: no other server to run |
+| Incremental, deduplication | A dedicated backup server: 4 MiB chunks named by their digest, deduplicated across every guest; QEMU's dirty bitmaps, only changed blocks read; every backup a complete image | Changed Block Tracking (CBT) through VADP; storage and deduplication left to a third party (Veeam...) | **A chunk store as PBS's**, inside Hyperlite: no other server to run |
 | Encryption | Optional, on the client, AES-256-GCM, one key per client, a master key to recover | Left to the third party | **Optional per store, on the client, AES-256-GCM, with a master recovery key** (chosen as the most complete and safe: section 6) |
 | Today's backups | (none) | (none) | **Readable for ever, never rewritten**, importable into a store on demand (chosen as the safest) |
 

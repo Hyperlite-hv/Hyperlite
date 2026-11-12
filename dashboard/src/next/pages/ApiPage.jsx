@@ -68,7 +68,7 @@ export default function ApiPage() {
 }
 ApiPage.ownHeader = true;
 
-// hyperlite-admin's lockdown, as ESXi's: root of a node signed in as root@<node>, or named accounts only.
+// hyperlite-admin's lockdown: root of a node signed in as root@<node>, or named accounts only.
 function AdminCliCard() {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);

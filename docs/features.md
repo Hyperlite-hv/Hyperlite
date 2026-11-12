@@ -6,7 +6,7 @@ This is a reference of what Hyperlite does today and where its scope stops. For 
 
 - Lifecycle: create, start, stop (graceful or forced), restart, delete.
 - Hyperlite Tools (the standard QEMU guest agent, `qemu-guest-agent`): when it runs in a VM, shutdowns and reboots go through it, the VM's IP address comes from the guest (also with a static IP or on a bridge), and hot backups freeze the guest file systems for a consistent copy. Cloud-image VMs install it at first boot; without it everything works as before (ACPI, DHCP lease, crash-consistent snapshot).
-- Creation from a preinstalled cloud image (Debian 12, configured through cloud-init) or from an ISO, installed by hand through the console as on Proxmox VE, whatever the system.
+- Creation from a preinstalled cloud image (Debian 12, configured through cloud-init) or from an ISO, installed by hand through the console, whatever the system.
 - Import an existing disk (qcow2, raw, vmdk, vdi, vhd) and export a VM disk.
 - Snapshots (libvirt internal snapshots; native ZFS snapshots for VMs on ZFS pools, disk only), cloning, conversion to template and deployment from a template.
 - Resource limits and priorities through cgroups; live disk and network interface hot-plug.
@@ -15,7 +15,7 @@ This is a reference of what Hyperlite does today and where its scope stops. For 
 - Host devices (**Hardware → Host devices**, administrators): give a VM a USB device (also while it runs) or a PCI card such as a GPU or a network card (VM stopped, IOMMU required; the whole IOMMU group goes together). Hyperlite never offers what the host itself needs: the card showing the host console, a network card with an address or in a bridge, a disk controller with a mounted file system, swap or ZFS pool, PCI bridges. See [Host device passthrough](passthrough.md).
 - Grow a disk (live or stopped) and move a disk to another directory or NFS pool (live, with a block copy and a pivot, or stopped).
 - Optional automatic deletion of VMs that stay stopped for a configurable number of days (never applies to a running or HA-protected VM, with a warning about 24 hours before).
-- No ceiling of Hyperlite's own on a VM's vCPU, memory or disks (as in Proxmox or vSphere): only technical bounds, optional administrator caps (`HYPERLITE_VM_MAX_*`), and a non-blocking warning when a value exceeds the hardware.
+- No ceiling of Hyperlite's own on a VM's vCPU, memory or disks: only technical bounds, optional administrator caps (`HYPERLITE_VM_MAX_*`), and a non-blocking warning when a value exceeds the hardware.
 
 ## Containers
 
@@ -33,10 +33,10 @@ Virtual networks in NAT, isolated or bridge mode (on a host bridge, or on a NIC,
 
 ## Cluster, migration and high availability
 
-- A cluster of equal nodes, as on Proxmox VE: created on one node and joined from the others in the dashboard (the **Cluster** page, in the Administration section). Every node runs Corosync and `hyperlite-cfs`, which hold the configuration (users, permissions, nodes, HA, schedules, settings...) on every node ([design](design/hyperlite-cfs.md)). Any node serves the dashboard and the API, with the same accounts and sessions; there is no controller to lose. Each node runs the jobs of the VMs it hosts, and what concerns the whole cluster (HA watching, the alert about a node gone down) runs on one node at a time, taken over by another within seconds when it goes.
+- A cluster of equal nodes: created on one node and joined from the others in the dashboard (the **Cluster** page, in the Administration section). Every node runs Corosync and `hyperlite-cfs`, which hold the configuration (users, permissions, nodes, HA, schedules, settings...) on every node ([design](design/hyperlite-cfs.md)). Any node serves the dashboard and the API, with the same accounts and sessions; there is no controller to lose. Each node runs the jobs of the VMs it hosts, and what concerns the whole cluster (HA watching, the alert about a node gone down) runs on one node at a time, taken over by another within seconds when it goes.
 - From any node: every node's tasks and audit log in one list, and the backups of a VM of another node (back up, schedule, restore, verify, delete; its files are browsed from its own node's dashboard).
-- A primary node (**Make primary** on the Cluster page) counts twice in the quorum: with one other node it keeps working alone, so a second machine that is often off, or reached over a slower link, never blocks it. Otherwise a two-node cluster needs a QDevice, as on Proxmox.
-- Quorum, as on Proxmox: a node cut off from the majority changes nothing until it is back (the dashboard and the API refuse every change there, VM start and stop included; scheduled backups, replication and automatic deletion wait; VMs set to start at boot start once the node has the quorum). A change still on its way when a node is cut off is dropped if the others changed the same thing meanwhile: the majority's version is kept and the conflict is in the audit log.
+- A primary node (**Make primary** on the Cluster page) counts twice in the quorum: with one other node it keeps working alone, so a second machine that is often off, or reached over a slower link, never blocks it. Otherwise a two-node cluster needs a QDevice.
+- Quorum: a node cut off from the majority changes nothing until it is back (the dashboard and the API refuse every change there, VM start and stop included; scheduled backups, replication and automatic deletion wait; VMs set to start at boot start once the node has the quorum). A change still on its way when a node is cut off is dropped if the others changed the same thing meanwhile: the majority's version is kept and the conflict is in the audit log.
 - Register remote hosts by SSH instead (a host across a WAN, where Corosync cannot run): view and manage their VMs from one dashboard.
 - Live migration between hosts, with a compatibility diagnostic (CPU, QEMU/libvirt versions, machine types, storage, networks) before migrating.
 - Node maintenance mode: draining live-migrates the running VMs to a chosen node, one migration task each, and lists the VMs that stay with the reason (stopped, iSCSI disks, compatibility blockers, name taken). A node in maintenance receives no new VM or container and is never a migration or HA recovery target.

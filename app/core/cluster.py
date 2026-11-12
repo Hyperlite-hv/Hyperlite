@@ -1,6 +1,5 @@
-"""Multi-node management: the equivalent of vCenter driving several ESXi hosts
-from a single interface. It lays the foundation for future clustering (NOT
-vMotion/DRS, which are out of scope).
+"""Multi-node management: several hosts driven from a single interface. It lays the foundation for future clustering (NOT
+live migration/DRS, which are out of scope).
 
 Architecture decision (two options were weighed):
 

@@ -1,5 +1,5 @@
 """A node of a cluster that lost the quorum changes nothing (app/main.py read_only_without_quorum, cluster_lead
-.read_only_reason), as Proxmox makes /etc/pve read-only: its configuration would diverge from the majority's. Reading and
+.read_only_reason): its configuration would diverge from the majority's. Reading and
 signing in and out still work, to see why."""
 
 import logging
@@ -55,7 +55,7 @@ def test_without_the_quorum_nothing_changes_and_reading_still_works(node):
     daemon.quorate = False
     r = client.post("/groups", json={"name": "ops"}, headers=headers)
     assert r.status_code == 503 and "lost the cluster's quorum" in r.json()["detail"]
-    assert client.post("/vms/web/start", headers=headers).status_code == 503  # VMs too, as on Proxmox
+    assert client.post("/vms/web/start", headers=headers).status_code == 503  # VMs too
     assert client.delete("/groups/1", headers=headers).status_code == 503
     assert client.get("/groups", headers=headers).status_code == 200
     assert client.get("/groups", headers=headers).json()["items"] == []  # nothing was created

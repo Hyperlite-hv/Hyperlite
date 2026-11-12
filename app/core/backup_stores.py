@@ -1,5 +1,4 @@
-"""The backup stores of the cluster (docs/design/backup-store.md): each lives in a directory of a storage pool, as a
-Proxmox Backup Server datastore is added in Datacenter > Storage. The row is replicated (app/repositories/cfs/tables.py),
+"""The backup stores of the cluster (docs/design/backup-store.md): each lives in a directory of a storage pool. The row is replicated (app/repositories/cfs/tables.py),
 so every node knows the store; a node that mounts the pool reaches it at the same place, and the id written in the
 store itself (.store.json) is checked against the row's, so a share mounted elsewhere is never taken for it.
 
@@ -329,8 +328,7 @@ def users_of(name):
 
 
 def remove(name):
-    """Forget the store; its directory and backups stay on the pool, to be taken over again or deleted by hand (as
-    Proxmox leaves a removed storage's data)."""
+    """Forget the store; its directory and backups stay on the pool, to be taken over again or deleted by hand."""
     get(name)
     users = users_of(name)
     if users:

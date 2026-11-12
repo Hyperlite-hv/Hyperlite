@@ -35,7 +35,7 @@ Status: **partly done, partly replaced.** Steps 1 (manifest and verify) and 5 (r
 | B. Our own diff (hash of blocks between two copies) | Read the whole disk, compare with the last backup | No libvirt feature needed | Reads the whole disk every time: not really incremental in I/O |
 | C. External tool (restic/borg) on the full image | Each run sends a full image; the tool deduplicates | Dedup and encryption for free | Still reads and sends the whole disk every run |
 
-**Recommended: A.** It is what Proxmox (`qemu-server` bitmaps) and oVirt use, and it reads only the changed
+**Recommended: A.** It is what the reference platform (`qemu-server` bitmaps) and oVirt use, and it reads only the changed
 blocks. The incremental file is a qcow2 whose backing file is the previous backup, so a restore is a single
 `qemu-img convert` of the newest file, which follows the chain.
 
@@ -65,7 +65,7 @@ blocks. The incremental file is a qcow2 whose backing file is the previous backu
 ### 3.4 Retention
 
 - A **GFS** policy per job: keep the last *N*, plus *D* daily, *W* weekly and *M* monthly backups (the same
-  idea as Proxmox's keep-last/keep-daily/...). The `retention_count` of today becomes keep-last.
+  idea). The `retention_count` of today becomes keep-last.
 - **Chain-aware**: an incremental whose parent must be deleted is first merged into it (`qemu-img commit` or
   rebase), or the policy keeps the parent. A retention run never leaves an incremental without its base.
 - A **dry run**: "this policy would delete these 7 backups", shown before saving it.
@@ -75,7 +75,7 @@ blocks. The incremental file is a qcow2 whose backing file is the previous backu
 | Option | For | Against |
 |---|---|---|
 | restic (or borg) repository as a backup **target** | Dedup, encryption, compression, many backends (local, SFTP, S3), mature and verifiable (`restic check`) | An external tool to ship. A restore goes through the tool. Incremental images are already small, so the dedup gain is mostly across VMs |
-| Proxmox Backup Server as a target | Designed exactly for this | Its protocol is tied to Proxmox's format; heavy to integrate |
+| A dedicated backup server as a target | Designed exactly for this | Its protocol is tied to the reference platform's format; heavy to integrate |
 | Our own chunk store | Full control | Months of work, high risk for data safety |
 
 **Recommended: restic as an optional target**, added after the other steps. The native directory target stays

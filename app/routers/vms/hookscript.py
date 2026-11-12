@@ -1,5 +1,5 @@
 """A VM's hook script (docs/design/hook-scripts.md): the script attached, its last runs, and the library of the VM's
-node to pick from. Attaching runs code as root at the VM's every start and stop: administrators only, as Proxmox VE
+node to pick from. Attaching runs code as root at the VM's every start and stop: administrators only
 keeps it to root@pam."""
 
 import subprocess

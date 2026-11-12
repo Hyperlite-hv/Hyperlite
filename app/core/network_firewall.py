@@ -118,7 +118,7 @@ def _build_rule_specs(bridge: str, config: dict):
     # allowing OUTGOING traffic does not automatically let its REPLY come back (a
     # separate INCOMING flow as far as this filter is concerned). It showed up as an
     # outgoing ping being allowed but its ICMP reply never returning. Like any real
-    # firewall (iptables best practice, Proxmox, pfSense...), the return traffic of an
+    # firewall, the return traffic of an
     # already allowed connection must pass without a manual mirror rule for every
     # protocol/port in both directions.
     specs = [

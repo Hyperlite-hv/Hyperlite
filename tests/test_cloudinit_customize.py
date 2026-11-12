@@ -1,4 +1,4 @@
-"""A guest's customisation on its cloud-init drive, as vSphere's and Proxmox VE's: host name and domain, static addresses
+"""A guest's customisation on its cloud-init drive's: host name and domain, static addresses
 by interface, resolvers, a cloud-config of the user's. Written at creation (POST /vms) or later (PUT
 /vms/{name}/cloud-init), read back by GET, and refused when it would be wrong rather than written and ignored."""
 

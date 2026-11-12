@@ -26,8 +26,8 @@ def clone_vm(
     name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone")), wait: bool = True
 ):
     """wait=false: every check is made, then the copy runs as a task and the answer is 202 with its id."""
-    # A clone's disks are copied into the images directory, the "default" storage pool: space taken there, as Proxmox VE
-    # checks Datastore.AllocateSpace on a clone's target storage.
+    # A clone's disks are copied into the images directory, the "default" storage pool: space taken there, checked on the clone's
+    # target storage.
     perm.refuse_unless(
         user, "storage", "default", "storage.allocate", "storage pool 'default' (where a clone is copied)"
     )

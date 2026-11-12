@@ -22,7 +22,7 @@ function download(name, text, type = "text/plain") {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-// Backup stores, as Proxmox Backup Server's datastores: each lives in a directory of a storage pool, and keeps every
+// Backup stores: each lives in a directory of a storage pool, and keeps every
 // VM's disks as chunks held once. A backup job, a VM's schedule or a manual backup names one as its destination.
 export default function BackupStores({ onChange }) {
   const t = useT();

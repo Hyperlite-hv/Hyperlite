@@ -64,7 +64,7 @@ def br(monkeypatch):
         (" 10, 20 ", [(10, 10), (20, 20)]),
     ],
 )
-def test_trunks_are_read_as_proxmox_and_vsphere_write_them(text, ranges):
+def test_trunks_are_read_as_administrators_write_them(text, ranges):
     assert bridge_vlan.parse_trunks(text) == ranges
 
 
@@ -78,7 +78,7 @@ def test_a_port_takes_its_access_vlan_untagged_and_its_trunks_tagged(br):
     bridge_vlan.apply_port("vnet0", 20, "30,40-42")
     assert br.kinds("vnet0") == {20: "access", 30: "tagged", 40: "tagged", 41: "tagged", 42: "tagged"}
     bridge_vlan.apply_port("vnet0", None, None)
-    assert br.kinds("vnet0") == {1: "access"}, "no VLAN: the bridge's default, as on Proxmox VE"
+    assert br.kinds("vnet0") == {1: "access"}, "no VLAN: the bridge's default"
 
 
 def test_an_access_vlan_inside_a_trunk_range_stays_untagged(br):

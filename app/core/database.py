@@ -10,7 +10,7 @@ from app.repositories.cfs import ids as _ids
 DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or paths.DB)
 
 # The permission tables (docs/design/privilege-separation.md, section 14.3): in a file of their own, written by root's
-# services only (hyperlite-daemon since 4b) and read by the API, as Proxmox VE keeps user.cfg root's. Every connection
+# services only (hyperlite-daemon since 4b) and read by the API's. Every connection
 # attaches it as ACCESS; unqualified names find these tables there, so no query names the file.
 ACCESS = "acc"
 ACCESS_TABLES = (
@@ -157,7 +157,7 @@ def _init_access_file():
         return
     from app.core import api_group
 
-    # Root writes it, the API's group reads it (attached read-only, get_conn), as /etc/pve's files for www-data.
+    # Root writes it, the API's group reads it (attached read-only, get_conn).
     with contextlib.suppress(OSError):
         os.close(os.open(path, os.O_RDWR | os.O_CREAT, 0o640))
         api_group.share(path, 0o640)
@@ -681,7 +681,7 @@ def _init_db():
             )
         """)
         # The tracking of an unattended installation (Kickstart/autoinstall), which Hyperlite no longer does since
-        # 1.0 (an ISO is installed by hand, as on Proxmox VE): nothing writes it any more; the table stays so that
+        # 1.0 (an ISO is installed by hand): nothing writes it any more; the table stays so that
         # the databases of earlier versions open and migrate unchanged.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS vm_provisioning (

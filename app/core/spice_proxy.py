@@ -1,4 +1,4 @@
-"""The SPICE proxy (docs/design/spice-console.md), as Proxmox VE's spiceproxy: virt-viewer sends
+"""The SPICE proxy (docs/design/spice-console.md): virt-viewer sends
 `CONNECT <ticket>:<port>` here (the .vv names this proxy), and the proxy relays the connection to the VM's SPICE TLS
 port on 127.0.0.1 of its node, which hyperlite-daemon connects to (through the cluster's SSH for another node) and
 hands over, as for the noVNC console.

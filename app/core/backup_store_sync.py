@@ -1,4 +1,4 @@
-"""Copies of a backup store into another (docs/design/backup-store.md, section 7; step 4), as Proxmox Backup Server's
+"""Copies of a backup store into another (docs/design/backup-store.md, section 7; step 4)
 sync jobs: the copy's side pulls, on its own schedule, the backups it lacks, chunk by chunk, only the chunks it lacks,
 as they are (encrypted ones never decrypted: the copy's side needs no key). The copy keeps its own retention: a backup
 deleted at the source, by its retention or by hand, stays in the copy until the copy's own policy lets it go

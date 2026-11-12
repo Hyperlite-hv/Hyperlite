@@ -12,7 +12,7 @@ const vmNameOf = (name) => String(name || "").replace(/[^a-zA-Z0-9-]+/g, "-").re
 const POOL_TYPES = ["dir", "netfs", "zfs", "logical"];
 
 // A VM exported from VMware as an OVA (app/core/ova.py): its settings read from the descriptor, its disks copied out of
-// the archive (checked against the manifest), then the VM created from them, as Proxmox VE's import does.
+// the archive (checked against the manifest), then the VM created from them.
 export default function OvaImportDrawer({ file, onClose, onDone }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);

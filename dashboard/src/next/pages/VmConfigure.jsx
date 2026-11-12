@@ -463,7 +463,7 @@ function AddInterfaceDrawer({ open, onClose, vmName, onDone }) {
   }, []);
   useEffect(() => { if (open) loadNetworks(); }, [open, loadNetworks]);
   // A tag on Open vSwitch or SR-IOV (libvirt's own), or on a VLAN-aware Linux bridge (Hyperlite sets the port, with
-  // trunks too, as Proxmox VE); any other network carries none.
+  // trunks too); any other network carries none.
   const chosen = networks.find((n) => n.name === net);
   const tagged = chosen?.vlan === true;
   const bridgeVlans = chosen?.vlanMode === "bridge";

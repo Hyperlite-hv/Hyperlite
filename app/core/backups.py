@@ -877,7 +877,7 @@ def _swap_staged(staged, task_id):
 def _restore_overwrite_from_store(domain, found, devs, task_id):
     """Replace the disks of a stopped VM with a backup in a store. A file disk is written next to itself under a
     temporary name and swapped in once every one is complete, as _restore_overwrite does; a block device (a zvol, an
-    LVM volume, a LUN) cannot be swapped and is written in place, after every file disk was staged, as Proxmox
+    LVM volume, a LUN) cannot be swapped and is written in place, after every file disk was staged
     overwrites a zvol."""
     from app.core import backup_store_vm
 

@@ -53,7 +53,7 @@ export const VM_TABS = {
 export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, snapshots: ContainerSnapshotsPage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
 
-// vSphere-style model: every inventory object has a few top tabs; a top tab that holds several
+// Inventory model: every inventory object has a few top tabs; a top tab that holds several
 // pages shows them as a vertical menu on its left. Page ids are the historical `?tab=` ids, so
 // every existing link keeps working.
 const page = (id, group, label) => ({ page: id, group, label });

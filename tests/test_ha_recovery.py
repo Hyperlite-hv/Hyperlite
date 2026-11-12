@@ -328,7 +328,7 @@ def test_the_recovered_vm_gets_its_networks_started_and_its_settings_moved(datab
 
 
 def test_a_vm_stopped_on_purpose_before_its_node_was_lost_stays_stopped(cluster, database):
-    """As Proxmox's requested state: only what ran on the member when it was last seen is restarted."""
+    """The requested state: only what ran on the member when it was last seen is restarted."""
     protect(database, "web", n=1)
     protect(database, "idle", n=2)
     cluster["ages"]["n2"] = 61.0

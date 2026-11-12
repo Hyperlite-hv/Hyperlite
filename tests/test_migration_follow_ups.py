@@ -115,7 +115,7 @@ def test_the_default_pool_is_made_on_the_destination_before_the_disk_is_copied(m
 def test_no_pool_is_made_for_a_disk_elsewhere(monkeypatch):
     made = []
     monkeypatch.setattr(vm_migrate, "ensure_default_pool", lambda conn: made.append(conn))
-    vm_migrate._ensure_default_pool_for("dest", ["/mnt/pve/nfs/web.qcow2", "/var/lib/libvirt/images/sub/x.qcow2"])
+    vm_migrate._ensure_default_pool_for("dest", ["/mnt/shared/nfs/web.qcow2", "/var/lib/libvirt/images/sub/x.qcow2"])
     assert made == []
     vm_migrate._ensure_default_pool_for("dest", ["/var/lib/libvirt/images/web.qcow2"])
     assert made == ["dest"]

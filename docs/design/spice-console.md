@@ -1,6 +1,6 @@
 # SPICE console (#518)
 
-Proxmox VE offers, besides noVNC, a SPICE console opened by virt-viewer (`remote-viewer`) from a `.vv` file: better
+The reference platform offers, besides noVNC, a SPICE console opened by virt-viewer (`remote-viewer`) from a `.vv` file: better
 display, audio, USB redirection, several screens. Wanted here: a VM can have a SPICE display; the dashboard hands out a
 short-lived `.vv` file; no SPICE port is ever open on the network.
 
@@ -14,7 +14,7 @@ SPICE display.
 | QEMU without `qemu-system-modules-spice` | No SPICE at all ("There is no option group 'spice'"). The package is only *recommended* by `qemu-system-x86` (Ubuntu 24.04; Debian's archive was not reachable from the lab), so Hyperlite must depend on it itself |
 | VNC and SPICE displays on one VM | Both start (5900 and 5901 on 127.0.0.1): noVNC keeps working |
 | `remote-viewer` with `proxy=http://…` in the `.vv` | Sends `CONNECT <host>:<port> HTTP/1.0`, the `.vv`'s `host` value as is: a ticket can travel there. It opens **one connection per SPICE channel** (4 to 5 at start), so a ticket must admit several connections while it is valid |
-| uvicorn (Hyperlite's HTTPS server) as that proxy | Not possible: httptools answers `400 Invalid HTTP request`; h11 hands `CONNECT` to the application, but ASGI cannot take over the socket. The proxy is a listener of its own, as Proxmox VE's `spiceproxy` (port 3128) |
+| uvicorn (Hyperlite's HTTPS server) as that proxy | Not possible: httptools answers `400 Invalid HTTP request`; h11 hands `CONNECT` to the application, but ASGI cannot take over the socket. The proxy is a listener of its own`spiceproxy` (port 3128) |
 | An `https://` proxy with Hyperlite's self-signed certificate | Refused by the client ("Unacceptable TLS certificate"); a `.vv` cannot carry a CA for the proxy. Hence a plain HTTP proxy, with SPICE itself in TLS |
 | SPICE in TLS (`spice_tls = 1` in `qemu.conf`, `defaultMode='secure'`) | QEMU listens on the TLS port only, no plain port. Through the proxy, with the CA and the server's subject in the `.vv` (`ca=`, `host-subject=`): the console opens |
 | A `.vv` with another CA / another subject | Refused by the client: "server certificate not being signed by the provided CA" / "subjects mismatch" |

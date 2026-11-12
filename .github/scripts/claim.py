@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Who works on what: claim an issue before working on it, release it when done.
 
-Several assistants work on this repository at once, some of them under the same GitHub account, so an assignee
+Several working sessions run on this repository at once, some of them under the same GitHub account, so an assignee
 cannot say which one holds a task. A claim says it in the issue itself: the label `in-progress`, the label of the
-owner's assistant (`claude-antho`, `claude-nico`, `claude-terraform`), and a block at the top of the issue's description naming the
-owner, the session and the files it will touch. The comparison page (docs/proxmox-parity.html, /parity/) reads the
+owner (`wip-antho`, `wip-nico`, `wip-terraform`), and a block at the top of the issue's description naming the
+owner, the session and the files it will touch. The roadmap page reads the
 same block to show the board, and `check` finds who already holds the files a new task needs.
 
     python3 .github/scripts/claim.py list
@@ -27,7 +27,7 @@ import urllib.request
 REPO = "Hyperlite-hv/Hyperlite"
 API = f"https://api.github.com/repos/{REPO}"
 LABEL = "in-progress"
-# The people whose assistants work on the repository: each has a label, `claude-<owner>`.
+# The people who work on the repository: each has a label, `wip-<owner>`.
 OWNERS = ("antho", "nico", "terraform")
 # The page parses this same marker: keep both in step (tests/test_claim.py checks it).
 MARKER = "<!-- claim "
@@ -56,7 +56,7 @@ def render(claim, number):
     files = ", ".join(f"`{f}`" for f in claim["files"]) or "not given"
     return (
         f"{MARKER}{json.dumps(claim, separators=(',', ':'))} -->\n"
-        f"> **In progress**: {claim['owner']}'s assistant, session `{claim['session']}`, since {claim['since']}. "
+        f"> **In progress**: {claim['owner']}, session `{claim['session']}`, since {claim['since']}. "
         f"Files: {files}.\n"
         f"> Release it with `python3 .github/scripts/claim.py release {number}`.\n"
         "<!-- /claim -->\n\n"
@@ -172,13 +172,13 @@ def cmd_take(gh, args):
     if clash and not args.force:
         sys.exit("Not claimed: agree on the order with them first (--force to claim anyway).")
     gh.call("PATCH", f"/issues/{args.issue}", {"body": render(claim, args.issue) + strip(issue.get("body"))})
-    gh.call("POST", f"/issues/{args.issue}/labels", {"labels": [LABEL, f"claude-{args.owner}"]})
+    gh.call("POST", f"/issues/{args.issue}/labels", {"labels": [LABEL, f"wip-{args.owner}"]})
     if not (held and same_holder(held, claim)):
         note = f"\n\n{args.note}" if args.note else ""
         gh.call(
             "POST",
             f"/issues/{args.issue}/comments",
-            {"body": f"Claimed by {args.owner}'s assistant, session `{args.session}`.{note}"},
+            {"body": f"Claimed by {args.owner}, session `{args.session}`.{note}"},
         )
     print(f"#{args.issue} claimed by {args.owner} / {args.session}.")
 
@@ -191,7 +191,7 @@ def cmd_release(gh, args):
         print(f"#{args.issue} was not claimed.")
         return
     gh.call("PATCH", f"/issues/{args.issue}", {"body": strip(issue.get("body"))})
-    for name in sorted(labels & ({LABEL} | ({f"claude-{held['owner']}"} if held else set()))):
+    for name in sorted(labels & ({LABEL} | ({f"wip-{held['owner']}"} if held else set()))):
         gh.call("DELETE", f"/issues/{args.issue}/labels/{name}")
     who = f" by {held['owner']} / {held['session']}" if held else ""
     note = f"\n\n{args.note}" if args.note else ""
@@ -208,7 +208,7 @@ def main(argv=None):
     c.add_argument("paths", nargs="+")
     t = sub.add_parser("take", help="claim an issue")
     t.add_argument("issue", type=int)
-    t.add_argument("--owner", required=True, choices=OWNERS, help="whose assistant you are")
+    t.add_argument("--owner", required=True, choices=OWNERS, help="who you are")
     t.add_argument("--session", required=True, help="a short name for this session, e.g. terraform")
     t.add_argument("--files", help="comma-separated files or directories the work will change")
     t.add_argument("--note", help="a line added to the comment, e.g. the plan")

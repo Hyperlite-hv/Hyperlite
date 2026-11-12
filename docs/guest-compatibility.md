@@ -11,8 +11,7 @@ Hyperlite revision.
   distinguish supported and recommended storage, networking and virtual hardware.
   A default may favor an included driver to make installation easier. Hyperlite
   follows that usability principle; VMware certification does not transfer to KVM.
-- [Proxmox migration guidance](https://pve.proxmox.com/wiki/Migrate_to_Proxmox_VE)
-  emphasizes matching firmware and preparing guest drivers. SATA is a fallback
+- Migration guides emphasize matching firmware and preparing guest drivers. SATA is a fallback
   when Windows lacks VirtIO storage drivers. Hyperlite exposes SATA and VirtIO SCSI
   separately instead of treating all SCSI controllers as interchangeable.
 - [Microsoft StorAHCI](https://learn.microsoft.com/en-us/windows/compatibility/storahci-replaces-msahci)

@@ -68,7 +68,7 @@ def _signed_here(claims, life=300):
 
 
 def test_a_root_ticket_names_only_the_node_that_signed_it(client, database):
-    forged = _signed_here({"sub": "root@pve-a", "role": "admin", security.LOCAL_ROOT_CLAIM: True})
+    forged = _signed_here({"sub": "root@node-a", "role": "admin", security.LOCAL_ROOT_CLAIM: True})
     assert _me(client, forged).status_code == 401
 
 
@@ -79,13 +79,13 @@ def test_the_name_of_root_is_reserved(client, database, make_user):
     assert _me(client, _signed_here({"sub": ROOT, "role": "admin"})).status_code == 401
     _, token = create_token(ROOT, "script")
     assert _me(client, token).status_code == 401
-    assert _me(client, _signed_here({"sub": "Root@pve-a", "role": "admin"})).status_code == 401
+    assert _me(client, _signed_here({"sub": "Root@node-a", "role": "admin"})).status_code == 401
 
 
 def test_root_acts_on_another_member_as_root_of_its_own_node(database, cfs):  # noqa: F811
     ticket = _root_ticket()
-    out = peer_auth.peer(ticket, ["pve-a"])
-    claims = jwt.decode(out["pve-a"], options={"verify_signature": False})
+    out = peer_auth.peer(ticket, ["node-a"])
+    claims = jwt.decode(out["node-a"], options={"verify_signature": False})
     assert (claims["iss"], claims["sub"], claims[security.LOCAL_ROOT_CLAIM]) == (ME, ROOT, True)
     task = peer_auth.delegate(ticket)
     assert peer_auth._account(task)["username"] == ROOT  # a rolling update root starts runs as root
@@ -93,12 +93,12 @@ def test_root_acts_on_another_member_as_root_of_its_own_node(database, cfs):  # 
 
 @pytest.mark.parametrize(
     "sub, claim, status",
-    [("root@pve-a", True, 200), ("root@pve-b", True, 401), ("root@pve-a", False, 401), (ROOT, True, 401)],
+    [("root@node-a", True, 200), ("root@node-b", True, 401), ("root@node-a", False, 401), (ROOT, True, 401)],
 )
 def test_a_member_is_accepted_as_root_of_the_member_that_signed_only(client, database, cfs, sub, claim, status):  # noqa: F811
-    a = Member(cfs, "pve-a")
+    a = Member(cfs, "node-a")
     extra = {security.LOCAL_ROOT_CLAIM: True} if claim else {}
     r = _me(client, a.ticket(sub, **extra))
     assert r.status_code == status, r.text
     if status == 200:
-        assert r.json()["username"] == "root@pve-a"
+        assert r.json()["username"] == "root@node-a"

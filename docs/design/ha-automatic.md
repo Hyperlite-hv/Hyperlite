@@ -1,6 +1,6 @@
 # Design: automatic HA restart with reliable fencing
 
-Status: **the maintainer's decisions of 2026-10-17 (#333) applied to the cluster, and what vSphere HA has beyond them
+Status: **the maintainer's decisions of 2026-10-17 (#333) applied to the cluster, and what classic HA has beyond them
 (disk locks, restart priority, admission control, VM monitoring, asked for on 2026-10-23); accepted on 2026-10-23,
 with the answers of section 8.** Step 1 (the watchdog self-fence) is merged (#444, #459); steps 2 to 7 follow, one pull
 request each.
@@ -13,7 +13,7 @@ node, the leader, runs the cluster-wide work (`app/core/cluster_lead.py`).
 
 Restart a VM with HA turned on, on another member of the cluster, **automatically**, and only once its previous node
 is **known to be stopped**: two copies of a VM on its shared disk corrupt it. "Unreachable" alone never triggers a
-restart. This is a restart, as Proxmox VE's HA and vSphere HA do, not fault tolerance.
+restart. This is a restart, not fault tolerance.
 
 Out of scope: a cluster of SSH-driven hosts (one controller), where recovery stays manual; storage other than shared
 file pools (NFS, SMB: `uses_shared_storage`); live state preservation.
@@ -34,10 +34,10 @@ file pools (NFS, SMB: `uses_shared_storage`); live state preservation.
 | Question | Decision |
 |---|---|
 | Fencing | All three: watchdog self-fence (any PC), IPMI/Redfish, Intel AMT |
-| Which VMs | Only VMs with HA turned on, one by one, as on Proxmox |
+| Which VMs | Only VMs with HA turned on, one by one
 | Where | The online member with the most free memory; optionally a list of preferred nodes per VM (no HA groups) |
 | Delay before restarting | About 2 minutes: the lost node has time to fence itself, and a short network cut triggers nothing |
-| Self-fence | Reboots the node, as on Proxmox; a node without HA VMs never arms its watchdog |
+| Self-fence | Reboots the node; a node without HA VMs never arms its watchdog |
 | Default | Active by default: no dry-run step |
 | Quorum | Replaces the isolation check and the witness; only the leader acts; on two nodes, the primary node's second vote (#445) or a QDevice |
 
@@ -69,7 +69,7 @@ method, watchdog not armed or `HYPERLITE_WATCHDOG=0`), the member's HA VMs go to
 
 ### 4.3 Recovery
 
-For each protected VM of the fenced member, one by one, by **restart priority** (`high`, `medium`, `low`, as vSphere's
+For each protected VM of the fenced member, one by one, by **restart priority** (`high`, `medium`, `low`
 VM restart priority; `medium` by default), and in each priority in the order they were protected:
 
 1. **Target**: among the online members (status fresh), not in maintenance, whose shared pool of the VM's disks is
@@ -87,7 +87,7 @@ VM restart priority; `medium` by default), and in each priority in the order the
    stays behind: its snapshots' records (in the lost node's libvirt), its UEFI variables (recreated from the firmware's
    template: keys enrolled since are lost), its TPM state (a new one), its address reservation on the lost node's NAT
    network. The member that was lost is never a target of its own VMs, even back: whatever made it fail may not be
-   over (Proxmox VE and vSphere recover elsewhere too).
+   over.
 
 ### 4.4 The node that comes back
 
@@ -108,12 +108,12 @@ the existing channels (`ha_lost`, `ha_fenced`, `ha_restarted`, `ha_manual`).
 
 With the primary node's second vote (#445), the primary keeps the quorum alone: it recovers the other node's HA VMs.
 The other node, alone, has no quorum: when the primary is lost, nothing is restarted automatically, and the dashboard
-says so. A QDevice makes both directions work, as on Proxmox.
+says so. A QDevice makes both directions work.
 
 ### 4.7 Disk locks on the shared storage (every VM, not only HA)
 
 The fences above prove a node stopped; a lock on the disk makes a second copy **impossible** even if a proof was wrong
-(a softdog stopped by a hung kernel, a bug), as vSphere's locks on VMFS and NFS do.
+(a softdog stopped by a hung kernel, a bug).
 
 **QEMU's own image locks already do it** on a share that locks across nodes: the lab (three nodes, an NFS 4.2 share)
 refused a disk that another node ran ("Is another process using the image?"), for every VM, with no libvirt lock
@@ -130,32 +130,28 @@ the same kind. What Hyperlite makes sure of:
 - 4.3 waits for the storage's lease (90 s on NFSv4, plus 30 s) before it counts a start refused for a locked disk as a
   failure.
 
-### 4.8 Admission control
-
-As vSphere's admission control, so that the loss of a node does not leave HA VMs with nowhere to go: turning HA on for a
+### 4.8 Admission control, so that the loss of a node does not leave HA VMs with nowhere to go: turning HA on for a
 VM (or starting an HA VM) checks that, for each member, its HA VMs would fit in the free memory of the other online
 members (the same placement as 4.3). Each member publishes its free memory in its status (4.3). The policy is per
 cluster: `strict` refuses with the member that could not be absorbed; `warn` (the default) accepts and says so on the
 VM and the cluster page; `off`.
 
-### 4.9 VM monitoring
-
-As vSphere's VM monitoring, per VM and off by default: a running HA VM whose guest agent answered before stops
+### 4.9 VM monitoring, per VM and off by default: a running HA VM whose guest agent answered before stops
 answering QEMU's `guest-ping` for 3 rounds of 30 s; its node resets it in place (`virsh reset`), at most 3 times an
 hour, then reports it. A VM without the guest agent is never reset: the option says it needs `qemu-guest-agent` in the
 guest. It is the node's own work, with no failover: the VM stays where it is.
 
-### 4.10 Compared with vSphere HA and Proxmox VE HA
+### 4.10 Compared with classic HA and the reference platform HA
 
-| | vSphere HA | Proxmox VE HA | Hyperlite |
+| | classic HA | The reference platform HA | Hyperlite |
 |---|---|---|---|
-| Who decides | an elected primary host (FDM) | the cluster manager, with quorum | the leader, with quorum |
+| Who decides | an elected primary host (FDM) | The cluster manager, with quorum | the leader, with quorum |
 | A host that is lost | network and datastore heartbeats | Corosync quorum | status every 10 s, lost after 60 s |
 | Proof the old copy stopped | locks on the datastore | watchdog self-fence | watchdog self-fence, or the BMC/AMT powered it off |
 | Second barrier | the same locks | QEMU's image locks | QEMU's image locks, on shares checked to lock across nodes |
 | Restart order | VM restart priority | through HA groups | restart priority |
 | Capacity kept for a failure | admission control | no | admission control (`warn` by default) |
-| A hung guest | VM monitoring (VMware Tools) | no | VM monitoring (QEMU guest agent) |
+| A hung guest | VM monitoring | no | VM monitoring (QEMU guest agent) |
 | Where | free capacity, DRS | HA groups, preferred nodes | preferred nodes, else the most free memory |
 
 ## 5. Risks
@@ -203,7 +199,7 @@ guest. It is the node's own work, with no failover: the VM stays where it is.
    a node has a BMC?
 5. **Disk locks for every VM on a shared pool** (4.7), not only HA VMs: agreed? It also stops a VM started by hand on
    the wrong node.
-6. **Admission control**: `warn` by default (as proposed), or `strict` as vSphere's default?
+6. **Admission control**: `warn` by default (as proposed), or `strict`
 
 ## 8. Decisions (maintainer, 2026-10-23)
 

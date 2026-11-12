@@ -1,6 +1,5 @@
 """What each operation needs of the person who asks, checked by hyperlite-daemon (app/daemon/needs.py;
-docs/design/privilege-separation.md, section 14, 4d), as pvedaemon checks each method's permissions against user.cfg
-whatever pveproxy says. The routes keep their own checks; the daemon's is the one that holds."""
+docs/design/privilege-separation.md, section 14, 4d), whatever the API says. The routes keep their own checks; the daemon's is the one that holds."""
 
 import pytest
 
@@ -97,7 +96,7 @@ def test_a_credential_that_proves_nothing_is_refused():
 
 
 def test_root_through_hyperlite_admin_is_an_administrator(database):
-    """root of a node has no account row, as root@pam on Proxmox VE: its session is an administrator's."""
+    """root of a node has no account row: its session is an administrator's."""
     from app.core import sign_in
 
     token = sign_in.local_root()["token"]

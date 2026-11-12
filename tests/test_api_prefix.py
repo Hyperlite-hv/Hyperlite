@@ -44,7 +44,7 @@ def test_a_member_before_1_0_is_called_at_the_old_address(monkeypatch):
         return (404, {"detail": "Not Found"}) if path.startswith("/api/v1/") else (200, {"version": "2026.10.18.2047"})
 
     monkeypatch.setattr(rolling_update, "_peer_api", fake)
-    assert rolling_update.peer_api({"name": "pve-b"}, "ana", "GET", "/update/check") == (
+    assert rolling_update.peer_api({"name": "node-b"}, "ana", "GET", "/update/check") == (
         200,
         {"version": "2026.10.18.2047"},
     )
@@ -56,7 +56,7 @@ def test_a_member_on_1_0_is_called_once(monkeypatch):
     monkeypatch.setattr(
         rolling_update, "_peer_api", lambda node, u, m, path, *a: calls.append(path) or (404, {"detail": "No VM web"})
     )
-    assert rolling_update.peer_api({"name": "pve-b"}, "ana", "GET", "/vms/web") == (404, {"detail": "No VM web"})
+    assert rolling_update.peer_api({"name": "node-b"}, "ana", "GET", "/vms/web") == (404, {"detail": "No VM web"})
     assert calls == ["/api/v1/vms/web"]  # a real 404 of the API is not a member before 1.0
 
 

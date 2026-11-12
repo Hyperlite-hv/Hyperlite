@@ -230,7 +230,7 @@ def _password_change_required():
     return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password change required")
 
 
-# root on a node, through hyperlite-admin (docs/design/admin-cli.md): as root@pam on Proxmox VE, an administrator with
+# root on a node, through hyperlite-admin (docs/design/admin-cli.md): an administrator with
 # no row in `users`, no password and no way in from the web. Its ticket is signed by its own node's daemon for a process
 # the kernel says runs as root (app/core/sign_in.py, local_root), and carries LOCAL_ROOT_CLAIM.
 LOCAL_ROOT_PREFIX = "root@"

@@ -60,7 +60,7 @@ def _iso_path(name):
     return safe_child(isos_dir(), name)
 
 
-# Where a node keeps its ISO library: from 1.1 where Proxmox VE keeps its own (app/core/paths.py), up to 1.0 under
+# Where a node keeps its ISO library: from 1.1 under /var/lib/hyperlite (app/core/paths.py), up to 1.0 under
 # /root/hyperlite. During a rolling update the nodes do not all run the same version, so another node's library is
 # looked for in both places.
 LIBRARY_DIRS = ("/var/lib/hyperlite/template/iso", "/root/hyperlite/data/isos")

@@ -1,4 +1,4 @@
-"""VM monitoring of HA VMs (docs/design/ha-automatic.md, 4.9, #333 step 6), as vSphere's: a guest that hangs is reset
+"""VM monitoring of HA VMs (docs/design/ha-automatic.md, 4.9, #333 step 6): a guest that hangs is reset
 in place by its own node.
 
 Every node watches, every ROUND_S, the HA VMs running on it whose monitoring is on (off by default, per VM). A round
@@ -8,7 +8,7 @@ asks each one's guest agent `guest-ping`. A VM is reset (`virsh reset`) once all
   came up, is never reset (the option says it needs qemu-guest-agent in the guest);
 - its agent channel is still connected and did not answer for MISSED_ROUNDS rounds in a row: an agent stopped in
   the guest disconnects its channel, and is no hang;
-- the VM read and wrote nothing on its disks and its network cards over those rounds, as vSphere's I/O check: a
+- the VM read and wrote nothing on its disks and its network cards over those rounds: a
   busy guest whose agent is slow keeps doing I/O;
 - it runs (not paused, not migrating, no libvirt job and no Hyperlite operation on it), this node is not in
   maintenance and has the quorum.

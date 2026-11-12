@@ -43,7 +43,7 @@ NAME_RE = cluster.NODE_NAME_RE
 PLAN_TIMEOUT_S = 120  # every VM's checks against another node, over SSH
 
 # A host driven over SSH from this node, with no Hyperlite of its own (one controller, nodes over SSH), is deprecated:
-# a node joins a cluster of equal nodes instead, as on Proxmox VE, with no controller to lose. Its routes keep working
+# a node joins a cluster of equal nodes instead, with no controller to lose. Its routes keep working
 # for as long as API v1 lasts, and go with v2 (docs/api.md, "Deprecated").
 DEPRECATED_SINCE = "@1792800000"  # RFC 9745: 2026-10-24
 SSH_HOSTS_DOC = "https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/cluster-failover.md"
@@ -160,7 +160,7 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
     except RuntimeError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     # Storage declared for every node (NFS, iSCSI, see app/core/shared_pools.py) is created on the new node too,
-    # as on Proxmox. Best-effort: a pool that fails there is reported, the registration stands.
+    # . Best-effort: a pool that fails there is reported, the registration stands.
     try:
         from app.routers.storage import apply_shared_pools
 

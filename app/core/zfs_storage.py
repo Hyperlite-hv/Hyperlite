@@ -453,7 +453,7 @@ def delete_zvol_snapshot(specs, snap_name):
 
 # ---- Pools on the node's disks (#419, docs/design/zfs-disks.md) ----
 
-# Each layout's least number of disks, as Proxmox VE's: one disk (or a stripe of several, no redundancy), a mirror,
+# Each layout's least number of disks: one disk (or a stripe of several, no redundancy), a mirror,
 # RAIDZ with one, two or three disks' worth of parity.
 LAYOUTS = {"single": 1, "mirror": 2, "raidz1": 3, "raidz2": 4, "raidz3": 5}
 
@@ -480,8 +480,7 @@ def _vdev_args(layout, disks):
 
 
 def create_pool_on_disks(name, layout, disks, free):
-    """A pool on whole disks, which ZFS partitions itself: 4 KiB sectors (ashift=12, right for every disk sold today,
-    as Proxmox), lz4 compression, nothing mounted (it holds zvols only), and trim run as space is freed."""
+    """A pool on whole disks, which ZFS partitions itself: 4 KiB sectors (ashift=12, right for every disk sold today), lz4 compression, nothing mounted (it holds zvols only), and trim run as space is freed."""
     name_error = validate_zfs_name(name)
     if name_error:
         raise ZfsError(name_error)
@@ -564,7 +563,7 @@ def scrub(name, stop=False):
 
 def attach_disk(name, target, disk, free):
     """One disk attached to the vdev `target` of the pool: a single disk becomes a mirror, a mirror gets one more copy,
-    a RAIDZ grows by one disk (RAIDZ expansion, OpenZFS 2.3, as Proxmox VE 9), its data spread again in the
+    a RAIDZ grows by one disk (RAIDZ expansion, OpenZFS 2.3), its data spread again in the
     background."""
     (disk,) = _checked_disks([disk], free)
     current = pool_status(name)
@@ -609,7 +608,7 @@ def disks_of(name):
 #
 # A disk that fails in a mirror or a RAIDZ leaves the pool working, DEGRADED: unseen, the next failure loses it. Every
 # WATCH_S hyperlite-scheduler reads each pool's state and notifies once when one leaves ONLINE, and once when it is
-# back. (Debian's zfsutils-linux scrubs every pool monthly from cron; Proxmox relies on ZED's mail the same way.)
+# back.
 
 WATCH_S = 600
 _watched = {}

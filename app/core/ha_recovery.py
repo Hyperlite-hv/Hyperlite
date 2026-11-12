@@ -167,7 +167,7 @@ def _fenced(member, entry):
     published = ha_selffence.published(member) or {}
     if published.get("stopped"):
         # Not a failure: its service was stopped normally (an update, a restart) and its VMs may still run there. Never
-        # powered off for it, as Proxmox's CRM leaves a node whose LRM stopped cleanly.
+        # powered off for it.
         return None, "its Hyperlite service was stopped normally (its watchdog with it): its VMs may still run there"
     method = (ha_fencing.get(member) or {}).get("method")
     if method in ha_fencing.AGENTS:
@@ -362,8 +362,8 @@ def tick():
                     log_action("system", "ha_back", member, "success", "the member answers again, its HA VMs recovered")
                     states[member] = OK
                     continue
-            # Known to be stopped: its VMs are restarted even though it answers again, on another member (as Proxmox
-            # VE and vSphere do): whatever made it fail may not be over.
+            # Known to be stopped: its VMs are restarted even though it answers again, on another member: whatever made it fail may not be
+            # over.
             _restart_all(vms, entry, _online(ages), set(_lost))
             states[member] = RECOVERING
             continue
@@ -383,7 +383,7 @@ def tick():
         if entry.get("recovering") is not None:
             vms = [r for r in vms if r["vm_name"] in entry["recovering"]]
         elif entry["ran"] is not None:
-            # A VM stopped on purpose before its node was lost stays stopped, on that node, as Proxmox's requested
+            # A VM stopped on purpose before its node was lost stays stopped, on that node's requested
             # state keeps it.
             idle = [r for r in vms if r["vm_name"] not in entry["ran"]]
             vms = [r for r in vms if r["vm_name"] in entry["ran"]]

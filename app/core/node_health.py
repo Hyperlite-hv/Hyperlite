@@ -1,11 +1,9 @@
 """Which other nodes are down, known without asking them: the rule every list and every call to another node follows.
 
-Proxmox VE and vSphere never make a page wait for a host that is gone. Proxmox VE marks a node online or offline from
-the cluster's own state (the membership pmxcfs keeps, and the status each node's pvestatd sends), never by probing it
-from a request, and its forms refuse a node that is offline. vSphere marks a host "not responding" once its heartbeats
-stop, and its lists read vCenter's inventory, never the host. Hyperlite has the same two sources:
+A page never waits for a host that is gone: a node is online or offline from the cluster's own state, never from a
+probe made by a request, and forms refuse a node that is offline. Hyperlite has two sources:
 - the node poller (app/core/cluster.py), which checks every node and records "offline" in the nodes table;
-- the status every member of a cluster sends through hyperlite-cfs (app/core/statd.py).
+- The status every member of a cluster sends through hyperlite-cfs (app/core/statd.py).
 A node the poller found offline is down, unless its status is current: it is sending, so it is back, whatever the
 last poll said. A member whose status alone stopped is not taken for down: its Hyperlite service may be stopped while
 the host still runs its VMs and answers libvirt, which a migration off it needs. A node seen down is not asked: a list names it and goes on, a call to it fails at once (NodeDown).
@@ -25,7 +23,7 @@ CONNECT_TIMEOUT_S = 8
 
 
 class NodeDown(HTTPException):
-    """A call to a node the cluster sees down: refused at once, as Proxmox VE refuses an offline node."""
+    """A call to a node the cluster sees down: refused at once."""
 
     def __init__(self, name):
         super().__init__(status_code=503, detail=f"Node '{name}' is offline: it is not reachable")

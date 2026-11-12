@@ -134,7 +134,7 @@ def test_only_this_nodes_running_ha_vms_with_monitoring_on_are_watched(world, da
     monkeypatch.setattr(cluster_lead, "in_cluster", lambda: True)
     monkeypatch.setattr(cluster_lead, "read_only_reason", lambda: None)
     with database.get_conn() as db:
-        for vm, node in (("off", "local"), ("there", "pve-b")):
+        for vm, node in (("off", "local"), ("there", "node-b")):
             db.execute(
                 "INSERT INTO ha_protected_vms (vm_name, node, domain_xml, enabled_by, enabled_at) "
                 "VALUES (?, ?, '<domain/>', 'admin', 'now')",

@@ -1,5 +1,5 @@
-"""Session tickets (as Proxmox VE calls them): tokens signed with Ed25519 key pairs held by hyperlite-daemon, as Proxmox VE signs its tickets with
-authkey.key, which only root reads, and pveproxy verifies them with authkey.pub (docs/design/privilege-separation.md,
+"""Session tickets: tokens signed with Ed25519 key pairs held by hyperlite-daemon, whose private half only root reads
+(authkey.key); the API verifies them with the public half, authkey.pub (docs/design/privilege-separation.md,
 section 12).
 
   /etc/hyperlite/priv/authkey.key   the key signing now (root, 0600): read by the daemon only

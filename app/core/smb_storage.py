@@ -1,4 +1,4 @@
-"""SMB/CIFS storage pools: a Windows server's or a NAS's share holding VM disks, as on Proxmox VE.
+"""SMB/CIFS storage pools: a Windows server's or a NAS's share holding VM disks.
 
 libvirt mounts the share itself (a "netfs" pool whose source format is "cifs"), so an SMB pool is shared storage
 everywhere an NFS pool is: live migration, HA, a pool declared for every node. What it takes, checked against a
@@ -7,7 +7,7 @@ Samba server and the Linux 6.8 SMB client:
 - **Credentials in a file.** libvirt always adds the `guest` option when it mounts a cifs pool, and mount.cifs then
   ignores a `password=` option ("password specified twice, ignoring second") or a `username=user%password`: the
   server refuses the session. A `credentials=` file is read in spite of `guest`. It lives on each node where the pool
-  is mounted, root only (0600 in a 0700 directory), as Proxmox VE keeps `/etc/pve/priv/storage/<id>.pw`, and the
+  is mounted, root only (0600 in a 0700 directory), and the
   pool's definition names it. The password is never in the pool's XML, nor on a command line, nor in /proc/mounts,
   and Hyperlite's API never returns it. A shared pool's password is also kept encrypted in Hyperlite's database
   (app/core/shared_pools.py), for the nodes registered later.

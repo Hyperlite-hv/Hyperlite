@@ -80,7 +80,7 @@ Advanced, Review**. The right-hand column sums up the choices.
 - **Source**:
   - *Debian 12 cloud image*: preinstalled, ready in a minute with the user and password (and SSH keys) you set. The
     guest agent is installed at first boot.
-  - *ISO*: the VM boots from it and you install the system through the console, as on Proxmox VE, creating its
+  - *ISO*: the VM boots from it and you install the system through the console, creating its
     account there. An ISO stored on another node can be used.
   - *Import a disk*: boot from an existing qcow2, raw, vmdk, vdi or vhd disk (uploaded in the Library).
 - **Placement**: the node and the storage pool (a shared NFS pool is needed for HA and migration without copying the
@@ -146,7 +146,7 @@ another node: open that node's own Hyperlite for them.
 
 ### Hook scripts
 
-As Proxmox VE's hookscripts: a script attached to a VM runs as root on its node with two arguments, the VM's name and
+A script attached to a VM runs as root on its node with two arguments, the VM's name and
 the phase (`pre-start`, `post-start`, `pre-stop`, `post-stop`), also given as `HYPERLITE_VM` and `HYPERLITE_PHASE`,
 the VM's XML on its standard input, for at most 300 s.
 
@@ -160,7 +160,7 @@ the VM's XML on its standard input, for at most 300 s.
   gets no post-stop.
 - **pre-stop** runs before a shutdown, a stop or a forced restart asked through Hyperlite; a failing one refuses the
   shutdown or the stop, but a forced stop runs it and stops the VM anyway. A guest that powers itself off gets no
-  pre-stop, as in Proxmox VE.
+  pre-stop.
 - The output goes into the task's log of a start or stop asked through Hyperlite; the last runs are on the VM's card
   and in the journal (`journalctl -t hyperlite-hookscript`).
 
@@ -181,7 +181,7 @@ exit 0
   when the guest sends its clipboard (with an agent), it shows with a **Copy** button. **Full screen** and **Open in a
   new window** are there too.
 - **SSH terminal** (administrators): a terminal on the VM through Hyperlite's key.
-- **SPICE**: the VM in virt-viewer (`remote-viewer`) on your computer, as Proxmox VE's SPICE console. **Add a SPICE
+- **SPICE**: the VM in virt-viewer (`remote-viewer`) on your computer. **Add a SPICE
   display** (administrators) gives the VM one next to its VNC console, effective at its next start; **Open in
   virt-viewer** then downloads a `.vv` file to open within 30 seconds. virt-viewer reaches the VM through port 3128 of
   the node you are connected to, in TLS, and deletes the file once read.
@@ -254,7 +254,7 @@ a directory or NFS pool never deletes its files.
 ### Shared storage on several nodes
 
 An NFS share or an iSCSI target is the same storage for every node that reaches it. When creating one, **Nodes**
-offers, as on Proxmox: **Every node** (the default with several nodes; a node registered later gets it too), **One
+offers: **Every node** (the default with several nodes; a node registered later gets it too), **One
 node**, or **Choose the nodes**. The pool is created on each of them under the same name and mount point, which live
 migration and HA need; the result says, node by node, whether it was created, already there, or why it failed. Shared
 pools are marked in the list; deleting one removes it from every node that has it.
@@ -270,15 +270,14 @@ pools are marked in the list; deleting one removes it from every node that has i
 
 A VM interface takes a **VLAN tag** on a network that can carry one, and the field is disabled on the others:
 
-- a **Bridge** network on a **VLAN-aware** Linux bridge (`vlan_filtering` on, Proxmox VE's "VLAN aware" bridge, whose
+- a **Bridge** network on a **VLAN-aware** Linux bridge (`vlan_filtering` on, a "VLAN aware" bridge, whose
   uplink is a trunk from the switch): the tag is the VM's access VLAN, untagged inside the VM, and **Trunk VLANs**
   (`10,20-30`) are the ones it sees tagged, for a router or a nested hypervisor. Hyperlite sets them on the VM's port
   of the bridge when it starts, moves or is changed. Without a tag, the VM is on the bridge's default VLAN (1);
 - an Open vSwitch bridge or an SR-IOV network: libvirt sets the tag itself.
 
 A **Bridge** network on a Linux bridge has a **VLANs** section in its details: **Make the bridge VLAN-aware**
-(administrators) turns VLAN filtering on, with VLANs 2 to 4094 tagged on the bridge's uplink, as Proxmox VE's "VLAN
-aware"; the switch port should be a trunk. Untagged traffic (the host's own address, the VMs) is not changed. The
+(administrators) turns VLAN filtering on, with VLANs 2 to 4094 tagged on the bridge's uplink; the switch port should be a trunk. Untagged traffic (the host's own address, the VMs) is not changed. The
 dashboard confirms the change from a new request a few seconds later: if the host can no longer be reached, it undoes
 the change by itself within 60 seconds. Kept, it is set again at every boot. **Stop filtering VLANs** undoes it,
 refused while a VM keeps VLANs on the bridge. Otherwise, create a **Bridge** network on the VLAN interface
@@ -485,8 +484,7 @@ output and can be cancelled.
 
 ### From a node's shell: `hyperlite-admin`
 
-Every node has `hyperlite-admin`, which drives the node and the cluster through the same API as the dashboard, as
-`qm`, `pct` and `pvesh` do on Proxmox VE: the same rights, the same tasks, the same audit log.
+Every node has `hyperlite-admin`, which drives the node and the cluster through the same API as the dashboard: the same rights, the same tasks, the same audit log.
 
 ```bash
 hyperlite-admin vm list --cluster                 # every member's VMs
@@ -494,7 +492,7 @@ hyperlite-admin vm start web1 --node node2        # node2 starts it; the command
 hyperlite-admin vm snapshot create web1 before-upgrade
 hyperlite-admin vm migrate web1 node3
 hyperlite-admin task list status==running
-hyperlite-admin get /storage/default/volumes      # any route of the API, as pvesh does
+hyperlite-admin get /storage/default/volumes      # any route of the API
 hyperlite-admin api /vms/web1/migrate             # what that route takes
 ```
 

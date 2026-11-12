@@ -43,11 +43,11 @@ def test_a_migration_moves_rows_to_the_target_node_and_back(database):
 
     object_meta.put("vm", "web", "Front", [], None)
     vm_boot.set_setting("web", True, None, 0, None)
-    object_meta.follow_migration("web", "local", "pve-b")
-    vm_boot.follow_migration("web", "local", "pve-b")
-    assert _rows(database, "SELECT node FROM object_meta") == [("pve-b",)]
-    assert _rows(database, "SELECT node FROM vm_boot") == [("pve-b",)]
-    object_meta.follow_migration("web", "pve-b", "local")
+    object_meta.follow_migration("web", "local", "node-b")
+    vm_boot.follow_migration("web", "local", "node-b")
+    assert _rows(database, "SELECT node FROM object_meta") == [("node-b",)]
+    assert _rows(database, "SELECT node FROM vm_boot") == [("node-b",)]
+    object_meta.follow_migration("web", "node-b", "local")
     assert object_meta.get("vm", "web", None)["notes"] == "Front"
 
 
@@ -61,7 +61,7 @@ def test_local_rows_written_before_the_upgrade_are_renamed_at_start(database):
         db.execute("INSERT INTO node_maintenance (node, started_by, started_at) VALUES ('local', 'bob', 't')")
         db.execute(
             "INSERT INTO shared_pools (name, definition, nodes) VALUES ('nfs', '{}', ?)",
-            (json.dumps(["local", "pve-b"]),),
+            (json.dumps(["local", "node-b"]),),
         )
         db.execute("DELETE FROM cfs_outbox")
         db.commit()
@@ -75,7 +75,7 @@ def test_local_rows_written_before_the_upgrade_are_renamed_at_start(database):
         ("vm", "hv-test", "web"),
     ]
     assert _rows(database, "SELECT node FROM node_maintenance") == [("hv-test",)]
-    assert json.loads(_rows(database, "SELECT nodes FROM shared_pools")[0][0]) == ["hv-test", "pve-b"]
+    assert json.loads(_rows(database, "SELECT nodes FROM shared_pools")[0][0]) == ["hv-test", "node-b"]
     assert object_meta.get("vm", "web", None)["notes"] == "Old"
     assert maintenance.get("local")["started_by"] == "bob"
     # The renamed rows go to hyperlite-cfs like any other change.
@@ -89,17 +89,17 @@ def test_the_name_comes_from_the_host_once_then_stays(database, monkeypatch):
     with database.get_conn() as db:  # a database that never recorded a name
         db.execute("DELETE FROM app_settings WHERE key = 'node_name'")
         db.commit()
-    monkeypatch.setattr(self_node.socket, "gethostname", lambda: "PVE_A.example.org")
+    monkeypatch.setattr(self_node.socket, "gethostname", lambda: "NODE_A.example.org")
     self_node.forget()
-    assert self_node.name() == "pve-a"
-    assert _rows(database, "SELECT value FROM app_settings WHERE key = 'node_name'") == [("pve-a",)]
+    assert self_node.name() == "node-a"
+    assert _rows(database, "SELECT value FROM app_settings WHERE key = 'node_name'") == [("node-a",)]
 
     monkeypatch.setattr(self_node.socket, "gethostname", lambda: "renamed")
     self_node.forget()
-    assert self_node.name() == "pve-a"  # renaming the host changes nothing
+    assert self_node.name() == "node-a"  # renaming the host changes nothing
     self_node.forget()
     database.init_db()
-    assert self_node.name() == "pve-a"
+    assert self_node.name() == "node-a"
 
 
 @pytest.mark.parametrize("host", ["local", "x", "--"])
@@ -122,14 +122,14 @@ def test_an_invalid_forced_name_is_refused(database, monkeypatch):
 
 def test_this_node_is_never_listed_among_the_remote_nodes(nodes_api, database):  # noqa: F811
     client, admin, viewer = nodes_api
-    _add(client, admin, "pve-b", "10.0.0.2")
+    _add(client, admin, "node-b", "10.0.0.2")
     with database.get_conn() as db:  # the shared table lists every member, this one included
         db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('hv-test', 'self.lan', 't')")
         db.commit()
-    assert [n["name"] for n in client.get("/nodes", headers=viewer).json()["items"]] == ["pve-b"]
+    assert [n["name"] for n in client.get("/nodes", headers=viewer).json()["items"]] == ["node-b"]
     from app.repositories.sqlite.nodes import SqliteNodeStore
 
-    assert SqliteNodeStore().get("hv-test") is None and SqliteNodeStore().get("pve-b") is not None
+    assert SqliteNodeStore().get("hv-test") is None and SqliteNodeStore().get("node-b") is not None
 
 
 def test_a_node_cannot_be_registered_or_renamed_under_this_node_name(nodes_api):  # noqa: F811
@@ -137,8 +137,8 @@ def test_a_node_cannot_be_registered_or_renamed_under_this_node_name(nodes_api):
     for name in ("hv-test", "HV-TEST", "local"):
         r = _add(client, admin, name)
         assert r.status_code == 422 and "own name" in r.json()["detail"]
-    assert _add(client, admin, "pve-b").status_code == 201
-    r = client.post("/nodes/pve-b/rename", json={"new_name": "hv-test"}, headers=admin)
+    assert _add(client, admin, "node-b").status_code == 201
+    r = client.post("/nodes/node-b/rename", json={"new_name": "hv-test"}, headers=admin)
     assert r.status_code == 422
 
 
@@ -149,21 +149,21 @@ def test_a_task_names_its_node_and_this_node_finds_it_as_local(database):
 
     create_task("start_vm", "web")  # local
     create_task("stop_vm", "web", node="local")
-    create_task("start_vm", "db", node="pve-b")  # a registered node keeps its name
+    create_task("start_vm", "db", node="node-b")  # a registered node keeps its name
 
-    assert _rows(database, "SELECT node FROM tasks ORDER BY target, type") == [("pve-b",), ("hv-test",), ("hv-test",)]
+    assert _rows(database, "SELECT node FROM tasks ORDER BY target, type") == [("node-b",), ("hv-test",), ("hv-test",)]
     store = SqliteTaskStore()
     assert sorted(t["target"] for t in store.list({"node": "local"})) == ["web", "web"]
-    assert [t["target"] for t in store.list({"node": "pve-b"})] == ["db"]
+    assert [t["target"] for t in store.list({"node": "node-b"})] == ["db"]
 
 
 def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
     from app.core import self_node
 
     with database.get_conn() as db:
-        db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('pve-b', '192.0.2.2', 't')")
+        db.execute("INSERT INTO nodes (name, hostname, added_at) VALUES ('node-b', '192.0.2.2', 't')")
         db.execute("DELETE FROM app_settings WHERE key = ?", (self_node.TASKS_SETTING,))
-        for i, node in enumerate(("hyperlite.home", None, "local", "pve-b", "hv-test")):
+        for i, node in enumerate(("hyperlite.home", None, "local", "node-b", "hv-test")):
             db.execute(
                 "INSERT INTO tasks (id, type, target, node, status, progress, created_at) VALUES (?, 'start_vm', ?, ?, 'succeeded', 100, 't')",
                 (f"t{i}", f"vm{i}", node),
@@ -177,7 +177,7 @@ def test_tasks_recorded_under_a_host_name_become_this_nodes_once(database):
         ("vm0", "hv-test"),
         ("vm1", "hv-test"),
         ("vm2", "hv-test"),
-        ("vm3", "pve-b"),
+        ("vm3", "node-b"),
         ("vm4", "hv-test"),
     ]
     # Once only: a later task of a node that left the cluster keeps its name.

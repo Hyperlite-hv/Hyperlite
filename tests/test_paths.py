@@ -1,4 +1,4 @@
-"""app/core/paths.py: where 1.1 keeps its files, as Proxmox VE does, and the paths written up to 1.0 read there."""
+"""app/core/paths.py: where 1.1 keeps its files, and the paths written up to 1.0 read there."""
 
 import pytest
 

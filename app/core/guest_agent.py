@@ -1,6 +1,6 @@
 """Hyperlite Tools: what Hyperlite does through the QEMU guest agent running inside a VM.
 
-"Hyperlite Tools" is only the name shown to the user (like VMware Tools); underneath it is the standard
+"Hyperlite Tools" is only the name shown to the user; underneath it is the standard
 qemu-guest-agent (Linux: the `qemu-guest-agent` package; Windows: the virtio-win guest tools), talking over the
 `org.qemu.guest_agent.0` virtio channel that every VM created by Hyperlite already declares (vm_builder.py).
 

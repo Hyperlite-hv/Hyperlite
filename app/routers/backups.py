@@ -570,7 +570,7 @@ def run_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
 # ---- A store read by another cluster's copy of it (app/core/backup_remotes.py, docs/design/backup-store.md) ----
 #
 # Read-only, as they are on disk (encrypted chunks stay sealed: the reader needs no key), for an account that holds
-# backup_store.read on the store (the role "Backup store reader"), as Proxmox Backup Server's DatastoreReader.
+# backup_store.read on the store (the role "Backup store reader").
 
 _EXPORT_STAMP = re.compile(r"^[0-9A-Za-z:._-]{1,40}$")
 _EXPORT_DIGEST = re.compile(r"^[0-9a-f]{64}$")

@@ -69,7 +69,7 @@ design).
 - **For HA:** the HA engine runs only on the active controller. After promotion, it resumes from a state
   seconds old. With a witness and fencing, controller loss and node loss can both be handled.
 
-### (c) The full Proxmox model (pmxcfs-like)
+### (c) The full the reference platform model
 
 Every node runs Hyperlite and a replicated store. Writes need a majority (Raft/Corosync). Every node can serve
 the UI. Candidates to avoid writing consensus ourselves are **dqlite** (Raft-replicated SQLite, used by LXD)
@@ -86,7 +86,7 @@ and **rqlite** (Raft SQLite over HTTP).
   - a new failure class (lost quorum: writes refused, the UI read-only);
   - telemetry must stay local, or it will saturate consensus.
 - **For HA:** the best base. The HA engine runs on the elected leader, quorum is built in, and a node that
-  loses quorum knows it must not act (and can self-fence with a watchdog, as Proxmox does).
+  loses quorum knows it must not act (and can self-fence with a watchdog).
 
 ## 4. Recommendation
 

@@ -16,7 +16,7 @@ export function useVmActions() {
   async function run(vm, action) {
     try {
       if (action === "stop") {
-        // As Proxmox's shutdown timeout: a guest may ignore the request (still booting, agent not connected yet).
+        //: a guest may ignore the request (still booting, agent not connected yet).
         const ok = await confirmAction({ title: t("confirm.stop.title", { name: vm.name }), message: t("confirm.stop.message"), confirmLabel: t("confirm.stop.confirm"), danger: false, option: { label: t("confirm.stop.forceAfter") } });
         if (!ok) return;
         await runVMAction(vmKey(vm), "stop", { force: false, forceAfter: ok.option ? 180 : null });

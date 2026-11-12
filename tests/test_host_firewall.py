@@ -21,7 +21,7 @@ DOC = {
         {"action": "accept", "protocol": "tcp", "port": "5900-5999", "source": "+admins", "comment": "VNC"},
         {"action": "accept", "protocol": "tcp", "port": "9", "enabled": False},
     ],
-    "nodes": {"pve-a": {"rules": [{"action": "reject", "protocol": "udp", "port": "161", "source": "10.0.0.0/8"}]}},
+    "nodes": {"node-a": {"rules": [{"action": "reject", "protocol": "udp", "port": "161", "source": "10.0.0.0/8"}]}},
 }
 
 
@@ -29,7 +29,7 @@ DOC = {
 def node(tmp_path, monkeypatch):
     """This node: nft and systemd-run recorded, the setting kept in memory, two members and one NAT bridge."""
     monkeypatch.setattr(fw, "STATE_DIR", tmp_path / "state")
-    monkeypatch.setattr(fw, "_node", lambda: "pve-a")
+    monkeypatch.setattr(fw, "_node", lambda: "node-a")
     monkeypatch.setattr(fw, "_members", lambda: ["192.0.2.11", "192.0.2.12"])
     monkeypatch.setattr(fw, "_vm_bridges", lambda: ["virbr0"])
     ran, refuse, table = [], [], {"text": ""}
@@ -61,7 +61,7 @@ def node(tmp_path, monkeypatch):
 
 def test_the_script_pins_what_keeps_the_cluster_and_the_vms_working_then_the_rules():
     doc = fw.normalize(DOC)
-    script = fw.render(doc, "pve-a", members=["192.0.2.11"], vm_bridges=["virbr0"])
+    script = fw.render(doc, "node-a", members=["192.0.2.11"], vm_bridges=["virbr0"])
     assert script.startswith("table inet hyperlite {}\ndelete table inet hyperlite\n")  # one transaction, from scratch
     lines = [line.strip() for line in script.splitlines()]
     order = [
@@ -77,13 +77,14 @@ def test_the_script_pins_what_keeps_the_cluster_and_the_vms_working_then_the_rul
     assert [lines.index(line) for line in order] == sorted(lines.index(line) for line in order)
     assert "set ipset_admins { type ipv4_addr; flags interval; elements = { 10.8.0.5/32, 192.168.1.0/24 } }" in lines
     assert "dport { 9 }" not in script  # a disabled rule
-    other = fw.render(doc, "pve-b", members=[], vm_bridges=[])
+    other = fw.render(doc, "node-b", members=[], vm_bridges=[])
     assert "udp dport { 161 }" not in other and "virbr0" not in other
 
 
 def test_turned_off_the_table_is_removed():
     assert (
-        fw.render(fw.normalize({"enabled": False}), "pve-a") == "table inet hyperlite {}\ndelete table inet hyperlite\n"
+        fw.render(fw.normalize({"enabled": False}), "node-a")
+        == "table inet hyperlite {}\ndelete table inet hyperlite\n"
     )
 
 
@@ -105,7 +106,7 @@ def test_turned_off_the_table_is_removed():
         ({"ipsets": [{"name": "bad name", "cidrs": []}]}, "not a free IP set name"),
         ({"ipsets": [{"name": "s", "cidrs": ["any"]}]}, "not an address or a network"),
         ({"policy": "reject"}, "accept or drop"),
-        ({"nodes": {"pve a": {"rules": []}}}, "not a node name"),
+        ({"nodes": {"node a": {"rules": []}}}, "not a node name"),
         ({"rules": [{"action": "accept"}] * 201}, "At most 200"),
     ],
 )

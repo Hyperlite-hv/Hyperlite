@@ -4,8 +4,7 @@
 # login) at every start, with the current IP: a DHCP address can change from one
 # boot to the next, unlike a fixed message written once at installation time.
 #
-# Functional equivalent of the last screen of the Proxmox VE installer ("Please
-# point your browser to https://IP:8006"), but kept up to date at every restart
+# The address of the web interface, shown on the console at login, and kept up to date at every restart
 # instead of being shown once during the installation.
 set -e
 

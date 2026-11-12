@@ -151,7 +151,7 @@ function MachineCard({ vm, state, admin, onSaved }) {
   );
 }
 
-// The VM's hook script, as Proxmox VE's hookscript: picked from the node's library, which root alone fills (a script
+// The VM's hook script: picked from the node's library, which root alone fills (a script
 // runs as root at every start and stop, so the dashboard never uploads one), with its last runs.
 function HookScriptCard({ vm, admin }) {
   const t = useT();

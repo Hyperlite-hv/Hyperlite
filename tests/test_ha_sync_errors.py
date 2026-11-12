@@ -38,7 +38,7 @@ def test_only_a_vm_libvirt_does_not_know_loses_its_protection(database, monkeypa
 
 
 def test_a_failed_manual_recovery_undefines_the_copy_it_left(database, monkeypatch):
-    row = {"vm_name": "web", "node": "pve-a", "domain_xml": "<domain><name>web</name></domain>"}
+    row = {"vm_name": "web", "node": "node-a", "domain_xml": "<domain><name>web</name></domain>"}
     monkeypatch.setattr(ha, "get_protected", lambda vm: row)
     monkeypatch.setattr(ha, "_attempt_ssh_fence", lambda node, vm: (True, "killed"))
     forgotten, starts = [], []
@@ -50,5 +50,5 @@ def test_a_failed_manual_recovery_undefines_the_copy_it_left(database, monkeypat
     monkeypatch.setattr(ha, "start_on", start_on)
     monkeypatch.setattr(ha, "forget_on", lambda row, target: forgotten.append(target))
     with pytest.raises(RuntimeError, match="Recovery failed"):
-        ha.recover("web", "pve-b", "admin")
-    assert forgotten == ["pve-b"] and starts == [True]
+        ha.recover("web", "node-b", "admin")
+    assert forgotten == ["node-b"] and starts == [True]

@@ -1,10 +1,9 @@
-"""The node's disks that hold nothing (docs/design/zfs-disks.md): what a ZFS pool may be built on, as Proxmox VE's
+"""The node's disks that hold nothing (docs/design/zfs-disks.md): what a ZFS pool may be built on
 Disks > ZFS lists them. A disk is free when it is a whole disk with no partition, no file system or volume signature
 (LVM, ZFS, RAID, swap...), nothing mounted, not read-only, not removable, and no VM's disk. Anything else is never
 offered and refused if named: building a pool erases the disk.
 
-Disks are named by their /dev/disk/by-id path, which stays the same across reboots and controllers (/dev/sdb may not),
-as Proxmox does."""
+Disks are named by their /dev/disk/by-id path, which stays the same across reboots and controllers (/dev/sdb may not)."""
 
 import json
 import os

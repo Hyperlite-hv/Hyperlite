@@ -86,7 +86,7 @@ int main(void)
     CHECK_EQ(get("/priv/authkey", other, reason, sizeof(reason)), CFS_FORBIDDEN);
     CHECK(strstr(reason, "root only") != NULL);
     CHECK_EQ(get("/priv/authkey", 0, NULL, 0), CFS_OK);
-    CHECK_EQ(put("/nodes/pve1/priv/key", "k", other), CFS_FORBIDDEN);
+    CHECK_EQ(put("/nodes/node1/priv/key", "k", other), CFS_FORBIDDEN);
 
     /* Paths are checked before the store sees them. */
     CHECK_EQ(put("/a/../priv/authkey", "x", 0), CFS_INVALID);
@@ -133,17 +133,17 @@ int main(void)
     /* LOCK reports the holder. */
     start(&w, CFS_OP_LOCK);
     cfs_write_string(&w, "vm:100");
-    cfs_write_string(&w, "migrate@pve1");
+    cfs_write_string(&w, "migrate@node1");
     cfs_write_u32(&w, 60);
     CHECK_EQ(call(&w, 0, &a, &r), CFS_OK);
     cfs_writer_free(&a);
     start(&w, CFS_OP_LOCK);
     cfs_write_string(&w, "vm:100");
-    cfs_write_string(&w, "backup@pve2");
+    cfs_write_string(&w, "backup@node2");
     cfs_write_u32(&w, 60);
     CHECK_EQ(call(&w, 0, &a, &r), CFS_LOCKED);
     cfs_read_string(&r, reason, sizeof(reason) - 1);
-    CHECK(strcmp(reason, "migrate@pve1") == 0);
+    CHECK(strcmp(reason, "migrate@node1") == 0);
     cfs_writer_free(&a);
 
     cfs_store_close(ctx.store);

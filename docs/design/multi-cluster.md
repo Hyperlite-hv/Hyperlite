@@ -9,19 +9,19 @@ A cluster stays within one site (Corosync needs LAN latencies, about 32 nodes at
 or more than one cluster, today opens one dashboard per cluster, and a site across a WAN can only be a host driven over
 SSH from one node (deprecated since 2026-10-24: no management when the link is cut, an SSH root key on every host).
 
-Proxmox answers with Proxmox Datacenter Manager (PDM), a separate installation that reaches every cluster and single
-node through their API; each site keeps running on its own when PDM or the link is gone. vSphere's vCenter manages the
-hosts of every site, but they depend on it: without vCenter there is no HA change, no DRS, no management.
+The reference platform answers with a multi-cluster manager (PDM), a separate installation that reaches every cluster and single
+node through their API; each site keeps running on its own when PDM or the link is gone. The commercial reference's the commercial reference manages the
+hosts of every site, but they depend on it: without the commercial reference there is no HA change, no DRS, no management.
 
 ## 2. Decisions (maintainer, 2026-10-25)
 
-| Question | Proxmox | vSphere | Hyperlite |
+| Question | The reference platform | The commercial reference | Hyperlite |
 |---|---|---|---|
-| Where the view runs | PDM, a separate installation | vCenter, a separate appliance the hosts depend on | **In every Hyperlite** (chosen as the best for companies): any cluster can be the view of the others, on a page of its own dashboard, with no server to add. Its remotes are in the replicated configuration, so every node of that cluster serves the view: it is never a single point of failure. A company may dedicate a small cluster without VMs to it, which is still a plain Hyperlite |
-| First version | PDM 1.0: state, basic actions, migration between remotes | All of it, through vCenter | **State and basic actions, then migration** between clusters (offline first, then live where the storage allows), as `qm remote-migrate` |
-| Remotes | PDM's remotes, PBS's remotes | (hosts joined to vCenter) | **One list of remote clusters**, each declared once, with a token per use and the least rights for each: the backup copies' remotes (#699) join it once #511 moved the backups' code |
-| Actions (step 2) | PDM: power actions and migration inside a remote; the console and the rest in the remote's own interface | vCenter: everything, the console included, from vCenter | **As PDM** (the best of the two for a view that holds only tokens): start, shutdown, reboot, force stop, reset, and a move to another node of the same remote; the console and the settings in the remote's own dashboard, one click away. A console through the view would need a tunnel between clusters: more code and more to attack for little |
-| The token of the actions | PDM: a token per remote, its rights set on the remote | (vCenter's own accounts) | **A second, optional `manage` token** of another dedicated account, whose role the remote's administrator chooses (Operator, or Administrator to move VMs); without it the view is read-only and shows no action |
+| Where the view runs | PDM, a separate installation | The commercial reference, a separate appliance the hosts depend on | **In every Hyperlite** (chosen as the best for companies): any cluster can be the view of the others, on a page of its own dashboard, with no server to add. Its remotes are in the replicated configuration, so every node of that cluster serves the view: it is never a single point of failure. A company may dedicate a small cluster without VMs to it, which is still a plain Hyperlite |
+| First version | the reference manager, 1.0: state, basic actions, migration between remotes | All of it, through the commercial reference | **State and basic actions, then migration** between clusters (offline first, then live where the storage allows), as the reference remote migration |
+| Remotes | PDM's remotes, PBS's remotes | | **One list of remote clusters**, each declared once, with a token per use and the least rights for each: the backup copies' remotes (#699) join it once #511 moved the backups' code |
+| Actions (step 2) | PDM: power actions and migration inside a remote; the console and the rest in the remote's own interface | The commercial reference: everything, the console included, from the commercial reference | **As PDM** (the best of the two for a view that holds only tokens): start, shutdown, reboot, force stop, reset, and a move to another node of the same remote; the console and the settings in the remote's own dashboard, one click away. A console through the view would need a tunnel between clusters: more code and more to attack for little |
+| The token of the actions | PDM: a token per remote, its rights set on the remote | | **A second, optional `manage` token** of another dedicated account, whose role the remote's administrator chooses (Operator, or Administrator to move VMs); without it the view is read-only and shows no action |
 
 ## 3. Remotes
 
@@ -90,16 +90,16 @@ Each one ships with its tests and the docs:
 
 Status: **accepted (maintainer, 2026-10-25).** The choices below are the maintainer's, from the questions asked the same day.
 
-| Question | Proxmox | vSphere | Hyperlite |
+| Question | The reference platform | The commercial reference | Hyperlite |
 |---|---|---|---|
-| How the disks go | `qm remote-migrate`: the source streams them to the target through a tunnel over the target's API, with its token | Cross vCenter vMotion: host to host, the vCenters agreeing | **A direct stream** from the source cluster to the target node, over pinned HTTPS with the target's `manage` token: the same path the live migration (step 5) will use, and nothing of the backups' (#511) is needed |
+| How the disks go | the reference remote migration: the source streams them to the target through a tunnel over the target's API, with its token | Cross the commercial reference live migration: host to host, the commercial references agreeing | **A direct stream** from the source cluster to the target node, over pinned HTTPS with the target's `manage` token: the same path the live migration (step 5) will use, and nothing of the backups' (#511) is needed |
 | The VM left at the source | Kept, locked, unless `--delete` | Gone: a moved VM exists in one place | **Deleted** once the target has the VM and its disks checked: never two copies that could start with the same MAC address |
 | Storage and network on arrival | `--target-storage`, `--target-bridge` mappings, per migration | Chosen in the wizard, per migration | **Per migration**: for each disk a pool of the target, for each card a network of the target, the same name chosen first when it exists; nothing saved |
 
 ### 9.1 The flow (offline, step 4)
 
 The view is the source cluster; the target is one of its remotes, with a `manage` token of an account that holds the
-Administrator role there (a migration creates a VM and its volumes, as `qm remote-migrate` needs `VM.Allocate` and
+Administrator role there (a migration creates a VM and its volumes, as the reference remote migration needs `VM.Allocate` and
 `Datastore.AllocateSpace`).
 
 1. **The dialog** (the VM's page, *Move to another cluster*): the remote, its node (online ones), the name there (the
@@ -141,17 +141,17 @@ delete it there: it is never started by Hyperlite.
 
 ### 9.2 Live (step 5)
 
-Status: **accepted (maintainer, 2026-10-25)**, with **A, the filtering relay** ("as vSphere or Proxmox, choose well":
-Proxmox's tunnel carries a small command set of its own, never a whole access to the target; A is that, in front of
-libvirt). The maintainer's choices of the same day: **as Proxmox VE** (`qm remote-migrate
+Status: **accepted (maintainer, 2026-10-25)**, with **A, the filtering relay** ("as the commercial reference or the reference platform, choose well":
+The reference platform's tunnel carries a small command set of its own, never a whole access to the target; A is that, in front of
+libvirt). The maintainer's choices of the same day: **as the reference platform** (the reference VM command remote-migrate
 --online`: the disks mirrored while the VM runs, then its memory, a pause of about a second at the switch), and a VM
-whose CPU the target cannot run is **refused before anything goes, with the offline move offered** (as vSphere's EVC).
+whose CPU the target cannot run is **refused before anything goes, with the offline move offered**.
 
 **What the lab showed** (two nested Debian 13 hosts, libvirt 11.3, QEMU 10.0; a running VM with a qcow2 disk):
 
 - libvirt's single-channel mode (`--p2p --tunnelled`) refuses non-shared disks with this QEMU: *"migration of non-shared
   storage is not supported with tunnelled migration"*.
-- The mode that works is Proxmox's own shape, three Unix sockets carried between the hosts: the target's libvirt
+- The mode that works is the reference platform's own shape, three Unix sockets carried between the hosts: the target's libvirt
   (`--p2p` to `qemu+unix:///system?socket=...`), QEMU's migration stream (`--migrateuri unix://...`) and its NBD
   server for the disks (`--disks-uri unix://...`, `--copy-storage-all`). With them forwarded, the VM moved in 1.2 s,
   running on the target on the volume given in the destination XML, its disk's content checked there.
@@ -166,7 +166,7 @@ whose CPU the target cannot run is **refused before anything goes, with the offl
 2. **The target prepares** as for a cold move (the specification checked, the volumes made, an incoming id), and
    keeps the destination XML it will accept (point 4).
 3. **The tunnel**: one pinned HTTPS connection from the source's node to the target's node (`GET
-   /sites/incoming/{id}/tunnel`, upgraded to a WebSocket, as Proxmox's `mtunnel`), with the manage token. It carries
+   /sites/incoming/{id}/tunnel`, upgraded to a WebSocket`mtunnel`), with the manage token. It carries
    three channels, each accepted on a socket of the source's daemon and handed to the target's: `libvirt`, `memory`,
    `disks`. hyperlite-daemon opens the sockets at both ends (`transfer.tunnel_open`, `transfer.tunnel_close`); the API
    only carries the bytes, as it carries the disks' streams of a cold move.
@@ -185,8 +185,8 @@ whole libvirt for as long as it is open. Two ways out:
 | **A. A filtering relay (recommended)** | Reads libvirt's RPC framing (a 28-byte header: program, procedure, serial) and lets through only the procedures a migration's destination answers (open, capabilities, `MIGRATE_PREPARE3_PARAMS`, `FINISH3_PARAMS`, close); the destination XML inside `PREPARE` is checked against the incoming (name, UUID, every disk on a volume prepared for it, every card on a network chosen, no device of the host, no `qemu:commandline`), as the cold move checks its specification | libvirt does what it does best, unchanged; the source can do nothing else than this one migration | A parser of libvirt's wire format to keep right across libvirt versions (the procedures are numbered and stable, but it is code of ours on a security boundary) |
 | B. libvirt's own access control | libvirtd's polkit access driver for a dedicated account, allowed only to migrate into this domain | libvirt's own checks | Turning `access_drivers` on changes the whole host's libvirt, and every other client's rules with it; a host setting the package would manage |
 
-Proxmox VE does not meet this question: it drives QEMU itself, its tunnel carries its own small command set. vSphere's
-hosts trust each other through vCenter. **A** keeps Hyperlite's rule that a remote is checked, never trusted.
+The reference platform does not meet this question: it drives QEMU itself, its tunnel carries its own small command set. The commercial reference's
+hosts trust each other through the commercial reference. **A** keeps Hyperlite's rule that a remote is checked, never trusted.
 
 **Its risks**
 
@@ -194,7 +194,7 @@ hosts trust each other through vCenter. **A** keeps Hyperlite's rule that a remo
 |---|---|
 | The source acts on the target's libvirt beyond the migration | The relay of A: an allowlist of procedures, the destination XML checked against the incoming, the channel closed with the incoming |
 | A link cut during the switch | libvirt's own protocol: until the target confirms, the VM runs at the source; after, at the target. The source's copy is undefined by libvirt only once the target confirmed |
-| A VM that writes faster than the link | QEMU's auto-converge throttles the guest's CPU, as Proxmox; past a time limit the migration is cancelled and the VM keeps running at the source |
+| A VM that writes faster than the link | QEMU's auto-converge throttles the guest's CPU; past a time limit the migration is cancelled and the VM keeps running at the source |
 | A guest that loses its address | The cards keep their MAC addresses; a network chosen at the target with another subnet is said in the dialog, as for a cold move |
 
 ### 9.3 hyperlite-daemon

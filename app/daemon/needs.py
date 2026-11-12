@@ -1,6 +1,5 @@
 """What each operation needs of the person who asks (docs/design/privilege-separation.md, section 14, 4d), checked by
-hyperlite-daemon against its own store of the permissions (step 4b), as pvedaemon checks each API method's
-`permissions` against user.cfg whatever pveproxy says.
+hyperlite-daemon against its own store of the permissions (step 4b), whatever the API says.
 
 The caller is the account its proof proves (section 14, 4a): a session, an API token, a task ticket, or a ticket
 another member signed. A call without a proof comes from a service of this node, never from a person:

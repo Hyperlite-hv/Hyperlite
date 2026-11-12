@@ -1,4 +1,4 @@
-"""Self-fencing of a node that runs HA VMs (#333, docs/design/ha-automatic.md, option C), as Proxmox does.
+"""Self-fencing of a node that runs HA VMs (#333, docs/design/ha-automatic.md, option C).
 
 Before the leader restarts a failed node's HA VMs elsewhere, it must be sure the old copies are stopped: two copies of a
 VM on its shared disk corrupt it. A node that cannot be powered off from outside (no IPMI, Redfish or AMT) fences
@@ -11,7 +11,7 @@ The watchdog is armed only when needed: in a cluster, while this node hosts a ru
 (the magic close) when no HA VM runs here any more and when the service stops normally (an update restarts it); a
 normal stop is published too ("stopped"), so the leader does not take the node's silence for a reset while its VMs
 still run, and the service clears it once it runs again. A
-process that dies or hangs stops feeding it too: then the node is reset, as Proxmox's lrm does, since nothing else
+process that dies or hangs stops feeding it too: then the node is reset, since nothing else
 proves its VMs stopped.
 
 Each node publishes whether its watchdog is armed (cfs tree, STATE_DIR/<node>), so the leader knows it may rely on it.
@@ -165,8 +165,8 @@ def _close(fd):
 
 # The node's heartbeat older than this stops the feeding: the leader declares a member lost LOST_S after its last
 # summary and waits for its reset before restarting its VMs elsewhere, so a node that cannot send it (libvirt hung,
-# the heartbeat's thread stuck) must reset itself first, as Proxmox's LRM feeds its watchdog in the loop that writes
-# its status.
+# the heartbeat's thread stuck) must reset itself first's LRM feeds its watchdog in the loop that writes
+# Its status.
 HEARTBEAT_STALE_S = 40
 
 

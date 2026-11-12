@@ -5,9 +5,9 @@ separation (#511), as decided on 2026-10-21 (`docs/design/privilege-separation.m
 
 ## 1. Goal
 
-Proxmox VE's `pmxcfs` is a FUSE file system mounted at `/etc/pve`: an administrator reads the cluster's configuration
-with `ls`, `cat` and `grep`, every node shows the same files, `/etc/pve/local` is the node's own directory and
-`/etc/pve/priv` is root's. hyperlite-cfs holds the same kind of tree, but only behind its Unix socket: nothing shows
+the reference cluster file system is a FUSE file system mounted at the reference configuration directory: an administrator reads the cluster's configuration
+with `ls`, `cat` and `grep`, every node shows the same files, the reference configuration directory is the node's own directory and
+Its cluster configuration directory is root's. hyperlite-cfs holds the same kind of tree, but only behind its Unix socket: nothing shows
 it as files, and the files of a node (its TLS certificate, its keys) live outside it, in `/etc/hyperlite`.
 
 Done when: hyperlite-cfs mounts its tree at `/etc/hyperlite` on every node; `local` points at the node's own
@@ -16,11 +16,11 @@ the tree; it is tested under the sanitizers and fuzzing the socket has.
 
 ## 2. Decisions (maintainer, 2026-10-24)
 
-| Question | Proxmox VE | vSphere | Hyperlite |
+| Question | The reference platform | The commercial reference | Hyperlite |
 |---|---|---|---|
 | What the files hold | Text formats of its own (`qemu-server/100.conf`, `user.cfg`) | No file view of the cluster | **The tree as it is**: one JSON document per object, the paths the code already writes (`db/<table>/<key>`), plus virtual files (section 4). No translation layer to keep right for every table |
-| Writing through the files | Allowed (`vi /etc/pve/qemu-server/100.conf`), checked when read | Everything through the API | **Read-only.** A change goes through the API, the dashboard or `hyperlite-admin`, which check every value. A hand-written row the database refuses would stop the apply of every change on every node (`inbound.py`) until repaired by hand |
-| A node's own files | In the tree: `nodes/<name>/` (`pve-ssl.key`, `lrm_status`...), `/etc/pve/local` pointing at it | Kept by each host | **In the tree**, as Proxmox: `nodes/<name>/`, `/etc/hyperlite/local` pointing at it. Root of any node can read every node's files, as on Proxmox |
+| Writing through the files | Allowed, checked when read | Everything through the API | **Read-only.** A change goes through the API, the dashboard or `hyperlite-admin`, which check every value. A hand-written row the database refuses would stop the apply of every change on every node (`inbound.py`) until repaired by hand |
+| A node's own files | In the tree: `nodes/<name>/`, the reference configuration directory pointing at it | Kept by each host | **In the tree**: `nodes/<name>/`, `/etc/hyperlite/local` pointing at it. Root of any node can read every node's files
 
 ## 3. What /etc/hyperlite shows
 
@@ -36,7 +36,7 @@ The tree's paths, unchanged, under the mount point:
 | `local` | a symbolic link to `nodes/<this node>` | |
 | `.members`, `.version`, `.quorum` | virtual files (section 4) | root:www-data, 0444 |
 
-`www-data` is the API's account after #511, which reads the configuration it needs as `pveproxy` reads `/etc/pve`:
+`www-data` is the API's account after #511, which reads the configuration it needs as the reference HTTPS proxy reads the reference configuration directory:
 the same rule the socket applies to `priv/` (refused to every client but root), now through the kernel's credentials
 of the reading process instead of `SO_PEERCRED`. Directories are listed from the tree (`cfs_store_list`); a file's
 modification time is the entry's `mtime`, its size its length; there are no other owners, links or special files.
@@ -46,7 +46,7 @@ included.
 
 ## 4. Virtual files
 
-Generated when read, never stored, as Proxmox's `.members`, `.version` and `.vmlist`:
+Generated when read, never stored`.members`, `.version` and `.vmlist`:
 
 - **`.members`**: JSON, the cluster's name, this node's id, and for each member its name, id, address and whether it
   is online: the names and addresses from the tree's `cluster/corosync.json`, online from the membership the daemon
@@ -64,9 +64,9 @@ gives it. Others can be added later; a script reads them with `jq`.
 | Today | In the tree | Who reads it |
 |---|---|---|
 | `/etc/hyperlite/local/hyperlite.crt`, `openssl-hyperlite.cnf` | `nodes/<name>/hyperlite.crt`, `openssl-hyperlite.cnf` | the API (HTTPS) |
-| `/etc/hyperlite/local/hyperlite.key` | `nodes/<name>/hyperlite.key`, root:www-data 0640 (as `pve-ssl.key`) | the API, which terminates HTTPS |
+| `/etc/hyperlite/local/hyperlite.key` | `nodes/<name>/hyperlite.key`, root:www-data 0640 | the API, which terminates HTTPS |
 | `/etc/hyperlite/priv/env`, `/etc/hyperlite/priv/ssh/` | `nodes/<name>/priv/` | the daemon (root) |
-| `/etc/hyperlite/priv/authkey.key`, `/etc/hyperlite/authkeys.json` | wherever #511 settles the session keys (`priv/`, cluster-wide as Proxmox's `authkey.key`, is the expected place) | the daemon signs, the API verifies |
+| `/etc/hyperlite/priv/authkey.key`, `/etc/hyperlite/authkeys.json` | wherever #511 settles the session keys (`priv/`, cluster-wide`authkey.key`, is the expected place) | the daemon signs, the API verifies |
 
 Hyperlite reads and writes them through the socket, as every other entry: the mount is for people and scripts. Each
 file stays within the tree's limits (1 MiB a file, 128 MiB the tree).
@@ -77,7 +77,7 @@ file stays within the tree's limits (1 MiB a file, 128 MiB the tree).
 - **When a node joins a cluster** its tree is replaced by the cluster's (`cluster_setup.join`): its own
   `nodes/<name>/` is read before and written again after, before Hyperlite restarts. Without that step a joined node
   would lose its certificate and keys.
-- **When a member is removed** (`cluster_setup.remove_member`), its `nodes/<name>/` is deleted with it: `pvecm delnode`
+- **When a member is removed** (`cluster_setup.remove_member`), its `nodes/<name>/` is deleted with it: its cluster command
   leaves that to the administrator, Hyperlite does it, the node is gone.
 
 ## 6. How the daemon serves it
@@ -98,12 +98,12 @@ file stays within the tree's limits (1 MiB a file, 128 MiB the tree).
 ## 7. hyperlite-cfs runs on every node
 
 Today its unit is installed **disabled** and runs only on a node of a cluster (or in shadow mode). Since the files of
-every node live in the tree, it must run everywhere, as `pve-cluster` does on a single Proxmox node:
+every node live in the tree, it must run everywhere, as on a single node:
 
 - the package enables `hyperlite-cfs.service` in local mode on every node; a cluster switches it to `--cluster` as
   today;
 - `hyperlite.service` and `hyperlite-daemon.service` start after it (`Requires=` and `After=`): without the daemon
-  there is no certificate to serve HTTPS with, as Proxmox's web interface does not start without `pmxcfs`;
+  there is no certificate to serve HTTPS withthe reference cluster file system;
 - a node that is not in a cluster then copies its configuration into its own daemon too (local mode, as in shadow
   mode): its `db/` shows the same files a cluster's does.
 
@@ -153,11 +153,11 @@ Each one ships with its tests:
 
 ## 12. Risks
 
-- **A daemon that hangs blocks whoever reads `/etc/hyperlite`**, as with `/etc/pve`. Hyperlite itself reads through
+- **A daemon that hangs blocks whoever reads `/etc/hyperlite`**, as with the reference configuration directory. Hyperlite itself reads through
   the socket, with timeouts; the mount only blocks people and scripts.
 - **The daemon must start for the node to serve HTTPS** (section 7). It is already required in a cluster; on a single
   node it is new. Its start does not depend on Corosync in local mode.
-- **Root on any node reads every node's keys** (decided, as Proxmox). A node removed from the cluster loses its copy
+- **Root on any node reads every node's keys** (decided). A node removed from the cluster loses its copy
   with its tree.
 
 ## 13. Step 1 as done (2026-11-01)

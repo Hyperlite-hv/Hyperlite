@@ -24,9 +24,9 @@ def small_host(monkeypatch):
 def test_the_host_size_caps_a_vms_vcpus_only(small_host):
     limits = vm_limits.compute_limits(force=True)
     assert limits["disk_gb"]["source"] == "technical"
-    # More memory or disk than the hardware is the administrator's choice, as in Proxmox or vSphere.
+    # More memory or disk than the hardware is the administrator's choice.
     assert vm_limits.validate_vm_resources(vcpu=4, memory_mb=65536, disk_sizes=[500]) == []
-    # More vCPUs than the host's threads is refused, as on Proxmox (a cluster of 2 x 64 vCPUs on 12 threads was
+    # More vCPUs than the host's threads is refused (a cluster of 2 x 64 vCPUs on 12 threads was
     # accepted).
     assert limits["vcpu"] == {"min": 1, "max": 4, "source": "hardware", "detail": "this host has 4 CPU threads"}
     errors = vm_limits.validate_vm_resources(vcpu=5)

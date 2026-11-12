@@ -41,12 +41,12 @@ On each site, say A whose backups go to B:
 Backups lose what changed since the last one. **Backups › Replication to another site** copies VMs to the same kind
 of storage every few minutes (15 by default):
 
-- each copy only holds what changed since the previous one (QEMU's dirty bitmaps, as Proxmox Backup Server uses);
+- each copy only holds what changed since the previous one (QEMU's dirty bitmaps);
   a full copy starts a new chain once a day, and the two newest chains are kept;
 - the copies are laid out like backups, so the other site restores them with *Recovery of another site*: it reads
   the newest copy through its chain into an independent disk;
 - a stopped VM is not copied again until it runs; when it ran since its last copy, it is started **paused** for the
-  copy (the guest never runs) and stopped again, as Proxmox does for backups of stopped VMs;
+  copy (the guest never runs) and stopped again;
 - the card lists each VM's last copy and warns about the ones without a copy within twice the interval.
 
 Limits:

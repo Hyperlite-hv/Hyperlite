@@ -1,5 +1,5 @@
 """Opening a session: what hyperlite-daemon checks before it signs one (docs/design/privilege-separation.md, section 12,
-PR B), as Proxmox VE's ticket is made by the process that checked the password.
+PR B).
 
 Each function checks a proof (a password, a second factor, the one-time code an SSO sign-in left, the current password
 for a change) and only then signs, with the key only the daemon reads (app/core/tickets.py). The API asks for them
