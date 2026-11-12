@@ -14,7 +14,7 @@ const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const EMPTY = { id: null, name: "", source: "", target: "", frequency: "daily", time: "04:00", active: true, ...retentionForm(null) };
 
-// Off-site copies, as Proxmox Backup Server's sync jobs: a store's backups pulled into its copy store (on a pool at
+// Off-site copies: a store's backups pulled into its copy store (on a pool at
 // the other site), only the chunks it lacks, with a retention of its own: what the source deletes stays in the copy.
 export default function BackupStoreSyncs() {
   const t = useT();

@@ -34,11 +34,11 @@ static void attributes(void)
     CHECK(s != NULL);
     put(s, "/db/users/alice", "{\"role\": \"admin\"}");
     put(s, "/priv/cluster/authkey", "secret");
-    put(s, "/nodes/pve-a/priv/key", "k");
-    put(s, "/nodes/pve-a/hyperlite.crt", "crt");
+    put(s, "/nodes/node-a/priv/key", "k");
+    put(s, "/nodes/node-a/hyperlite.crt", "crt");
     static cfs_node n;
     cfs_node_init(&n, s, CFS_MODE_LOCAL, 1, (cfs_transport){.send = no_send});
-    cfs_mount *m = cfs_mount_for_tests(&n, 33, "pve-a");
+    cfs_mount *m = cfs_mount_for_tests(&n, 33, "node-a");
     struct stat st;
 
     CHECK_EQ(cfs_mount_attr_of(m, "/", &st), 0);
@@ -59,14 +59,14 @@ static void attributes(void)
     CHECK(S_ISREG(st.st_mode) && (st.st_mode & 0777) == 0600 && st.st_gid == 0);
     CHECK_EQ(cfs_mount_attr_of(m, "/priv", &st), 0);
     CHECK(S_ISDIR(st.st_mode) && (st.st_mode & 0777) == 0700 && st.st_gid == 0);
-    CHECK_EQ(cfs_mount_attr_of(m, "/nodes/pve-a/priv/key", &st), 0);
+    CHECK_EQ(cfs_mount_attr_of(m, "/nodes/node-a/priv/key", &st), 0);
     CHECK_EQ(st.st_mode & 0777, 0600);
-    CHECK_EQ(cfs_mount_attr_of(m, "/nodes/pve-a/hyperlite.crt", &st), 0);
+    CHECK_EQ(cfs_mount_attr_of(m, "/nodes/node-a/hyperlite.crt", &st), 0);
     CHECK_EQ(st.st_mode & 0777, 0640);
 
     CHECK_EQ(cfs_mount_attr_of(m, "/local", &st), 0);
     CHECK(S_ISLNK(st.st_mode));
-    CHECK_EQ(st.st_size, (long long)strlen("nodes/pve-a"));
+    CHECK_EQ(st.st_size, (long long)strlen("nodes/node-a"));
 
     CHECK_EQ(cfs_mount_attr_of(m, "/db/nope", &st), -ENOENT);
     CHECK_EQ(cfs_mount_attr_of(m, "/db/../priv", &st), -ENOENT);
@@ -89,7 +89,7 @@ static void virtual_files(void)
     uint32_t self = 1;
     cfs_node_membership(&n, &self, 1);
     n.synced = true; /* what the daemon's local loop gives once this node's state came back to it */
-    cfs_mount *m = cfs_mount_for_tests(&n, 33, "pve-a");
+    cfs_mount *m = cfs_mount_for_tests(&n, 33, "node-a");
     char *text = NULL;
     size_t len = 0;
 

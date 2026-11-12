@@ -1,6 +1,6 @@
 # Container snapshots (#424)
 
-Proxmox VE takes snapshots of a container's root file system on ZFS, LVM-thin and Ceph. Hyperlite's containers live
+The reference platform takes snapshots of a container's root file system on ZFS, LVM-thin and Ceph. Hyperlite's containers live
 in plain directories (`/var/lib/libvirt/containers/<name>`, or a `dir` storage pool: NFS, ZFS and iSCSI pools are
 refused for containers), and libvirt's LXC driver has no snapshot at all (`virDomainSnapshotCreateXML` is not
 supported, which is why container clones and backups already copy the directory). So a container snapshot here is a

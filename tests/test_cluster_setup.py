@@ -101,19 +101,19 @@ def test_the_configuration_corosync_gets(host):
         "cluster": "prod",
         "version": 3,
         "members": [
-            {"name": "pve-b", "nodeid": 2, "address": "192.0.2.12"},
+            {"name": "node-b", "nodeid": 2, "address": "192.0.2.12"},
             {"name": "hv-test", "nodeid": 1, "address": ADDRESS},
         ],
     }
     text = cluster_setup.render(cluster_setup._check_conf(conf))
     assert "cluster_name: prod" in text and "config_version: 3" in text
     assert "crypto_cipher: aes256" in text and "crypto_hash: sha256" in text and "transport: knet" in text
-    assert text.index("name: hv-test") < text.index("name: pve-b")  # by node id
+    assert text.index("name: hv-test") < text.index("name: node-b")  # by node id
     for bad in (
         {**conf, "cluster": "bad name"},
         {**conf, "members": [{"name": "x;rm", "nodeid": 1, "address": ADDRESS}]},
-        {**conf, "members": [{"name": "pve-c", "nodeid": 1, "address": "not-an-ip\n}"}]},
-        {**conf, "members": conf["members"] + [{"name": "pve-c", "nodeid": 2, "address": "192.0.2.13"}]},
+        {**conf, "members": [{"name": "node-c", "nodeid": 1, "address": "not-an-ip\n}"}]},
+        {**conf, "members": conf["members"] + [{"name": "node-c", "nodeid": 2, "address": "192.0.2.13"}]},
         {**conf, "version": 0},
     ):
         with pytest.raises(cluster_setup.ClusterError):
@@ -124,7 +124,7 @@ def test_creating_needs_corosync_and_an_address_of_this_node(host):
     with pytest.raises(cluster_setup.ClusterError, match="not an address of this node"):
         cluster_setup.create("prod", "192.0.2.99", "alice")
     with pytest.raises(cluster_setup.ClusterError, match="not an IP address"):
-        cluster_setup.create("prod", "pve-a.lan", "alice")
+        cluster_setup.create("prod", "node-a.lan", "alice")
     with pytest.raises(cluster_setup.ClusterError, match="Invalid cluster name"):
         cluster_setup.create("prod;reboot", ADDRESS, "alice")
     (host.tmp / "corosync").unlink()
@@ -182,20 +182,20 @@ def test_the_join_information_lets_one_node_in_once(host):
     assert decoded["fingerprint"] == cluster_setup._certificate_fingerprint()
 
     with pytest.raises(PermissionError):
-        cluster_setup.accept_member("x" * 43, "pve-b", "192.0.2.12", KEY_B)  # a wrong ticket also spends nothing
-    answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+        cluster_setup.accept_member("x" * 43, "node-b", "192.0.2.12", KEY_B)  # a wrong ticket also spends nothing
+    answer = cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
     assert answer["configuration"]["version"] == 2
-    assert answer["configuration"]["members"][1] == {"name": "pve-b", "nodeid": 2, "address": "192.0.2.12"}
+    assert answer["configuration"]["members"][1] == {"name": "node-b", "nodeid": 2, "address": "192.0.2.12"}
     assert set(answer["keys"]) == {"HYPERLITE_SECRET_KEY", "HYPERLITE_ENCRYPTION_KEY"}
-    assert answer["ssh_keys"] == {"hv-test": KEY_A, "pve-b": KEY_B}
+    assert answer["ssh_keys"] == {"hv-test": KEY_A, "node-b": KEY_B}
     # This node's Corosync knows the new member before it calls, and it may reach it over SSH.
-    assert "name: pve-b" in cluster_setup.COROSYNC_CONF.read_text() and "corosync-cfgtool -R" in host.commands
+    assert "name: node-b" in cluster_setup.COROSYNC_CONF.read_text() and "corosync-cfgtool -R" in host.commands
     assert ("B" * 68) in (host.tmp / "authorized_keys").read_text()
     with get_conn() as db:
-        assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test", "pve-b"}
+        assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test", "node-b"}
 
     with pytest.raises(PermissionError):  # used
-        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B)
+        cluster_setup.accept_member(decoded["ticket"], "node-c", "192.0.2.13", KEY_B)
 
 
 def test_a_ticket_expires_and_a_name_or_address_cannot_be_taken_twice(host, monkeypatch):
@@ -205,15 +205,15 @@ def test_a_ticket_expires_and_a_name_or_address_cannot_be_taken_twice(host, monk
         cluster_setup.accept_member(decoded["ticket"], "hv-test", "192.0.2.12", KEY_B)
     _info, decoded = _information(host)
     with pytest.raises(cluster_setup.ClusterError, match="already uses"):
-        cluster_setup.accept_member(decoded["ticket"], "pve-b", ADDRESS, KEY_B)
+        cluster_setup.accept_member(decoded["ticket"], "node-b", ADDRESS, KEY_B)
     _info, decoded = _information(host)
     with pytest.raises(cluster_setup.ClusterError, match="SSH key"):
-        cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", "ssh-rsa AAAA; rm -rf /")
+        cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", "ssh-rsa AAAA; rm -rf /")
     _info, decoded = _information(host)
     later = cluster_setup._now() + dt.timedelta(seconds=cluster_setup.TICKET_TTL_S + 1)
     monkeypatch.setattr(cluster_setup, "_now", lambda: later)
     with pytest.raises(PermissionError):
-        cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+        cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
 
 
 def _answer(me="hv-test", address="192.0.2.11"):
@@ -222,7 +222,7 @@ def _answer(me="hv-test", address="192.0.2.11"):
             "cluster": "prod",
             "version": 2,
             "members": [
-                {"name": "pve-a", "nodeid": 1, "address": "192.0.2.20"},
+                {"name": "node-a", "nodeid": 1, "address": "192.0.2.20"},
                 {"name": me, "nodeid": 2, "address": address},
             ],
         },
@@ -231,7 +231,7 @@ def _answer(me="hv-test", address="192.0.2.11"):
             "HYPERLITE_SECRET_KEY": "the-clusters-secret-key-0123456789",
             "HYPERLITE_ENCRYPTION_KEY": "the-clusters-fernet-key-0123456789ab=",
         },
-        "ssh_keys": {"pve-a": KEY_B, me: KEY_A},
+        "ssh_keys": {"node-a": KEY_B, me: KEY_A},
     }
 
 
@@ -282,7 +282,7 @@ def test_joining_replaces_this_nodes_configuration_by_the_clusters(host, monkeyp
     assert "HYPERLITE_SECRET_KEY=the-clusters-secret-key-0123456789" in env and "OTHER=1" in env
     assert "a-secret-key-of-this-node" not in env
     assert cluster_setup.COROSYNC_KEY.read_bytes() == b"k" * 256
-    assert "name: pve-a" in cluster_setup.COROSYNC_CONF.read_text()
+    assert "name: node-a" in cluster_setup.COROSYNC_CONF.read_text()
     assert not cfs_db.exists() and len(list(cfs_db.parent.glob("config.db.before-join-*"))) == 1
     assert ("B" * 68) in (host.tmp / "authorized_keys").read_text()
     assert ("A" * 68) not in (host.tmp / "authorized_keys").read_text()  # not its own key
@@ -311,10 +311,10 @@ def test_an_answer_that_does_not_name_this_node_changes_nothing(host, monkeypatc
 def test_each_node_follows_the_shared_configuration(host):
     _create(host)
     conf = json.loads(host.files[cluster_setup.CONF_PATH])
-    conf["members"].append({"name": "pve-c", "nodeid": 3, "address": "192.0.2.13"})
+    conf["members"].append({"name": "node-c", "nodeid": 3, "address": "192.0.2.13"})
     conf["version"] = 5
     host.files[cluster_setup.CONF_PATH] = json.dumps(conf).encode()
-    host.files["/cluster/ssh/pve-c"] = KEY_B.encode()
+    host.files["/cluster/ssh/node-c"] = KEY_B.encode()
     (host.tmp / "authorized_keys").write_text("ssh-ed25519 KEEP admin\nssh-ed25519 OLD hyperlite-cluster-member\n")
     assert cluster_setup.sync()
     assert "config_version: 5" in cluster_setup.COROSYNC_CONF.read_text()
@@ -341,14 +341,14 @@ def test_a_configuration_written_but_not_running_is_reloaded_again(host, monkeyp
 def test_removing_a_member(host):
     _create(host)
     _info, decoded = _information(host)
-    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
     with pytest.raises(cluster_setup.ClusterError, match="cannot remove itself"):
         cluster_setup.remove_member("hv-test", "hv-test", "alice")
     with pytest.raises(cluster_setup.ClusterError, match="to confirm"):
-        cluster_setup.remove_member("pve-b", "nope", "alice")
-    state = cluster_setup.remove_member("pve-b", "pve-b", "alice")
+        cluster_setup.remove_member("node-b", "nope", "alice")
+    state = cluster_setup.remove_member("node-b", "node-b", "alice")
     assert [m["name"] for m in state["members"]] == ["hv-test"]
-    assert "pve-b" not in cluster_setup.COROSYNC_CONF.read_text() and "/cluster/ssh/pve-b" not in host.files
+    assert "node-b" not in cluster_setup.COROSYNC_CONF.read_text() and "/cluster/ssh/node-b" not in host.files
     with get_conn() as db:
         assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test"}
 
@@ -405,7 +405,7 @@ def test_the_api(host, client, auth_headers):
     info = client.post("/cluster/adhesion", headers=admin).json()
     ticket = json.loads(base64.urlsafe_b64decode(info["information"] + "=="))["ticket"]
     # The joining node has no session here: the ticket is what lets it in.
-    bad = {"ticket": "x" * 43, "name": "pve-b", "address": "192.0.2.12", "ssh_key": KEY_B}
+    bad = {"ticket": "x" * 43, "name": "node-b", "address": "192.0.2.12", "ssh_key": KEY_B}
     assert client.post("/cluster/members", json=bad).status_code == 403
     r = client.post("/cluster/members", json={**bad, "ticket": ticket})
     assert r.status_code == 200 and r.json()["configuration"]["version"] == 2
@@ -449,11 +449,11 @@ def test_the_first_member_is_registered_before_corosync_drops_the_quorum(host, m
         monkeypatch.setattr(host, method, refusing(getattr(host, method)))
     monkeypatch.setattr(cluster_setup, "_run", reloading)
 
-    answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
-    assert reloaded and answer["configuration"]["members"][1]["name"] == "pve-b"
-    assert answer["ssh_keys"] == {"hv-test": KEY_A, "pve-b": KEY_B} and answer["corosync_key"]
+    answer = cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
+    assert reloaded and answer["configuration"]["members"][1]["name"] == "node-b"
+    assert answer["ssh_keys"] == {"hv-test": KEY_A, "node-b": KEY_B} and answer["corosync_key"]
     with get_conn() as db:
-        assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test", "pve-b"}
+        assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test", "node-b"}
 
 
 def test_a_shared_write_that_fails_leaves_no_trace_of_the_new_node(host, monkeypatch):
@@ -470,10 +470,10 @@ def test_a_shared_write_that_fails_leaves_no_trace_of_the_new_node(host, monkeyp
 
     monkeypatch.setattr(host, "put", refusing)
     with pytest.raises(ReadOnly):
-        cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+        cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
     with get_conn() as db:
         assert {r[0] for r in db.execute("SELECT name FROM nodes")} == {"hv-test"}
-    assert not any(p.endswith("/pve-b") for p in host.files) and "corosync-cfgtool -R" not in host.commands
+    assert not any(p.endswith("/node-b") for p in host.files) and "corosync-cfgtool -R" not in host.commands
 
 
 def test_a_member_that_never_encrypted_anything_sends_a_new_encryption_key(host, monkeypatch):
@@ -487,7 +487,7 @@ def test_a_member_that_never_encrypted_anything_sends_a_new_encryption_key(host,
     monkeypatch.delenv("HYPERLITE_ENCRYPTION_KEY")
     _create(host)
     _info, decoded = _information(host)
-    answer = cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    answer = cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
     key = answer["keys"]["HYPERLITE_ENCRYPTION_KEY"]
     assert key and f"HYPERLITE_ENCRYPTION_KEY={key}" in env.read_text()
 
@@ -581,7 +581,7 @@ def test_a_joining_node_keeps_its_own_files_in_the_clusters_tree(host, monkeypat
 # ---- The primary node: it counts twice in the quorum ----
 
 
-def _add_member(host, name="pve-b", nodeid=2, address="192.0.2.11"):
+def _add_member(host, name="node-b", nodeid=2, address="192.0.2.11"):
     conf = json.loads(host.files[cluster_setup.CONF_PATH])
     conf["members"].append({"name": name, "nodeid": nodeid, "address": address})
     host.files[cluster_setup.CONF_PATH] = json.dumps(conf).encode()
@@ -592,13 +592,13 @@ def test_a_primary_node_counts_twice_and_alone_keeps_the_quorum_with_one_other(h
     _add_member(host)  # a member from a configuration without votes: one each
     assert "quorum_votes: 1" in cluster_setup.render(cluster_setup.shared_conf())
     state = cluster_setup.set_primary("hv-test", "admin")
-    assert {m["name"]: m["votes"] for m in state["members"]} == {"hv-test": 2, "pve-b": 1}
+    assert {m["name"]: m["votes"] for m in state["members"]} == {"hv-test": 2, "node-b": 1}
     conf = cluster_setup.COROSYNC_CONF.read_text()
     assert "name: hv-test\n    nodeid: 1\n    quorum_votes: 2" in conf  # 2 of 3: quorate alone
-    assert "name: pve-b\n    nodeid: 2\n    quorum_votes: 1" in conf
+    assert "name: node-b\n    nodeid: 2\n    quorum_votes: 1" in conf
     version = cluster_setup.shared_conf()["version"]
-    state = cluster_setup.set_primary("pve-b", "admin")  # one primary at most: the other goes back to one vote
-    assert {m["name"]: m["votes"] for m in state["members"]} == {"hv-test": 1, "pve-b": 2}
+    state = cluster_setup.set_primary("node-b", "admin")  # one primary at most: the other goes back to one vote
+    assert {m["name"]: m["votes"] for m in state["members"]} == {"hv-test": 1, "node-b": 2}
     assert cluster_setup.shared_conf()["version"] == version + 1  # every member writes corosync.conf again (sync)
     state = cluster_setup.set_primary(None, "admin")
     assert {m["votes"] for m in state["members"]} == {1}
@@ -607,7 +607,7 @@ def test_a_primary_node_counts_twice_and_alone_keeps_the_quorum_with_one_other(h
 def test_a_primary_must_be_a_member_and_a_configuration_with_two_is_refused(host):
     _create(host)
     with pytest.raises(cluster_setup.ClusterError, match="not a member"):
-        cluster_setup.set_primary("pve-z", "admin")
+        cluster_setup.set_primary("node-z", "admin")
     _add_member(host)
     conf = json.loads(host.files[cluster_setup.CONF_PATH])
     for m in conf["members"]:
@@ -638,7 +638,7 @@ def test_the_new_members_row_is_taken_by_the_cluster_before_the_quorum_is_lost(h
     _info, decoded = _information(host)
     order = []
     monkeypatch.setattr(confirm, "settle", lambda: order.append(("settle", len(host.commands))))
-    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
     [(_, commands_before)] = order
     assert "corosync-cfgtool -R" not in host.commands[:commands_before]  # confirmed while the quorum held
 
@@ -647,17 +647,17 @@ def test_the_new_members_row_is_taken_by_the_cluster_before_the_quorum_is_lost(h
 
     monkeypatch.setattr(confirm, "settle", refused)
     _info, decoded = _information(host)
-    with pytest.raises(cluster_setup.ClusterError, match="could not record pve-c"):
-        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B)
-    assert all(m["name"] != "pve-c" for m in cluster_setup.shared_conf()["members"])  # not added, nothing to wait for
+    with pytest.raises(cluster_setup.ClusterError, match="could not record node-c"):
+        cluster_setup.accept_member(decoded["ticket"], "node-c", "192.0.2.13", KEY_B)
+    assert all(m["name"] != "node-c" for m in cluster_setup.shared_conf()["members"])  # not added, nothing to wait for
     with get_conn() as db:
-        assert "pve-c" not in {r[0] for r in db.execute("SELECT name FROM nodes")}
+        assert "node-c" not in {r[0] for r in db.execute("SELECT name FROM nodes")}
 
 
 def test_a_joining_node_calls_the_route_the_member_serves(client):
     """Since 1.0 the API is under /api/v1 and the old addresses answer 410: a join posted to /cluster/members was
     refused by every member, and no node could join a cluster."""
-    body = {"ticket": "x", "name": "pve-b", "address": "192.0.2.2", "ssh_key": ""}
+    body = {"ticket": "x", "name": "node-b", "address": "192.0.2.2", "ssh_key": ""}
     # Absolute addresses: the test client otherwise puts every path under /api/v1 itself.
     r = client.post("http://testserver" + cluster_setup.MEMBERS_PATH, json=body)
     assert r.status_code == 403, r.text  # the route answers: the ticket is refused
@@ -687,9 +687,9 @@ def test_the_new_members_fingerprint_and_keys_are_written_before_the_quorum_is_l
     monkeypatch.setattr(
         cluster_setup,
         "sync",
-        lambda: reloaded.append((host.files.get("/cluster/tls/pve-b"), host.files.get("/cluster/authkey/pve-b"))),
+        lambda: reloaded.append((host.files.get("/cluster/tls/node-b"), host.files.get("/cluster/authkey/node-b"))),
     )
-    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B, "CD" * 32, AUTH_KEYS)
+    cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B, "CD" * 32, AUTH_KEYS)
     [(fingerprint, keys)] = reloaded  # both there when this node's Corosync reloads with the new member
     assert json.loads(fingerprint) == {"sha256": "cd" * 32} and json.loads(keys) == AUTH_KEYS
 
@@ -700,23 +700,23 @@ def test_the_new_members_fingerprint_and_keys_are_written_before_the_quorum_is_l
     ):
         _info, decoded = _information(host)
         with pytest.raises(cluster_setup.ClusterError, match="Invalid"):
-            cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B, *bad)
+            cluster_setup.accept_member(decoded["ticket"], "node-c", "192.0.2.13", KEY_B, *bad)
 
     def refused():
         raise shadow.NotConfirmed("The cluster refused the change: hyperlite-cfs has no quorum: it is read-only")
 
     monkeypatch.setattr(confirm, "settle", refused)
     _info, decoded = _information(host)
-    with pytest.raises(cluster_setup.ClusterError, match="could not record pve-c"):
-        cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B, "ef" * 32, AUTH_KEYS)
-    assert "/cluster/tls/pve-c" not in host.files and "/cluster/authkey/pve-c" not in host.files
+    with pytest.raises(cluster_setup.ClusterError, match="could not record node-c"):
+        cluster_setup.accept_member(decoded["ticket"], "node-c", "192.0.2.13", KEY_B, "ef" * 32, AUTH_KEYS)
+    assert "/cluster/tls/node-c" not in host.files and "/cluster/authkey/node-c" not in host.files
 
 
 def test_a_node_before_1_3_joins_without_its_fingerprint_and_keys(host):
     _create(host)
     _info, decoded = _information(host)
-    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)  # it publishes them itself, later
-    assert "/cluster/tls/pve-b" not in host.files and "/cluster/authkey/pve-b" not in host.files
+    cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)  # it publishes them itself, later
+    assert "/cluster/tls/node-b" not in host.files and "/cluster/authkey/node-b" not in host.files
 
 
 def test_a_joining_node_waits_longer_for_its_links_than_a_new_cluster(host, monkeypatch):
@@ -757,10 +757,10 @@ def test_the_api_as_www_data_asks_the_daemon(host, client, auth_headers, monkeyp
     assert r.status_code == 200 and r.json()["name"] == "prod"
     info = client.post("/cluster/adhesion", headers=admin).json()
     ticket = json.loads(base64.urlsafe_b64decode(info["information"] + "=="))["ticket"]
-    bad = {"ticket": "x" * 43, "name": "pve-b", "address": "192.0.2.12", "ssh_key": KEY_B}
+    bad = {"ticket": "x" * 43, "name": "node-b", "address": "192.0.2.12", "ssh_key": KEY_B}
     assert client.post("/cluster/members", json=bad).status_code == 403  # public: the ticket is the proof
     assert client.post("/cluster/members", json={**bad, "ticket": ticket}).status_code == 200
-    r = client.post("/cluster/members/pve-b/remove", json={"confirmation": "pve-b"}, headers=admin)
+    r = client.post("/cluster/members/node-b/remove", json={"confirmation": "node-b"}, headers=admin)
     assert r.status_code == 200, r.text
     setup = {
         "cluster.setup_create",
@@ -789,18 +789,18 @@ def test_a_new_member_is_reloaded_in_once_every_member_wrote_it(host, monkeypatc
     still held the older one left the new node out while this one took it into the ring."""
     _create(host)
     _, decoded = _information(host)
-    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
     _, decoded = _information(host)
-    written = f"{cluster_setup.WRITTEN_DIR}/pve-b"
+    written = f"{cluster_setup.WRITTEN_DIR}/node-b"
     seen = []
 
-    def member_follows(seconds):  # pve-b's lead loop writes the new configuration while this node waits
+    def member_follows(seconds):  # node-b's lead loop writes the new configuration while this node waits
         seen.append(list(host.commands))
         host.files[written] = b"3"
 
     monkeypatch.setattr(cluster_setup.time, "sleep", member_follows)
     host.commands.clear()
-    cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
+    cluster_setup.accept_member(decoded["ticket"], "node-c", "192.0.2.13", KEY_B.replace("B", "C"))
     assert seen == [[]]  # waited once, before any reload
     assert host.commands == ["corosync-cfgtool -R"]
 
@@ -808,12 +808,12 @@ def test_a_new_member_is_reloaded_in_once_every_member_wrote_it(host, monkeypatc
 def test_a_member_that_does_not_write_it_is_waited_for_a_while_only(host, monkeypatch, caplog):
     _create(host)
     _, decoded = _information(host)
-    cluster_setup.accept_member(decoded["ticket"], "pve-b", "192.0.2.12", KEY_B)
+    cluster_setup.accept_member(decoded["ticket"], "node-b", "192.0.2.12", KEY_B)
     _, decoded = _information(host)
     monkeypatch.setattr(cluster_setup, "WRITTEN_WAIT_S", 0)
     host.commands.clear()
-    cluster_setup.accept_member(decoded["ticket"], "pve-c", "192.0.2.13", KEY_B.replace("B", "C"))
-    assert host.commands == ["corosync-cfgtool -R"] and "pve-b did not write version 3" in caplog.text
+    cluster_setup.accept_member(decoded["ticket"], "node-c", "192.0.2.13", KEY_B.replace("B", "C"))
+    assert host.commands == ["corosync-cfgtool -R"] and "node-b did not write version 3" in caplog.text
 
 
 def test_a_join_only_removes_a_nodes_row_it_created(database):

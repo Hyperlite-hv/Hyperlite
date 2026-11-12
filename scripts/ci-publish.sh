@@ -89,11 +89,12 @@ docker run --rm -v "$PWD:/src" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" deb
     bash /src/installer/build-runtime.sh /src /src/installer/runtime
 bash installer/build-deb.sh
 bash installer/build-apt-repo.sh
-# The comparison with Proxmox VE (docs/proxmox-parity.html), served next to the repository at /parity/: its rows come
+# The feature roadmap, served next to the repository at /roadmap/: its rows come
 # with each publication, the state of each issue is read live by the page.
-mkdir -p installer/apt-repo/parity
-cp docs/proxmox-parity.html installer/apt-repo/parity/index.html
-cp docs/proxmox-parity.json installer/apt-repo/parity/
+rm -rf installer/apt-repo/parity  # its former name
+mkdir -p installer/apt-repo/roadmap
+cp docs/roadmap.html installer/apt-repo/roadmap/index.html
+cp docs/roadmap.json installer/apt-repo/roadmap/
 
 # 3. Publish the repository to the mirror (verified by the script itself).
 if [ "$DRY_RUN" = "1" ]; then

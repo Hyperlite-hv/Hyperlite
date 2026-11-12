@@ -97,11 +97,11 @@ def test_another_nodes_changes_reach_this_node(cluster):
     assert inbound.apply() is None  # nothing new since the seed
     cluster.remote("/db/groups/7", {"id": 7, "name": "ops"})
     cluster.remote(
-        "/db/object_meta/vm/pve-b/web", {"kind": "vm", "node": "pve-b", "name": "web", "notes": "B", "tags": "[]"}
+        "/db/object_meta/vm/node-b/web", {"kind": "vm", "node": "node-b", "name": "web", "notes": "B", "tags": "[]"}
     )
     assert inbound.apply() == 2
     assert rows("SELECT id, name FROM groups") == [{"id": 7, "name": "ops"}]
-    assert object_meta.get("vm", "web", "pve-b")["notes"] == "B"
+    assert object_meta.get("vm", "web", "node-b")["notes"] == "B"
     assert shadow.pending() == 0  # what came from the tree is not sent back
     assert inbound.apply() is None and shadow.report()["differences"] == 0
 

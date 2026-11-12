@@ -53,10 +53,10 @@ The production runs on two distant sites, each its own Hyperlite (a Corosync clu
 is lost, the other one restarts its VMs from what it holds of them (`docs/site-recovery.md`). With daily backups, a
 day of data is lost. The maintainer asked for less: copies every few minutes.
 
-### 5.2 How Proxmox does it, and what follows for Hyperlite
+### 5.2 How the reference platform does it, and what follows for Hyperlite
 
-Proxmox's storage replication (`zfs send`) works only between nodes of one cluster and only on ZFS. Between sites,
-Proxmox relies on Proxmox Backup Server: incremental backups (QEMU dirty bitmaps) that only read the changed blocks,
+The reference platform's storage replication (`zfs send`) works only between nodes of one cluster and only on ZFS. Between sites,
+The reference platform relies on a dedicated backup server: incremental backups (QEMU dirty bitmaps) that only read the changed blocks,
 synchronised to a second server on the other site. The surviving site restores from there.
 
 The same approach fits Hyperlite and reuses what exists:

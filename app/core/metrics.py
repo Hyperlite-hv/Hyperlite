@@ -4,20 +4,19 @@ instead of being recomputed on demand (which GET /vms/{name}/metrics already
 does; that mechanism is unchanged and remains the "instantaneous real time"
 view, while this one adds the HISTORY that did not exist).
 
-A deliberate simplification compared to vCenter's 4 statistics levels: only
-two tiers.
+A deliberate simplification: only two tiers.
   - "raw": one sample every COLLECT_INTERVAL_S seconds, kept RAW_RETENTION_H hours.
   - "hourly": the average of the raw samples of the elapsed hour, computed
     once an hour before the matching raw samples are purged, kept
     HOURLY_RETENTION_DAYS days.
 A "1h" view reads the raw tier; "24h/week/month" read the hourly tier. There
-is no additional "daily" tier (vCenter has a 3rd/4th): judged sufficient for
+is no additional "daily" tier: judged sufficient for
 the size of this project, to be refined if the number of VMs grows a lot.
 
 Alerting: fixed thresholds (not yet configurable from the UI) checked at every
 tick; a threshold crossing is logged through log_action (so it is visible and
 filterable in the existing Journal). There is no separate alarm subsystem with
-acknowledged/active states like vCenter, on the same principle of not
+acknowledged/active states, on the same principle of not
 over-engineering for the size of the project.
 
 """

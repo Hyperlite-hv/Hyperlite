@@ -3,7 +3,7 @@
 # in-target, see preseed.cfg) right after the installer put the base Debian
 # system from the CD.
 #
-# The installation needs no network, as with Proxmox: the ISO carries every
+# The installation needs no network: the ISO carries every
 # Debian package the appliance needs (Hyperlite's package carries its own Python environment)
 # (installer/build-offline-bundle.sh, in offline/), and the hyperlite package
 # itself. This script installs them from there, then writes the Debian and

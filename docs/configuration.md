@@ -7,7 +7,7 @@ Hyperlite is configured through environment variables, normally set in `/etc/hyp
 | `HYPERLITE_SECRET_KEY` | Secret the members of a cluster share to sign the calls between them (sessions are signed by hyperlite-daemon from 1.1.1). Must be long and random: the service refuses to start when it is set to fewer than 32 characters (`openssl rand -hex 32`). | random per process (sessions are lost on restart) |
 | `HYPERLITE_INITIAL_ADMIN_PASSWORD` | Password of the `admin` account created on first start. Ignored if an admin already exists. | none |
 | `HYPERLITE_ENCRYPTION_KEY` | Fernet key used to encrypt secrets stored in the database. Generated automatically into `/etc/hyperlite/priv/env` when missing. | generated |
-| `HYPERLITE_VM_MAX_VCPU`, `HYPERLITE_VM_MAX_MEMORY_MB`, `HYPERLITE_VM_MAX_DISK_GB`, `HYPERLITE_VM_MAX_DISKS` | Optional caps on a VM's vCPU, memory (MB), disk size (GB) and disk count, for example on a small test machine. Hyperlite sets no ceiling of its own otherwise, like Proxmox or vSphere. | none (technical ceilings only) |
+| `HYPERLITE_VM_MAX_VCPU`, `HYPERLITE_VM_MAX_MEMORY_MB`, `HYPERLITE_VM_MAX_DISK_GB`, `HYPERLITE_VM_MAX_DISKS` | Optional caps on a VM's vCPU, memory (MB), disk size (GB) and disk count, for example on a small test machine. Hyperlite sets no ceiling of its own otherwise. | none (technical ceilings only) |
 | `HYPERLITE_AUTH_SIGNING` | `local`: the API signs sessions itself, for the tests and a development backend without hyperlite-daemon. Never on a node. | unset (hyperlite-daemon signs) |
 | `HYPERLITE_VAR_DIR`, `HYPERLITE_ETC_DIR` | Where the data and the node's secrets live (`app/core/paths.py`); changed only for development and tests. | `/var/lib/hyperlite`, `/etc/hyperlite` |
 | `HYPERLITE_LOCK_DIR` | Where the claims on VMs and containers are taken, shared by the API and the schedulers (`app/core/shared_claims.py`); changed only for development and tests. | `/run/lock/hyperlite` |
@@ -37,32 +37,32 @@ Profile and policy names are the API's English wire values (see [api.md](api.md)
 
 ## Files
 
-From 1.1 the files live where Proxmox VE keeps its own (`app/core/paths.py`); up to 1.0 they were all under
+From 1.1 the files follow `app/core/paths.py`; up to 1.0 they were all under
 `/root/hyperlite`, and the first start of 1.1 moves them (`scripts/migrate_layout.sh`).
 
-From 1.14 `/etc/hyperlite` is the cluster's replicated configuration, mounted read-only by hyperlite-cfs as `/etc/pve`
-by pmxcfs ([design](design/cfs-files.md)): one JSON file per object under `db/`, the cluster's under `cluster/`, its
+From 1.14 `/etc/hyperlite` is the cluster's replicated configuration, mounted read-only by hyperlite-cfs
+([design](design/cfs-files.md)): one JSON file per object under `db/`, the cluster's under `cluster/`, its
 secrets under `priv/` (root only), every node's own files under `nodes/<host>/`, and `local` pointing at this node's.
 `.members`, `.version` and `.quorum` are made when read. The first start of 1.14 moves the node's files into it (the
 directory as it was is kept in `/var/lib/hyperlite/etc-before-cfs-<date>`). Changes go through the dashboard, the API
 or `hyperlite-admin`; a node's own file through `python3 -m app.core.node_files put <path>` (root, from
 `/usr/lib/hyperlite`).
 
-| Path | Content | Proxmox VE |
-|---|---|---|
-| `/usr/lib/hyperlite` | The code and its Python environment (the package's). | `/usr/share/perl5/PVE` |
-| `/usr/share/hyperlite/www` | The web interface, built. | `/usr/share/pve-manager` |
-| `/etc/hyperlite` | The cluster's configuration, read-only (from 1.14; before, the node's files below). | `/etc/pve` |
-| `/etc/hyperlite/local/priv/env` | Secrets and environment (root only; `/etc/hyperlite/priv/env` up to 1.13). | `/etc/pve/priv` |
-| `/etc/hyperlite/local/priv/ssh/` | Automation key (VMs, containers) and cluster keys (`priv/ssh/` up to 1.13). | `/etc/pve/priv`, `/root/.ssh` |
-| `/etc/hyperlite/local/priv/authkey.key`, `/etc/hyperlite/local/authkeys.json` | The key pair hyperlite-daemon signs sessions with (renewed every day) and the public keys the API verifies them with (`priv/authkey.key`, `authkeys.json` up to 1.13). | `/etc/pve/priv/authkey.key`, `/etc/pve/authkey.pub` |
-| `/etc/hyperlite/local/` | The web interface's certificate and key; replace them from Node › Certificate. | `/etc/pve/local/pve-ssl.*` |
-| `/var/lib/hyperlite/access/access.db` | Accounts, groups, permissions (root writes, the API reads; `/etc/hyperlite/access.db` up to 1.13). | `/etc/pve/user.cfg` |
-| `/var/lib/hyperlite/hyperlite.db` | SQLite database (WAL, root only). | `/var/lib/pve-cluster/config.db` |
-| `/var/lib/hyperlite/template/iso`, `template/vm` | ISO images, VM templates. | `/var/lib/vz/template/iso` |
-| `/var/lib/hyperlite/dump`, `dump/export`, `dump/container` | VM backups (the default directory), VM exports, container backups. | `/var/lib/vz/dump` |
-| `/var/lib/hyperlite/import` | Disks uploaded to be imported. | `/var/lib/vz/import` |
-| `/var/lib/hyperlite/tmp`, `k3s`, `bin`, `update-backups`, `previous` | Uploads in progress, Kubernetes files, tools, update archives, the package of the previous version. | |
+| Path | Content |
+|---|---|
+| `/usr/lib/hyperlite` | The code and its Python environment (the package's). |
+| `/usr/share/hyperlite/www` | The web interface, built. |
+| `/etc/hyperlite` | The cluster's configuration, read-only (from 1.14; before, the node's files below). |
+| `/etc/hyperlite/local/priv/env` | Secrets and environment (root only; `/etc/hyperlite/priv/env` up to 1.13). |
+| `/etc/hyperlite/local/priv/ssh/` | Automation key (VMs, containers) and cluster keys (`priv/ssh/` up to 1.13). |
+| `/etc/hyperlite/local/priv/authkey.key`, `/etc/hyperlite/local/authkeys.json` | The key pair hyperlite-daemon signs sessions with (renewed every day) and the public keys the API verifies them with (`priv/authkey.key`, `authkeys.json` up to 1.13). |
+| `/etc/hyperlite/local/` | The web interface's certificate and key; replace them from Node › Certificate. |
+| `/var/lib/hyperlite/access/access.db` | Accounts, groups, permissions (root writes, the API reads; `/etc/hyperlite/access.db` up to 1.13). |
+| `/var/lib/hyperlite/hyperlite.db` | SQLite database (WAL, root only). |
+| `/var/lib/hyperlite/template/iso`, `template/vm` | ISO images, VM templates. |
+| `/var/lib/hyperlite/dump`, `dump/export`, `dump/container` | VM backups (the default directory), VM exports, container backups. |
+| `/var/lib/hyperlite/import` | Disks uploaded to be imported. |
+| `/var/lib/hyperlite/tmp`, `k3s`, `bin`, `update-backups`, `previous` | Uploads in progress, Kubernetes files, tools, update archives, the package of the previous version. |
 
 ## Ports
 

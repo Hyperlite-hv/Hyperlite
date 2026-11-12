@@ -1,5 +1,5 @@
 """hyperlite-scheduler: the work no person asks for, out of the API (docs/design/privilege-separation.md, section
-14, 4c), as Proxmox VE's pvescheduler runs vzdump's and replication's jobs apart from pveproxy and pvedaemon.
+14, 4c): the scheduled jobs run apart from the API and the privileged daemon.
 
 It runs the scheduled backups (and the backup groups' jobs, the stores' copies and garbage collections), the
 replication, the inactive VMs' automatic deletion, the update check and the start at boot; the nodes' poll (and the

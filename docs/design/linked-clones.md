@@ -1,6 +1,6 @@
 # Linked clones (#423)
 
-A VM deployed from a template can share the template's disk and store only its own changes, as Proxmox VE's linked
+A VM deployed from a template can share the template's disk and store only its own changes
 clones: the clone's disk is a qcow2 image whose backing file is the template's disk. It is created in an instant and
 stays small; the template's disk is then shared, read-only, by every clone made from it.
 

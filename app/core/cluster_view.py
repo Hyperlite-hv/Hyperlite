@@ -1,4 +1,4 @@
-"""The cluster's activity seen from any node: the tasks and the audit log of every member, as Proxmox shows them.
+"""The cluster's activity seen from any node: the tasks and the audit log of every member.
 
 Each node keeps its own tasks and audit entries (they are history, not configuration: hyperlite-cfs does not hold them,
 app/repositories/cfs/tables.py). A task is recorded on the node that ran it, which is the node whose dashboard started
@@ -289,8 +289,7 @@ def forward_to(param, refuse_others=None):
 # ---- ?node= on everything a node holds (docs/design/terraform-provider.md, section 8) ----
 #
 # A VM, a template, a network, a storage pool and an ISO image live on one node: a request about them that names
-# another member goes to that member, which does the work itself, with its own locks, tasks and audit entries, as
-# Proxmox's pveproxy passes a request to the node that owns the guest. One rule for every route of their routers
+# another member goes to that member, which does the work itself, with its own locks, tasks and audit entries. One rule for every route of their routers
 # (`on_node`, a dependency of each router), instead of some routes reaching another node through libvirt over SSH and
 # others acting here only. A node registered over SSH only (no Hyperlite on it) is still reached through libvirt by the
 # routes that do so.
@@ -361,7 +360,7 @@ async def _send(request, param, node, user):
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
         content_type = request.headers.get("content-type", "application/json")
         if request.method == "POST" and content_type.startswith("multipart/form-data"):
-            # A file (an ISO image), as Proxmox VE relays an upload to the node that stores it. The form was read
+            # A file (an ISO image). The form was read
             # before this dependency ran, the file spooled to disk as for an upload here.
             form = await request.form()
             try:

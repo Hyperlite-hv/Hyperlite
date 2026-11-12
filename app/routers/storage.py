@@ -266,13 +266,13 @@ class PoolCreate(BaseModel):
     smb_domain: str | None = None  # "smb" pool: the Windows domain or workgroup, when the server needs it
     smb_version: Literal["default", "3.1.1", "3.0", "2.1", "2.0"] = "default"  # "default": negotiated
     # "lvm": libvirt's logical pool on a volume group (app/core/lvm_storage.py): an existing one, or one built on an
-    # empty disk (lvm_device), as Proxmox VE's LVM storage.
+    # empty disk (lvm_device).
     lvm_vg: str | None = None
     lvm_device: str | None = None
     # "lvm" pool: the thin pool its VM disks are made in (LVM-thin): an existing one of the group, or one Hyperlite
     # creates over the group's free space. None: thick volumes.
     lvm_thin_pool: str | None = None
-    # Shared storage (NFS, iSCSI) declared for several nodes at once, as on Proxmox: every node, including the ones
+    # Shared storage (NFS, iSCSI) declared for several nodes at once: every node, including the ones
     # registered later (all_nodes), or the nodes listed ("local" is this host). See app/core/shared_pools.py.
     all_nodes: bool = False
     nodes: list[str] | None = Field(None, max_length=64)
@@ -609,7 +609,7 @@ def delete_pool(
     user: dict = Depends(require_role("admin")),
 ):
     """everywhere: a shared pool (app/core/shared_pools.py) is removed from every node that has it, and its
-    definition with it, as on Proxmox; without it, from `node` only."""
+    definition with it; without it, from `node` only."""
     if pool_name == "default":
         raise HTTPException(status_code=400, detail="The 'default' pool cannot be deleted")
     if not confirm:
@@ -731,8 +731,7 @@ class VolumeCreate(BaseModel):
 
 @router.post("/{pool_name}/volumes", status_code=201)
 def create_volume(pool_name: str, payload: VolumeCreate, user: dict = Depends(get_current_user)):
-    """An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one, as
-    Proxmox VE's Datastore.AllocateSpace (deleting a volume stays an administrator's: it may hold another VM's data)."""
+    """An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one (deleting a volume stays an administrator's: it may hold another VM's data)."""
     perm.refuse_unless(user, "storage", pool_name, "storage.allocate", f"storage pool '{pool_name}'")
     size_errors = validate_vm_resources(disk_sizes=[payload.size_gb])
     if size_errors:

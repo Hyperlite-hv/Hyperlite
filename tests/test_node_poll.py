@@ -24,7 +24,9 @@ def poll(database, monkeypatch):
 
     state = {"up": True, "leader": True, "alerts": []}
     monkeypatch.setattr(
-        cluster, "list_nodes", lambda: [{"id": 1, "name": "pve-a", "hostname": "a", "ssh_user": "root", "ssh_port": 22}]
+        cluster,
+        "list_nodes",
+        lambda: [{"id": 1, "name": "node-a", "hostname": "a", "ssh_user": "root", "ssh_port": 22}],
     )
     monkeypatch.setattr(cluster, "test_node_connection", lambda *a: (state["up"], ""))
     nodes = Nodes()
@@ -47,7 +49,7 @@ def test_the_leader_reports_a_node_that_went_down_once(poll):
     run(poll)  # first sight: online
     run(poll, up=False)
     run(poll)
-    assert poll["alerts"] == ["pve-a"]
+    assert poll["alerts"] == ["node-a"]
 
 
 def test_a_node_that_saw_it_before_leading_reports_it_once_it_leads(poll):
@@ -56,7 +58,7 @@ def test_a_node_that_saw_it_before_leading_reports_it_once_it_leads(poll):
     assert poll["alerts"] == []
     run(poll, leader=True)  # this node took the lead: the node is still down
     run(poll)
-    assert poll["alerts"] == ["pve-a"]
+    assert poll["alerts"] == ["node-a"]
 
 
 def test_a_node_back_before_this_one_leads_is_not_reported(poll):
@@ -77,7 +79,7 @@ def test_a_node_down_at_the_first_poll_is_not_reported(poll):
 def test_in_a_cluster_each_node_refreshes_only_the_protected_vms_it_hosts(database, monkeypatch):
     from app.core import ha
 
-    rows = [{"vm_name": "mine", "node": "local"}, {"vm_name": "theirs", "node": "pve-b"}]
+    rows = [{"vm_name": "mine", "node": "local"}, {"vm_name": "theirs", "node": "node-b"}]
     opened = []
     monkeypatch.setattr(ha, "list_protected", lambda: rows)
     monkeypatch.setattr(
@@ -89,7 +91,7 @@ def test_in_a_cluster_each_node_refreshes_only_the_protected_vms_it_hosts(databa
     opened.clear()
     monkeypatch.setattr(cluster_lead, "in_cluster", lambda: False)  # a controller of SSH-driven nodes: all of them
     ha.sync_protected_vms()
-    assert opened == [None, "pve-b"]
+    assert opened == [None, "node-b"]
 
 
 def test_a_node_down_is_checked_again_sooner(poll, monkeypatch):

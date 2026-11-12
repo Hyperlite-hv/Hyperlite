@@ -1,4 +1,4 @@
-"""Basic high availability: a very reduced equivalent of vSphere HA / Proxmox HA.
+"""Basic high availability.
 
 The scope is DELIBERATELY cautious: nothing prevents a node "detected as
 offline" from actually being alive and merely unreachable (a network cut, a

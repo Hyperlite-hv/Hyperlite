@@ -1,5 +1,5 @@
 """Claims shared by every process that works on a guest: the API and the schedulers (docs/design/privilege-separation.md,
-section 14, 4c), as Proxmox VE locks a guest with a file of /run/lock/qemu-server that each of its services takes.
+section 14, 4c).
 
 A claim is an exclusive flock(2) on a file of paths.LOCKS, held by an open descriptor for as long as the operation
 runs. The kernel releases it when the descriptor is closed, so a process that stops, or is killed, leaves no claim

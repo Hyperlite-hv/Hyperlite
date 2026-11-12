@@ -1,9 +1,9 @@
 # Importing a VM exported from VMware (#426)
 
-Proxmox VE imports VMs from an ESXi host with a wizard. Antho decided on two steps:
+The reference platform imports VMs from an ESXi host with a wizard. Antho decided on two steps:
 
-1. **An OVA exported from VMware** (ESXi, vCenter, Workstation, ovftool), this change.
-2. **A live connection to an ESXi or a vCenter**, listing its VMs and importing one: only once an ESXi is available to
+1. **An OVA exported from VMware**, this change.
+2. **A live connection to an ESXi or a the commercial reference**, listing its VMs and importing one: only once an ESXi is available to
    test it against, which there is not today.
 
 ## What an OVA holds
@@ -48,11 +48,11 @@ Compressed or chunked disk files, several VMs in one OVA (a vApp) and malformed 
 
 ## Checked
 
-- Ubuntu's official OVA (`noble-server-cloudimg-amd64.ova`, made with VMware's OVF tooling): read as 2 vCPUs,
+- Ubuntu's official OVA: read as 2 vCPUs,
   1024 MiB, BIOS, Linux, one 10 GiB disk, a VmxNet3 card on "VM Network"; its disk extracted in 4.9 s, matching the
   manifest's SHA256; converted with `qemu-img convert -O qcow2` as Hyperlite does, it boots under QEMU to the
   `ubuntu login:` prompt.
-- Unit and API tests on descriptors written as ESXi 7 and ovftool write them: a Windows Server UEFI + Secure Boot VM
+- Unit and API tests on descriptors written: a Windows Server UEFI + Secure Boot VM
   with two disks and two cards, the refusals above, the manifest check, the tasks, a VM made from several imported
   disks, the device models of an imported Windows guest.
 

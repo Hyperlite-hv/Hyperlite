@@ -6,7 +6,7 @@ carries a peer ticket: a token hyperlite-daemon signs with this node's key (app/
 PEER_LIFETIME_S, and only for an account whose credential it checked itself: the session or API token of the request in
 progress, or the task ticket of a rolling update. The member called verifies it with the public keys the caller
 published in the replicated configuration (/cluster/authkey/<node>), as it pins the caller's certificate
-(/cluster/tls/<node>, app/core/peer_https.py). As Proxmox VE's pveproxy forwards the user's own ticket, no member signs
+(/cluster/tls/<node>, app/core/peer_https.py).'s own ticket, no member signs
 for a user it has not checked; unlike it, no private key leaves its node.
 
 A member that published no keys runs a version before this one, during a rolling update: it still gets the HS256 token
@@ -383,7 +383,7 @@ def delegate(credential):
 
 def bound_ticket(credential, task_id):
     """A task ticket for the account a session or an API token proves, whatever its role, bound to one of its tasks:
-    the work a request starts for that task keeps the account's proof once the request has answered, as Proxmox VE's
+    the work a request starts for that task keeps the account's proof once the request has answered
     workers keep the user of the task they run. It proves the account while the task runs (_account). A task ticket
     still valid makes one for another task of the same account: the next VM of a backup group, a drain's migrations."""
     user = _account(credential)  # never a call from another member: _account refuses those
