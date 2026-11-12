@@ -11,11 +11,10 @@ import { CONTAINER_TABS, DATACENTER_TABS, NODE_TABS, VM_TABS, locate } from "../
 import { selectionToPath, withTab } from "../lib/urls";
 import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
-import { formatUptimeLong, formatVersionInt } from "../lib/format";
-import { Box, Monitor, Server, Workflow } from "lucide-react";
-import { CLUSTER_TABS } from "../lib/sections";
-import { FrameContext } from "../lib/frame";
-import UpdateDialog from "../components/UpdateDialog";
+import { formatUptimeLong, formatVersionInt, normalize } from "../lib/format";
+import { ChevronRight, Search, X } from "lucide-react";
+import { LIST_OF, RESOURCE_MENUS, resourcePageLabel, serviceLabel, useConsoleStore } from "../lib/services";
+import ServiceTile from "../components/ServiceTile";
 import { PageHeader, StatePill } from "../components/ui";
 import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions";
 import { ContainerHeaderActions } from "../pages/ContainerPages";
@@ -81,112 +80,71 @@ const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots
 // Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
 const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports", "metrics", "cfs", "sites"]);
 
-// Object header of a VM: state, OS, node, IP and uptime on one line, then the actions.
-function VmHead({ vm, node, tab, setTab }) {
+// The line of facts under the commands of a resource: state first, then what identifies it.
+function VmFacts({ vm, node }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   const navigateTo = useInfraStore((s) => s.navigateTo);
   return (
-    <div className="nx-oh">
-      <span className="nx-otile" aria-hidden="true"><Monitor size={20} /></span>
-      <div className="nx-oh-main">
-        <div className="nx-oh-title"><h1>{vm.name}</h1>{vm.vmid != null && <span className="nx-vmid" title={t("vmid.title")}>{vm.vmid}</span>}</div>
-        <div className="nx-ometa">
-          <StatePill kind="vm" wire={vm.state} />
-          {vm.os && <span>{vm.os}</span>}
-          <span className="nx-sep" aria-hidden="true">·</span>
-          <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{node?.name || vm.node}</button>
-          <span className="nx-sep" aria-hidden="true">·</span>
-          <span className="nx-mono" title={vm.ip ? undefined : t("ns.ipHelp")}>{vm.ip || t("vm.ipNone")}</span>
-          {vm.state === "active" && vm.uptime_s ? <><span className="nx-sep" aria-hidden="true">·</span><span>{t("vm.since", { d: formatUptimeLong(vm.uptime_s, lang) })}</span></> : null}
-        </div>
-      </div>
-      <VmHeaderActions vm={vm} currentTab={tab} setTab={setTab} />
+    <div className="nx-ometa hc-facts">
+      <StatePill kind="vm" wire={vm.state} />
+      {vm.os && <span>{vm.os}</span>}
+      <span className="nx-sep" aria-hidden="true">·</span>
+      <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{node?.name || vm.node}</button>
+      <span className="nx-sep" aria-hidden="true">·</span>
+      <span className="nx-mono" title={vm.ip ? undefined : t("ns.ipHelp")}>{vm.ip || t("vm.ipNone")}</span>
+      {vm.state === "active" && vm.uptime_s ? <><span className="nx-sep" aria-hidden="true">·</span><span>{t("vm.since", { d: formatUptimeLong(vm.uptime_s, lang) })}</span></> : null}
     </div>
   );
 }
-
-// Object header of a container: state, kind (system LXC or Docker application), address, resources.
-function ContainerHead({ ct }) {
+function ContainerFacts({ ct }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
   return (
-    <div className="nx-oh">
-      <span className="nx-otile" aria-hidden="true"><Box size={20} /></span>
-      <div className="nx-oh-main">
-        <h1>{ct.name}</h1>
-        <div className="nx-ometa">
-          <StatePill kind="vm" wire={ct.state === "active" ? "active" : "stopped"} />
-          <span>{ct.mode === "application" ? `Docker · ${ct.image || ""}` : "LXC"}</span>
-          <span className="nx-sep" aria-hidden="true">·</span>
-          <span className="nx-mono">{ct.ip || t("ct.noIp")}</span>
-          <span className="nx-sep" aria-hidden="true">·</span>
-          <span className="nx-mono">{ct.vcpu} vCPU · {formatSizeMb(ct.memory_mb, lang)}</span>
-        </div>
-      </div>
-      <ContainerHeaderActions ct={ct} />
+    <div className="nx-ometa hc-facts">
+      <StatePill kind="vm" wire={ct.state === "active" ? "active" : "stopped"} />
+      <span>{ct.mode === "application" ? `Docker · ${ct.image || ""}` : "LXC"}</span>
+      <span className="nx-sep" aria-hidden="true">·</span>
+      <span className="nx-mono">{ct.ip || t("ct.noIp")}</span>
+      <span className="nx-sep" aria-hidden="true">·</span>
+      <span className="nx-mono">{ct.vcpu} vCPU · {formatSizeMb(ct.memory_mb, lang)}</span>
     </div>
   );
 }
-
-function NodeHead({ node, setTab }) {
+function NodeFacts({ node }) {
   const t = useT();
   const lang = useLangStore((s) => s.lang);
-  const offline = node.state !== "online";
   const qemu = formatVersionInt(node.hypervisor_version);
   const lv = formatVersionInt(node.libvirt_version);
   return (
-    <div className="nx-oh">
-      <span className="nx-otile" aria-hidden="true"><Server size={20} /></span>
-      <div className="nx-oh-main">
-        <h1 style={offline ? { fontStyle: "italic" } : undefined}>{node.name}</h1>
-        <div className="nx-ometa">
-          <StatePill kind="node" wire={node.state} />
-          <span>{node.id === "local" ? t("node.roleLocal") : t("node.roleMember")}</span>
-          {(qemu || lv) && <><span className="nx-sep" aria-hidden="true">·</span><span className="nx-mono">{[qemu && `QEMU ${qemu}`, lv && `libvirt ${lv}`].filter(Boolean).join(" · ")}</span></>}
-          {node.uptime_s ? <><span className="nx-sep" aria-hidden="true">·</span><span>{t("node.upSince", { d: formatUptimeLong(node.uptime_s, lang) })}</span></> : null}
-        </div>
-      </div>
-      <NodeHeaderActions node={node} setTab={setTab} />
+    <div className="nx-ometa hc-facts">
+      <StatePill kind="node" wire={node.state} />
+      <span>{node.id === "local" ? t("node.roleLocal") : t("node.roleMember")}</span>
+      {(qemu || lv) && <><span className="nx-sep" aria-hidden="true">·</span><span className="nx-mono">{[qemu && `QEMU ${qemu}`, lv && `libvirt ${lv}`].filter(Boolean).join(" · ")}</span></>}
+      {node.uptime_s ? <><span className="nx-sep" aria-hidden="true">·</span><span>{t("node.upSince", { d: formatUptimeLong(node.uptime_s, lang) })}</span></> : null}
     </div>
   );
 }
 
-// The cluster's header: its name, size and the actions that concern all of it, over the cluster's own tabs.
-function ClusterHead({ tab }) {
+// The menu of a resource page: a filter, then its pages in groups. The current page is marked.
+function ResourceMenu({ type, name, tab, admin, onPage }) {
   const t = useT();
-  const { nodes, vms, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, navigateTo: s.navigateTo })));
-  const cluster = useFreshness((s) => s.cluster);
-  const caps = capabilities(useAuthStore((s) => s.role));
-  const [update, setUpdate] = useState(false);
-  const inCluster = Boolean(cluster?.in_cluster);
-  const members = inCluster ? nodes.filter((n) => n.id === "local" || n.member) : nodes;
-  const running = vms.filter((v) => v.state === "active").length;
-  const sub = [
-    inCluster ? t("chead.cluster", { n: members.length }) : t("chead.nodes", { n: nodes.length }),
-    t("chead.vms", { n: vms.length, r: running }),
-    inCluster && cluster.quorum === false ? t("chead.noQuorum") : null,
-  ].filter(Boolean).join(" · ");
-  const go = (id) => navigateTo("datacenter", null, id);
+  const [q, setQ] = useState("");
+  const needle = normalize(q);
+  const groups = RESOURCE_MENUS[type].map((g) => ({
+    group: g.group,
+    pages: g.pages.map((p) => (typeof p === "string" ? { id: p } : p)).filter((p) => (!p.admin || admin || p.id === tab) && (!needle || normalize(t(resourcePageLabel(p.id))).includes(needle))),
+  })).filter((g) => g.pages.length);
   return (
-    <>
-      <div className="nx-chead">
-        <span className="nx-chead-ico" aria-hidden="true"><Workflow size={20} /></span>
-        <div className="nx-chead-txt"><h1>{inCluster ? cluster.name : t("crumb.datacenter")}</h1><p>{sub}</p></div>
-        {caps.admin && (
-          <div className="nx-chead-acts">
-            <button type="button" className="nx-btn" onClick={() => go("cfs")}>{inCluster ? t("chead.addNode") : t("chead.makeCluster")}</button>
-            <button type="button" className="nx-btn" onClick={() => setUpdate(true)}>{t("chead.update")}</button>
-          </div>
-        )}
-      </div>
-      <div className="nx-ctabs" role="tablist" aria-label={t("chead.tabs")}>
-        {CLUSTER_TABS.map((id) => (
-          <button key={id} type="button" role="tab" id={`nx-ctab-${id}`} aria-selected={tab === id} aria-controls="nx-panel" tabIndex={tab === id ? 0 : -1} onClick={() => go(id)}>{t(`ctab.${id}`)}</button>
-        ))}
-      </div>
-      {update && <UpdateDialog onClose={() => setUpdate(false)} />}
-    </>
+    <nav className="hc-rmenu" aria-label={name}>
+      <label className="hc-filter hc-rmenu-find"><Search size={14} aria-hidden="true" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("res.menuFilter")} aria-label={t("res.menuFilter")} /></label>
+      {groups.map((g, i) => (
+        <div key={g.group || i} className="hc-rgroup" role="group" aria-label={g.group ? t(g.group) : name}>
+          {g.group && <h2>{t(g.group)}</h2>}
+          {g.pages.map((p) => <button key={p.id} type="button" id={`nx-top-${p.id}`} aria-current={tab === p.id ? "page" : undefined} onClick={() => onPage(p.id)}>{t(resourcePageLabel(p.id))}</button>)}
+        </div>
+      ))}
+    </nav>
   );
 }
 
@@ -213,7 +171,7 @@ export default function Workspace({ children }) {
     : selection.type === "container" ? containers.find((c) => c.name === selection.id) : null;
   const isDc = selection.type === "datacenter";
   const isObj = selection.type === "node" || selection.type === "vm" || selection.type === "container";
-  const { tabs: topTabs, top, page: tab } = locate(isObj ? selection.type : "datacenter", activeTab);
+  const { page: tab } = locate(isObj ? selection.type : "datacenter", activeTab);
   const Registry = { node: NODE_TABS, vm: VM_TABS, container: CONTAINER_TABS }[selection.type] || DATACENTER_TABS;
   const Active = Registry[tab];
   const listLoaded = selection.type === "container" ? containersLoaded : !loading;
@@ -222,17 +180,10 @@ export default function Workspace({ children }) {
   const remote = (selection.type === "node" && resource?.distant) || vmNode?.distant;
 
   function setTab(id) { navigateTo(selection.type, selection.id, id); }
-  const goTop = (tt) => setTab(tt.pages[0].page);
-  function onTabKeyDown(e) {
-    const i = topTabs.findIndex((x) => x.id === top.id);
-    let n = null;
-    if (e.key === "ArrowRight") n = topTabs[(i + 1) % topTabs.length];
-    else if (e.key === "ArrowLeft") n = topTabs[(i - 1 + topTabs.length) % topTabs.length];
-    else if (e.key === "Home") n = topTabs[0];
-    else if (e.key === "End") n = topTabs[topTabs.length - 1];
-    if (n) { e.preventDefault(); goTop(n); requestAnimationFrame(() => document.getElementById(`nx-top-${n.id}`)?.focus()); }
-  }
-  const useSubnav = isObj && top.pages.length > 1;
+  const toList = () => navigateTo("datacenter", null, LIST_OF[selection.type]);
+  const visit = useConsoleStore((st) => st.visit);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (isObj && resource) visit(selection.type, selection.id, resource.name); }, [isObj, resource?.name, selection.type, selection.id, visit]);
   // A VM of another cluster member is backed up by that member, through this node (app/routers/backups.py); the other
   // pages still read this host only, and a node driven over SSH keeps no backups.
   const localOnly = selection.type === "vm" && isRemoteVm(resource) && LOCAL_ONLY_VM_PAGES.has(tab)
@@ -249,47 +200,49 @@ export default function Workspace({ children }) {
       {remote && <div className="nx-banner nx-banner--info" role="status">{t("res.remoteBanner")}</div>}
       <div className="nx-content" data-legacy="true">
         {children}
-        {isDc && CLUSTER_TABS.includes(tab) ? (
-          <FrameContext.Provider value={true}>
-            <div className="nx-cframe">
-              <ClusterHead tab={tab} />
-              <div className="nx-page" id="nx-panel" role="tabpanel" aria-labelledby={`nx-ctab-${tab}`}>
-                {loading ? null : Active?.ownHeader ? pageEl : (<><PageHeader title={t(`ctab.${tab}`)} />{pageEl}</>)}
-              </div>
-            </div>
-          </FrameContext.Provider>
-        ) : isDc ? (
+        {isDc ? (
           <div className="nx-page" id="nx-panel">
-            {ADMIN_ONLY.has(tab) && !caps.admin ? (<><PageHeader title={t(`tab.${tab}`)} /><PermissionNotice requires={t("top.role.admin")} /></>)
-              : loading ? null
+            {ADMIN_ONLY.has(tab) && !caps.admin ? (<><PageHeader title={t(serviceLabel(tab))} /><PermissionNotice requires={t("top.role.admin")} /></>)
+              : loading && tab !== "summary" ? null
               : Active?.ownHeader ? pageEl
-              : (<><PageHeader title={t(`tab.${tab}`)} />{pageEl}</>)}
+              : (<><PageHeader title={t(serviceLabel(tab))} />{pageEl}</>)}
           </div>
         ) : !isObj ? (
           <div className="nx-page"><div className="nx-legacy"><p>{t("res.storagePlaceholder")}</p></div></div>
         ) : missing ? (
-          <div className="nx-page"><EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("crumb.datacenter")}</button>} /></div>
+          <div className="nx-page"><EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("nav.overview")}</button>} /></div>
         ) : resource ? (
-          <>
-            {selection.type === "vm" ? <><VmHead vm={resource} node={vmNode} tab={tab} setTab={setTab} /><PendingChanges vm={resource} tab={tab} /></>
-              : selection.type === "container" ? <ContainerHead ct={resource} />
-              : <NodeHead node={resource} setTab={setTab} />}
-            <div className="nx-tabs" role="tablist" aria-label={resource.name} onKeyDown={onTabKeyDown}>
-              {topTabs.filter((x) => !x.admin || caps.admin || x.id === top.id).map((x) => (
-                <button key={x.id} id={`nx-top-${x.id}`} type="button" role="tab" aria-selected={top.id === x.id} aria-controls="nx-panel" tabIndex={top.id === x.id ? 0 : -1} onClick={() => goTop(x)}>{t(x.label)}</button>
-              ))}
-            </div>
-            <div className="nx-page" id="nx-panel" role="tabpanel" aria-labelledby={`nx-top-${top.id}`} tabIndex={0}>
-              {loading ? null : useSubnav ? (
-                <div className="nx-subnav2-layout">
-                  <nav className="nx-subnav2" aria-label={t(top.label)}>
-                    {top.pages.map((p) => <button key={p.page} type="button" aria-current={tab === p.page ? "page" : undefined} onClick={() => setTab(p.page)}>{t(p.label || `tab.${p.page}`)}</button>)}
-                  </nav>
-                  <div className="nx-stack">{pageEl}</div>
+          <div className="hc-respage">
+            <header className="hc-ph hc-ph--res">
+              <nav className="hc-crumbs" aria-label={t("crumb.label")}>
+                <button type="button" className="nx-lnk" onClick={() => navigateTo("datacenter", null, "summary")}>{t("nav.overview")}</button><ChevronRight size={12} aria-hidden="true" />
+                <button type="button" className="nx-lnk" onClick={toList}>{t(serviceLabel(LIST_OF[selection.type]))}</button><ChevronRight size={12} aria-hidden="true" />
+              </nav>
+              <div className="hc-ph-row">
+                <ServiceTile id={LIST_OF[selection.type]} size={32} />
+                <div className="hc-ph-t">
+                  <div className="nx-ph-title"><h1>{resource.name}</h1>{selection.type === "vm" && resource.vmid != null && <span className="nx-vmid" title={t("vmid.title")}>{resource.vmid}</span>}{tab !== "summary" && <span className="hc-ph-page">{t(resourcePageLabel(tab))}</span>}</div>
+                  <p className="hc-ph-sub">{t(`home.kind.${selection.type}`)}</p>
                 </div>
-              ) : pageEl}
+                <button type="button" className="hc-ibtn hc-ph-close" aria-label={t("action.close")} title={t("action.close")} onClick={toList}><X size={18} aria-hidden="true" /></button>
+              </div>
+            </header>
+            <div className="hc-res">
+              <ResourceMenu type={selection.type} name={resource.name} tab={tab} admin={caps.admin} onPage={setTab} />
+              <div className="hc-rbody">
+                <div className="hc-cmd hc-cmd--res" role="toolbar" aria-label={t("actions")}>
+                  {selection.type === "vm" ? <VmHeaderActions vm={resource} currentTab={tab} setTab={setTab} />
+                    : selection.type === "container" ? <ContainerHeaderActions ct={resource} />
+                    : <NodeHeaderActions node={resource} setTab={setTab} />}
+                </div>
+                {selection.type === "vm" ? <><VmFacts vm={resource} node={vmNode} /><PendingChanges vm={resource} tab={tab} /></>
+                  : selection.type === "container" ? <ContainerFacts ct={resource} /> : <NodeFacts node={resource} />}
+                <div className="nx-page" id="nx-panel" tabIndex={0}>
+                  {loading ? null : pageEl}
+                </div>
+              </div>
             </div>
-          </>
+          </div>
         ) : null}
       </div>
     </main>
