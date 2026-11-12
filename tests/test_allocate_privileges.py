@@ -1,4 +1,4 @@
-"""Creating VMs without being an administrator, as vSphere and Proxmox VE allow: vm.allocate on the pool the VM goes
+"""Creating VMs without being an administrator: vm.allocate on the pool the VM goes
 in, storage.allocate on the storage pool of its disks, network.assign on its network. What a Terraform pipeline's
 token needs, and nothing more."""
 

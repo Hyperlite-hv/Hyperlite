@@ -1,4 +1,4 @@
-"""scripts/migrate_layout.sh: the move between /root/hyperlite and the layout modelled on Proxmox VE, in both
+"""scripts/migrate_layout.sh: the move between /root/hyperlite and the layout of 1.1, in both
 directions, all or nothing (docs/design/privilege-separation.md, section 9)."""
 
 import grp
@@ -60,7 +60,7 @@ def _has_group(name):
     return True
 
 
-def test_forward_puts_every_item_where_proxmox_would_and_keeps_its_content(old_layout):
+def test_forward_puts_every_item_in_its_new_place_and_keeps_its_content(old_layout):
     r = run(old_layout, "forward")
     assert r.returncode == 0, r.stdout + r.stderr
     for old, new in PAIRS:
@@ -71,8 +71,7 @@ def test_forward_puts_every_item_where_proxmox_would_and_keeps_its_content(old_l
     for d in ("etc/hyperlite/priv", "etc/hyperlite/priv/ssh"):
         assert (old_layout / d).stat().st_mode & 0o777 == 0o700, d
     assert (old_layout / "root/hyperlite/app/main.py").is_file()
-    # The certificate's directory and the database: root's and the API's group (www-data from 4e), as Proxmox VE's
-    # /etc/pve/local and pveproxy's own files.
+    # The certificate's directory and the database: root's and the API's group (www-data from 4e).
     api_group = grp.getgrnam("www-data").gr_gid if os.geteuid() == 0 and _has_group("www-data") else None
     for path, mode in (("etc/hyperlite/local", 0o750), ("var/lib/hyperlite/hyperlite.db", 0o660)):
         st = (old_layout / path).stat()
@@ -101,7 +100,7 @@ def test_an_item_on_both_sides_stops_it_before_anything_moves(old_layout):
 
 def test_a_failure_halfway_puts_back_what_was_moved(old_layout):
     (old_layout / "etc").mkdir()
-    (old_layout / "etc/hyperlite").write_text("a file where a directory is needed")  # the TLS and secrets cannot move
+    (old_layout / "etc/hyperlite").write_text("a file where a directory is needed")  # The TLS and secrets cannot move
     r = run(old_layout, "forward")
     assert r.returncode == 1 and "goes back" in r.stdout
     for old, _ in PAIRS:

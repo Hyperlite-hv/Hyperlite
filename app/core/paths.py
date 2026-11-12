@@ -1,12 +1,11 @@
-"""Where Hyperlite keeps its files: from 1.1 where Proxmox VE keeps its own (docs/design/privilege-separation.md,
-section 9), every path in one place. Up to 1.0 everything lived under /root/hyperlite; scripts/migrate_layout.sh moves
+"""Where Hyperlite keeps its files from 1.1 (docs/design/privilege-separation.md, section 9), every path in one place. Up to 1.0 everything lived under /root/hyperlite; scripts/migrate_layout.sh moves
 a node's files from there, and holds the same list.
 
-  code               /usr/lib/hyperlite                 (Proxmox: /usr/share/perl5/PVE)
-  web interface      /usr/share/hyperlite/www           (Proxmox: /usr/share/pve-manager)
-  node secrets       /etc/hyperlite/priv                (Proxmox: /etc/pve/priv; /etc/hyperlite/local/priv from 1.14)
-  node TLS           /etc/hyperlite/local               (Proxmox: /etc/pve/local)
-  data               /var/lib/hyperlite                 (Proxmox: /var/lib/vz, /var/lib/pve-cluster)
+  code               /usr/lib/hyperlite
+  web interface      /usr/share/hyperlite/www
+  node secrets       /etc/hyperlite/priv
+  node TLS           /etc/hyperlite/local
+  data               /var/lib/hyperlite
 
 HYPERLITE_VAR_DIR and HYPERLITE_ETC_DIR move the data and the configuration elsewhere (the test suite, the e2e
 backend, a development checkout); HYPERLITE_WWW_DIR the web interface."""
@@ -20,19 +19,19 @@ INSTALLED_CODE = Path("/usr/lib/hyperlite")
 
 VAR = Path(os.environ.get("HYPERLITE_VAR_DIR") or "/var/lib/hyperlite")
 ETC = Path(os.environ.get("HYPERLITE_ETC_DIR") or "/etc/hyperlite")
-# The package ships the built interface apart from the code, as Proxmox does; a checkout builds it in place.
+# The package ships the built interface apart from the code; a checkout builds it in place.
 WWW = Path(
     os.environ.get("HYPERLITE_WWW_DIR")
     or ("/usr/share/hyperlite/www" if CODE == INSTALLED_CODE else CODE / "dashboard" / "dist")
 )
 
-# From 1.14 /etc/hyperlite is hyperlite-cfs's tree, mounted read-only, as /etc/pve (docs/design/cfs-files.md, section
+# From 1.14 /etc/hyperlite is hyperlite-cfs's tree, mounted read-only (docs/design/cfs-files.md, section
 # 15): only the mount shows .version. Its priv/ is then the cluster's, and the node's own secrets are under local/priv,
 # its own directory (nodes/<host>/priv). Before the move they are in /etc/hyperlite/priv. Written through
 # app/core/node_files.py, which knows both.
 IN_TREE = (ETC / ".version").is_file()
 TLS_DIR = ETC / "local"  # the web interface's certificate and key
-# Root only (0700), as /etc/pve/priv.
+# Root only (0700).
 PRIV = (TLS_DIR if IN_TREE else ETC) / "priv"
 ENV_FILE = PRIV / "env"  # the node's keys (session signing, encryption); a systemd EnvironmentFile
 SSH_DIR = PRIV / "ssh"  # the key this node uses to reach the others and its VMs
@@ -41,7 +40,7 @@ INITIAL_PASSWORD_FILE = PRIV / "initial-admin-password.txt"
 # /run/hyperlite: what lasts as long as the services (hyperlite-daemon's socket, its tunnels to the other nodes).
 RUN = Path(os.environ.get("HYPERLITE_RUN_DIR") or "/run/hyperlite")
 # /run/lock/hyperlite: the claims on VMs (app/core/vm_locks.py), shared by every process that works on a VM (the API,
-# the schedulers), as Proxmox VE locks a guest with /run/lock/qemu-server/lock-<vmid>.conf. Not under /run/hyperlite,
+# the schedulers). Not under /run/hyperlite,
 # which is hyperlite-daemon's and removed when it stops: a claim's file must outlive any one service.
 LOCKS = Path(os.environ.get("HYPERLITE_LOCK_DIR") or "/run/lock/hyperlite")
 

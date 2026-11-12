@@ -1,6 +1,5 @@
 """A backup in a store served as a disk (docs/design/live-restore.md, part 2): a read-only NBD server on a Unix socket,
-which reads each 4 MiB chunk of the disk's index from the store (decrypted when the store is), as Proxmox Backup
-Server serves a backup to a live restore.
+which reads each 4 MiB chunk of the disk's index from the store (decrypted when the store is).
 
 QEMU opens it as the backing file of the new VM's disk (nbd+unix:///?socket=...); the VM boots on it, and libvirt's block
 pull copies the rest. The protocol as the NBD specification (docs/proto.md of the NBD project) gives it, the least of

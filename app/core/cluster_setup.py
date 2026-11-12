@@ -1,4 +1,4 @@
-"""Creating and joining a cluster from the dashboard, as Proxmox's "Create cluster" and "Join cluster".
+"""Creating and joining a cluster from the dashboard"Create cluster" and "Join cluster".
 
 Every node of a cluster runs Corosync, hyperlite-cfs in cluster mode and Hyperlite; all are equal. What the members
 share lives in hyperlite-cfs:
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 COROSYNC_CONF = Path("/etc/corosync/corosync.conf")
 # The primary node counts twice in the quorum: with one other node, it keeps the quorum alone, so that node (a machine
-# that is often off, or reached over a slower link) never makes it read-only. Proxmox allows it by editing quorum_votes.
+# that is often off, or reached over a slower link) never makes it read-only.
 PRIMARY_VOTES = 2
 COROSYNC_KEY = Path("/etc/corosync/authkey")
 COROSYNC_BIN = "/usr/sbin/corosync"
@@ -70,7 +70,7 @@ JOIN_SETTING = "cfs_join_pending"
 TICKET_TTL_S = 1800
 WAIT_S = 60
 # A joining node waits longer: its Corosync links to the members come up only once they reloaded with it, which took
-# more than a minute on loaded hosts (GitHub's runners), and Proxmox's pvecm add waits for the quorum as long.
+# more than a minute on loaded hosts (GitHub's runners).
 JOIN_WAIT_S = 300
 
 CLUSTER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,14}$")
@@ -598,7 +598,7 @@ def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=No
             for path, value in published.items():
                 client.put(path, json.dumps(value).encode())
             client.put(CONF_PATH, json.dumps(conf).encode())
-        except Exception:  # the cluster does not list the new node: neither do the nodes table and the SSH keys
+        except Exception:  # The cluster does not list the new node: neither do the nodes table and the SSH keys
             for path in (ssh_entry, *published):
                 with contextlib.suppress(Exception):
                     client.delete(path)

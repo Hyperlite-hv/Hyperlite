@@ -1,6 +1,6 @@
-"""The templates of this node (app/routers/templates.py): made from a stopped VM, which becomes the template (Proxmox
-VE's "Convert to template") or keeps running its course with the template a copy of its disk (vSphere's "Clone to
-Template"); deployed as a new VM with a copy of the template's disk or a linked disk over it; renamed and deleted.
+"""The templates of this node (app/routers/templates.py): made from a stopped VM, which becomes the template or keeps
+running its course with the template a copy of its disk; deployed as a new VM with a copy of the template's disk or a
+linked disk over it; renamed and deleted.
 Their files (app/core/templates_store.py) are root's and hyperlite-daemon writes them (template.*,
 app/daemon/ops/vm.py, docs/design/privilege-separation.md, section 13). The API keeps who may ask, the locks, the
 tasks, what it records of a VM and its answers.
@@ -156,7 +156,7 @@ def make(conn, vm, template, keep_vm, created_by, ssh_user=None, os_label=None, 
 
 
 def deploy(conn, template, new_name, network=None, linked=False, check_only=False):
-    """A new stopped VM `new_name` from `template`: a copy of its disk, or a linked disk over it (Proxmox VE's linked
+    """A new stopped VM `new_name` from `template`: a copy of its disk, or a linked disk over it (a linked
     clone); `network` replaces its interfaces' network. check_only: the checks alone, None."""
     tpl = templates_store.get_template(template)
     if tpl is None:

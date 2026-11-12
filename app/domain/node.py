@@ -1,7 +1,7 @@
 """A registered node: what an administrator declared (spec), what Hyperlite observed (status), and its maintenance.
 
 The local host is not a Node: it is the machine running Hyperlite, named "local" everywhere. to_wire() gives the
-exact JSON the current API returns (French wire identifiers, see CLAUDE.md), so moving the storage behind a
+exact JSON the current API returns (French wire identifiers, see CONTRIBUTING.md), so moving the storage behind a
 repository changes no response.
 """
 

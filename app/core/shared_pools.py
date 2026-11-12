@@ -1,4 +1,4 @@
-"""Shared storage pools declared for several nodes at once, as on Proxmox (Datacenter > Storage > Nodes).
+"""Shared storage pools declared for several nodes at once (Datacenter > Storage > Nodes).
 
 An NFS export or an iSCSI target reachable from every node is the same storage for all of them: it is created on
 each chosen node under the same name and mount point, which live migration and HA need. The definition is kept here

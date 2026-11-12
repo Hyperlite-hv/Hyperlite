@@ -4,9 +4,9 @@ This page is for hosts driven over SSH from one controller (a host across a WAN,
 cluster created from the **Cluster** page, every node is equal: there is no controller and nothing to take over.
 
 > **Deprecated.** Hosts driven over SSH, the configuration copy and `hyperlite-promote` keep working for as long as
-> API v1 lasts, and go with v2. A node joins a cluster of equal nodes instead (the **Cluster** page), as on Proxmox VE.
+> API v1 lasts, and go with v2. A node joins a cluster of equal nodes instead (the **Cluster** page).
 > A site across a WAN will run its own Hyperlite, autonomous, and one view will drive every site through its API
-> (#656, as Proxmox Datacenter Manager): a cut link then stops nothing on either side. The API routes that register
+> (#656): a cut link then stops nothing on either side. The API routes that register
 > such a host are marked `deprecated` in its description and answer with a `Deprecation` header (`docs/api.md`).
 
 Hyperlite runs on one controller host; the other nodes are driven over SSH. If the controller host is lost, the VMs

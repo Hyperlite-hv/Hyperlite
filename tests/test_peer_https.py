@@ -54,11 +54,11 @@ def server(tmp_path, monkeypatch):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     fingerprint = hashlib.sha256(ssl.PEM_cert_to_DER_cert(crt.read_text())).hexdigest()
     monkeypatch.setattr("app.core.cluster_setup.PORT", httpd.server_address[1])
-    published = {"pve-a": fingerprint}
+    published = {"node-a": fingerprint}
     monkeypatch.setattr(peer_https, "fingerprint_of", lambda name: published.get(name))
     monkeypatch.setattr(peer_https, "_pools", {})
     Handler.seen = []
-    yield {"node": {"name": "pve-a", "hostname": "127.0.0.1"}, "published": published, "port": httpd.server_address[1]}
+    yield {"node": {"name": "node-a", "hostname": "127.0.0.1"}, "published": published, "port": httpd.server_address[1]}
     httpd.shutdown()
 
 
@@ -71,7 +71,7 @@ def test_a_call_goes_over_https_and_reads_reuse_the_connection(server):
 
 
 def test_a_certificate_that_is_not_the_published_one_is_refused(server):
-    server["published"]["pve-a"] = "0" * 64
+    server["published"]["node-a"] = "0" * 64
     with pytest.raises(peer_https.Unavailable, match="does not match"):
         peer_https.call(server["node"], "tok", "GET", "/vms")
     assert Handler.seen == []  # nothing was sent
@@ -79,7 +79,7 @@ def test_a_certificate_that_is_not_the_published_one_is_refused(server):
 
 def test_no_fingerprint_published_means_ssh(server):
     with pytest.raises(peer_https.Unavailable):
-        peer_https.call({"name": "pve-b", "hostname": "127.0.0.1"}, "tok", "GET", "/vms")
+        peer_https.call({"name": "node-b", "hostname": "127.0.0.1"}, "tok", "GET", "/vms")
 
 
 def test_a_read_is_sent_again_once_but_a_change_never(server, monkeypatch):
@@ -127,7 +127,7 @@ def test_peer_api_uses_https_and_falls_back_to_ssh(server, monkeypatch):
     status, body = rolling_update.peer_api(server["node"], "ana", "GET", "/vms")
     assert status == 200 and body["path"] == "/api/v1/vms" and ssh == []  # the members' API prefix
     server["published"].clear()  # no fingerprint: SSH, as before
-    assert rolling_update.peer_api(server["node"], "ana", "GET", "/vms") == (200, []) and ssh == ["pve-a"]
+    assert rolling_update.peer_api(server["node"], "ana", "GET", "/vms") == (200, []) and ssh == ["node-a"]
 
 
 def test_the_fingerprint_is_published_only_when_it_changed(monkeypatch):
@@ -218,11 +218,11 @@ def test_an_export_is_read_while_it_arrives_on_a_connection_of_its_own(server):
     answer.close()
     assert Handler.seen[-1][2] == "Bearer tok"
     assert peer_https._pools == {}  # never a kept connection: the caller closes it once read
-    server["published"]["pve-a"] = "0" * 64
+    server["published"]["node-a"] = "0" * 64
     with pytest.raises(peer_https.Unavailable, match="does not match"):
         peer_https.stream(server["node"], "tok", "/api/v1/tasks/export.csv")
     with pytest.raises(peer_https.Unavailable):
-        peer_https.stream({"name": "pve-b", "hostname": "127.0.0.1"}, "tok", "/api/v1/tasks/export.csv")
+        peer_https.stream({"name": "node-b", "hostname": "127.0.0.1"}, "tok", "/api/v1/tasks/export.csv")
 
 
 def test_a_connection_the_peer_closed_is_never_reopened_unchecked(server):
@@ -230,7 +230,7 @@ def test_a_connection_the_peer_closed_is_never_reopened_unchecked(server):
     # skipped the pinning: the call sent its peer ticket to whatever answered there (GHSA-mv7v-9gqp-797f).
     assert peer_https.call(server["node"], "tok", "GET", "/closing")[0] == 200
     assert all(pool.empty() for pool in peer_https._pools.values())  # not kept
-    conn = peer_https._connect("127.0.0.1", server["port"], server["published"]["pve-a"], 5)
+    conn = peer_https._connect("127.0.0.1", server["port"], server["published"]["node-a"], 5)
     conn.close()  # as the peer closing it
     conn.fingerprint = "0" * 64  # what answers there now is not the member
     with pytest.raises(peer_https.Unavailable, match="does not match"):

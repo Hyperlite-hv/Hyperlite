@@ -102,14 +102,14 @@ def test_shadow_mode_is_off_unless_turned_on(database, monkeypatch):
 
 def test_notes_and_tags_are_copied_as_sqlite_holds_them(cfs):
     object_meta.put("vm", "web", "Front of the shop", ["Prod", "db"])
-    object_meta.put("node", "pve-a", "Rack 2", [])
+    object_meta.put("node", "node-a", "Rack 2", [])
     assert shadow.pending() == 2 and shadow.drain() == 2 and shadow.pending() == 0
     web = row(cfs, "/db/object_meta/vm/hv-test/web")
     assert web["notes"] == "Front of the shop" and json.loads(web["tags"]) == ["prod", "db"]
-    assert row(cfs, "/db/object_meta/node/_/pve-a")["notes"] == "Rack 2"  # a node's own notes: node is ''
+    assert row(cfs, "/db/object_meta/node/_/node-a")["notes"] == "Rack 2"  # a node's own notes: node is ''
 
     object_meta.put("vm", "web", "", [])  # emptied: SQLite drops the row, the copy goes too
-    object_meta.delete("node", "pve-a")
+    object_meta.delete("node", "node-a")
     shadow.drain()
     assert cfs.files == {}
     assert shadow.report()["differences"] == 0
@@ -118,12 +118,12 @@ def test_notes_and_tags_are_copied_as_sqlite_holds_them(cfs):
 def test_a_migration_and_renames_move_the_copy(cfs):
     object_meta.put("vm", "web", "", ["prod"])
     vm_boot.set_setting("web", True, 2, 30)
-    object_meta.follow_migration("web", "local", "pve-b")
-    vm_boot.follow_migration("web", "local", "pve-b")
+    object_meta.follow_migration("web", "local", "node-b")
+    vm_boot.follow_migration("web", "local", "node-b")
     shadow.drain()
-    assert sorted(cfs.files) == ["/db/object_meta/vm/pve-b/web", "/db/vm_boot/pve-b/web"]
-    assert row(cfs, "/db/vm_boot/pve-b/web") == {
-        "node": "pve-b",
+    assert sorted(cfs.files) == ["/db/object_meta/vm/node-b/web", "/db/vm_boot/node-b/web"]
+    assert row(cfs, "/db/vm_boot/node-b/web") == {
+        "node": "node-b",
         "vm_name": "web",
         "autostart": 1,
         "boot_order": 2,
@@ -131,18 +131,18 @@ def test_a_migration_and_renames_move_the_copy(cfs):
     }
 
     # Renames move rows with raw SQL (app/repositories/sqlite/renames.py): the triggers see those writes too.
-    SqliteRenameStore().vm_records("web", "shop", "pve-b", "pve-b:", lambda xml, new: xml)
-    object_meta.put("node", "pve-b", "", ["edge"])
-    SqliteRenameStore().node_records("pve-b", "pve-c")
+    SqliteRenameStore().vm_records("web", "shop", "node-b", "node-b:", lambda xml, new: xml)
+    object_meta.put("node", "node-b", "", ["edge"])
+    SqliteRenameStore().node_records("node-b", "node-c")
     shadow.drain()
     assert sorted(cfs.files) == [
-        "/db/object_meta/node/_/pve-c",
-        "/db/object_meta/vm/pve-c/shop",
-        "/db/vm_boot/pve-c/shop",
+        "/db/object_meta/node/_/node-c",
+        "/db/object_meta/vm/node-c/shop",
+        "/db/vm_boot/node-c/shop",
     ]
-    vm_boot.delete_setting("shop", "pve-c")
+    vm_boot.delete_setting("shop", "node-c")
     shadow.drain()
-    assert "/db/vm_boot/pve-c/shop" not in cfs.files
+    assert "/db/vm_boot/node-c/shop" not in cfs.files
     assert shadow.report()["differences"] == 0
 
 
@@ -282,7 +282,7 @@ def test_against_the_real_daemon(database, tmp_path, monkeypatch):
     proc = _start(BIN, tmp_path)
     try:
         object_meta.put("vm", "my web", "Front", ["prod"])  # a name the daemon only takes encoded
-        object_meta.put("node", "pve-a", "Rack 2", [])
+        object_meta.put("node", "node-a", "Rack 2", [])
         assert shadow.drain() == 2
         state = shadow.report()
         assert state["reachable"] and state["daemon"]["mode"] == "local"

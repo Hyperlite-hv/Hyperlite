@@ -1,7 +1,7 @@
 """This node's libraries: the ISOs and the disks to import (app/routers/isos.py, app/routers/vm_disks.py), whose files
 hyperlite-daemon stores, renames and deletes (app/daemon/ops/disk.py, docs/design/privilege-separation.md, section 13).
 
-An upload goes through the spool, as Proxmox VE's pveproxy writes an upload into a temporary file and pvedaemon copies
+An upload goes through the spool
 it into the storage: the API writes it into SPOOL, a directory it will own once it runs without root, and the daemon
 moves it into its library. The spool is on the libraries' file system, so the move is a rename. The daemon takes a
 spool file's name, never a path, and only a regular file with one link: the API must not be able to have a link to

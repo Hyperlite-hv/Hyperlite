@@ -183,7 +183,7 @@ int cfs_mount_attr_of(cfs_mount *m, const char *path, struct stat *st)
 {
     if (strcmp(path, "/") == 0) {
         fill(m, st, path, S_IFDIR, 0, 0);
-        st->st_mode = S_IFDIR | 0755; /* every account may list the root, as /etc/pve */
+        st->st_mode = S_IFDIR | 0755; /* every account may list the root */
         return 0;
     }
     if (strcmp(path, "/" LOCAL_LINK) == 0) {

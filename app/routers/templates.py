@@ -69,8 +69,8 @@ def _daemon(op, user, action, target, task_id=None, timeout=None, **args):
 
 class ConvertRequest(BaseModel):
     template_name: str | None = None
-    # True: the template gets a copy of the VM's disk and the VM stays, as vSphere's "Clone to Template". False (the
-    # default, as before): the VM becomes the template and leaves the list, as Proxmox VE's "Convert to template".
+    # True: the template gets a copy of the VM's disk and the VM stays"Clone to Template". False (the
+    # default, as before): the VM becomes the template and leaves the list"Convert to template".
     keep_vm: bool = False
 
 
@@ -131,7 +131,7 @@ def _convert_to_template(name, payload, user, check_only=False, task_id=None):
 class DeployRequest(BaseModel):
     new_name: str
     network: str | None = None
-    # True: a linked clone, as on Proxmox VE: the VM's disk only stores its own changes over the template's disk
+    # True: a linked clone: the VM's disk only stores its own changes over the template's disk
     # (app/core/linked_disks.py). It is made in an instant and stays small, and the template cannot be deleted or
     # renamed while it exists. False (the default, as before): a full copy of the template's disk.
     linked: bool = False

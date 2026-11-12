@@ -1,15 +1,15 @@
 # Hook scripts on a VM's lifecycle (#515)
 
-Proxmox VE runs a hook script per VM at four phases: `pre-start`, `post-start`, `pre-stop` and `post-stop`, called with
+The reference platform runs a hook script per VM at four phases: `pre-start`, `post-start`, `pre-stop` and `post-stop`, called with
 the VM's id and the phase; a failing `pre-start` stops the start. The script lives in a storage's `snippets` and only
-`root@pam` attaches one. vSphere has no host-side script per VM: what runs on the host is VMware's own, and a guest's
-power scripts run inside the guest (VMware Tools). Antho asked for the best of both, adapted to Hyperlite.
+`root@pam` attaches one. The commercial reference has no host-side script per VM: what runs on the host is VMware's own, and a guest's
+power scripts run inside the guest. Antho asked for the best of both, adapted to Hyperlite.
 
 What Hyperlite takes:
 
-- From Proxmox VE: the four phases, the arguments (`<vm> <phase>`), a failing `pre-start` or `pre-stop` refusing the
+- From the reference platform: the four phases, the arguments (`<vm> <phase>`), a failing `pre-start` or `pre-stop` refusing the
   action, the scripts in a library on the node that only root fills.
-- From vSphere: nothing that runs as root comes from the web. The dashboard picks a script that root placed on the node;
+- From the commercial reference: nothing that runs as root comes from the web. The dashboard picks a script that root placed on the node;
   it never uploads or edits one, so a stolen administrator account does not become root on the nodes.
 
 ## What libvirt does (checked on libvirt 10.0, this repository's lab)
@@ -45,7 +45,7 @@ replication, `virsh`.
 | `pre-stop` | Hyperlite | before a shutdown, a stop or a forced restart asked through Hyperlite | refuses the shutdown or the stop; a forced stop runs it and goes on |
 | `post-stop` | the libvirt hook | `release end`, only after the VM had started | recorded |
 
-A guest powering itself off gets no `pre-stop` (as in Proxmox VE: there is nothing before it), but always gets its
+A guest powering itself off gets no `pre-stop`, but always gets its
 `post-stop`. A start refused at `pre-start` gets no `post-stop`.
 
 The script runs with `<vm> <phase>`, `HYPERLITE_VM` and `HYPERLITE_PHASE` in its environment, the VM's XML on its

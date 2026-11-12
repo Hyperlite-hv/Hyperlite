@@ -301,7 +301,7 @@
 .nx-error { border: 1px solid color-mix(in oklab, var(--color-danger) 35%, var(--color-border-subtle)); background: var(--color-danger-subtle); border-radius: var(--radius-md); }
 .nx-empty h2, .nx-error h2 { margin: 0; font-size: var(--font-size-lg); }
 
-/* vSphere-style perspectives, actions and section navigation */
+/* Perspectives, actions and section navigation */
 .nx-persp { display: flex; gap: 2px; padding: var(--space-2) var(--space-2) 0; border-bottom: 1px solid var(--color-border-subtle); }
 .nx-persp [role="tab"] { flex: 1; display: inline-flex; justify-content: center; align-items: center; height: 2.25rem; background: none; border: 0; cursor: pointer; color: var(--color-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .nx-persp [role="tab"]:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }

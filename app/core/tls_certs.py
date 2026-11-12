@@ -166,7 +166,7 @@ def install(cert_bytes, key_bytes, source):
     crt, key = _paths()
     if not _in_tree(crt):
         TLS_DIR.mkdir(parents=True, exist_ok=True)
-        # The API serves HTTPS with them (as pveproxy-ssl.key, root:www-data 0640); a key replaced stays root's alone.
+        # The API serves HTTPS with them; a key replaced stays root's alone.
         api_group.share(TLS_DIR, 0o750)
     if crt.exists() and key.exists():
         _put(crt.with_name("hyperlite.crt.previous"), crt.read_bytes(), 0o644)

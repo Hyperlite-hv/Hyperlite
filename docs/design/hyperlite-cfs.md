@@ -4,18 +4,18 @@ Status: **accepted (2026-10-01).** Phase A (local mode) and phase B (Corosync, q
 transfer, terms and confirmed answers, the fault tests and their nightly soak, two-node clusters) are in `cfs/`; C to
 E are to come.
 
-Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose Proxmox VE's architecture
-on Proxmox VE's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
-database of our own, the counterpart of Proxmox's `pmxcfs`, written in C (Q11).
+Context: `docs/design/control-plane-v2-migration.md`, section 15.2. The maintainers chose the reference platform's architecture
+on the reference platform's foundations: Corosync for membership, quorum and ordered messages, and a replicated configuration
+database of our ownthe reference cluster file system, written in C (Q11).
 
-Sources: the Proxmox VE documentation (`pmxcfs.adoc`, `pvecm.adoc` in `proxmox/pve-docs`) and the Corosync manual
+Sources: the reference platform documentation and the Corosync manual
 pages (`cpg_overview(3)`, `cpg_mcast_joined(3)`, `cpg_model_initialize(3)`, `votequorum(5)` in `corosync/corosync`).
-Quotes are from those pages. `pmxcfs` is AGPL-3.0 and Hyperlite is PolyForm Noncommercial: **its source code is not
+Quotes are from those pages. the reference cluster file system is AGPL-3.0 and Hyperlite is PolyForm Noncommercial: **its source code is not
 read or copied**; only its documented behaviour is reused.
 
 ## 1. What it must do
 
-What Proxmox documents for `pmxcfs`, which is the target:
+What the reference platform documents for the reference cluster file system, which is the target:
 
 - "a database-driven file system for storing configuration files, replicated in real time to all cluster nodes
   using corosync";
@@ -32,7 +32,7 @@ For Hyperlite this means:
 2. A write is applied on **every** node, in the **same order**, or on none of them.
 3. A node that is not in the quorum partition **refuses every write**. It still serves reads from its copy.
 4. A node that was away (rebooted, cut off) **catches up** before it serves anything again.
-5. Ephemeral per-node status (the counterpart of what `pvestatd` sends "to all nodes") travels through the same
+5. Ephemeral per-node status travels through the same
    channel but is **never written to disk**.
 6. Single node: the same daemon in local mode, without Corosync.
 
@@ -63,15 +63,15 @@ What follows for the design:
 
 ## 3. Data model
 
-- **A tree of small files**, like `/etc/pve`. Each entry has a path, a type (file or directory), content (bytes),
+- **A tree of small files**, like the reference configuration directory. Each entry has a path, a type (file or directory), content (bytes),
   modification time and a **version** (a 64-bit counter, the cluster-wide write number that last changed it).
-- Stored in **SQLite** on each node (`/var/lib/hyperlite-cfs/config.db`), as `pmxcfs` does, and held in RAM. Limit
-  128 MiB, the same as Proxmox. Writes above the limit are refused.
+- Stored in **SQLite** on each node (`/var/lib/hyperlite-cfs/config.db`), as the reference cluster file system does, and held in RAM. Limit
+  128 MiB, the same. Writes above the limit are refused.
 - **Layout** (proposal):
   - `cluster/`: `corosync.conf`, settings, auth domains (`sso`, `ldap`), datacenter-wide firewall;
   - `rbac/`: users, groups, roles, ACLs, API token hashes, security keys;
   - `nodes/<name>/`: node settings, `qemu/<vmid>.json` and `lxc/<ctid>.json` (a guest belongs to the node that
-    runs it, as in `/etc/pve/nodes/<NAME>/qemu-server/<VMID>.conf`), `priv/`;
+    runs it, as in the reference configuration directory/<NAME>/qemu-server/<VMID>.conf`), `priv/`;
   - `storage/`, `network/`, `ha/`, `backup/`, `jobs/`, `notifications/`;
   - `priv/`: cluster secrets (root only).
 - Content is **JSON**, one object per file, written by the Python repositories. A guest's libvirt XML stays generated
@@ -111,7 +111,7 @@ Used for: a VM being migrated, a backup in progress, id allocation, the HA manag
 ### 4.3 Id allocation
 
 A new guest id is the result of an ordered write to `cluster/next-ids`, so two nodes can never hand out the same id.
-Proxmox's interface "will ask the backend for a free VMID" in the same spirit.
+The reference platform's interface "will ask the backend for a free VMID" in the same spirit.
 
 ### 4.4 Membership change and state synchronisation
 
@@ -149,9 +149,9 @@ Two consequences, both deliberate:
   service reports quorate **for the current ring**: its notifications carry the ring they are for, and a view of an
   earlier ring counts as not quorate (section 8.4).
 - **Two nodes**: Hyperlite does **not** enable `two_node: 1`. That option sets quorum "artificially to 1", so both
-  halves of a split could write. Two-node clusters follow Proxmox's recommendation of a QDevice (`corosync-qnetd` on
+  halves of a split could write. Two-node clusters follow the reference platform's recommendation of a QDevice (`corosync-qnetd` on
   a third machine, `corosync-qdevice` on each node, `wait_for_all: 1`). Without one, the survivor of a failure is
-  read-only until the administrator runs `hyperlite-cfs expected-votes 1`, the counterpart of `pvecm expected 1`
+  read-only until the administrator runs `hyperlite-cfs expected-votes 1`, the counterpart of its cluster command
   (section 8.5).
 - Single node: local mode, always writable, no Corosync.
 
@@ -160,8 +160,8 @@ Two consequences, both deliberate:
 - Corosync encryption and authentication on: `crypto_cipher` and `crypto_hash`, with an `authkey` generated when the
   cluster is created and copied to joining nodes over the existing SSH trust.
 - Socket `/run/hyperlite-cfs/socket`, root only. The unprivileged API process (`hyperlite-proxy`) never reaches it
-  directly; it goes through `hyperlite-daemon`, like `pveproxy` and `pvedaemon`.
-- `priv/` and `nodes/<name>/priv/` are refused to every client except root's, as in `/etc/pve/priv/`. Values in them
+  directly; it goes through `hyperlite-daemon`, like the reference HTTPS proxy and the reference privileged daemon.
+- `priv/` and `nodes/<name>/priv/` are refused to every client except root's, as in the reference configuration directory/`. Values in them
   stay encrypted with Hyperlite's key, as they are in SQLite today.
 - Every input that ends up in a path is validated: no `..`, no NUL, bounded length, a fixed character set.
 - C memory safety: built with `-D_FORTIFY_SOURCE=3 -fstack-protector-strong`, run under AddressSanitizer and
@@ -196,11 +196,11 @@ writes made with raw SQL (renames move rows directly), so the copy moved into SQ
 configuration table record each change in an outbox table, in the same transaction, and a background thread copies it
 to the daemon (`app/repositories/cfs/shadow.py`, `tables.py`). Rows are JSON at `/db/<table>/<primary key>`, secrets under
 `/priv/db/`; state and history stay per node. Phase D can then read the same tree back into SQLite (cfs to SQLite), with
-SQLite as each node's working copy, as `pmxcfs` keeps its own database on every node.
+SQLite as each node's working copy, as the reference cluster file system keeps its own database on every node.
 
 Phase D reads the tree back (`app/repositories/cfs/inbound.py`): in cluster mode, each node applies the tree's changes to
 its SQLite in one transaction when the daemon's version moves, after its own changes went out, and holds back on a
-daemon older than what it applied, an empty tree, or a change its schema refuses. Every node is equal, as on Proxmox:
+daemon older than what it applied, an empty tree, or a change its schema refuses. Every node is equal:
 the shared rows that name a node (start at boot, notes and tags, maintenance, fencing, HA protection, the nodes of a
 shared pool) store its name, never "local", which would mean another machine on every other node
 (`app/core/self_node.py`: `HYPERLITE_NODE_NAME`, else the name recorded at the first start, else the host name; the API
@@ -220,7 +220,7 @@ signing keys of `.env` from the member that lets it in, over HTTPS pinned to tha
 
 Quorum and conflicts (found in the lab, 2026-10-17). A node cut off from the majority accepted configuration changes
 in its SQLite, and once back its outbox went out first and overwrote what the majority changed meanwhile. Now:
-- as on Proxmox, a cluster node without the quorum (or whose daemon no longer answers) changes nothing: the API
+-, a cluster node without the quorum (or whose daemon no longer answers) changes nothing: the API
   refuses every change, VM start and stop included (the maintainer's choice), the scheduled backups, replication and
   automatic deletion wait, and VMs start at boot once the node has the quorum (`cluster_lead.read_only_reason`,
   `paused`);
@@ -237,7 +237,7 @@ in its SQLite, and once back its outbox went out first and overwrote what the ma
 | B2 | State transfer: a member that differs receives the source's tree and locks (section 4.4), so a node that was away catches up instead of keeping the cluster read-only | done |
 | B3a | What the fault tests need the protocol to guarantee, found while writing them (section 8.4): terms, answers confirmed by every member, the quorum of the current ring | done |
 | B3 | Fault tests: kill a node mid-write (sender, receiver, source of a transfer), a node back after a thousand writes, the checker of section 9, run 1,000 times | in place: `cfs/tests/cluster/test_faults.py` on both labs for every pull request (five soak rounds), and a thousand soak rounds every night (`lab.yml`, job `cfs-soak`: ten shards of a hundred in parallel, about 30 minutes); phase B's exit criterion is met once a night passes |
-| B4 | `pvecm expected 1`'s counterpart for two nodes, with its typed confirmation; QDevice in the test lab | done (section 8.5) |
+| B4 | Its cluster command's counterpart for two nodes, with its typed confirmation; QDevice in the test lab | done (section 8.5) |
 
 ### 8.2 Decisions taken while building B1
 
@@ -246,7 +246,7 @@ Found by reading phase A against what cluster mode needs:
 - **A change must give the same result on every node.** Phase A stamped `mtime` and judged lock expiry with the local
   clock at apply time; across nodes that differs. A change now carries its sender's time stamp and every node applies
   it with that time. Clocks out of step only shift `mtime` and lock expiry by the skew, the same on every node (as
-  Proxmox, the cluster relies on NTP).
+  the reference platform, the cluster relies on NTP).
 - **Locks are part of the replicated state.** They were a table in RAM, so a node that restarted or joined held other
   locks than its peers. They are now rows of the same SQLite database, covered by the checksum and copied by the state
   transfer. Each lock records the node it was taken from; when a node leaves the membership, every member releases its
@@ -351,7 +351,7 @@ warning.
   the nodelist has had its daemon in the group at the same time since it started; until then that node is read-only,
   as `wait_for_all` intends. Reproduced in the lab first (`test_two_nodes.py`), then fixed.
 - The lab runs two nodes with and without a QDevice (`HYPERLITE_LAB_NODES=2`, `HYPERLITE_LAB_QDEVICE=1`); the arbiter
-  runs without TLS there, which a real cluster must not do (Proxmox's `pvecm qdevice setup` sets up the certificates).
+  runs without TLS there, which a real cluster must not do.
 
 ## 9. Tests
 
@@ -377,12 +377,12 @@ warning.
   the gate is the fault-test exit criterion of phase B.
 - **Risk: C.** Memory errors in a root daemon that holds every secret. Mitigations are in section 6. Every PR to the
   daemon needs a second reviewer.
-- **Risk: the network.** Proxmox requires "latencies under 5 milliseconds (LAN performance)". Nodes linked over a
+- **Risk: the network.** the reference platform requires "latencies under 5 milliseconds (LAN performance)". Nodes linked over a
   WAN VPN cannot form a cluster. The installer measures latency and refuses above 10 ms.
 
 ## 11. Decisions (maintainer, 2026-10-01)
 
-- **C1. A file view, as `/etc/pve`.** The tree is mounted read-only with FUSE at `/etc/hyperlite/cluster`, for
+- **C1. A file view, as the reference configuration directory.** The tree is mounted read-only with FUSE at `/etc/hyperlite/cluster`, for
   troubleshooting and scripts (`cat`, `ls`). Writes go only through the socket. It comes last (section 7).
 - **C2. Status every 10 s, and at once on a libvirt lifecycle event** (a guest started, stopped, migrated).
 - **C3. Meson.** The maintainer asked for a recommendation. Meson is the choice because:

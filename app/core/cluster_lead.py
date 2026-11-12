@@ -1,6 +1,6 @@
 """Who runs what once several nodes run Hyperlite on one replicated configuration (hyperlite-cfs in cluster mode).
 
-Every node is equal, as on Proxmox. Each one runs what concerns the guests it hosts: its scheduled backups, grouped
+Every node is equal. Each one runs what concerns the guests it hosts: its scheduled backups, grouped
 backups and replication for its own VMs, the automatic deletion of its own VMs, its start at boot. What concerns the
 whole cluster runs on one node at a time, the one holding the cfs lock LOCK (the HA watcher, the alerts about a node
 that went down): the lock is renewed every RENEW_S, and the daemon releases it when its holder leaves the membership,
@@ -79,7 +79,7 @@ _quorum = (0.0, None)
 
 
 def read_only_reason():
-    """None when this node may change things; else why not, for the person who tried. In a cluster, as on Proxmox, a
+    """None when this node may change things; else why not, for the person who tried. In a cluster, a
     node that lost the quorum (or whose hyperlite-cfs does not answer) changes nothing at all: its configuration would
     diverge from the majority's, and its VMs may be taken over elsewhere. Outside a cluster: always None."""
     global _quorum
@@ -126,7 +126,7 @@ _paused = set()
 
 def paused(what):
     """True while this node may change nothing (read_only_reason): the background work named `what` (scheduled
-    backups, replication, automatic deletion, start at boot) waits, as on Proxmox. Said once in the log per pause."""
+    backups, replication, automatic deletion, start at boot) waits. Said once in the log per pause."""
     reason = read_only_reason()
     with _quorum_lock:
         was = what in _paused
@@ -157,7 +157,7 @@ def is_leader():
 
 
 # hyperlite-ha-crm's own lock (app/ha_services): renewed only while its rounds run, so a CRM that hangs on the leader
-# loses it and another member's takes over, as Proxmox VE's CRM holds the manager lock itself. The API's and the
+# loses it and another member's takes over. The API's and the
 # scheduler's lead stays LOCK, the node's.
 HA_LOCK = "hyperlite-ha-lead"
 _lead = {"lock": LOCK, "healthy": None}

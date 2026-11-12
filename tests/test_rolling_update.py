@@ -11,8 +11,8 @@ from app.core import maintenance, rolling_update, self_node
 from app.core.tasks import create_task
 
 NODES = [
-    {"name": "pve2", "hostname": "10.0.0.2", "ssh_user": "root", "ssh_port": 22, "status": "online"},
-    {"name": "pve3", "hostname": "10.0.0.3", "ssh_user": "root", "ssh_port": 22, "status": "online"},
+    {"name": "node2", "hostname": "10.0.0.2", "ssh_user": "root", "ssh_port": 22, "status": "online"},
+    {"name": "node3", "hostname": "10.0.0.3", "ssh_user": "root", "ssh_port": 22, "status": "online"},
 ]
 
 
@@ -95,7 +95,7 @@ def cluster(database, monkeypatch):
         monkeypatch.setattr(rolling_update, "_drain", fake.drain)
         monkeypatch.setattr(rolling_update, "_LockKeeper", contextlib.nullcontext)
         monkeypatch.setattr(rolling_update, "POLL_S", 0)
-        monkeypatch.setattr(self_node, "name", lambda: "pve1")
+        monkeypatch.setattr(self_node, "name", lambda: "node1")
         boots = {}
 
         def ssh(node, args, stdin=None, timeout=60):
@@ -129,26 +129,26 @@ def _run(database, local_tasks, restarts=False):
 
 
 def test_the_other_nodes_one_after_another_then_this_node(cluster, database):
-    fake = cluster(reboot={"pve3"})
+    fake = cluster(reboot={"node3"})
     local = []
     assert _run(database, local) == ("succeeded", None)
-    # pve2's VMs go to pve3 (nothing done yet), pve3's to pve2 (done), this node's to pve3 (done last).
-    assert fake.drained == [("pve2", "pve3"), ("pve3", "pve2"), (maintenance.LOCAL, "pve3")]
+    # node2's VMs go to node3 (nothing done yet), node3's to node2 (done), this node's to node3 (done last).
+    assert fake.drained == [("node2", "node3"), ("node3", "node2"), (maintenance.LOCAL, "node3")]
     applies = [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")]
-    assert applies == ["pve2", "pve3"] and len(local) == 1
-    assert fake.rebooted == ["pve3"]
+    assert applies == ["node2", "node3"] and len(local) == 1
+    assert fake.rebooted == ["node3"]
     # Every node out of maintenance: the others by the run, this one once its own update ended without a restart.
     assert maintenance.list_all() == []
 
 
 def test_a_failure_stops_the_run_on_its_node(cluster, database):
-    fake = cluster(failing={"pve2"})
+    fake = cluster(failing={"node2"})
     local = []
     status, error = _run(database, local)
-    assert status == "failed" and "pve2: the update failed" in error
-    assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["pve2"]
-    assert local == []  # neither pve3 nor this node
-    assert [m["node"] for m in maintenance.list_all()] == ["pve2"]  # it stays in maintenance
+    assert status == "failed" and "node2: the update failed" in error
+    assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["node2"]
+    assert local == []  # neither node3 nor this node
+    assert [m["node"] for m in maintenance.list_all()] == ["node2"]  # it stays in maintenance
 
 
 def test_the_old_process_answering_before_its_restart_is_not_a_rollback(cluster, database):
@@ -158,18 +158,18 @@ def test_the_old_process_answering_before_its_restart_is_not_a_rollback(cluster,
 
 def test_a_rollback_that_lasts_stops_the_run(cluster, database, monkeypatch):
     monkeypatch.setattr(rolling_update, "ROLLBACK_SETTLE_S", 0)
-    cluster(rolled={"pve2"})
+    cluster(rolled={"node2"})
     status, error = _run(database, [])
-    assert status == "failed" and "pve2: the new version did not start and was rolled back" in error
+    assert status == "failed" and "node2: the new version did not start and was rolled back" in error
 
 
 def test_a_node_whose_vms_cannot_move_is_not_rebooted_unless_chosen(cluster, database, monkeypatch):
-    fake = cluster(reboot={"pve2"}, blocked={"pve2"})
+    fake = cluster(reboot={"node2"}, blocked={"node2"})
     logged = []
     monkeypatch.setattr(rolling_update, "log_action", lambda *a, **k: logged.append(a))
     assert _run(database, [])[0] == "succeeded"
     assert fake.rebooted == []
-    assert ("alice", "host_reboot_required", "pve2", "success", "left by the rolling update") in logged
+    assert ("alice", "host_reboot_required", "node2", "success", "left by the rolling update") in logged
 
 
 def test_this_node_leaves_maintenance_at_its_next_start_when_its_update_restarts_it(cluster, database):
@@ -221,14 +221,14 @@ def test_an_unreachable_node_is_said(monkeypatch):
 
 def test_the_plan_says_what_prevents_starting(monkeypatch):
     def plan(node, username, local_check=None, target=None):
-        name = node["name"] if node else "pve1"
-        return {"name": name, "reachable": True, "verifiable": True, "channel": "test" if name == "pve3" else "stable",
-                "to_do": name == "pve2"}  # fmt: skip
+        name = node["name"] if node else "node1"
+        return {"name": name, "reachable": True, "verifiable": True, "channel": "test" if name == "node3" else "stable",
+                "to_do": name == "node2"}  # fmt: skip
 
     monkeypatch.setattr(rolling_update, "peers", lambda: [dict(n) for n in NODES])
     monkeypatch.setattr(rolling_update, "node_plan", plan)
     out = rolling_update.cluster_plan("alice", None)
-    assert [n["name"] for n in out["nodes"]] == ["pve2", "pve3", "pve1"] and out["to_do"] is True
+    assert [n["name"] for n in out["nodes"]] == ["node2", "node3", "node1"] and out["to_do"] is True
     assert any("same update channel" in p for p in out["problems"])
 
 
@@ -243,11 +243,11 @@ def test_the_api_outside_a_cluster(client, auth_headers, monkeypatch):
 
 
 def test_a_node_already_up_to_date_is_left_as_it_is(cluster, database):
-    fake = cluster(current={"pve2"})
+    fake = cluster(current={"node2"})
     assert _run(database, [])[0] == "succeeded"
-    # pve2 never emptied, and pve3's VMs go to it: already on the new version.
-    assert fake.drained == [("pve3", "pve2"), (maintenance.LOCAL, "pve3")]
-    assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["pve3"]
+    # node2 never emptied, and node3's VMs go to it: already on the new version.
+    assert fake.drained == [("node3", "node2"), (maintenance.LOCAL, "node3")]
+    assert [n for n, m, p in fake.calls if (m, p) == ("POST", "/update/apply")] == ["node3"]
 
 
 def test_the_plan_judges_each_node_against_a_target(monkeypatch):
@@ -255,12 +255,12 @@ def test_the_plan_judges_each_node_against_a_target(monkeypatch):
 
     def plan(node, username, local_check=None, target=None):
         seen.append((node["name"] if node else "local", target))
-        return {"name": node["name"] if node else "pve1", "reachable": True, "verifiable": True, "channel": "stable"}
+        return {"name": node["name"] if node else "node1", "reachable": True, "verifiable": True, "channel": "stable"}
 
     monkeypatch.setattr(rolling_update, "peers", lambda: [dict(n) for n in NODES])
     monkeypatch.setattr(rolling_update, "node_plan", plan)
     rolling_update.cluster_plan("alice", None)
-    assert sorted(seen) == [("local", "pve3"), ("pve2", "pve3"), ("pve3", maintenance.LOCAL)]
+    assert sorted(seen) == [("local", "node3"), ("node2", "node3"), ("node3", maintenance.LOCAL)]
 
 
 # ---- The update to 1.0 (docs/design/api-v1.md, "The cluster update") ----
@@ -336,17 +336,17 @@ def test_to_1_0_every_node_is_updated_in_place_and_then_only_its_health_is_asked
     fake = to_1_0()
     local = []
     assert _run_to_1_0(database, local) == ("succeeded", None)
-    assert fake.applied == {"pve2", "pve3"} and len(local) == 1  # this node last
-    for name in ("pve2", "pve3"):
+    assert fake.applied == {"node2", "node3"} and len(local) == 1  # this node last
+    for name in ("node2", "node3"):
         after = fake.calls[[c[:3] for c in fake.calls].index((name, "POST", "/update/apply")) + 1 :]
         assert all(path == "/health" for n, _, path in after if n == name)
-    assert not maintenance.get("pve2") and not maintenance.get(maintenance.LOCAL)  # nobody in maintenance
+    assert not maintenance.get("node2") and not maintenance.get(maintenance.LOCAL)  # nobody in maintenance
 
 
 def test_to_1_0_a_node_whose_update_fails_stops_the_run_with_why(to_1_0, database):
-    to_1_0(failing={"pve2"})
+    to_1_0(failing={"node2"})
     status, error = _run_to_1_0(database, [])
-    assert status == "failed" and "pve2: the update failed: dpkg: the new version did not configure" in error
+    assert status == "failed" and "node2: the update failed: dpkg: the new version did not configure" in error
 
 
 def test_a_drain_whose_planning_fails_releases_its_reservation(monkeypatch):

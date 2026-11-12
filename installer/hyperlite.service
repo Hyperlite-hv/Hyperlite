@@ -1,6 +1,6 @@
 [Unit]
 Description=Hyperlite API (FastAPI + libvirt)
-# hyperlite-daemon first, as pveproxy comes after pvedaemon: the API writes the accounts through it (step 4b).
+# hyperlite-daemon first: the API writes the accounts through it (step 4b).
 After=network-online.target libvirtd.service hyperlite-daemon.service hyperlite-cfs.service
 # hyperlite-scheduler runs the schedulers (app/scheduler), hyperlite-ha-lrm and hyperlite-ha-crm HA (app/ha_services):
 # started with the API, after it.
@@ -9,7 +9,7 @@ Requires=libvirtd.service
 
 [Service]
 Type=simple
-# As Proxmox VE's pveproxy: the HTTPS API is not root. What needs root (libvirt's writes, storage, network, packages,
+#: the HTTPS API is not root. What needs root (libvirt's writes, storage, network, packages,
 # the consoles, the cluster's keys) goes through hyperlite-daemon's socket, which checks each caller's proof and
 # rights; the API reads libvirt through its read-only socket (docs/design/privilege-separation.md, section 14).
 User=www-data
@@ -35,7 +35,7 @@ Environment=LC_ALL=C.UTF-8
 # it fails with "error parsing the body" (seen with a RHEL 10 DVD larger than
 # 7.8 GB of tmpfs).
 Environment=TMPDIR=/var/lib/hyperlite/tmp
-# The files of an installation up to 1.0 (/root/hyperlite) move where Proxmox VE keeps its own, with nothing running
+# The files of an installation up to 1.0 (/root/hyperlite) move to the layout of 1.1, with nothing running
 # on them; all or nothing: a failure puts back what moved and the start fails, which the update watchdog turns into
 # a return to the previous version (docs/design/privilege-separation.md, section 9).
 # "+": as root, whatever user the service runs as (www-data from 4e): they move, check and make root's files.

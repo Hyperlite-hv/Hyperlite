@@ -320,7 +320,7 @@ class _Dropped(Exception):
 def _write_checked(client, path, data, base):
     """In a cluster: write `data` (None: delete) only if the entry is still at `base`, the version this node last saw
     (None: never seen). Returns the entry's version afterwards (None: absent). Raises _Dropped when the cluster changed
-    it meanwhile: the majority's version wins, as on Proxmox."""
+    it meanwhile: the majority's version wins."""
     try:
         if base is None:
             try:
@@ -328,7 +328,7 @@ def _write_checked(client, path, data, base):
             except NotFound:
                 return None if data is None else client.put(path, data, MUST_NOT_EXIST)
             if data is not None and current.data == data:
-                return current.version  # the cluster already holds this very value
+                return current.version  # The cluster already holds this very value
             raise _Dropped(path)  # an entry this node never saw: not this node's to change
         if data is None:
             with contextlib.suppress(NotFound):  # already absent: the state wanted

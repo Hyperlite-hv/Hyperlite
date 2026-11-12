@@ -2,7 +2,7 @@
 
 In a cluster (the daemon in cluster mode), the changes other nodes made reach this node's SQLite: apply() reads the
 tree whenever the daemon's version moved, and writes into SQLite what differs, deleting rows the tree no longer has.
-SQLite stays each node's working copy, as pmxcfs keeps its own database on every node; the application keeps reading
+SQLite stays each node's working copy; the application keeps reading
 and writing it, and shadow.py copies this node's own changes out.
 
 Safeguards, since a wrong apply would erase configuration:

@@ -1,5 +1,4 @@
-"""The permissions written by hyperlite-daemon only (docs/design/privilege-separation.md, section 14.1, step 4b), as
-pvedaemon is the only writer of Proxmox VE's user.cfg and priv/: the accounts, API tokens, security keys, second
+"""The permissions written by hyperlite-daemon only (docs/design/privilege-separation.md, section 14.1, step 4b)'s user.cfg and priv/: the accounts, API tokens, security keys, second
 factors, revoked sessions, groups, roles, resource pools and ACLs.
 
 A repository method marked @daemon_write(op) runs its SQL inside one of the daemon's operations (app/daemon/ops/

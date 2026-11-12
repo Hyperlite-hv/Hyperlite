@@ -15,7 +15,7 @@ static void usage(FILE *f)
 {
     fprintf(f, "usage: hyperlite-cfs expected-votes VOTES [--confirm CLUSTER_NAME]\n"
                "  Lower Corosync's expected votes so that this partition is quorate again, when the nodes it misses\n"
-               "  are known to be down for good (the counterpart of `pvecm expected`). Without --confirm, the cluster's\n"
+               "  are known to be down for good. Without --confirm, the cluster's\n"
                "  name is asked for on the terminal.\n");
 }
 

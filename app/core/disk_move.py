@@ -1,4 +1,4 @@
-"""Moving a VM disk to another storage pool (Proxmox "Move disk", vSphere "Storage vMotion" for one disk).
+"""Moving a VM disk to another storage pool.
 
 - VM running: libvirt `blockCopy` mirrors the disk into a new qcow2 file in the destination pool while the guest
   keeps writing, then the job pivots the VM onto the copy. A persistent domain needs VIR_DOMAIN_BLOCK_COPY_

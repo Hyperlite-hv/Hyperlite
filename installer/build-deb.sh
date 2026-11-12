@@ -6,7 +6,7 @@
 # .gitignore: .env, hyperlite.db, data/ssh, data/tls...) PLUS the already
 # built frontend (dashboard/dist, not tracked by Git but required at runtime).
 #
-# From 1.1 the files go where Proxmox VE keeps its own (app/core/paths.py): the code in /usr/lib/hyperlite, the web
+# From 1.1 the files follow app/core/paths.py: the code in /usr/lib/hyperlite, the web
 # interface in /usr/share/hyperlite/www. The package never ships anything under /etc/hyperlite or /var/lib/hyperlite:
 # that is the node's own (postinst, scripts/migrate_layout.sh).
 set -e
@@ -44,7 +44,7 @@ log "copying the files tracked by Git"
     # sources (their dist/ is added below), the ISO installer, the package's own sources (dpkg keeps DEBIAN/) and
     # the publishing tools stay in the Git repository. The node builds hyperlite-cfs without its C tests.
     case "$f" in
-        tests/*|.github/*|requirements-dev.txt|CLAUDE.md|AGENTS.md|.gitignore|pyproject.toml) continue ;;
+        tests/*|.github/*|requirements-dev.txt|.gitignore|pyproject.toml) continue ;;
         cfs/tests/*|installer/deb/*|installer/preseed.cfg|installer/partman-auto.sh|installer/postinstall.sh) continue ;;
         installer/packages.list|installer/preseed-*.cfg|installer/hyperlite-questions.sh|installer/hyperlite.templates) continue ;;
         docs/*|lab/*|dashboard/*|cli/*) continue ;;
