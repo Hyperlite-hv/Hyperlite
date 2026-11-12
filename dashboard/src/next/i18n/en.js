@@ -4382,4 +4382,5 @@ export default {
   "svc.d.api": "Documentation and access tokens",
   "svc.d.permissions": "Accounts, groups, roles and assignments",
   "svc.d.sso": "OpenID Connect and LDAP directory",
+  "vmlist.view": "View",
 };

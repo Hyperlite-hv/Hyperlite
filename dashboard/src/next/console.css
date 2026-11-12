@@ -109,6 +109,20 @@
 .hc-filter:focus-within { outline: 2px solid var(--color-border-focus); outline-offset: -1px; }
 .hc-filter input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--color-text-primary); font: inherit; }
 
+/* ---------- list toolbar ---------- */
+.hc-listbar { gap: 0.5333rem; margin-bottom: 0.8rem; }
+.hc-viewopts { min-width: 17.3333rem; gap: 0.9333rem; }
+.hc-viewopts-f { display: grid; gap: 0.4rem; margin: 0; padding: 0; border: 0; min-width: 0; }
+.hc-viewopts-f > span, .hc-viewopts-f > legend { padding: 0; font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-secondary); }
+.hc-viewopts-f > legend { margin-bottom: 0.4rem; }
+
+/* The list takes the whole width; the detail of a row only takes its column once a row is chosen. */
+.nx-root.hc .nx-vmgrid { grid-template-columns: minmax(0, 1fr); }
+.nx-root.hc .nx-vmgrid.has-detail { grid-template-columns: minmax(0, 1fr) 25.3333rem; }
+@media (max-width: 1200px) { .nx-root.hc .nx-vmgrid.has-detail { grid-template-columns: minmax(0, 1fr); } }
+/* Figures in tables use the text face with aligned digits: quieter than a monospace column. */
+.nx-root.hc .nx-table .nx-mono { font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
+
 /* ---------- home ---------- */
 .hc-home { display: grid; grid-template-columns: minmax(0, 1fr) 23.2rem; gap: 1.8667rem 2.9333rem; padding: 1.8667rem 0.5333rem 0; align-items: start; }
 .hc-home h1, .hc-home-main h2 { margin: 0 0 0.8rem; font-size: 1.2rem; line-height: 1.6rem; font-weight: 600; letter-spacing: -0.012em; }

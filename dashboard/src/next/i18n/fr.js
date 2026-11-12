@@ -4413,4 +4413,5 @@ export default {
   "svc.d.api": "Documentation et jetons d’accès",
   "svc.d.permissions": "Comptes, groupes, rôles et attributions",
   "svc.d.sso": "OpenID Connect et annuaire LDAP",
+  "vmlist.view": "Affichage",
 };

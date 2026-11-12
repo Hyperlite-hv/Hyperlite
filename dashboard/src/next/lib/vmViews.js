@@ -11,10 +11,11 @@ export const DEFAULT_COLUMNS = ["node", "ip", "res", "uptime"];
 function read(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function write(key, value) { try { localStorage.setItem(key, value); } catch { /* preference only */ } }
 
-// Grouping by node is the default; the historical "1"/"0" values of the node toggle are read as node/none.
+// A flat list is the default; the historical "1"/"0" values of the node toggle are read as node/none.
 export function readGroupMode() {
   const v = read(GROUP_KEY);
-  if (v === "1" || v == null) return "node";
+  if (v == null) return "none";
+  if (v === "1") return "node";
   if (v === "0") return "none";
   return GROUP_MODES.includes(v) ? v : "node";
 }

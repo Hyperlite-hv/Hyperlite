@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronDown, ChevronRight, Columns3, Copy, Monitor, Play, Plus, Search, Square, SquareTerminal, Tag, TriangleAlert, Users, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Monitor, Play, Plus, Search, SlidersHorizontal, Square, SquareTerminal, Tag, TriangleAlert, Users, X } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
@@ -23,7 +23,6 @@ import { confirmAction } from "../../store/useConfirmStore";
 
 const VIEW_KEY = "hyperlite-next-vmview";
 const COLLAPSED_KEY = "hyperlite-next-vmcollapsed";
-const NODE_PILLS_MAX = 6; // beyond this many nodes the filter becomes a select, pills would wrap into a wall
 const PROBLEM = new Set(["crashed", "blocked", "unknown"]);
 function readView() { try { return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "table"; } catch { return "table"; } }
 function readCollapsed() { try { const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); } }
@@ -158,7 +157,7 @@ export default function VmList() {
   const [sort, setSort] = useState({ key: "state", dir: 1 });
   const [colAlign, setColAlign] = useState("end");
   const [selName, setSelName] = useState(null);
-  const [detail, setDetail] = useState(true);
+  const [detail, setDetail] = useState(false);
   const [nodeFilter, setNodeFilter] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const { byKey: metaByKey, load: loadMeta } = useMetaStore(useShallow((s) => ({ byKey: s.byKey, load: s.load })));
@@ -227,7 +226,6 @@ export default function VmList() {
     stopped: vms.filter((v) => v.state === "stopped" || v.state === "shutting_down").length,
     problems: vms.filter((v) => PROBLEM.has(v.state)).length,
   }), [vms]);
-  const problems = vms.filter((v) => PROBLEM.has(v.state));
 
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase();
@@ -275,7 +273,7 @@ export default function VmList() {
   );
   const sub = (v) => (
     <>
-      {PROBLEM.has(v.state) ? <small className="is-warn">{t(`vmlist.reason.${v.state}`)}</small> : v.os ? <small>{v.os}</small> : null}
+      {PROBLEM.has(v.state) ? <small className="is-warn">{t(`vmlist.reason.${v.state}`)}</small> : null}
       <TagChips tags={tagsOf(v)} onTag={setTagFilter} />
     </>
   );
@@ -317,29 +315,14 @@ export default function VmList() {
     <>
       <PageHeader title={t("tab.vms")} count={vms.length}
         actions={caps.create && <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}><Plus size={15} aria-hidden="true" />{t("vmlist.create")}</button>} />
-      {problems.length > 0 && (
-        <div className="nx-bn" data-tone="warning" role="status"><TriangleAlert size={16} aria-hidden="true" />
-          <span className="nx-bn-t"><b>{t("ov.attention", { n: problems.length })}</b> : {problems.slice(0, 4).map((v) => v.name).join(", ")}</span>
-          <button type="button" className="nx-btn nx-btn--sm" onClick={() => setChip("problems")}>{t("vmlist.show")}</button></div>
-      )}
-      <div className="nx-bar nx-bar--rule">
-        <div className="nx-seg2" role="group" aria-label={t("vmlist.filterState")}>
-          {[["all", t("vmlist.all")], ["running", t("state.running")], ["stopped", t("state.stopped")], ["problems", t("vmlist.problems")]].map(([id, label]) => (
-            <button key={id} type="button" aria-pressed={chip === id} onClick={() => setChip(id)}>{label} <span className={`nx-n${id === "problems" && counts.problems ? " is-warn" : ""}`}>{counts[id]}</span></button>
-          ))}
-        </div>
-        {nodes.length > 1 && nodes.length <= NODE_PILLS_MAX && (
-          <div className="nx-seg2 nx-seg2--scroll" role="group" aria-label={t("vmlist.filterNode")}>
-            <button type="button" aria-pressed={!nodeFilter} onClick={() => setNodeFilter("")}>{t("vmlist.allNodes")} <span className="nx-n">{vms.length}</span></button>
-            {nodes.map((n) => (
-              <button key={n.id} type="button" aria-pressed={nodeFilter === n.id} onClick={() => setNodeFilter(n.id)}>
-                <StatusIndicator kind="node" wire={n.state} compact />{n.name} <span className="nx-n">{vms.filter((v) => v.node === n.id).length}</span>
-              </button>
-            ))}
-          </div>
-        )}
-        <span className="nx-sp" />
-        {nodes.length > NODE_PILLS_MAX && (
+      {/* One quiet row: the filter, then what to show (state, node, tag). Everything about how the list is laid out
+          (grouping, columns, saved views, table or cards) sits behind "View". */}
+      <div className="nx-bar hc-listbar">
+        <label className="nx-search2"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t("ns.filterVms")} placeholder={t("vmlist.searchPh")} value={q} onChange={(e) => setQ(e.target.value)} /></label>
+        <select className="nx-sel" aria-label={t("vmlist.filterState")} value={chip} onChange={(e) => setChip(e.target.value)}>
+          {[["all", t("vmlist.all")], ["running", t("state.running")], ["stopped", t("state.stopped")], ["problems", t("vmlist.problems")]].map(([id, label]) => <option key={id} value={id}>{label} ({counts[id]})</option>)}
+        </select>
+        {nodes.length > 1 && (
           <select className="nx-sel" aria-label={t("vmlist.filterNode")} value={nodeFilter} onChange={(e) => setNodeFilter(e.target.value)}>
             <option value="">{t("vmlist.allNodes")}</option>
             {nodes.map((n) => <option key={n.id} value={n.id}>{n.name} ({vms.filter((v) => v.node === n.id).length})</option>)}
@@ -351,12 +334,7 @@ export default function VmList() {
             {tagList.map((tg) => <option key={tg} value={tg}>{tg} ({vms.filter((v) => tagsOf(v).includes(tg)).length})</option>)}
           </select>
         )}
-        <select className="nx-sel" aria-label={t("vmlist.groupBy")} value={mode} onChange={(e) => setGroupMode(e.target.value)}>
-          <option value="node">{t("vmlist.group.node")}</option>
-          <option value="tag">{t("vmlist.group.tag")}</option>
-          {caps.admin && <option value="pool">{t("vmlist.group.pool")}</option>}
-          <option value="none">{t("vmlist.group.none")}</option>
-        </select>
+        <span className="nx-sp" />
         {/* The panel opens towards the side that has room: from the button's right edge, unless that would leave the
             screen (a button near the left edge, as when the toolbar wraps). */}
         <details className="nx-colpick" onToggle={(e) => {
@@ -364,25 +342,40 @@ export default function VmList() {
           const button = e.currentTarget.querySelector("summary").getBoundingClientRect();
           setColAlign(button.right - e.currentTarget.querySelector(".nx-colpick-p").offsetWidth < 8 ? "start" : "end");
         }}>
-          <summary className="nx-btn nx-btn--sm"><Columns3 size={14} aria-hidden="true" />{t("vmlist.columns")}</summary>
-          <fieldset className="nx-colpick-p" data-align={colAlign}><legend className="nx-sr">{t("vmlist.columns")}</legend>
-            {OPTIONAL_COLUMNS.map((c) => (
-              <label key={c} className="nx-check"><input type="checkbox" checked={columns.includes(c)} disabled={c === "node" && mode === "node"}
-                onChange={(e) => setColumns(e.target.checked ? OPTIONAL_COLUMNS.filter((x) => x === c || columns.includes(x)) : columns.filter((x) => x !== c))} /> {t(`vmlist.col.${c}`)}</label>
-            ))}
-          </fieldset>
+          <summary className="nx-btn nx-btn--sm"><SlidersHorizontal size={14} aria-hidden="true" />{t("vmlist.view")}</summary>
+          <div className="nx-colpick-p hc-viewopts" data-align={colAlign}>
+            <label className="hc-viewopts-f"><span>{t("vmlist.groupBy")}</span>
+              <select className="nx-sel" value={mode} onChange={(e) => setGroupMode(e.target.value)}>
+                <option value="none">{t("vmlist.group.none")}</option>
+                <option value="node">{t("vmlist.group.node")}</option>
+                <option value="tag">{t("vmlist.group.tag")}</option>
+                {caps.admin && <option value="pool">{t("vmlist.group.pool")}</option>}
+              </select>
+            </label>
+            <div className="hc-viewopts-f"><span>{t("ns.viewMode")}</span>
+              <div className="nx-seg2" role="group" aria-label={t("ns.viewMode")}>
+                <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>{t("ns.table")}</button>
+                <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")}>{t("ns.cards")}</button>
+              </div>
+            </div>
+            <fieldset className="hc-viewopts-f"><legend>{t("vmlist.columns")}</legend>
+              {OPTIONAL_COLUMNS.map((c) => (
+                <label key={c} className="nx-check"><input type="checkbox" checked={columns.includes(c)} disabled={c === "node" && mode === "node"}
+                  onChange={(e) => setColumns(e.target.checked ? OPTIONAL_COLUMNS.filter((x) => x === c || columns.includes(x)) : columns.filter((x) => x !== c))} /> {t(`vmlist.col.${c}`)}</label>
+              ))}
+            </fieldset>
+            <div className="hc-viewopts-f"><span>{t("vmlist.views")}</span>
+              <select className="nx-sel" aria-label={t("vmlist.views")} value={currentView} onChange={(e) => applyView(e.target.value)}>
+                <option value="">{t("vmlist.viewsNone")}</option>
+                {savedViews.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
+              </select>
+              <div className="nx-inline">
+                <button type="button" className="nx-btn nx-btn--sm" onClick={saveCurrentView}>{t("vmlist.saveView")}</button>
+                {currentView && <button type="button" className="nx-btn nx-btn--sm nx-btn--ghost nx-btn--icon" aria-label={t("vmlist.deleteViewX", { name: currentView })} onClick={removeCurrentView}><X size={14} aria-hidden="true" /></button>}
+              </div>
+            </div>
+          </div>
         </details>
-        <select className="nx-sel" aria-label={t("vmlist.views")} value={currentView} onChange={(e) => applyView(e.target.value)}>
-          <option value="">{t("vmlist.viewsNone")}</option>
-          {savedViews.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
-        </select>
-        <button type="button" className="nx-btn nx-btn--sm" onClick={saveCurrentView}>{t("vmlist.saveView")}</button>
-        {currentView && <button type="button" className="nx-btn nx-btn--sm nx-btn--ghost nx-btn--icon" aria-label={t("vmlist.deleteViewX", { name: currentView })} onClick={removeCurrentView}><X size={14} aria-hidden="true" /></button>}
-        <label className="nx-search2"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t("ns.filterVms")} placeholder={t("vmlist.searchPh")} value={q} onChange={(e) => setQ(e.target.value)} /></label>
-        <div className="nx-seg2" role="group" aria-label={t("ns.viewMode")}>
-          <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")}>{t("ns.table")}</button>
-          <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")}>{t("ns.cards")}</button>
-        </div>
       </div>
 
       {pickedVms.length > 0 && <BulkBar selected={pickedVms} caps={caps} nodes={nodes} onClear={clearPicks} />}
