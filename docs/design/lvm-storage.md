@@ -1,6 +1,6 @@
 # LVM and LVM-thin storage pools (#417)
 
-Proxmox VE stores VM disks on LVM (thick logical volumes) and LVM-thin (volumes that take room only as they are
+The reference platform stores VM disks on LVM (thick logical volumes) and LVM-thin (volumes that take room only as they are
 written, with instant snapshots). libvirt has a `logical` pool for LVM; what it does and does not do decides what
 Hyperlite does itself.
 

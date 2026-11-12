@@ -1,6 +1,5 @@
 """The permissions, written by hyperlite-daemon only (docs/design/privilege-separation.md, section 14.1, step 4b): the
-accounts, API tokens, security keys, second factors, revoked sessions, groups, roles, resource pools and ACLs, as
-pvedaemon writes Proxmox VE's user.cfg and priv/.
+accounts, API tokens, security keys, second factors, revoked sessions, groups, roles, resource pools and ACLs's user.cfg and priv/.
 
 Each operation is one repository method marked @daemon_write (app/repositories/daemon_write.py), run here with the
 arguments its own model checked: names, ids and hashes with their limits, never SQL or a path. It answers

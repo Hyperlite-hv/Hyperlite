@@ -1,4 +1,4 @@
-"""hyperlite-admin's lockdown (app/core/admin_cli.py, docs/design/admin-cli.md 4.3), as ESXi's lockdown mode: turned
+"""hyperlite-admin's lockdown (app/core/admin_cli.py, docs/design/admin-cli.md 4.3): turned
 on by an administrator, root of a node gets no session and loses the one it holds, on every member; a named account's
 API token still works."""
 
@@ -60,8 +60,8 @@ def test_a_named_accounts_token_still_works(client, make_user, database):
 def test_another_members_root_is_refused_too(client, database, cfs):  # noqa: F811
     from app.core import security
 
-    a = Member(cfs, "pve-a")
-    ticket = a.ticket("root@pve-a", **{security.LOCAL_ROOT_CLAIM: True})
+    a = Member(cfs, "node-a")
+    ticket = a.ticket("root@node-a", **{security.LOCAL_ROOT_CLAIM: True})
     assert client.get("/auth/me", headers=_bearer(ticket)).status_code == 200
     admin_cli.set_locked(True)  # replicated: what every member reads
     assert client.get("/auth/me", headers=_bearer(ticket)).status_code == 403

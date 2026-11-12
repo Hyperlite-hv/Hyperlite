@@ -1,6 +1,6 @@
 # Design: VLANs, bonds and host network settings
 
-Status: **steps 1, 2 and 4 done** (step 4: section 8) (step 2 "as Proxmox VE does", parts 1 and 2: section 7). Steps 3 to 5 wait for the
+Status: **steps 1, 2 and 4 done** (step 4: section 8). Steps 3 to 5 wait for the
 maintainer's decision.
 
 ## 1. Where we are
@@ -20,11 +20,11 @@ maintainer's decision.
 ## 2. Goals, in order
 
 1. A VLAN tag on a VM does what it says, or is refused with the reason.
-2. VLANs that work on the most common setup: a single Linux bridge on a trunk port (Proxmox's "VLAN aware bridge").
+2. VLANs that work on the most common setup: a single Linux bridge on a trunk port.
 3. Bonds (two NICs for redundancy or bandwidth) and VLAN interfaces for the host, set from the dashboard.
 4. A host firewall (SSH, the dashboard, migration ports) that can never lock the administrator out.
 
-Non-goals here: overlay networks between sites (VXLAN/EVPN, Proxmox SDN zones), and routing between VLANs.
+Non-goals here: overlay networks between sites, and routing between VLANs.
 
 ## 3. Options
 
@@ -32,7 +32,7 @@ Non-goals here: overlay networks between sites (VXLAN/EVPN, Proxmox SDN zones), 
 
 | Option | How | For | Against |
 |---|---|---|---|
-| A. VLAN-aware Linux bridge | `vlan_filtering=1` on the bridge; per VM port, `bridge vlan add dev vnetX vid 20 pvid untagged`, applied by a libvirt hook (`/etc/libvirt/hooks/qemu`) or by Hyperlite after start and after migration | No new package; what Proxmox does by default; one bridge carries every VLAN | libvirt does not apply `<vlan>` itself on Linux bridges, so Hyperlite must apply and re-apply the port VLAN (start, restart, migration, libvirtd restart) |
+| A. VLAN-aware Linux bridge | `vlan_filtering=1` on the bridge; per VM port, `bridge vlan add dev vnetX vid 20 pvid untagged`, applied by a libvirt hook (`/etc/libvirt/hooks/qemu`) or by Hyperlite after start and after migration | No new package; what the reference platform does by default; one bridge carries every VLAN | libvirt does not apply `<vlan>` itself on Linux bridges, so Hyperlite must apply and re-apply the port VLAN (start, restart, migration, libvirtd restart) |
 | B. Open vSwitch | Replace the bridge with an OVS bridge; libvirt applies `<vlan>` natively | Native in libvirt, trunks and tags per port | New package and a different bridge on every node; converting the management bridge to OVS is a risky change on a live host |
 | C. One Linux bridge per VLAN | `br20` on `bond0.20`, one libvirt network per VLAN | Simplest, libvirt understands it | One bridge per VLAN per node; many VLANs means many objects |
 
@@ -44,7 +44,7 @@ VLAN network (C) or make the bridge VLAN-aware". Step 1 (the refusal) is done.
 
 | Option | How | For | Against |
 |---|---|---|---|
-| A. ifupdown2 files | Write `/etc/network/interfaces.d/hyperlite-*`, apply with `ifreload -a` | What Proxmox uses; atomic reload; Debian native | ifupdown2 must replace ifupdown on existing hosts |
+| A. ifupdown2 files | Write `/etc/network/interfaces.d/hyperlite-*`, apply with `ifreload -a` | What the reference platform uses; atomic reload; Debian native | ifupdown2 must replace ifupdown on existing hosts |
 | B. systemd-networkd | `.netdev`/`.network` files | Clean, declarative | Hosts installed with ifupdown would mix two managers |
 | C. NetworkManager (nmcli) | | Common on desktops | Not on servers installed from our ISO |
 
@@ -89,7 +89,7 @@ enabled.
 
 ## 7. Step 2: VLANs on a VLAN-aware Linux bridge
 
-Decided by the maintainer: both parts, as Proxmox VE (`tag` and `trunks` of a network device on a "VLAN aware"
+Decided by the maintainer: both parts (`tag` and `trunks` of a network device on a "VLAN aware"
 bridge).
 
 **Part 1, a VM's VLANs on a bridge that already filters VLANs** (`app/core/bridge_vlan.py`):
@@ -99,7 +99,7 @@ bridge).
 - libvirt refuses `<vlan>` on a Linux bridge even when it filters VLANs, so the interface's access VLAN and trunk
   VLANs are kept in the VM's own metadata (`urn:hyperlite:vlan:1`, one `<port>` per MAC address). They travel with the
   definition (migration, export) and follow a clone's new MAC addresses.
-- Hyperlite sets them on the VM's bridge port with `bridge vlan`, as Proxmox VE's tap script does: the access VLAN as
+- Hyperlite sets them on the VM's bridge port with `bridge vlan`: the access VLAN as
   the port's PVID, untagged (VLAN 1 without one), the trunk VLANs tagged. It does so:
   - when the VM starts or arrives by migration: libvirt's qemu hook (`/etc/libvirt/hooks/qemu.d/hyperlite-vlan`,
     installed by the package) runs on `started` with the live definition, which names each tap and its bridge;
@@ -109,7 +109,7 @@ bridge).
   in the journal (`journalctl -t hyperlite-vlan`): libvirt keeps a hook's output only when the hook fails, and this
   hook never fails the VM.
 - Known window: libvirt runs `started` once QEMU runs, so the tap sits on VLAN 1 for that moment (the firmware has
-  not sent anything yet in practice). Proxmox VE sets the port before QEMU starts the guest.
+  not sent anything yet in practice). The reference platform sets the port before QEMU starts the guest.
 
 Checked in the lab (Ubuntu 24.04, Linux 6.8, libvirt 10.0; a VLAN-aware bridge whose uplink is a trunk to a namespace
 holding VLANs 20, 30 and 50):
@@ -129,7 +129,7 @@ holding VLANs 20, 30 and 50):
 | `vlan_filtering` turned off and on again | The ports keep their VLANs |
 
 **Part 2, making a bridge VLAN-aware from the dashboard** (`app/core/bridge_vlan.py`, `POST/DELETE
-/networks/{name}/vlan-aware`), as Proxmox VE's `bridge-vlan-aware yes` with `bridge-vids 2-4094`:
+/networks/{name}/vlan-aware`)`bridge-vlan-aware yes` with `bridge-vids 2-4094`:
 
 - On: `vlan_filtering` on the bridge, VLANs 2-4094 tagged on its uplinks (its NICs, bonds and VLAN interfaces, never
   a VM's tap or a container's veth) and on the bridge itself, so that a VLAN interface on top of the bridge
@@ -158,7 +158,7 @@ Checked in the lab (a bridge whose uplink is a bond, the host's address untagged
 
 ## 8. Step 4: the host's bridges, bonds and VLAN interfaces (2026-11-01)
 
-The node's Network page creates, edits and deletes bridges, bonds and VLAN interfaces (#512), as Proxmox VE's
+The node's Network page creates, edits and deletes bridges, bonds and VLAN interfaces (#512)
 Node › Network does. Section 3.2 recommended ifupdown2's `ifreload`; hosts installed from Debian run the classic
 ifupdown, and replacing it on a running node is a change of its own. So the implementation keeps to what both read:
 

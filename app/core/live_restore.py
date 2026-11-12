@@ -1,4 +1,4 @@
-"""Live restore (docs/design/live-restore.md): a backup restored as a new VM that starts at once, as Proxmox VE's.
+"""Live restore (docs/design/live-restore.md): a backup restored as a new VM that starts at once.
 
 Each restored disk is a new qcow2 file whose backing file is the backup's own image, read only by QEMU: the VM boots
 on it straight away, its writes go to the new file, its reads of what it has not written come from the backup. Then

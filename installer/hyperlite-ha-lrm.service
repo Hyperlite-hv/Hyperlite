@@ -2,8 +2,8 @@
 Description=Hyperlite HA local resource manager (the watchdog, the node's HA VMs and heartbeat)
 Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/privilege-separation.md
 # Every node: the watchdog (/dev/watchdog), the monitoring of its own HA VMs, the node's heartbeat and the load-balancing
-# moves asked of it (app/ha_services), as Proxmox VE's pve-ha-lrm. A normal stop disarms the watchdog; a crash or a
-# hang stops its feeding, and the node is reset, as Proxmox's.
+# moves asked of it (app/ha_services). A normal stop disarms the watchdog; a crash or a
+# hang stops its feeding, and the node is reset.
 # After hyperlite-daemon and the API; PartOf: a restart or a stop of the API (an update) restarts or stops it too, so
 # they run the same version, as the scheduler.
 After=hyperlite-daemon.service hyperlite-cfs.service hyperlite.service

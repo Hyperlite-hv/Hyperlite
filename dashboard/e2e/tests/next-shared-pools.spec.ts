@@ -1,7 +1,7 @@
 import { expect, goTo, test, uiLogin, apiRoute } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
-// Shared storage on several nodes, as on Proxmox. The test host is a single node: a remote node, the creation
+// Shared storage on several nodes. The test host is a single node: a remote node, the creation
 // answer and the storage support are served here; the backend part is covered by tests/test_shared_pools.py.
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 

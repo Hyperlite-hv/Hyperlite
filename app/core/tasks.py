@@ -1,5 +1,5 @@
 """Persistent task tracking (VM creation, start/stop, ISO upload, ...),
-modelled on vCenter's "Recent Tasks": each task carries distinct creation,
+each task carries distinct creation,
 start and end times, from which the total duration can be derived.
 
 There is no real job queue yet, so a task starts as soon as it is created

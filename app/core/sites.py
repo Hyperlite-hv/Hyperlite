@@ -1,9 +1,9 @@
-"""Several clusters and sites from one view (docs/design/multi-cluster.md, step 1), as Proxmox Datacenter Manager, but
+"""Several clusters and sites from one view (docs/design/multi-cluster.md, step 1), but
 in every Hyperlite: any cluster is the view of the others, with no server to add, and every node of it serves the view
 (its remotes are in the replicated configuration).
 
 A remote is another Hyperlite cluster (or a single node): the address of each of its nodes, each with the SHA-256 of
-its HTTPS certificate pinned, and a token per use of a dedicated account there with the least rights (`view`: a global
+Its HTTPS certificate pinned, and a token per use of a dedicated account there with the least rights (`view`: a global
 viewer). The remote checks every call with its own permissions and records it in its own audit log.
 
 The view asks every remote at once, each call with a timeout, and keeps the answers CACHE_S, so a page opened by

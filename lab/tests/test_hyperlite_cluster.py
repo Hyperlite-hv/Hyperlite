@@ -343,7 +343,7 @@ def test_the_daemon_makes_the_admin_account_at_its_start(cluster):
 
 def test_a_node_that_is_no_member_is_refused(cluster):
     t = cluster["tokens"]
-    status, body = api(1, "GET", "/networks?node=pve-nowhere", token=t[1])
+    status, body = api(1, "GET", "/networks?node=node-nowhere", token=t[1])
     assert status == 409 and "not a member" in body["detail"]
 
 
@@ -892,7 +892,7 @@ def test_a_container_lives_and_goes_on_a_member(cluster):
     # Its root shell, opened by hyperlite-daemon (nsenter into its PID 1, found by the daemon).
     ticket = ok(api(2, "POST", "/containers/labct/shell-ticket", token=t))["ticket"]
     with console(2, f"/containers/labct/shell?ticket={ticket}") as ws:
-        ws.send("echo ct-$((6*7)) $(cat /etc/hostname)\r")  # its own filesystem: the shell is inside
+        ws.send("echo ct-$((6*7)) $(cat /etc/hostname)\r")  # Its own filesystem: the shell is inside
         read_until(ws, "ct-42 labct")
     wait("the container shell ended", lambda: daemon_children(2) == [], timeout=30, every=1)
     ok(api(2, "POST", "/containers/labct/stop?force=true", token=t))

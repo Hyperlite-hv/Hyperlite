@@ -5,12 +5,11 @@ request each.
 
 ## 1. Goal
 
-When a member of a cluster stays loaded above the others for a while, live-migrate a few VMs to even the load, as
-vSphere DRS does: proposed to the administrator, or applied on its own, as the administrator chooses. Rules keep VMs
+When a member of a cluster stays loaded above the others for a while, live-migrate a few VMs to even the load: proposed to the administrator, or applied on its own, as the administrator chooses. Rules keep VMs
 together or apart, or on some nodes. Nothing predictive at first: loads that last, and moves whose gain outweighs
 their cost.
 
-Out of scope: storage balancing (vSphere's Storage DRS), power management (DPM: emptying a node to switch it off),
+Out of scope: storage balancing, power management (DPM: emptying a node to switch it off),
 prediction (#347), VMs whose disks are not on a shared pool (a migration that copies the disks takes minutes to hours:
 never proposed nor applied, section 8).
 
@@ -41,11 +40,11 @@ memory is as loaded as one short of CPU.
 
 The leader evaluates every 5 minutes. The cluster is **unbalanced** when the spread of the load scores (the highest
 minus the lowest, among the members that may receive VMs) stays above the **threshold** for 3 evaluations in a row
-(15 minutes): a burst is no imbalance. The threshold is one setting with five levels, as vSphere's migration threshold:
+(15 minutes): a burst is no imbalance. The threshold is one setting with five levels:
 
 | Level | Spread that counts | For |
 |---|---|---|
-| 1, conservative | never: rules only | a cluster that must not move |
+| 1, conservative | never: rules only | A cluster that must not move |
 | 2 | 40 points | few moves |
 | 3, default | 25 points | most clusters |
 | 4 | 15 points | |
@@ -56,7 +55,7 @@ broken (3.4) is always a reason to move.
 
 ### 3.3 Which moves
 
-A greedy search, as vSphere's: from the most loaded member, the move of one VM to another member that lowers the spread
+A greedy search: from the most loaded member, the move of one VM to another member that lowers the spread
 the most, then again, at most `max_moves` (default 4) per evaluation. A VM is a candidate when:
 
 - it runs, all its disks on a shared pool (shared file pool or RBD; never a disk copy);
@@ -92,7 +91,7 @@ One mode for the cluster, and a per-VM exception:
 - **Off**: nothing evaluated.
 - **Manual**: the page lists the recommended moves, each with its gain and its reason; an administrator applies one,
   or all.
-- **Automatic** (the default, as vSphere's): the leader applies them, at most 2 migrations at a time in the cluster and 1 per node, and says each
+- **Automatic** (the default): the leader applies them, at most 2 migrations at a time in the cluster and 1 per node, and says each
   one in the audit log, the history and a notification.
 
 A VM can be excluded, or kept in manual while the cluster is automatic (a database that must never move on its own).
@@ -121,9 +120,9 @@ lands on a node about to be updated.
   runs on, the only one that reads the VM's full configuration, starts the migration and writes back how it ended. A
   move no member starts within 5 minutes (its member down) counts as failed.
 
-## 4. Compared with vSphere DRS and Proxmox VE
+## 4. Compared with classic load balancing and the reference platform
 
-| | vSphere DRS | Proxmox VE | Hyperlite (this design) |
+| | classic load balancing | The reference platform | Hyperlite (this design) |
 |---|---|---|---|
 | Balancing on its own | 🟢 levels, manual to automatic | 🔴 none (CRS places HA VMs only; ProxLB is a third-party tool) | 🟢 off, manual, automatic, threshold 1-5 |
 | Affinity / anti-affinity | 🟢 VM-VM and VM-host rules, must and should | 🟠 HA groups only (node preference), affinity in 9.x | 🟢 the four rules, must and should, binding HA too |
@@ -153,16 +152,16 @@ lands on a node about to be updated.
 
 ## 7. Questions asked
 
-1. **Default mode**: manual (proposed), or automatic as vSphere's default?
+1. **Default mode**: manual (proposed), or automatic
 2. **Threshold**: level 3 (25 points) by default?
 3. **VMs on local disks**: proposed in manual mode with their disk copy (minutes), or never?
 4. **"Must" rules binding HA**: agreed that a VM with no node left keeping its rules is not restarted (it goes to
-   manual)? vSphere does the same with "must" rules.
+   manual)? The commercial reference does the same with "must" rules.
 5. **Initial placement**: should "auto" become the default node when a VM is created in a cluster?
 
 ## 8. Decisions (maintainer, 2026-10-24)
 
-1. Default mode: **automatic**, as vSphere's; manual and off stay a setting away.
+1. Default mode: **automatic**; manual and off stay a setting away.
 2. Threshold: level 3 (25 points) by default, as proposed.
 3. VMs on local disks: **never** moved by DRS, neither proposed nor applied.
 4. "Must" rules bind HA: a VM with no node left that keeps its rules is not restarted; it goes to manual, said why.

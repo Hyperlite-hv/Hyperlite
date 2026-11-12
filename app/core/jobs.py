@@ -1,7 +1,5 @@
-"""Job engine for the Automation tab: a simplified equivalent of a mini
-Ansible / Datto RMM, using vRealize Orchestrator and vCenter Scheduled Tasks as
-the reference for expected features (a sequence of steps, a success condition
-per step, full history, dry-run).
+"""Job engine for the Automation tab: a sequence of steps, a success condition
+per step, full history, dry-run.
 
 Architecture choice: IN-PROCESS ASYNCIO/THREADING, NOT Celery/RQ.
   - Celery/RQ is the "standard" choice for a real distributed job queue, but

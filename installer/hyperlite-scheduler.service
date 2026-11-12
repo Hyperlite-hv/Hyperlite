@@ -1,7 +1,7 @@
 [Unit]
 Description=Hyperlite scheduler (scheduled backups, replication, automatic deletion, start at boot)
 Documentation=https://github.com/Hyperlite-hv/Hyperlite/blob/master/docs/design/privilege-separation.md
-# The work no person asks for, out of the API, as Proxmox VE's pvescheduler (app/scheduler). After hyperlite-daemon,
+# The work no person asks for, out of the API (app/scheduler). After hyperlite-daemon,
 # which does its root work, and after the API; PartOf: a restart or a stop of the API (an update) restarts or stops it
 # too, so both run the same version. A crash of the API leaves it running.
 After=hyperlite-daemon.service hyperlite.service hyperlite-cfs.service

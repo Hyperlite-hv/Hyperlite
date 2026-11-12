@@ -6,7 +6,7 @@ larger of its CPU and memory shares. The cluster is unbalanced when the spread o
 among the members that may receive VMs) stays above the threshold's level for SUSTAINED evaluations in a row, or when
 a member stays above HOT_PCT; a VM that breaks a rule is always a reason to move.
 
-The moves, greedy as vSphere's: from the most loaded member, the move of one VM that lowers the spread the most, then
+The moves, greedy: from the most loaded member, the move of one VM that lowers the spread the most, then
 again, MAX_MOVES at most. A VM is a candidate when it runs, all its disks on a shared pool, it is not excluded, it was
 not moved in the last COOLDOWN_S, and the target has its memory free with MEM_MARGIN and keeps its rules (no "must"
 rule broken, no "should" rule broken by the move). A move is kept only if it lowers the spread by a quarter of the

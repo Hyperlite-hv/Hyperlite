@@ -16,7 +16,7 @@ from app.daemon.registry import Context, dispatch
 
 logger = logging.getLogger(__name__)
 
-# The account the API runs as once it drops root (step 4), as Proxmox VE runs pveproxy (Antho, 2026-10-21); root is
+# The account the API runs as once it drops root (step 4) (Antho, 2026-10-21); root is
 # accepted too until then.
 API_USER = "www-data"
 

@@ -71,7 +71,7 @@ def test_one_node_holds_the_lead_and_keeps_it_across_its_restart(daemon):
     cluster_lead.forget()  # this node restarts: the lock is still its own
     assert cluster_lead.renew() and cluster_lead.is_leader()
 
-    daemon.holder = "pve-b"  # this node lost it (left the membership), another took it
+    daemon.holder = "node-b"  # this node lost it (left the membership), another took it
     assert not cluster_lead.renew() and not cluster_lead.is_leader()
 
 

@@ -1,4 +1,4 @@
-"""Numeric guest identifiers (VMID), unique in the cluster, as Proxmox VE's (docs/design/vmid.md).
+"""Numeric guest identifiers (VMID), unique in the cluster (docs/design/vmid.md).
 
 Every VM and container gets one, from 100 up, never handed out twice: a counter in hyperlite-cfs (COUNTER), moved on
 with a compare-and-set, so two nodes numbering at the same moment get different numbers. hyperlite-cfs runs on a

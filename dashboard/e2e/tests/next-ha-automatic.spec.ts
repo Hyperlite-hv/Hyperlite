@@ -10,13 +10,13 @@ const api = (r: Route) => ["fetch", "xhr"].includes(r.request().resourceType());
 const STATUS = {
   mode: "attempt", settings: { witness: "", suspect_threshold: 3, failure_threshold: 6 }, auto_restart_possible: true, reason: null, nodes: [],
   automatic: true, leading: true,
-  admission: { policy: "warn", ok: false, unabsorbed: ["pve-b"], unknown: [], detail: "" },
+  admission: { policy: "warn", ok: false, unabsorbed: ["node-b"], unknown: [], detail: "" },
   members: [
-    { name: "pve-a", self: true, online: true, seen_s: 1, mem_free_mb: 6000, watchdog: { armed: true, reset_within_s: 125, stopped: false, at: "x" } },
-    { name: "pve-b", self: false, online: false, seen_s: 90, mem_free_mb: 2000, watchdog: { armed: false, reset_within_s: null, stopped: true, at: "x" } },
+    { name: "node-a", self: true, online: true, seen_s: 1, mem_free_mb: 6000, watchdog: { armed: true, reset_within_s: 125, stopped: false, at: "x" } },
+    { name: "node-b", self: false, online: false, seen_s: 90, mem_free_mb: 2000, watchdog: { armed: false, reset_within_s: null, stopped: true, at: "x" } },
   ],
 };
-const VM = { vm_name: "web", node: "pve-b", node_status: "offline", ha_state: "recovering", last_action: "restarting on pve-a", last_action_at: "2026-10-24T10:00:00+00:00", last_synced_at: "2026-10-24T09:59:00+00:00", priority: "high", preferred_nodes: [], monitoring: false };
+const VM = { vm_name: "web", node: "node-b", node_status: "offline", ha_state: "recovering", last_action: "restarting on node-a", last_action_at: "2026-10-24T10:00:00+00:00", last_synced_at: "2026-10-24T09:59:00+00:00", priority: "high", preferred_nodes: [], monitoring: false };
 
 test("the HA page of a cluster: automatic HA, members, admission, history, a VM's settings", async ({ page }) => {
   const sent: Array<[string, unknown]> = [];
@@ -29,7 +29,7 @@ test("the HA page of a cluster: automatic HA, members, admission, history, a VM'
       return r.fulfill(json({ ...VM, ...r.request().postDataJSON() }));
     }
     if (path.endsWith("/ha/status")) return r.fulfill(json(STATUS));
-    if (path.endsWith("/ha/history")) return r.fulfill(json({ items: [{ id: 1, timestamp: "2026-10-24T09:58:00+00:00", username: "system", action: "ha_lost", resource: "pve-b", result: "failed", error_message: "no status for more than 60 s" }] }));
+    if (path.endsWith("/ha/history")) return r.fulfill(json({ items: [{ id: 1, timestamp: "2026-10-24T09:58:00+00:00", username: "system", action: "ha_lost", resource: "node-b", result: "failed", error_message: "no status for more than 60 s" }] }));
     if (path.endsWith("/ha")) return r.fulfill(json({ items: [VM] }));
     return r.fallback();
   });
@@ -46,7 +46,7 @@ test("the HA page of a cluster: automatic HA, members, admission, history, a VM'
   await expect(members.getByText("Service stopped")).toBeVisible();
 
   const admission = main.getByRole("region", { name: "Admission control" });
-  await expect(admission.getByText("If pve-b failed, the other members would not have the memory to restart all its HA VMs.")).toBeVisible();
+  await expect(admission.getByText("If node-b failed, the other members would not have the memory to restart all its HA VMs.")).toBeVisible();
   await admission.getByLabel("Policy").selectOption("strict");
   await expect.poll(() => sent.find(([p]) => p.endsWith("/ha/admission"))?.[1]).toEqual({ policy: "strict" });
 

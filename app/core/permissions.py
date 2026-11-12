@@ -1,4 +1,4 @@
-"""Granular permissions, Proxmox-style: user groups + VM pools + scoped roles +
+"""Granular permissions: user groups + VM pools + scoped roles +
 assignments (ACLs), on top of the two existing global roles (admin/viewer,
 see app/core/security.py, unchanged).
 
@@ -33,8 +33,7 @@ ALL_PRIVILEGES = {
     "vm.hardware": "Hardware (disks, network interfaces, CD drive)",
     "vm.clone": "Clone the VM (creates a new VM and consumes disk space)",
     "vm.options": "Options (start at boot, notes and tags)",
-    # The steps of a VM's creation, each on what it uses, as vSphere (VirtualMachine.Inventory.Create,
-    # Datastore.AllocateSpace, Network.Assign) and Proxmox VE (VM.Allocate, Datastore.AllocateSpace, SDN.Use): an
+    # The steps of a VM's creation, each on what it uses: an
     # account that is not an administrator (a Terraform pipeline's token) creates VMs only in its pool, on its
     # storage and its networks.
     "vm.allocate": "Create and delete VMs (assigned on a pool: the VMs go in that pool)",
@@ -46,7 +45,7 @@ ALL_PRIVILEGES = {
     "container.power": "Start / stop",
     "container.console": "Console log (the web terminal is for administrators)",
     "container.options": "Options (notes and tags)",
-    # Another cluster's copy of a backup store pulls it with this (as Proxmox Backup Server's DatastoreReader): a
+    # Another cluster's copy of a backup store pulls it with this: a
     # dedicated account's API token reads the store's chunks and indexes, nothing else, and deletes nothing.
     "backup_store.read": "Read a backup store, to copy it from another site (assigned on that store)",
 }
@@ -351,8 +350,7 @@ def has_scoped_privilege(user, resource_type, resource_id, privilege):
 
 def refuse_unless(user, resource_type, resource_id, privilege, what):
     """403 unless `user` holds `privilege` on that storage pool or network (has_scoped_privilege); `what` names it in
-    the refusal ("storage pool 'fast'"). For the routes that put a disk or an interface on an existing VM, as Proxmox
-    VE checks Datastore.AllocateSpace and SDN.Use there too."""
+    the refusal ("storage pool 'fast'"). For the routes that put a disk or an interface on an existing VM."""
     from fastapi import HTTPException
 
     if not has_scoped_privilege(user, resource_type, resource_id, privilege):

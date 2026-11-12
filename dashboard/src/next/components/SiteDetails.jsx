@@ -12,7 +12,7 @@ const FORCED = new Set(["stop", "reset"]);
 const gib = (mb) => (mb == null ? "—" : `${(mb / 1024).toFixed(mb >= 10240 ? 0 : 1)} GiB`);
 
 // One remote cluster in the Sites page's drawer: its nodes, its VMs and, with its manage token, their power actions
-// and their move to another of its nodes, as Proxmox Datacenter Manager's; the rest (console, settings) in its own
+// and their move to another of its nodes; the rest (console, settings) in its own
 // dashboard. The remote checks every action with the rights of the token's account and records it in its journal.
 export default function SiteDetails({ site, remote, onChanged }) {
   const t = useT();

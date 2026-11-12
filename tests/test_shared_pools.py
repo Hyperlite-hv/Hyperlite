@@ -1,4 +1,4 @@
-"""Shared storage declared for several nodes at once (app/core/shared_pools.py), as on Proxmox: created on each
+"""Shared storage declared for several nodes at once (app/core/shared_pools.py): created on each
 chosen node, on nodes registered later when declared for every node, and removed from all of them together. Each
 node's libvirt is a fake that records what was defined there."""
 

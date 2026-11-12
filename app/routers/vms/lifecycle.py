@@ -132,7 +132,7 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
             log_action(user["username"], "start_vm", name, "failed", "VM already running", task_id=task_id)
             raise HTTPException(status_code=409, detail=f"VM '{name}' is already running")
         # A restore, a cold backup, a disk move or a clone works on the stopped VM's disks: started meanwhile, the VM
-        # would write to files being copied or replaced (a restore then deletes them), as Proxmox's lock prevents.
+        # would write to files being copied or replaced (a restore then deletes them).
         busy = vm_locks.running(name, node)
         if busy:
             msg = f"VM '{name}' is busy: {busy} is in progress. Start it once it has finished."
@@ -174,7 +174,7 @@ def start_vm(name: str, node: str | None = None, user: dict = Depends(require_vm
 # A guest may ignore the shutdown request (the ACPI button pressed while it is still booting, or just after a live
 # migration: twice in a 24 h lab run, the guest healthy and stopping at once on a second request): the VM then kept
 # running, and the request said nothing. The request is sent again after ASK_AGAIN_S while the VM runs; asked with
-# force_after, the VM still running at the end is stopped by force, as Proxmox's shutdown timeout with forceStop.
+# force_after, the VM still running at the end is stopped by force.
 FORCE_AFTER_RANGE = (10, 3600)
 ASK_AGAIN_S = (30, 90)
 
@@ -356,7 +356,7 @@ def _delete_vm(name, confirm, node, user):
             raise privileged.http_error(e) from None
 
         log_action(user["username"], "delete_vm", name, "success", _kept_sentence(keep) or None, task_id=task_id)
-        # kept_disks: what stays on the storage, as Proxmox VE's and vSphere's tasks say it.
+        # kept_disks: what stays on the storage's tasks say it.
         return {"message": f"VM '{name}' deleted", "kept_disks": keep}
     finally:
         conn.close()

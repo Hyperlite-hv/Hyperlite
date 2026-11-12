@@ -9,17 +9,17 @@ test("a node in no cluster shows the card; without Corosync it says how to insta
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { level: 2, name: "Cluster", exact: true })).toBeVisible();  // the real answer
 
-  await page.route(/\/cluster$/, (route) => route.fulfill({ json: { corosync_installed: false, in_cluster: false, name: null, members: [], node: "pve-a" } }));
+  await page.route(/\/cluster$/, (route) => route.fulfill({ json: { corosync_installed: false, in_cluster: false, name: null, members: [], node: "node-a" } }));
   await page.reload();
   await expect(main.getByRole("note").filter({ hasText: "apt install corosync" })).toBeVisible();
   await expect(main.getByRole("button", { name: "Create the cluster" })).toBeDisabled();
   await expect(main.getByRole("button", { name: "Join the cluster" })).toBeDisabled();
 });
 
-const ALONE = { corosync_installed: true, in_cluster: false, name: null, members: [], node: "pve-a" };
+const ALONE = { corosync_installed: true, in_cluster: false, name: null, members: [], node: "node-a" };
 const IN_CLUSTER = {
-  corosync_installed: true, in_cluster: true, name: "prod", quorum: true, node: "pve-a",
-  members: [{ name: "pve-a", nodeid: 1, address: "192.0.2.10" }, { name: "pve-b", nodeid: 2, address: "192.0.2.11" }],
+  corosync_installed: true, in_cluster: true, name: "prod", quorum: true, node: "node-a",
+  members: [{ name: "node-a", nodeid: 1, address: "192.0.2.10" }, { name: "node-b", nodeid: 2, address: "192.0.2.11" }],
 };
 
 test("creating a cluster, then copying the join information and removing a member after a confirmation", async ({ page }) => {
@@ -28,7 +28,7 @@ test("creating a cluster, then copying the join information and removing a membe
   await page.route(/\/cluster$/, (route) => route.fulfill({ json: state }));
   await page.route(/\/cluster\/create$/, (route) => { bodies.push(route.request().postDataJSON()); state = IN_CLUSTER; return route.fulfill({ json: state }); });
   await page.route(/\/cluster\/adhesion$/, (route) => route.fulfill({ json: { information: "eyJjbHVzdGVyIjoicHJvZCJ9", cluster: "prod", expire: "2026-10-02T13:00:00+00:00" } }));
-  await page.route(/\/cluster\/members\/pve-b\/remove$/, (route) => {
+  await page.route(/\/cluster\/members\/node-b\/remove$/, (route) => {
     bodies.push(route.request().postDataJSON());
     state = { ...IN_CLUSTER, members: IN_CLUSTER.members.slice(0, 1) };
     return route.fulfill({ json: state });
@@ -45,19 +45,19 @@ test("creating a cluster, then copying the join information and removing a membe
   await expect(main.getByRole("heading", { name: "Cluster prod" })).toBeVisible();
   expect(bodies[0]).toEqual({ name: "prod", address: "192.0.2.10" });
   const members = main.getByRole("table").filter({ has: page.getByRole("columnheader", { name: "Corosync id" }) });
-  await expect(members.getByRole("row", { name: /pve-a.*this node/ })).toBeVisible();
-  await expect(members.getByRole("button", { name: "Remove pve-a from the cluster" })).toHaveCount(0);
+  await expect(members.getByRole("row", { name: /node-a.*this node/ })).toBeVisible();
+  await expect(members.getByRole("button", { name: "Remove node-a from the cluster" })).toHaveCount(0);
 
   await main.getByRole("button", { name: "Join information" }).click();
   await expect(main.getByLabel("Join information")).toHaveValue("eyJjbHVzdGVyIjoicHJvZCJ9");
 
-  await members.getByRole("button", { name: "Remove pve-b from the cluster" }).click();
+  await members.getByRole("button", { name: "Remove node-b from the cluster" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   expect(bodies).toHaveLength(1);
-  await members.getByRole("button", { name: "Remove pve-b from the cluster" }).click();
+  await members.getByRole("button", { name: "Remove node-b from the cluster" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
-  await expect(members.getByRole("row", { name: /pve-b/ })).toHaveCount(0);
-  expect(bodies[1]).toEqual({ confirmation: "pve-b" });
+  await expect(members.getByRole("row", { name: /node-b/ })).toHaveCount(0);
+  expect(bodies[1]).toEqual({ confirmation: "node-b" });
 });
 
 test("joining needs the cluster's name typed back, in English and in French", async ({ page }) => {

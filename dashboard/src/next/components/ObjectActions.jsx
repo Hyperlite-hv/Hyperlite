@@ -28,7 +28,7 @@ import { SideDrawer, Field } from "./ui";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
 const NODE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9.-]{1,62}$/;
-// A host name: dot-separated labels of 1 to 63 letters, digits and hyphens (pve1, pve1.home).
+// A host name: dot-separated labels of 1 to 63 letters, digits and hyphens (node1, node1.home).
 const HOST_NAME_RE = /^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
 function MenuGroup({ label }) { return <div className="nx-menu-group" role="presentation">{label}</div>; }
@@ -129,8 +129,8 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
       onRenamed?.(vmKey({ ...vm, name: name.trim() }));
     } catch (e) { fail(t("vx.renameFailed"), e); }
   }
-  // A copy keeps the VM (vSphere's "Clone to Template"); a conversion makes the VM the template, and the VM leaves the
-  // list (Proxmox VE's "Convert to template"): seen on a real node, converted by someone who expected a copy.
+  // A copy keeps the VM; a conversion makes the VM the template, and the VM leaves the
+  // list: seen on a real node, converted by someone who expected a copy.
   async function copyToTemplate() {
     const name = await promptText({ title: t("vx.tplCopyTitle", { name: vm.name }), message: t("vx.tplCopyMsg", { name: vm.name }), label: t("vx.tplName"), defaultValue: `${vm.name}-tpl`, confirmLabel: t("vx.tplCopy"), validate: (v) => (NAME_RE.test(v) ? "" : t("vx.nameRule")) });
     if (!name) return;

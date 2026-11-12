@@ -1,4 +1,4 @@
-"""A VM created from an installation ISO is installed by hand from the console, as on Proxmox VE, whatever the system:
+"""A VM created from an installation ISO is installed by hand from the console, whatever the system:
 Hyperlite no longer answers the installers itself (Kickstart, autoinstall, removed before 1.0)."""
 
 import importlib

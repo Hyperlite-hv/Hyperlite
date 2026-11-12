@@ -81,7 +81,7 @@ def test_every_operation_the_api_asks_for_exists_in_the_daemon():
 
 def test_the_arguments_are_checked_as_the_daemon_checks_them():
     with pytest.raises(DaemonError) as e:
-        privileged.run("host.set_hostname", name="pve1", extra="x")
+        privileged.run("host.set_hostname", name="node1", extra="x")
     assert e.value.kind == "invalid_arguments"
     with pytest.raises(DaemonError) as e:
         privileged.run("host.schedule_power", action="format-the-disk")

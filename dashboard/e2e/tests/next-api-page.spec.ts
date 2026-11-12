@@ -40,7 +40,7 @@ test("Open Swagger opens /docs in a new tab, Authorize signs in, the access sett
   await expect(main.getByRole("button", { name: "Open Swagger" })).toBeVisible();
 });
 
-// hyperlite-admin's lockdown, as ESXi's: root of a node runs it as root@<node>, or named accounts only.
+// hyperlite-admin's lockdown: root of a node runs it as root@<node>, or named accounts only.
 test("The lockdown of hyperlite-admin is turned on and off from the API page", async ({ page, request }) => {
   await uiLogin(page);
   await goTo(page, "API");

@@ -14,7 +14,7 @@ How a point is made:
     stopped (any QEMU run rewrites them, and Hyperlite's own disk operations drop the chain, see
     app/core/checkpoints.py). Otherwise it is started
     **paused**, so the guest never runs, just for the copy, then stopped again: libvirt's backup API needs a running
-    QEMU, and the bitmaps kept tracking the writes while it was stopped. Proxmox backs stopped VMs up the same way.
+    QEMU, and the bitmaps kept tracking the writes while it was stopped.
     A VM with a passed-through device is never started that way (it would take the device): it gets a full cold
     copy with qemu-img instead.
 A chain is restarted after MAX_POINTS points (one day at the default interval), so a damaged point never costs more
