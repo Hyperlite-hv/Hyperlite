@@ -12,7 +12,7 @@ Thanks for your interest. Hyperlite is licensed under the PolyForm Noncommercial
   - To release, open a pull request from `test` into `master` once `test` is validated (CI green and the end-to-end suite passing). Publishing (APT repository, ISO) only follows `master`.
   - Dependabot opens its pull requests against `test` (see `.github/dependabot.yml`).
   - Urgent production fixes use a `hotfix/...` branch from `master`, and are merged back into `test` afterwards.
-- New here, or bringing an AI assistant? Read [docs/onboarding.md](docs/onboarding.md) for the access checklist and the working rules.
+- New here? Read [docs/onboarding.md](docs/onboarding.md) for the access checklist and the working rules.
 - Keep pull requests small and focused. Explain *why* in the description.
 - A change people notice gets a changelog entry as a **fragment of its own**, `changelog.d/<issue>-<slug>.<type>.md` (type `added`, `changed`, `deprecated`, `removed`, `fixed` or `security`), never an edit of `CHANGELOG.md`: two pull requests then never conflict over the changelog. The release pull request runs `python3 scripts/changelog.py release <version>`, which writes the version's section and removes the fragments. See [changelog.d/README.md](changelog.d/README.md).
 - Do not commit secrets, real hostnames or IP addresses of private infrastructure.
@@ -78,6 +78,24 @@ Tests use a temporary database and never talk to a real libvirt daemon. If your 
 - SQL: bind parameters; interpolate only fixed fragments or allow-listed identifiers.
 - Comments explain *why*, not *what*. Do not reference tickets, dates or people in comments.
 - Frontend: function components and hooks, Tailwind for styling; keep user-visible strings in English.
+
+## Repository layout
+
+- `app/routers/`: HTTP endpoints. `app/core/`: logic (libvirt helpers, builders, ZFS, cluster, permissions, security, backups, HA, metrics, preflight).
+- `app/core/database.py`: schema created at start-up (`CREATE TABLE IF NOT EXISTS` and small migrations).
+- `dashboard/src/api/client.js`: API client; `dashboard/src/store/useInfraStore.js`: state; `dashboard/src/next/`: the interface (pages, layout, components, `windows/` for the windows opened on their own, `i18n/` for the English and French text).
+- `installer/`: ISO, `.deb` and APT repository build scripts. `scripts/`: service helper scripts and the publishing hook.
+- `tests/`: pytest suite (temporary database, no real libvirt).
+
+## Testing expectations
+
+Unit and API tests must pass. For hypervisor behavior (libvirt, ZFS, NFS, migration, installer), state how it was verified on a real or nested host; do not claim it works from code reading alone.
+
+## Pitfalls
+
+- SQLite: WAL mode with a 30 s timeout; nearly every request writes an audit entry (asynchronous writer thread in `app/core/audit.py`).
+- Treat every path and command argument that comes from a user as untrusted.
+- Frontend text lives in `dashboard/src/next/i18n/en.js` and `fr.js` (same keys, a test checks the parity); check the rendered UI in both languages after changing labels.
 
 ## Reporting bugs and security issues
 

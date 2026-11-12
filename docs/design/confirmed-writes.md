@@ -21,7 +21,7 @@ because the write guard reads the quorum through a 2-second cache (`cluster_lead
 to copy it, and the majority's value came back when the quorum did. A confirmed write sees the daemon refuse the copy
 and answers 503 at once.
 
-Proxmox's pmxcfs writes synchronously: a change that cannot be made is an error at once.
+the reference cluster file system writes synchronously: a change that cannot be made is an error at once.
 
 ## What changes
 
@@ -67,7 +67,7 @@ write produced (their outbox ids), so a request never waits for another one's ch
 ## Cost
 
 A change answers after one round trip to the local daemon, which already replicated it through Corosync (a few
-milliseconds on a LAN, tens over Tailscale as between serveur-antho and bico). Reads are unchanged.
+milliseconds on a LAN, tens over a VPN between two sites). Reads are unchanged.
 
 ## Tests
 

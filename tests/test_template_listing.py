@@ -1,5 +1,4 @@
-"""What GET /templates says of a template: besides its description, the facts a client sizes a deployment by, as
-vSphere's template is read (its firmware, its disk), so a Terraform configuration can write
+"""What GET /templates says of a template: besides its description, the facts a client sizes a deployment by (its firmware, its disk), so a Terraform configuration can write
 `size_gb = data.hyperlite_template.x.disks[0].size_gb` and never shrink the disk it deploys."""
 
 import json

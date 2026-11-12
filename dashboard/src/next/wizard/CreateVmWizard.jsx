@@ -74,8 +74,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
 
   // Images of every node: this host's first, then those only another node has (copied here before creation, since
   // a VM boots only from an image on its own host). One entry per name. This host's show as soon as they are read and
-  // the other nodes' join them when the cluster's list answers: a node that is down never holds the list, as
-  // Proxmox VE lists the storage of the chosen node only.
+  // the other nodes' join them when the cluster's list answers: a node that is down never holds the list.
   const isos = useMemo(() => {
     const here = new Set(localIsos.map((i) => i.name));
     const remote = [];

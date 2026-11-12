@@ -1,7 +1,7 @@
 #!/bin/bash
 # Debian maintainer script (preinst), run by dpkg before it unpacks anything.
 #
-# From 1.1 the files live where Proxmox VE keeps its own (app/core/paths.py). An update to such a version is only safe
+# From 1.1 the files follow app/core/paths.py. An update to such a version is only safe
 # from 1.0.2 on (docs/design/privilege-separation.md, section 9): older versions start their update watchdog from a
 # file this package removes, and their rollback restores an archive of /root/hyperlite that this version no longer
 # reads. Over anything older the update stops here: nothing is unpacked, the node keeps running its version.

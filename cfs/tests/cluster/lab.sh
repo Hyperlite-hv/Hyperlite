@@ -15,7 +15,7 @@
 #   lab.sh down [DIR]    stop everything and remove the namespaces (the logs stay in DIR)
 #
 # HYPERLITE_LAB_NODES sets the number of nodes (3 by default). HYPERLITE_LAB_QDEVICE=1 adds the arbiter of a two-node
-# cluster as Proxmox recommends it: corosync-qnetd in a namespace of its own, corosync-qdevice next to each node's
+# cluster: corosync-qnetd in a namespace of its own, corosync-qdevice next to each node's
 # Corosync, and wait_for_all (design, section 5). The lab keeps both settings for its later commands.
 #
 # Needs root, iproute2, util-linux (unshare, nsenter) and corosync (corosync-qnetd and corosync-qdevice for the

@@ -43,7 +43,7 @@ def as_before_v1(path, monkeypatch):
         "INSERT INTO tasks (id, type, cible, statut, progres, cree_le) VALUES ('t1', 'backup', 'web', 'en_cours', 0, 'now')"
     )
     conn.execute(
-        "INSERT INTO nodes (name, hostname, statut, added_at) VALUES ('pve-a', 'pve-a.lan', 'hors_ligne', 'now')"
+        "INSERT INTO nodes (name, hostname, statut, added_at) VALUES ('node-a', 'node-a.lan', 'hors_ligne', 'now')"
     )
     conn.commit()
     conn.close()
@@ -182,7 +182,9 @@ def test_a_configuration_copy_made_before_the_renames_is_read_with_the_new_names
 
     work = tmp_path / "old"
     work.mkdir()
-    (work / "meta.json").write_text(json.dumps({"version": 1, "controleur": "pve-a", "cree_le": "t", "empreinte": "e"}))
+    (work / "meta.json").write_text(
+        json.dumps({"version": 1, "controleur": "node-a", "cree_le": "t", "empreinte": "e"})
+    )
     (work / "cles.env").write_text("HYPERLITE_SECRET_KEY=s\n")
     (work / "hyperlite.db").write_bytes(b"")
     bundle = tmp_path / "config-1.tar.gz"
@@ -190,7 +192,7 @@ def test_a_configuration_copy_made_before_the_renames_is_read_with_the_new_names
         for name in ("hyperlite.db", "cles.env", "meta.json"):
             tar.add(work / name, arcname=name)
     meta, extracted = config_copy.read_bundle(bundle)
-    assert meta == {"version": 1, "controller": "pve-a", "created_at": "t", "fingerprint": "e"}
+    assert meta == {"version": 1, "controller": "node-a", "created_at": "t", "fingerprint": "e"}
     assert (extracted / "keys.env").read_text() == "HYPERLITE_SECRET_KEY=s\n"
 
 

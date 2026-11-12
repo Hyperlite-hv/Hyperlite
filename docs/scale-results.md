@@ -61,7 +61,7 @@ connection, one round trip per remote libvirt call (0.5 ms on a LAN, 20 ms over 
 | 3 | The NAT address search asks the nodes at once, from their own records | 100 nodes: 20 s to under 1 s |
 | 4 | Cluster views ask every node at once once connections are reused | 100 nodes: 2.6 s to under 0.5 s |
 | 5 | A node that does not answer is named in the answer (502), the others still listed | no more 500 |
-| 6 | Phase E: every node publishes its VMs' state to the cluster, any node lists them all from local data (as Proxmox's pvestatd does) | the VM list independent of the number of nodes, under 50 ms |
+| 6 | Phase E: every node publishes its VMs' state to the cluster, any node lists them all from local data | the VM list independent of the number of nodes, under 50 ms |
 
 ## What could not be tested
 
@@ -80,6 +80,6 @@ connection, one round trip per remote libvirt call (0.5 ms on a LAN, 20 ms over 
 | NAT address search, 100 simulated nodes | 20 s | 0.8 s | 0.8 s | < 2 s |
 
 Phase E: every node sends a summary of its VMs to every node every 10 s through hyperlite-cfs's status group, and at
-once after a change made through Hyperlite; the VM list reads it, this node's own VMs included (as Proxmox does,
-Antho's choice), so nothing is asked of any node on a refresh. The last step was skipping FastAPI's generic encoder on
+once after a change made through Hyperlite; the VM list reads it, this node's own VMs included (Antho's choice),
+so nothing is asked of any node on a refresh. The last step was skipping FastAPI's generic encoder on
 this list: walking a thousand summaries on every request was its largest cost under load.

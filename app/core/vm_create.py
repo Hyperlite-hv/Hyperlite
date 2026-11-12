@@ -64,7 +64,7 @@ class StaticInterface(BaseModel):
 
 
 class CloudInitCustom(BaseModel):
-    """The rest of a guest's customisation, as vSphere's and Proxmox VE's (cloudinit_edit.CUSTOM). A field left out
+    """The rest of a guest's customisation's (cloudinit_edit.CUSTOM). A field left out
     keeps what the drive holds; an empty value ("" or []) clears it."""
 
     hostname: str | None = Field(default=None, max_length=63)  # the VM's name when empty
@@ -127,7 +127,7 @@ class VMCreate(BaseModel):
     # continuously is never considered "inactive", whatever the threshold.
     auto_cleanup_days: int | None = Field(None, ge=1, le=365)
     # The pool (app/routers/pools.py, by its id) the VM goes in. Required from an account that is not an
-    # administrator, which creates VMs only in a pool where it holds vm.allocate, as vSphere requires a resource pool:
+    # administrator, which creates VMs only in a pool where it holds vm.allocate:
     # the pool's assignments then give it its rights on the new VM.
     resource_pool: int | None = None
     # A VM made from the cloud image only (no ISO, no imported disk): the account's SSH keys, and the rest of the
@@ -285,7 +285,7 @@ def create(conn, payload, pending=frozenset(), check_only=False):
                 errors.append(f"Imported disk '{payload.import_disk}' not found")
 
     # "Installation from an ISO" mode: a blank system disk, and the operating system is installed by hand from the
-    # console, as on Proxmox VE: the user creates their own account there (no web SSH terminal until access is
+    # console: the user creates their own account there (no web SSH terminal until access is
     # configured by hand). Hyperlite no longer answers the installers itself (Kickstart, autoinstall): the cloud
     # image below is the one system it prepares. Without an ISO: the preinstalled Debian 12 image + cloud-init.
     install_mode = iso_path is not None

@@ -53,7 +53,7 @@ int cfs_check(const cfs_request *req, uid_t uid, char *reason, size_t cap)
 {
     /* Only root changes the configuration (and the user this daemon runs as: a test's): the API, which runs as another
      * user and reads through the socket's group, could otherwise write rows that every member applies as root, its
-     * permissions among them. As /etc/pve is for www-data on Proxmox VE. Said in the log, as every refusal of a
+     * permissions among them. Said in the log, as every refusal of a
      * client's identity. */
     if (cfs_op_changes(req->op) && uid != 0 && uid != geteuid()) {
         snprintf(reason, cap, "only root changes the configuration");

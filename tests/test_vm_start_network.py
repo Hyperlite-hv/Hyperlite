@@ -65,7 +65,7 @@ def test_a_stopped_network_is_named_before_starting(client, auth_headers, monkey
 
 def test_a_vm_busy_with_a_restore_or_a_copy_is_not_started(client, auth_headers, monkeypatch, daemon_libvirt):
     """A restore swaps the disks of a stopped VM after minutes of copying: started meanwhile, the VM kept writing to the
-    replaced files, which the swap then deleted (#448, F10). As Proxmox's lock, the start is refused while an
+    replaced files, which the swap then deleted (#448, F10)., the start is refused while an
     operation holds the VM."""
     from app.core import vm_locks
 

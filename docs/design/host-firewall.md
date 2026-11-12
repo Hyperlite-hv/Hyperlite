@@ -6,7 +6,7 @@ security groups (second part, section 6).
 ## 1. Where we were
 
 A firewall per VM (a libvirt nwfilter) and per network (an iptables chain on its bridge), and nothing for the nodes
-themselves: every port a node listens on was open to whoever reached it. Proxmox VE has rules at the datacenter, node
+themselves: every port a node listens on was open to whoever reached it. The reference platform has rules at the datacenter, node
 and VM levels, reusable security groups, IP sets and aliases.
 
 ## 2. What it does

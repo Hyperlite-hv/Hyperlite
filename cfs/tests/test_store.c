@@ -82,17 +82,17 @@ static void test_versions_and_compare_and_set(cfs_store *s)
 
 static void test_files_and_directories_do_not_overlap(cfs_store *s)
 {
-    CHECK_EQ(put(s, "/nodes/pve1/qemu/100.json", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
-    CHECK_EQ(put(s, "/nodes/pve1", "file over a directory", CFS_ANY_VERSION, NULL), CFS_INVALID);
-    CHECK_EQ(put(s, "/nodes/pve1/qemu/100.json/x", "under a file", CFS_ANY_VERSION, NULL), CFS_INVALID);
+    CHECK_EQ(put(s, "/nodes/node1/qemu/100.json", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
+    CHECK_EQ(put(s, "/nodes/node1", "file over a directory", CFS_ANY_VERSION, NULL), CFS_INVALID);
+    CHECK_EQ(put(s, "/nodes/node1/qemu/100.json/x", "under a file", CFS_ANY_VERSION, NULL), CFS_INVALID);
     CHECK(strstr(cfs_store_error(s), "is a file") != NULL);
 
     listing l = {0};
-    CHECK_EQ(put(s, "/nodes/pve1/qemu/101.json", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
-    CHECK_EQ(put(s, "/nodes/pve1/lxc/200.json", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
-    CHECK_EQ(put(s, "/nodes/pve1/config", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
-    CHECK_EQ(put(s, "/nodes/pve1.old", "x", CFS_ANY_VERSION, NULL), CFS_OK); /* sorts between "pve1" and "pve1/" */
-    CHECK_EQ(cfs_store_list(s, "/nodes/pve1", collect, &l), CFS_OK);
+    CHECK_EQ(put(s, "/nodes/node1/qemu/101.json", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
+    CHECK_EQ(put(s, "/nodes/node1/lxc/200.json", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
+    CHECK_EQ(put(s, "/nodes/node1/config", "{}", CFS_ANY_VERSION, NULL), CFS_OK);
+    CHECK_EQ(put(s, "/nodes/node1.old", "x", CFS_ANY_VERSION, NULL), CFS_OK); /* sorts between "node1" and "node1/" */
+    CHECK_EQ(cfs_store_list(s, "/nodes/node1", collect, &l), CFS_OK);
     CHECK_EQ(l.n, 3);
     CHECK(strcmp(l.names[0], "config") == 0 && !l.dirs[0]);
     CHECK(strcmp(l.names[1], "lxc") == 0 && l.dirs[1]);
@@ -105,7 +105,7 @@ static void test_files_and_directories_do_not_overlap(cfs_store *s)
 
     listing none = {0};
     CHECK_EQ(cfs_store_list(s, "/nowhere", collect, &none), CFS_NOT_FOUND);
-    CHECK_EQ(cfs_store_list(s, "/nodes/pve1/config", collect, &none), CFS_INVALID);
+    CHECK_EQ(cfs_store_list(s, "/nodes/node1/config", collect, &none), CFS_INVALID);
 }
 
 static void test_rename(cfs_store *s)
@@ -191,16 +191,16 @@ static void test_locks(cfs_store *s)
     int64_t before, after, entries, bytes;
     uint8_t sum1[CFS_CHECKSUM_LEN], sum2[CFS_CHECKSUM_LEN];
     CHECK_EQ(cfs_store_status(s, &before, sum1, &entries, &bytes), CFS_OK);
-    CHECK_EQ(cfs_store_lock(s, "vm:100", "migrate@pve1", 1, 30, 1000, holder), CFS_OK);
+    CHECK_EQ(cfs_store_lock(s, "vm:100", "migrate@node1", 1, 30, 1000, holder), CFS_OK);
     CHECK_EQ(cfs_store_status(s, &after, sum2, &entries, &bytes), CFS_OK);
     CHECK_EQ(after, before + 1);                          /* a lock is a change like any other */
     CHECK(memcmp(sum1, sum2, CFS_CHECKSUM_LEN) != 0);       /* and part of the state the nodes compare */
-    CHECK_EQ(cfs_store_lock(s, "vm:100", "backup@pve2", 2, 30, 1001, holder), CFS_LOCKED);
-    CHECK(strcmp(holder, "migrate@pve1") == 0);
-    CHECK_EQ(cfs_store_lock(s, "vm:100", "migrate@pve1", 1, 30, 1010, holder), CFS_OK); /* renewal */
-    CHECK_EQ(cfs_store_unlock(s, "vm:100", "backup@pve2", 1011), CFS_FORBIDDEN);
-    CHECK_EQ(cfs_store_unlock(s, "vm:100", "migrate@pve1", 1012), CFS_OK);
-    CHECK_EQ(cfs_store_unlock(s, "vm:100", "migrate@pve1", 1013), CFS_NOT_FOUND);
+    CHECK_EQ(cfs_store_lock(s, "vm:100", "backup@node2", 2, 30, 1001, holder), CFS_LOCKED);
+    CHECK(strcmp(holder, "migrate@node1") == 0);
+    CHECK_EQ(cfs_store_lock(s, "vm:100", "migrate@node1", 1, 30, 1010, holder), CFS_OK); /* renewal */
+    CHECK_EQ(cfs_store_unlock(s, "vm:100", "backup@node2", 1011), CFS_FORBIDDEN);
+    CHECK_EQ(cfs_store_unlock(s, "vm:100", "migrate@node1", 1012), CFS_OK);
+    CHECK_EQ(cfs_store_unlock(s, "vm:100", "migrate@node1", 1013), CFS_NOT_FOUND);
 
     /* A holder that hangs loses the lock when its time to live ends. */
     CHECK_EQ(cfs_store_lock(s, "vm:101", "a", 1, 10, 2000, holder), CFS_OK);

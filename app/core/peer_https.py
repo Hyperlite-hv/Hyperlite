@@ -2,7 +2,7 @@
 
 A call to another member's API used to open an SSH connection and start Python on it each time
 (rolling_update.peer_api): about 200 ms and CPU on both ends, and past 10 at once sshd refused them (seen under 20
-users: errors 500). As Proxmox does between its nodes, a member now calls the other's API directly, on its HTTPS port,
+users: errors 500)., a member now calls the other's API directly, on its HTTPS port,
 over connections kept open.
 
 Trust: each member publishes the SHA-256 of its HTTPS certificate in the cluster's configuration (/cluster/tls/<node>,

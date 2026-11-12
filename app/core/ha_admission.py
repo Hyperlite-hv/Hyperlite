@@ -1,4 +1,4 @@
-"""HA admission control (docs/design/ha-automatic.md, 4.8, #333 step 5), as vSphere's: the loss of any one member must
+"""HA admission control (docs/design/ha-automatic.md, 4.8, #333 step 5): the loss of any one member must
 leave room for its running HA VMs on the others.
 
 For each member, its running HA VMs are placed, the largest first, on the other online members, each taking the

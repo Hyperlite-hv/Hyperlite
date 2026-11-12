@@ -1,8 +1,7 @@
 # Host device passthrough
 
 A VM can use a physical device of its server on its own: a USB device (a licence dongle, a Zigbee stick, a smart
-card reader) or a PCI card (a GPU, a network card for a router VM, a disk controller for a storage VM). Proxmox calls
-it *PCI/USB passthrough*, vSphere *DirectPath I/O* and *USB passthrough*.
+card reader) or a PCI card (a GPU, a network card for a router VM, a disk controller for a storage VM).
 
 In the dashboard: **VM → Hardware → Host devices → Give a host device** (administrators only).
 

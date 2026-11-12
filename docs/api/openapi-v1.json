@@ -645,7 +645,7 @@
     "type": "object"
    },
    "CloudInitCustom": {
-    "description": "The rest of a guest's customisation, as vSphere's and Proxmox VE's (cloudinit_edit.CUSTOM). A field left out\nkeeps what the drive holds; an empty value (\"\" or []) clears it.",
+    "description": "The rest of a guest's customisation's (cloudinit_edit.CUSTOM). A field left out\nkeeps what the drive holds; an empty value (\"\" or []) clears it.",
     "properties": {
      "dns": {
       "anyOf": [
@@ -5513,7 +5513,7 @@
   },
   "/api/v1/admin-cli": {
    "get": {
-    "description": "lockdown: whether root of a node is refused its own session (root@<node>), as ESXi's lockdown mode.",
+    "description": "lockdown: whether root of a node is refused its own session (root@<node>).",
     "operationId": "get_admin_cli_api_v1_admin_cli_get",
     "responses": {
      "200": {
@@ -7330,7 +7330,7 @@
   },
   "/api/v1/auth/users/{username}/second-factor/reset": {
    "post": {
-    "description": "An administrator removes an account's second factors (its TOTP and its security keys), as Proxmox VE's\nadministrators may (POST /auth/users/{name}/second-factor/reset): the way back for an owner who lost them, or for an SSO account whose factor someone else\nenrolled with its session alone (GHSA-7wjv-ggfp-7x9c). The owner signs in with the password alone after.",
+    "description": "An administrator removes an account's second factors (its TOTP and its security keys)\nadministrators may (POST /auth/users/{name}/second-factor/reset): the way back for an owner who lost them, or for an SSO account whose factor someone else\nenrolled with its session alone (GHSA-7wjv-ggfp-7x9c). The owner signs in with the password alone after.",
     "operationId": "reset_second_factor_api_v1_auth_users__username__second_factor_reset_post",
     "parameters": [
      {
@@ -19161,7 +19161,7 @@
   },
   "/api/v1/storage/{pool_name}": {
    "delete": {
-    "description": "everywhere: a shared pool (app/core/shared_pools.py) is removed from every node that has it, and its\ndefinition with it, as on Proxmox; without it, from `node` only.",
+    "description": "everywhere: a shared pool (app/core/shared_pools.py) is removed from every node that has it, and its\ndefinition with it; without it, from `node` only.",
     "operationId": "delete_pool_api_v1_storage__pool_name__delete",
     "parameters": [
      {
@@ -19515,7 +19515,7 @@
     ]
    },
    "post": {
-    "description": "An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one, as\nProxmox VE's Datastore.AllocateSpace (deleting a volume stays an administrator's: it may hold another VM's data).",
+    "description": "An administrator, or storage.allocate on the pool: making a disk to attach to a VM is a step of creating one (deleting a volume stays an administrator's: it may hold another VM's data).",
     "operationId": "create_volume_api_v1_storage__pool_name__volumes_post",
     "parameters": [
      {

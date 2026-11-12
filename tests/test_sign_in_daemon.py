@@ -1,7 +1,6 @@
 """Signing in is hyperlite-daemon's from start to end (docs/design/privilege-separation.md, section 14.5): the API,
 www-data from 4e, holds no proof before a session exists, so it may write nothing then. The daemon records the sign-in,
-and for SSO opens the client secret, checks the identity provider's answer and makes or updates the account, as
-pvedaemon makes Proxmox VE's ticket and writes user.cfg."""
+and for SSO opens the client secret, checks the identity provider's answer and makes or updates the account's ticket and writes user.cfg."""
 
 from urllib.parse import parse_qs, urlparse
 

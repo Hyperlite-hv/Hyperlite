@@ -1,5 +1,4 @@
-"""Other Hyperlite clusters whose backup stores this cluster copies (docs/design/backup-store.md, step 4, part 2), as
-Proxmox Backup Server's remotes: an address, the SHA-256 of its HTTPS certificate (pinned: a certificate that does
+"""Other Hyperlite clusters whose backup stores this cluster copies (docs/design/backup-store.md, step 4, part 2): an address, the SHA-256 of its HTTPS certificate (pinned: a certificate that does
 not match is refused before anything is sent) and an API token of a dedicated account there, which holds only
 backup_store.read on the stores it may copy (Antho, 2026-10-24). The token is kept encrypted in the cluster's
 secrets (backup_remotes, replicated under /priv).

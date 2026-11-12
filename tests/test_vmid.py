@@ -146,7 +146,7 @@ def test_resolve_rewrites_the_request(monkeypatch):
 
     from app import main
 
-    monkeypatch.setattr(vmid, "resolve", lambda kind, text: ("db", "pve-b"))
+    monkeypatch.setattr(vmid, "resolve", lambda kind, text: ("db", "node-b"))
     scope = {
         "type": "http",
         "path": "/api/v1/vms/104/start",
@@ -162,4 +162,4 @@ def test_resolve_rewrites_the_request(monkeypatch):
         return "answer"
 
     assert asyncio.run(main.guests_by_vmid(Request(scope), call_next)) == "answer"
-    assert seen == {"path": "/api/v1/vms/db/start", "query": b"wait=false&node=pve-b"}
+    assert seen == {"path": "/api/v1/vms/db/start", "query": b"wait=false&node=node-b"}

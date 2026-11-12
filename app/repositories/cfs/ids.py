@@ -82,7 +82,7 @@ def offset(client):
     try:
         value = int(client.get(OFFSET_PATH).data)
     except NotFound:
-        value = 0  # a cluster made before ids were reserved: its counter is all there is
+        value = 0  # A cluster made before ids were reserved: its counter is all there is
     with _lock:
         _offset = value
     return value

@@ -12,7 +12,7 @@ router = APIRouter(prefix="/admin-cli", tags=["admin-cli"])
 
 @router.get("")
 def get_admin_cli(user: dict = Depends(require_role("admin"))):
-    """lockdown: whether root of a node is refused its own session (root@<node>), as ESXi's lockdown mode."""
+    """lockdown: whether root of a node is refused its own session (root@<node>)."""
     return {"lockdown": admin_cli.locked()}
 
 

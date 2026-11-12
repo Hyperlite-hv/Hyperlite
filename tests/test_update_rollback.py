@@ -139,7 +139,7 @@ def test_the_update_to_1_0_keeps_no_dated_package(node, monkeypatch):
 
 
 def test_no_return_to_a_version_that_does_not_know_the_layout_of_1_1(node, client, auth_headers, monkeypatch):
-    """From 1.1 the files live where Proxmox VE keeps its own (app/core/paths.py); 1.0.2 is the first version that
+    """From 1.1 the files follow app/core/paths.py; 1.0.2 is the first version that
     moves them back when installed again. 1.0.1 would start without its database, keys and certificate."""
     monkeypatch.setattr(
         update,

@@ -1,6 +1,6 @@
 /* Shared definitions of hyperlite-cfs: status codes, limits and operations.
  *
- * Design: docs/design/hyperlite-cfs.md. The limits follow Proxmox's pmxcfs where it documents one (the whole tree is
+ * Design: docs/design/hyperlite-cfs.md. The limits follow common practice where one is documented (the whole tree is
  * capped at 128 MiB); the others keep every request small enough to travel in one Corosync message later on. */
 
 #ifndef CFS_H
@@ -47,13 +47,13 @@ enum cfs_op {
 #define CFS_PATH_DEPTH_MAX 16            /* components */
 #define CFS_NAME_MAX 128                 /* lock names and owners */
 #define CFS_FILE_MAX (1024u * 1024u)     /* one entry */
-#define CFS_TREE_MAX (128ull * 1024 * 1024) /* the whole tree, as pmxcfs */
+#define CFS_TREE_MAX (128ull * 1024 * 1024) /* the whole tree */
 #define CFS_FRAME_MAX (CFS_FILE_MAX + 4096u) /* one request or answer */
-#define CFS_FIRST_ID 100                 /* guest ids start where Proxmox's do */
+#define CFS_FIRST_ID 100                 /* the first guest id */
 #define CFS_LOCK_TTL_MAX 3600u           /* seconds */
 #define CFS_LOCKS_MAX 1024               /* locks held at once */
 #define CFS_STAT_MAX (512u * 1024u)       /* one node's status: about 3,000 VMs' summaries, compressed */
-#define CFS_MEMBERS_MAX 64               /* nodes in one cluster (Proxmox reports clusters of over 50) */
+#define CFS_MEMBERS_MAX 64               /* nodes in one cluster */
 #define CFS_CHECKSUM_LEN 32              /* SHA-256 */
 
 const char *cfs_status_name(int status);

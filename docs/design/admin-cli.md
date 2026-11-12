@@ -1,26 +1,26 @@
 # Design: `hyperlite-admin`, the administration CLI on a node (#516)
 
-Status: **proposed; the maintainer left section 8 to the best of vSphere and Proxmox VE (2026-10-23), the choices are
+Status: **proposed; the maintainer left section 8 to the best of the commercial reference and the reference platform (2026-10-23), the choices are
 recorded there.** Built in five pull requests: step 1 #624, step 2 #622, step 3 #626, step 4 #627, step 5 #630.
 
 ## 1. Goal
 
-Drive a node, and through it the cluster, from its shell as `qm`, `pct` and `pvesh` do on Proxmox VE: VMs,
+Drive a node, and through it the cluster, from its shell as its VM and container commands its API shell do on the reference platform: VMs,
 containers, storage, networks, backups, tasks and the cluster, **through API v1** (the same checks, the same tasks, the
 same audit as the dashboard), with **no token to type as root**, and a JSON output for scripts.
 
 Out of scope: a second implementation of anything. The CLI never calls libvirt, `zfs` or the database itself; a thing
 the API cannot do, the CLI cannot do either. The workstation client (`hyperlite`, `cli/`) stays what it is.
 
-## 2. What Proxmox VE does
+## 2. What the reference platform does
 
-| | Proxmox VE | What we take |
+| | The reference platform | What we take |
 |---|---|---|
-| `pvesh get/create/set/delete <path>` | the whole API from the shell, the schema printed with `usage` | the same, on API v1 |
-| `qm`, `pct` | short commands per guest type (`qm start 100`) | `hyperlite-admin vm start web1` |
+| its API shell get/create/set/delete <path>` | the whole API from the shell, the schema printed with `usage` | the same, on API v1 |
+| its VM and container commands | short commands per guest type  | `hyperlite-admin vm start web1` |
 | Authentication | root on the node is `root@pam`, no ticket to type | root on the node gets a ticket from the daemon (4.3) |
-| (vSphere) `esxcli` | one command, namespaces (`esxcli network ip interface list`), the whole help from one place | one command, `hyperlite-admin <group> <action>` |
-| (vSphere) Lockdown mode | the host refuses root's direct access; only named accounts and exception users | `admin_cli_lockdown`: root's implicit identity refused, a named account's token still works (4.3) |
+| its host command line | one command, namespaces (its host command line network ip interface list`), the whole help from one place | one command, `hyperlite-admin <group> <action>` |
+| Lockdown mode | the host refuses root's direct access; only named accounts and exception users | `admin_cli_lockdown`: root's implicit identity refused, a named account's token still works (4.3) |
 | Output | `--output-format json|json-pretty|text|yaml` | `--json`, a table otherwise |
 | Long operations | waits for the task, prints its log | the same (`WaitTask` of `cli/hyperlite`) |
 
@@ -65,8 +65,8 @@ authenticate; the ticket keeps one way.
 `root@<node>` is no row of `users`: the API knows it from the ticket alone, with the global role `admin`, and accepts it
 only in a ticket signed by that node's own key (the `kid` of a key the node published), so a ticket for `root@n1` signed
 by n2 is refused. A request it sends to another member (`--node n2`) carries a peer ticket (`app/core/peer_auth.py`),
-which n2 accepts for `root@n1` only when n1 signed it: root on one member acts on the cluster as `pvesh` does on
-Proxmox VE, under its own node's name in each member's audit.
+which n2 accepts for `root@n1` only when n1 signed it: root on one member acts on the cluster as its API shell does on
+The reference platform, under its own node's name in each member's audit.
 
 A named account instead of root: `--token-file FILE` (or `HYPERLITE_TOKEN`) uses that account's API token, its own
 rights and its own name in the audit, as an administrator does from a workstation.
@@ -75,7 +75,7 @@ The name `root@...` is reserved: an account of a directory or an identity provid
 hold `@`) is refused, by session or API token, so the audit never mistakes it for root of a node. Root has no account
 to manage: the routes a person uses for their own account (API tokens, password, second factors) answer 403.
 
-**Lockdown** (step 5), as ESXi's lockdown mode: an administrator can turn on `admin_cli_lockdown` (a key of the
+**Lockdown** (step 5): an administrator can turn on `admin_cli_lockdown` (a key of the
 replicated `app_settings`, no new column; off by default, set on Administration › API, `PUT /api/v1/admin-cli`). Then the daemon refuses
 `auth.local` on every member and says why; root on a node must use a named account's token. It protects an
 organization that wants every action under a person's name, at the price of `hyperlite-admin` with no token. It is a
@@ -88,7 +88,7 @@ reads the signing key today). After step 4 the uid check is what keeps the API o
 
 Two layers, both on the same calls:
 
-- **Generic, as `pvesh`**: `hyperlite-admin get|post|put|patch|delete <path> [key=value ...] [--data JSON]`, any
+- **Generic, as its API shell**: `hyperlite-admin get|post|put|patch|delete <path> [key=value ...] [--data JSON]`, any
   route of API v1, with httpie's items (`key==value` to the query, `key=value` and `key:=json` to the body); `hyperlite-admin
   api <path>` prints the route's parameters. The server's `/openapi.json` takes the documentation's own sign-in, not a
   bearer token (`app/core/api_docs.py`), so `api` reads `docs/api/openapi-v1.json`, embedded at build time: the
@@ -105,7 +105,7 @@ Two layers, both on the same calls:
 | `task` | `list`, `show`, `log`, `cancel` (and `hyperlite-admin wait <id>`) |
 | `cluster` | `status`, `nodes`, `maintenance on/off <node>`, `update plan`, `update` |
 | `node` | `status [<node>]`, `hardware [<node>]` (this node's own routes when none is named: `/nodes` lists only the others), `update check`, `update` (asks to confirm unless `--yes`; the same call as the dashboard's button) |
-| `cluster` (setup) | `create`, `join`, `leave`, as `pvecm`: the same calls as the Cluster page |
+| `cluster` (setup) | `create`, `join`, `leave`, as its cluster command: the same calls as the Cluster page |
 
 A guest on another member is named with `--node` (the API's `?node=`): the member does the work, as from the dashboard.
 `vm list --cluster` uses `?cluster=true`.
@@ -134,7 +134,7 @@ change. With a named account's token (4.3), the entry carries that account's nam
 | `app/core/security.py` | accept `root@<node>` (no row in `users`) | nobody |
 | `dashboard/src/next/pages/ApiPage.jsx`, `i18n/en.js`, `fr.js`, `api/client.js` | the lockdown switch | `api/client.js`: **#515**, asked on #298 |
 | `installer/build-cli.sh`, `installer/build-deb.sh` | build and ship `hyperlite-admin` | maintainers (onboarding: coordinate first) |
-| `docs/user-guide.md`, `docs/proxmox-parity.json` | the commands; the row of #516 | nobody since #426 released them |
+| `docs/user-guide.md`, `docs/roadmap.json` | the commands; the row of #516 | nobody since #426 released them |
 
 No table, no column of the replicated configuration changes. No route of the API changes; the lockdown is a
 key of `app_settings`, set through the existing settings route if one fits, else one addition to API v1.
@@ -155,20 +155,20 @@ key of `app_settings`, set through the existing settings route if one fits, else
 
 | Risk | Mitigation |
 |---|---|
-| A root shell becomes a Hyperlite administrator without a second factor | It is root on the node already (it reads the database and the keys); Proxmox VE's `root@pam` is the same. The audit names it |
+| A root shell becomes a Hyperlite administrator without a second factor | It is root on the node already (it reads the database and the keys); the reference platform's `root@pam` is the same. The audit names it |
 | A ticket leaks from a running command | 5 minutes, never written to disk, only in the process's memory |
 | The API's process asks for a root ticket after #511 drops root | The daemon checks uid 0 from the kernel, not a claim of the caller |
 | The short commands drift from the API | They are thin wrappers; the generic layer and `api` cover the rest from the node's own schema |
 | A member of an older version, during a rolling update | It does not know `root@<node>`: root's calls to it are refused (401) until it is updated; a named account's token works |
 
-## 8. Choices (left by the maintainer to the best of vSphere and Proxmox VE, 2026-10-23)
+## 8. Choices
 
-| Question | vSphere | Proxmox VE | Chosen |
+| Question | The commercial reference | The reference platform | Chosen |
 |---|---|---|---|
-| Who is root in the audit | `root` on ESXi; named SSO accounts on vCenter; lockdown mode to refuse root | `root@pam`, always allowed | **`root@<node>`**, an administrator with no password that cannot sign in from the web, as `root@pam`; **plus lockdown** as ESXi, off by default; a named account through its token (4.3) |
-| Language | `esxcli`: Python on the host | Perl, in-process (`pvesh` takes about half a second to start) | **Go** on `cli/hyperlite`: starts at once, one static binary, the same client library as the workstation client and the Terraform provider; the package already builds Go |
-| Name | one command with namespaces (`esxcli`) | five (`qm`, `pct`, `pvesh`, `pvecm`, `pvesm`) | **one, `hyperlite-admin`**, with groups: the whole help from one place, one binary to ship, as the issue named it |
-| What it may do | `esxcli software` updates a host, maintenance mode | `pveupgrade`, `pvecm create/add` | **everything the API does**, the update and the cluster's setup included, with a confirmation for the update; the generic layer could reach those routes anyway, so refusing them in short commands would protect nothing |
+| Who is root in the audit | `root` on ESXi; named SSO accounts on the commercial reference; lockdown mode to refuse root | `root@pam`, always allowed | **`root@<node>`**, an administrator with no password that cannot sign in from the web, as `root@pam`; **plus lockdown**, off by default; a named account through its token (4.3) |
+| Language | its host command line: Python on the host | Perl, in-process | **Go** on `cli/hyperlite`: starts at once, one static binary, the same client library as the workstation client and the Terraform provider; the package already builds Go |
+| Name | one command with namespaces (its host command line) | five | **one, `hyperlite-admin`**, with groups: the whole help from one place, one binary to ship, as the issue named it |
+| What it may do | its host command line updates a host, maintenance mode | its upgrade command, its cluster command | **everything the API does**, the update and the cluster's setup included, with a confirmation for the update; the generic layer could reach those routes anyway, so refusing them in short commands would protect nothing |
 
 Who updates production is a rule between people (`docs/onboarding.md`), not something the CLI changes: it makes the
 same call as the dashboard's button, under the same lock (HTTP 409 when another update runs).

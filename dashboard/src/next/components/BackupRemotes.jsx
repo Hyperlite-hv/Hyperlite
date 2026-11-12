@@ -13,7 +13,7 @@ const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/;
 const EMPTY = { name: "", address: "", port: "8000", fingerprint: "", matches: false, token: "" };
 const groups = (hex) => (hex || "").match(/.{1,4}/g)?.join(" ") || "";
 
-// Other Hyperlite clusters whose backup stores this one copies, as Proxmox Backup Server's remotes: an address, its
+// Other Hyperlite clusters whose backup stores this one copies: an address, its
 // HTTPS certificate pinned once an administrator compared it with the one the other dashboard shows, and the API
 // token of a dedicated account there that may only read its stores (the role "Backup store reader").
 export default function BackupRemotes({ onChange }) {

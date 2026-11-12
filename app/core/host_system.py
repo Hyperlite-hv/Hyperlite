@@ -435,13 +435,13 @@ def hosts_with_name(text, old_names, fqdn, short):
 
 
 def set_hostname(name, current=None):
-    """Rename this host: `name` with a domain ("pve1.lan") is its full name and its first label its host name;
+    """Rename this host: `name` with a domain ("node1.lan") is its full name and its first label its host name;
     without one, both. Returns {"name", "old"}."""
     name = (name or "").strip().rstrip(".").lower()
     if not HOST_RE.match(name) or name.split(".")[0] in ("localhost", "local") or name.replace(".", "").isdigit():
         raise SettingError(
             "Invalid host name: letters, digits and hyphens, dot-separated parts of 1 to 63 characters "
-            "(for example pve1 or pve1.home)"
+            "(for example node1 or node1.home)"
         )
     short = name.split(".")[0]
     fqdn = name if "." in name else None

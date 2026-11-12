@@ -37,14 +37,14 @@ def cfs(monkeypatch):
 
 def test_the_table_keeps_current_and_stale_statuses_and_drops_gone_or_unreadable_ones(cfs):
     cfs.statuses = [
-        status("pve-a", [{"name": "web"}], age_ms=2_000, nodeid=2),
-        status("pve-b", [{"name": "db"}], age_ms=45_000, nodeid=3),
-        status("pve-c", [{"name": "old"}], age_ms=120_000, nodeid=4),
+        status("node-a", [{"name": "web"}], age_ms=2_000, nodeid=2),
+        status("node-b", [{"name": "db"}], age_ms=45_000, nodeid=3),
+        status("node-c", [{"name": "old"}], age_ms=120_000, nodeid=4),
         NodeStatus(node=5, age_ms=1000, data=b"not a status"),
     ]
     table = statd.table()
-    assert set(table) == {"pve-a", "pve-b"}
-    assert table["pve-a"] == {
+    assert set(table) == {"node-a", "node-b"}
+    assert table["node-a"] == {
         "vms": [{"name": "web"}],
         "age_s": 2.0,
         "stale": False,
@@ -53,7 +53,7 @@ def test_the_table_keeps_current_and_stale_statuses_and_drops_gone_or_unreadable
         "mem_free_mb": None,
         "load": None,
     }
-    assert table["pve-b"]["stale"] is True
+    assert table["node-b"]["stale"] is True
 
 
 def test_this_nodes_summary_is_sent_compressed(cfs, monkeypatch):
@@ -139,13 +139,13 @@ def test_the_daemon_sends_at_most_one_summary_a_second(monkeypatch):
 
 @pytest.fixture()
 def cluster(cfs, monkeypatch):
-    members = [{"name": n, "hostname": f"{n}.lan", "status": "online"} for n in ("pve-a", "pve-b")]
+    members = [{"name": n, "hostname": f"{n}.lan", "status": "online"} for n in ("node-a", "node-b")]
     monkeypatch.setattr(cluster_view, "members", lambda: members)
     asked = []
 
     def forward(node, username, method, path):
         asked.append((node["name"], path))
-        if node["name"] == "pve-b-down":
+        if node["name"] == "node-b-down":
             raise cluster_view.PeerError("down")
         return 200, [{"name": "from-" + node["name"]}]
 
@@ -157,35 +157,35 @@ def cluster(cfs, monkeypatch):
 
 
 def test_every_nodes_vms_come_from_the_status_and_a_member_without_one_is_asked(client, auth_headers, cfs, cluster):
-    cfs.statuses = [status("pve-a", [{"name": "web"}], age_ms=40_000)]
+    cfs.statuses = [status("node-a", [{"name": "web"}], age_ms=40_000)]
     r = client.get("/vms?cluster=true", headers=auth_headers("ana"))
     assert r.status_code == 200
     body = r.json()
     assert sorted((v["name"], v["node"]) for v in body["items"]) == [
-        ("from-pve-b", "pve-b"),  # no status (an older version): asked as before
+        ("from-node-b", "node-b"),  # no status (an older version): asked as before
         ("mine", "local"),
-        ("web", "pve-a"),  # from its status: not asked
+        ("web", "node-a"),  # from its status: not asked
     ]
-    assert cluster["asked"] == [("pve-b", "/vms")]
-    assert body["stale"] == ["pve-a"] and body["unreachable"] == []
+    assert cluster["asked"] == [("node-b", "/vms")]
+    assert body["stale"] == ["node-a"] and body["unreachable"] == []
 
 
 def test_a_member_without_a_status_that_does_not_answer_is_named(client, auth_headers, cfs, cluster):
-    cluster["members"][1]["name"] = "pve-b-down"
+    cluster["members"][1]["name"] = "node-b-down"
     r = client.get("/vms?cluster=true", headers=auth_headers("ana"))
-    assert r.status_code == 200 and r.json()["unreachable"] == ["pve-b-down"]
+    assert r.status_code == 200 and r.json()["unreachable"] == ["node-b-down"]
 
 
 def test_this_nodes_vms_come_from_its_own_status_when_current(client, auth_headers, cfs, cluster, monkeypatch):
-    """Antho, 2026-10-18: as Proxmox, this node's VMs are read from its status too; live only without a current one."""
+    """Antho, 2026-10-18:, this node's VMs are read from its status too; live only without a current one."""
 
     def no_libvirt(node=None, **_k):
         raise AssertionError("this node's VMs must come from its status")
 
     cfs.statuses = [
         status("hv-test", [{"name": "mine-from-status"}], age_ms=3_000, nodeid=1),
-        status("pve-a", [{"name": "web"}], nodeid=2),
-        status("pve-b", [{"name": "db"}], nodeid=3),
+        status("node-a", [{"name": "web"}], nodeid=2),
+        status("node-b", [{"name": "db"}], nodeid=3),
     ]
     monkeypatch.setattr(inventory, "open_conn", no_libvirt)
     body = client.get("/vms?cluster=true", headers=auth_headers("ana")).json()
@@ -208,6 +208,6 @@ def test_a_status_carries_the_nodes_and_its_vms_load_as_the_collector_last_measu
     assert metrics.latest_load() is None  # a collector that stopped is no current load
     clock[0] -= metrics.LOAD_FRESH_S + 1
     cfs.statuses = [
-        NodeStatus(node=2, age_ms=1000, data=statd.encode({"node": "pve-a", "at": 0, "vms": [], "load": got}))
+        NodeStatus(node=2, age_ms=1000, data=statd.encode({"node": "node-a", "at": 0, "vms": [], "load": got}))
     ]
-    assert statd.table()["pve-a"]["load"] == got
+    assert statd.table()["node-a"]["load"] == got
