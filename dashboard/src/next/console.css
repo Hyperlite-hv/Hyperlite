@@ -306,6 +306,12 @@
 .nx-root.hc .nx-tag { border-radius: var(--radius-xs); font-family: var(--font-ui); }
 .nx-root.hc .nx-tabs--page [role="tab"] { font-size: var(--font-size-md); }
 .nx-root.hc .nx-empty2-tile { background: none; border: 1px solid var(--color-border-card); color: var(--color-accent); border-radius: var(--radius-lg); }
+.nx-root.hc .nx-table .nx-ra { gap: 0.1333rem; }
+.nx-root.hc .nx-table .nx-ra .nx-btn { height: 1.8667rem; padding: 0 0.5333rem; border-color: transparent; background: transparent; color: var(--color-accent); font-weight: 400; }
+.nx-root.hc .nx-table .nx-ra .nx-btn:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--color-bg-hover); }
+.nx-root.hc .nx-table .nx-ra .nx-btn--icon { color: var(--color-text-secondary); }
+.nx-root.hc .nx-table .nx-ra .nx-btn--icon:hover { color: var(--color-danger); }
+.nx-root.hc .nx-table td .nx-state, .nx-root.hc .nx-table td .nx-st { font-size: inherit; }
 /* In the command bar, a disabled command stays readable as "unavailable". */
 .hc-cmd .nx-btn[aria-disabled="true"] { cursor: default; }
 
