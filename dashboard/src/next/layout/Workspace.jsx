@@ -235,8 +235,9 @@ export default function Workspace({ children }) {
                     : selection.type === "container" ? <ContainerHeaderActions ct={resource} />
                     : <NodeHeaderActions node={resource} setTab={setTab} />}
                 </div>
-                {selection.type === "vm" ? <><VmFacts vm={resource} node={vmNode} /><PendingChanges vm={resource} tab={tab} /></>
-                  : selection.type === "container" ? <ContainerFacts ct={resource} /> : <NodeFacts node={resource} />}
+                {/* The overview shows these facts in its Essentials; the other pages keep them on one line. */}
+                {selection.type === "vm" ? <>{tab !== "summary" && <VmFacts vm={resource} node={vmNode} />}<PendingChanges vm={resource} tab={tab} /></>
+                  : tab === "summary" ? null : selection.type === "container" ? <ContainerFacts ct={resource} /> : <NodeFacts node={resource} />}
                 <div className="nx-page" id="nx-panel" tabIndex={0}>
                   {loading ? null : pageEl}
                 </div>

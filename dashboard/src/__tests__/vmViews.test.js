@@ -21,7 +21,7 @@ describe("VM list views", () => {
     expect((await load({ "hyperlite-next-vmgroup": "pool" })).readGroupMode()).toBe("pool");
     expect((await load({ "hyperlite-next-vmgroup": "x" })).readGroupMode()).toBe("node");
     expect((await load({ "hyperlite-next-vmcols": "[\"uptime\",\"evil\",\"ip\"]" })).readColumns()).toEqual(["ip", "uptime"]);
-    expect((await load({ "hyperlite-next-vmcols": "{" })).readColumns()).toEqual(["node", "ip", "res", "uptime"]);
+    expect((await load({ "hyperlite-next-vmcols": "{" })).readColumns()).toEqual(["node", "os", "res", "ip"]);
   });
 
   it("saves, replaces and deletes named views, keeping only known fields", async () => {
