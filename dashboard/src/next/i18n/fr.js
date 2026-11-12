@@ -4458,4 +4458,11 @@ export default {
   "prop.system": "Système",
   "prop.vmsRunning": "{n} machines, {r} en marche",
   "prop.image": "Image",
+  "res.connect": "Se connecter",
+  "res.snapshot": "Snapshot",
+  "res.backup": "Sauvegarder",
+  "res.more": "Plus",
+  "res.shell": "Shell",
+  "res.maintenance": "Mode maintenance",
+  "prop.migrateCmd": "Migrer",
 };
