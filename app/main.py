@@ -47,6 +47,7 @@ from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
 from app.routers.admin_cli import router as admin_cli_router
+from app.routers.alert_rules import router as alert_rules_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
@@ -67,6 +68,7 @@ from app.routers.host import router as host_router
 from app.routers.host_firewall import router as host_firewall_router
 from app.routers.host_network import router as host_network_router
 from app.routers.host_system import router as host_system_router
+from app.routers.image_gallery import router as image_gallery_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
 from app.routers.kubernetes import router as kubernetes_router
@@ -79,6 +81,7 @@ from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
 from app.routers.replication import router as replication_router
+from app.routers.reports import router as reports_router
 from app.routers.sites import router as sites_router
 from app.routers.sso import pages as sso_pages
 from app.routers.sso import router as sso_router
@@ -226,6 +229,7 @@ _API_ROUTERS = (
     network_router,
     templates_router,
     isos_router,
+    image_gallery_router,
     audit_router,
     tasks_router,
     groups_router,
@@ -242,6 +246,8 @@ _API_ROUTERS = (
     ha_router,
     drs_router,
     notifications_router,
+    reports_router,
+    alert_rules_router,
     workstation_router,
     kubernetes_router,
     meta_router,

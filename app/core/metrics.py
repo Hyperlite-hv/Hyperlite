@@ -13,11 +13,10 @@ A "1h" view reads the raw tier; "24h/week/month" read the hourly tier. There
 is no additional "daily" tier: judged sufficient for
 the size of this project, to be refined if the number of VMs grows a lot.
 
-Alerting: fixed thresholds (not yet configurable from the UI) checked at every
-tick; a threshold crossing is logged through log_action (so it is visible and
-filterable in the existing Journal). There is no separate alarm subsystem with
-acknowledged/active states, on the same principle of not
-over-engineering for the size of the project.
+Alerting: fixed thresholds checked at every tick; a threshold crossing is
+logged through log_action (so it is visible and filterable in the existing
+Journal). The rules administrators write (app/core/alert_rules.py) are
+evaluated after each tick by the leader, and notified.
 
 """
 
@@ -174,7 +173,9 @@ def _check_alert(target, metric, value, threshold):
     if breached and not was_breached:
         from app.core.audit import log_action
 
-        log_action("system", "alert_threshold_exceeded", target, "failed", f"{metric} = {value}% (seuil {threshold}%)")
+        log_action(
+            "system", "alert_threshold_exceeded", target, "failed", f"{metric} = {value}% (threshold {threshold}%)"
+        )
 
 
 def _vm_row(target, s):
@@ -283,8 +284,11 @@ def _sample_remote_node(node, ts, now):
     conn = None
     try:
         conn = open_conn(name, readonly=True)
+        from app.core import config_history
+
         for domain in conn.listAllDomains():
             target = f"{name}:{domain.name()}"
+            config_history.observe(domain, target)
             s = _sample_vm(domain, target, now)
             if s is not None:
                 rows.append(_vm_row(target, s))
@@ -411,8 +415,11 @@ def _collect_tick():
     conn = open_conn(readonly=True)
     vm_loads = {}
     try:
+        from app.core import config_history
+
         for domain in conn.listAllDomains():
             name = domain.name()
+            config_history.observe(domain, name)
             s = _sample_vm(domain, name, now)
             if s is None:
                 continue
@@ -475,6 +482,9 @@ def _collector_loop():
     while not _stop_event.is_set():
         try:
             _collect_tick()
+            from app.core import alert_rules
+
+            alert_rules.evaluate()
             if time.time() - last_rollup >= 3600:
                 _rollup_and_prune()
                 last_rollup = time.time()

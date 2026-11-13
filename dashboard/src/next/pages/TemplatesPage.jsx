@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchTemplates, deployTemplate, deleteTemplate, renameTemplate } from "../../api/client";
 import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -11,10 +11,72 @@ import { capabilities } from "../lib/capabilities";
 import { errorMessage } from "../lib/errors";
 import { formatSizeMb } from "../lib/format";
 import { ErrorState } from "../components/States";
-import { Empty, Loading, TableWrap } from "../components/ui";
-import { LayoutTemplate, Trash2 } from "lucide-react";
+import { Empty, Field, Loading, SideDrawer, TableWrap } from "../components/ui";
+import { Check, CircleAlert, Copy, LayoutTemplate, LoaderCircle, Trash2 } from "lucide-react";
+import { bulkNames, bulkProblems } from "../lib/bulkNames";
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/;
+
+const MAX_COPIES = 20;
+
+// Several copies of a template at once: named prefix-01, prefix-02..., deployed one after the other (each deployment
+// copies or links a disk), each line saying how it went. Closing the panel stops before the next copy.
+function BulkDeployDrawer({ tpl, onClose, onDone }) {
+  const t = useT();
+  const vms = useInfraStore((s) => s.vms);
+  const [prefix, setPrefix] = useState(tpl.name);
+  const [count, setCount] = useState(3);
+  const [start, setStart] = useState(1);
+  const [linked, setLinked] = useState(Boolean(tpl.linkable));
+  const [state, setState] = useState({}); // name -> "running" | "done" | error message
+  const [running, setRunning] = useState(false);
+  const stop = useRef(false);
+  const names = bulkNames(prefix.trim(), start, count);
+  const problems = bulkProblems(names, new Set(vms.map((v) => v.name)));
+  const blocked = Object.keys(problems).length > 0;
+  const started = Object.keys(state).length > 0;
+  async function run() {
+    setRunning(true); stop.current = false;
+    let ok = 0;
+    for (const name of names) {
+      if (stop.current) break;
+      setState((s) => ({ ...s, [name]: "running" }));
+      try { await deployTemplate(tpl.name, name, null, linked); ok += 1; setState((s) => ({ ...s, [name]: "done" })); }
+      catch (e) { setState((s) => ({ ...s, [name]: errorMessage(e) })); }
+    }
+    setRunning(false);
+    onDone(ok);
+  }
+  const close = () => { stop.current = true; onClose(); };
+  return (
+    <SideDrawer open title={t("tp.bulkTitle", { name: tpl.name })} onClose={close} busy={false} footer={<>
+      <button type="button" className="nx-btn nx-btn--ghost" onClick={close}>{started && !running ? t("action.close") : t("action.cancel")}</button>
+      {!started && <button type="button" className="nx-btn nx-btn--primary" disabled={blocked || running} onClick={run}>{t("tp.bulkGo", { n: count })}</button>}
+    </>}>
+      <p className="nx-hint">{t("tp.bulkHelp")}</p>
+      <Field label={t("tp.bulkPrefix")}>{(p) => <input {...p} className="nx-inp nx-mono" value={prefix} disabled={started} onChange={(e) => setPrefix(e.target.value)} />}</Field>
+      <div className="hc-al-row">
+        <Field label={t("tp.bulkCount")}>{(p) => <input {...p} className="nx-inp" type="number" min={1} max={MAX_COPIES} value={count} disabled={started} onChange={(e) => setCount(Math.max(1, Math.min(MAX_COPIES, Number(e.target.value) || 1)))} />}</Field>
+        <Field label={t("tp.bulkStart")}>{(p) => <input {...p} className="nx-inp" type="number" min={0} max={9999} value={start} disabled={started} onChange={(e) => setStart(Math.max(0, Math.min(9999, Number(e.target.value) || 0)))} />}</Field>
+      </div>
+      {tpl.linkable && <label className="nx-check"><input type="checkbox" checked={linked} disabled={started} onChange={(e) => setLinked(e.target.checked)} />{t("tp.linked")}</label>}
+      <h3 className="hc-al-h">{t("tp.bulkNames")}</h3>
+      <ul className="hc-bulk">
+        {names.map((n) => {
+          const st = state[n];
+          const bad = problems[n];
+          return (
+            <li key={n} data-state={bad ? "bad" : st === "done" ? "done" : st === "running" ? "running" : st ? "failed" : undefined}>
+              {st === "done" ? <Check size={14} aria-hidden="true" /> : st === "running" ? <LoaderCircle size={14} className="nx-spin" aria-hidden="true" /> : bad || (st && st !== "running") ? <CircleAlert size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+              <span className="nx-mono">{n}</span>
+              <small>{bad === "taken" ? t("tp.nameTaken") : bad === "rule" ? t("ct.nameRule") : st === "done" ? t("tp.bulkDone") : st === "running" ? t("tp.bulkRunning") : st || ""}</small>
+            </li>
+          );
+        })}
+      </ul>
+    </SideDrawer>
+  );
+}
 
 // Templates: VMs converted to read-only sources. Converting a stopped VM is done from its own page
 // (Actions ▸ Convert to template); here a copy is deployed under a validated name, or the template deleted.
@@ -30,6 +92,7 @@ export default function TemplatesPanel() {
   const [items, setItems] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
+  const [bulk, setBulk] = useState(null);
 
   const reload = useCallback(async () => {
     try { const r = await fetchTemplates(); setItems(Array.isArray(r) ? r : []); setError(null); }
@@ -90,6 +153,7 @@ export default function TemplatesPanel() {
                   <td className="nx-mono">{tpl.linked_clones == null ? <span title={t("tp.linkedUnknown")}>—</span> : tpl.linked_clones.length === 0 ? "0" : tpl.linked_clones.join(", ")}</td>
                   <td><div className="nx-ra">
                     {caps.admin && <button type="button" className="nx-btn nx-btn--sm" disabled={busy === tpl.name} aria-label={t("a11y.deploy_template_x", { v: tpl.name })} onClick={() => deploy(tpl)}>{t("tp.deploy")}</button>}
+                    {caps.admin && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={busy === tpl.name} aria-label={t("tp.bulkOf", { name: tpl.name })} onClick={() => setBulk(tpl)}>{t("tp.bulk")}</button>}
                     {caps.admin && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" disabled={busy === tpl.name} aria-label={t("a11y.delete_template_x", { v: tpl.name })} title={t("menu.delete").replace("…", "")} onClick={() => remove(tpl)}><Trash2 size={15} aria-hidden="true" /></button>}
                   </div></td>
                 </tr>
@@ -98,12 +162,14 @@ export default function TemplatesPanel() {
           </table>
           <ActionsContextMenu ctx={ctx} label={(tpl) => t("ctx.menuOf", { name: tpl.name })} entries={(tpl) => [
             { key: "deploy", icon: "deploy", label: t("tp.deploy"), run: () => deploy(tpl), disabled: !caps.admin || busy === tpl.name, reason: t("menu.reason.admin") },
+            { key: "bulk", icon: "deploy", label: t("tp.bulk"), run: () => setBulk(tpl), disabled: !caps.admin || busy === tpl.name, reason: t("menu.reason.admin") },
             "-",
             { key: "rename", icon: "rename", label: t("vx.renameMenu"), run: () => rename(tpl), disabled: !caps.admin || busy === tpl.name, reason: t("menu.reason.admin") },
             { key: "delete", icon: "delete", label: t("vx.delete"), danger: true, run: () => remove(tpl), disabled: !caps.admin || busy === tpl.name, reason: t("menu.reason.admin") },
           ]} />
         </TableWrap>
       )}
+      {bulk && <BulkDeployDrawer tpl={bulk} onClose={() => setBulk(null)} onDone={(n) => { if (n) { pushToast({ kind: "success", title: t("tp.bulkFinished", { n }), message: bulk.name }); refreshAll(); reload(); } }} />}
     </div>
   );
 }

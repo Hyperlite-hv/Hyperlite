@@ -787,6 +787,59 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # Each VM's definition as it was after every change the collector saw (app/core/config_history.py). History of
+        # this node's own sampling: not replicated, like the metrics.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_config_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT NOT NULL,
+                ts TEXT NOT NULL,
+                hash TEXT NOT NULL,
+                xml TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vm_config_versions ON vm_config_versions(target, id)")
+        # VM schedules: a VM started, shut down, stopped or snapshotted at set times of chosen weekdays, run by the node
+        # that hosts the VM (app/core/vm_schedules.py). Replicated: a VM that migrates keeps its schedules.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_schedules (
+                id TEXT PRIMARY KEY,
+                vm_name TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('start', 'shutdown', 'stop', 'snapshot')),
+                days TEXT NOT NULL DEFAULT '[0,1,2,3,4,5,6]',
+                time TEXT NOT NULL,
+                keep INTEGER NOT NULL DEFAULT 7,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                next_run TEXT,
+                last_run TEXT,
+                last_result TEXT,
+                made TEXT NOT NULL DEFAULT '[]',
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # Alert rules (#348): a metric of a node or a VM above or below a threshold for a few minutes, evaluated by the
+        # leader (app/core/alert_rules.py). Replicated, their state too: every node shows which rules fire.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alert_rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                scope TEXT NOT NULL CHECK(scope IN ('node', 'vm', 'all_nodes', 'all_vms')),
+                node TEXT,
+                vm TEXT,
+                metric TEXT NOT NULL,
+                operator TEXT NOT NULL CHECK(operator IN ('gt', 'lt')),
+                threshold REAL NOT NULL,
+                window_min INTEGER NOT NULL DEFAULT 5,
+                severity TEXT NOT NULL DEFAULT 'warning' CHECK(severity IN ('critical', 'warning', 'info')),
+                channels TEXT NOT NULL DEFAULT '[]',
+                firing TEXT NOT NULL DEFAULT '[]',
+                changed_at TEXT,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS drs_vms (
                 vm_name TEXT PRIMARY KEY,

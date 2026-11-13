@@ -1,7 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const BASE_PAD = { l: 34, r: 10, t: 10, b: 24 };
-const COLORS = { info: "var(--color-info)", info2: "var(--color-accent-2)", accent: "var(--color-accent)", warning: "var(--color-warning)", muted: "var(--color-text-muted)" };
+const COLORS = { info: "var(--color-info)", info2: "var(--color-accent-2)", accent: "var(--color-accent)", warning: "var(--color-warning)", muted: "var(--color-text-muted)",
+  s1: "var(--color-series-1)", s2: "var(--color-series-2)", s3: "var(--color-series-3)", s4: "var(--color-series-4)", s5: "var(--color-series-5)", s6: "var(--color-series-6)" };
 
 // Rounds a data maximum up to a readable axis top (1, 2, 2.5, 5 x 10^n); with base 1024 the rounding happens in the
 // displayed unit (Ko/s, Mo/s...), so the axis reads 500 Ko/s rather than 488 Ko/s.
