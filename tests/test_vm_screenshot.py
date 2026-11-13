@@ -92,3 +92,17 @@ def test_the_route_answers_a_png_or_why_not(client, auth_headers, daemon_libvirt
     r = client.get("/vms/web/screenshot?width=160", headers=admin)
     assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
     assert client.get("/vms/off/screenshot", headers=admin).status_code == 422
+
+
+def test_a_crafted_header_is_refused_at_once():
+    import time
+
+    started = time.monotonic()
+    for crafted in (b"P6 0 0 #" + b"\n#" * 50000, b"P6 #" + b" \n#" * 50000):
+        with pytest.raises(ValueError):
+            screenshot.parse_ppm(crafted)
+    assert time.monotonic() - started < 1
+
+
+def test_comments_between_the_numbers_are_read():
+    assert screenshot.parse_ppm(b"P6 # a\n2 # b\n1\n255\n" + b"\x01" * 6)[:2] == (2, 1)

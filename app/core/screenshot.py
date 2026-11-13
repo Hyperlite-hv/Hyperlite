@@ -1,23 +1,51 @@
 """A VM's screen as a small PNG: libvirt hands the display over as a PPM image (P6); it is scaled down by sampling
 and written as PNG with the standard library alone, for the console thumbnail of a VM's overview."""
 
-import re
 import struct
 import zlib
 
 MAX_SOURCE_BYTES = 64 * 1024 * 1024  # a 4K screen in RGB is 25 MB
-_HEADER = re.compile(rb"^P6\s+(?:#[^\n]*\s+)*(\d+)\s+(?:#[^\n]*\s+)*(\d+)\s+(?:#[^\n]*\s+)*(\d+)\s")
+HEADER_MAX = 4096  # the magic, three numbers and their comments: far less in practice
+_SPACE = b" \t\r\n\v\f"
+
+
+def _header(data):
+    """The three numbers of a P6 header and where its pixels start, read token by token (a regular expression with
+    repeated comments and spaces backtracks without end on a crafted header)."""
+    if data[:2] != b"P6":
+        raise ValueError("Not a binary PPM image")
+    numbers, i, end = [], 2, min(len(data), HEADER_MAX)
+    while len(numbers) < 3:
+        if i >= end:
+            raise ValueError("Not a binary PPM image")
+        c = data[i : i + 1]
+        if c in _SPACE:
+            i += 1
+        elif c == b"#":
+            newline = data.find(b"\n", i, end)
+            if newline < 0:
+                raise ValueError("Not a binary PPM image")
+            i = newline + 1
+        elif c.isdigit():
+            start = i
+            while i < end and data[i : i + 1].isdigit():
+                i += 1
+            if i - start > 6:
+                raise ValueError("Unsupported PPM image")
+            numbers.append(int(data[start:i]))
+        else:
+            raise ValueError("Not a binary PPM image")
+    if i >= end or data[i : i + 1] not in _SPACE:  # one whitespace character, then the pixels
+        raise ValueError("Not a binary PPM image")
+    return numbers, i + 1
 
 
 def parse_ppm(data):
     """(width, height, RGB bytes) of a binary PPM with 8-bit samples. ValueError for anything else."""
-    m = _HEADER.match(data)
-    if not m:
-        raise ValueError("Not a binary PPM image")
-    width, height, maxval = (int(x) for x in m.groups())
+    (width, height, maxval), start = _header(data)
     if maxval != 255 or not (0 < width <= 16384 and 0 < height <= 16384):
         raise ValueError("Unsupported PPM image")
-    pixels = data[m.end() : m.end() + width * height * 3]
+    pixels = data[start : start + width * height * 3]
     if len(pixels) != width * height * 3:
         raise ValueError("Truncated PPM image")
     return width, height, pixels
