@@ -51,9 +51,10 @@ function AccountMenu({ dialog, setDialog }) {
   const place = cluster?.in_cluster ? cluster.name : t("crumb.datacenter");
   return (
     <span className="nx-relative">
-      <button ref={btn} type="button" className="hc-acct nx-rail-user" aria-label={`${t("top.user")} — ${username}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((o) => !o)}>
+      <button ref={btn} type="button" className="hc-acct nx-rail-user" aria-haspopup="menu" aria-expanded={menu} title={t("top.user")} onClick={() => setMenu((o) => !o)}>
         <span className="hc-acct-t"><b>{username}</b><small>{place}</small></span>
-        <span className="hc-avatar" aria-hidden="true">{(username || "?").slice(0, 2).toUpperCase()}</span>
+        {/* The initials are drawn by the style sheet: the button's name stays what it shows, the user and the place. */}
+        <span className="hc-avatar" aria-hidden="true" data-initials={(username || "?").slice(0, 2).toUpperCase()} />
       </button>
       <Menu open={menu} onClose={() => setMenu(false)} label={username} returnFocusRef={btn} style={{ top: "calc(100% + 6px)", right: 0, minWidth: "15rem" }}>
         <div className="nx-menu-label">{username} · {caps.admin ? t("top.role.admin") : t("top.role.observer")}</div>
@@ -112,7 +113,7 @@ export default function TopBar({ onOpenPalette, onToggleNavigator, wizards, setW
         </button>
       </div>
       <button ref={bellBtn} type="button" className="hc-hb" onClick={() => setPanel(true)} aria-haspopup="dialog" aria-expanded={panel}
-        aria-label={`${t("top.opsLabel", { n: ops.length })} · ${t("top.alertsLabel", { n: health.total })}`} title={t("notif.title")}>
+        aria-label={count > 0 ? `${count} · ${t("notif.title")} — ${t("top.opsLabel", { n: ops.length })}, ${t("top.alertsLabel", { n: health.total })}` : t("notif.title")} title={t("notif.title")}>
         <Bell size={18} aria-hidden="true" />
         {count > 0 && <span className="hc-dot" data-tone={health.critical ? "danger" : undefined}>{count}</span>}
       </button>

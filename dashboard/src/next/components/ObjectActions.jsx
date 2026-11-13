@@ -252,13 +252,22 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
   return (
     <div className="nx-oh-acts">
       <HeadBtn state={c} icon={SquareTerminal} label={t("res.connect")} onClick={() => vmActions.openConsole(vm)} />
-      <HeadBtn state={st} icon={Play} label={t("menu.start")} onClick={() => vmActions.run(vm, "start")} />
-      <HeadBtn state={act("restart")} icon={RotateCw} label={t("menu.restart")} onClick={() => vmActions.run(vm, "restart")} />
-      <HeadBtn state={sp} icon={Square} label={t("menu.stop")} onClick={() => vmActions.run(vm, "stop")} />
-      <span className="hc-cmd-sep" aria-hidden="true" />
-      {!remote && <HeadBtn state={{ enabled: true }} icon={Camera} label={t("res.snapshot")} onClick={() => setTab("snapshots")} />}
-      {(!remote || vm.node) && <HeadBtn state={{ enabled: true }} icon={DatabaseBackup} label={t("res.backup")} onClick={() => setTab("backup")} />}
-      {menu.migrate.show && <HeadBtn state={menu.migrate.state} icon={MoveHorizontal} label={t("prop.migrateCmd")} onClick={menu.migrate.open} />}
+      {/* A role that may not act on the VM sees only what it can use; More still lists every action, with why. */}
+      {caps.power && (
+        <>
+          <HeadBtn state={st} icon={Play} label={t("menu.start")} onClick={() => vmActions.run(vm, "start")} />
+          <HeadBtn state={act("restart")} icon={RotateCw} label={t("menu.restart")} onClick={() => vmActions.run(vm, "restart")} />
+          <HeadBtn state={sp} icon={Square} label={t("menu.stop")} onClick={() => vmActions.run(vm, "stop")} />
+        </>
+      )}
+      {caps.admin && (
+        <>
+          <span className="hc-cmd-sep" aria-hidden="true" />
+          {!remote && <HeadBtn state={{ enabled: true }} icon={Camera} label={t("res.snapshot")} onClick={() => setTab("snapshots")} />}
+          {(!remote || vm.node) && <HeadBtn state={{ enabled: true }} icon={DatabaseBackup} label={t("res.backup")} onClick={() => setTab("backup")} />}
+          {menu.migrate.show && <HeadBtn state={menu.migrate.state} icon={MoveHorizontal} label={t("prop.migrateCmd")} onClick={menu.migrate.open} />}
+        </>
+      )}
       <span className="hc-cmd-sep" aria-hidden="true" />
       <HeadBtn state={{ enabled: true }} icon={RefreshCw} label={t("action.refresh")} onClick={() => refreshInventory().catch(() => {})} />
       <span className="nx-relative">
@@ -361,12 +370,16 @@ export function NodeHeaderActions({ node, setTab }) {
   // The common commands of a node in the bar; the menu "More" keeps every action with its exact rules.
   return (
     <div className="nx-oh-acts">
-      <HeadBtn state={caps.create && online ? { enabled: true } : { enabled: false, reason: caps.create ? "menu.reason.notRunning" : "menu.reason.admin" }} icon={Plus} label={t("res.createVm")} onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))} />
-      <HeadBtn state={admin} icon={SquareTerminal} label={t("res.shell")} onClick={() => setTab("shell")} />
-      {node.maintenance
-        ? <HeadBtn state={admin} icon={Wrench} label={t("mt.leave")} onClick={() => leaveMaintenance(node, t, pushToast, refreshAll)} />
-        : <HeadBtn state={admin} icon={Wrench} label={t("res.maintenance")} onClick={() => window.dispatchEvent(new CustomEvent("nx:node-maintenance", { detail: node.id }))} />}
-      <span className="hc-cmd-sep" aria-hidden="true" />
+      {caps.admin && (
+        <>
+          <HeadBtn state={caps.create && online ? { enabled: true } : { enabled: false, reason: "menu.reason.notRunning" }} icon={Plus} label={t("res.createVm")} onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))} />
+          <HeadBtn state={admin} icon={SquareTerminal} label={t("res.shell")} onClick={() => setTab("shell")} />
+          {node.maintenance
+            ? <HeadBtn state={admin} icon={Wrench} label={t("mt.leave")} onClick={() => leaveMaintenance(node, t, pushToast, refreshAll)} />
+            : <HeadBtn state={admin} icon={Wrench} label={t("res.maintenance")} onClick={() => window.dispatchEvent(new CustomEvent("nx:node-maintenance", { detail: node.id }))} />}
+          <span className="hc-cmd-sep" aria-hidden="true" />
+        </>
+      )}
       <HeadBtn state={{ enabled: true }} icon={RefreshCw} label={t("action.refresh")} onClick={() => refreshInventory().catch(() => {})} />
       <span className="nx-relative">
         <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Ellipsis size={16} aria-hidden="true" />{t("res.more")}<ChevronDown size={14} aria-hidden="true" className="hc-cmd-chev" /></button>

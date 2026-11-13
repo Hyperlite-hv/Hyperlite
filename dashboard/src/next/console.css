@@ -33,6 +33,7 @@
 .hc-acct-t b { display: block; font-size: 0.8rem; font-weight: 500; line-height: 1rem; }
 .hc-acct-t small { display: block; font-size: 0.6667rem; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; line-height: 0.8667rem; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hc-avatar { width: 1.8667rem; height: 1.8667rem; border-radius: 50%; background: #FFFFFF; color: #1B3CA8; display: grid; place-items: center; font-size: 0.7333rem; font-weight: 700; }
+.hc-avatar::before { content: attr(data-initials); }
 .hc-top .nx-menu { color: var(--color-text-primary); }
 
 /* ---------- service menu ---------- */
@@ -316,8 +317,71 @@
 .nx-root.hc .nx-page > .nx-card2--flush .nx-table thead th { border-top: 0; }
 .nx-root.hc .nx-page > .nx-card2--flush .nx-table thead th:first-child, .nx-root.hc .nx-page > .nx-card2--flush .nx-table tbody > tr > :first-child { padding-left: 0.8rem; }
 .nx-root.hc .hc-grid--list .nx-ra .nx-btn { height: 1.8667rem; padding: 0 0.5333rem; border-color: transparent; background: transparent; color: var(--color-accent); font-weight: 400; }
+/* Values read as text: addresses, sizes, paths and identifiers take the text face; code, terminals and the fields
+   where one types an address or a key keep the fixed-width one. */
+.nx-root.hc .nx-mono:not(pre):not(code):not(input):not(textarea):not(.nx-kbd) { font-family: var(--font-ui); letter-spacing: normal; }
 /* In the command bar, a disabled command stays readable as "unavailable". */
 .hc-cmd .nx-btn[aria-disabled="true"] { cursor: default; }
+
+
+/* ---------- long names, many rows ---------- */
+/* A long name is cut with "…" (the full one is in its tooltip) instead of pushing the other columns off the screen. */
+.hc-grid--list .hc-namecell .nx-lnk, .hc-grid--list td .nx-lnk { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.hc-grid--list td.hc-cut { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.hc-grp .nx-lnk { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+@media (min-width: 1024px) {
+  /* The column names stay in sight while a long list scrolls (the page is the scroller, not the table). */
+  .hc-gridwrap { overflow: visible; }
+  .hc-grid--list thead th { position: sticky; top: 0; z-index: 2; background: var(--color-bg-app); }
+}
+
+/* ---------- phones and small windows ---------- */
+@media (max-width: 1023px) {
+  /* Commands that wait for a selection come back once something is selected. */
+  .hc-cmd .nx-btn[aria-disabled="true"], .hc-cmd .hc-cmd-sep { display: none; }
+  /* The running operations are in the notifications: no strip at the bottom of a small screen. */
+  .nx-root.hc .nx-tray { display: none; }
+  /* Home: the services scroll sideways instead of filling the first screen. */
+  .hc-svcs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -1.0667rem; padding: 0 0.6667rem; }
+  .hc-svc { width: 6rem; flex: none; }
+}
+@media (max-width: 1023px), (pointer: coarse) {
+  /* Every control is at least 24 px in both directions. */
+  .nx-root.hc .nx-pick, .nx-root.hc input[type="checkbox"] { width: 1.6rem; height: 1.6rem; }
+  .nx-root.hc .hc-grid--list .nx-thbtn { min-height: 1.6rem; }
+  .nx-root.hc .hc-crumbs .nx-lnk, .nx-root.hc .hc-grid--list .nx-lnk, .nx-root.hc .hc-card .nx-lnk, .nx-root.hc .hc-prop .nx-lnk, .nx-root.hc .nx-tray .nx-lnk, .hc-ess-h > button { min-height: 1.6rem; display: inline-flex; align-items: center; }
+}
+/* A short window (a laptop at 200 % zoom, a phone held sideways): the page header shrinks so the content shows. */
+@media (max-height: 560px) {
+  .nx-root.hc { --topbar-height: 2.6667rem; }
+  .hc-crumbs, .hc-ph-sub, .hc-ph .hc-tile--box { display: none; }
+  .hc-ph-row { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+  .hc-ph h1 { font-size: 1.0667rem; line-height: 1.4667rem; }
+  .hc-fbar { margin: 0 0 0.2667rem; }
+  .hc-count { margin: 0.2667rem 0; }
+}
+
+
+/* ---------- coherence ---------- */
+/* Sort arrows only where they say something: the sorted column, or the one under the pointer or the keyboard. */
+.hc-sort { opacity: 0; transition: opacity var(--duration-fast); }
+th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hover .hc-sort, th:focus-within .hc-sort { opacity: 1; }
+/* One look for a failure: a message bar, a stripe of the danger colour, the text in the text face. */
+.nx-root.hc .nx-error { border: 0; border-left: 3px solid var(--color-danger); border-radius: var(--radius-sm); padding: 0.8rem 1.0667rem; max-width: 48rem; }
+.nx-root.hc .nx-error h2 { font-size: var(--font-size-md); font-weight: 600; }
+/* Home's shortcuts fill their row instead of leaving one alone on a second line. */
+.hc-navs { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+/* The catalogue shows whole descriptions, on two lines at most. */
+.hc-centry-go small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Check boxes in the brand colour, in both themes. */
+:root[data-ui="next"] input[type="checkbox"] { accent-color: var(--color-accent); }
+/* The pages of a resource use the same titled sections as its overview, not framed cards. */
+.nx-root.hc .hc-rbody .nx-card2 { border: 0; border-radius: 0; background: transparent; }
+.nx-root.hc .hc-rbody .nx-card2-h { padding: 0 0 0.4rem; min-height: 0; border-bottom: 1px solid var(--color-border-card); margin-bottom: 0.4rem; }
+.nx-root.hc .hc-rbody .nx-card2-h h2 { font-size: 0.9333rem; }
+.nx-root.hc .hc-rbody .nx-card2-b { padding: 0.4rem 0 0; }
+.nx-root.hc .hc-rbody .nx-card2--flush > .nx-card2-b { padding: 0; }
+.nx-root.hc .hc-rbody .nx-card2 + .nx-card2, .nx-root.hc .hc-rbody .nx-cols2 { margin-top: 1.6rem; }
 
 /* ---------- narrow screens ---------- */
 @media (max-width: 1023px) {

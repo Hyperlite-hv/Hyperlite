@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-11-13
+
+### Changed
+
+- Console coherence (#862):
+  - the overview of a machine says each thing once: Essentials keep the identity and the size (with its edit link), Properties only add what Essentials do not show;
+  - "All resources" gets the commands, the type filter and the grid of the other lists; no page shows a count beside its title any more; Home's recent resources use the same grid;
+  - "Create a resource" also offers a Kubernetes cluster, a node, an ISO image, an automation job, a notification channel and an API token, and has its own icon;
+  - the catalogue shows descriptions on two lines instead of cutting them; Home's shortcuts fill their row;
+  - the list of virtual machines shows the tags column only when a machine has a tag, names its size column "Size", and shows sort arrows on the sorted column or under the pointer;
+  - failures share one look; confirmations have a plain backdrop and the icon beside the title; creating a machine or a container is a page under the header instead of a floating box; the pages of a resource use titled sections like its overview; check boxes take the brand colour in both themes;
+  - the search in the header says it finds resources and actions;
+  - an address of a remote machine written with "@" keeps the page it asks for;
+  - each page of the interface is loaded when it is first opened, so the first screen no longer waits for all of them (821 kB → 221 kB).
+
+- Console on phones, with many machines and at large zoom (#862):
+  - on a phone the list of virtual machines opens as cards, the commands that wait for a selection only show once something is selected, the running-operations strip leaves room (the notifications keep them), Home's services scroll sideways, and every control is at least 24 px;
+  - long names are cut with "…" and shown whole on hover; grouped by node, the node is named once in each group's head instead of on every row; the column names stay in sight while a long list scrolls;
+  - in a short window (a laptop at 200 % zoom) the page header shrinks so the content shows;
+  - a read-only account sees only the commands it can use in a resource's bar; More still lists every action with why it is unavailable;
+  - the saved views list says "No saved view" when there is none.
+
+### Fixed
+
+- Console fixes from an audit of the interface (#862):
+  - the Performance page has its header again (breadcrumb, title);
+  - a server that cannot be reached, or does not answer in time, is said in the language of the interface;
+  - the keyboard reaches the header (search, notifications, account) before the service menu; the notifications pane keeps the focus while it is open; the menu opened as a drawer on a narrow screen takes the focus and gives it back when it closes;
+  - the account and notifications buttons are named after what they show, the status pills meet the contrast minimum, and the tags of a machine are a proper description list;
+  - the browser tab is titled after the page or the resource shown;
+  - a resource that no longer exists gets a page with its header, a way back to its list and the search;
+  - Home on an empty cluster: counts agree with their number, "No storage pool yet" instead of "0 GB used of 0 GB", and an invitation to create the first virtual machine; the cluster state counts the problems instead of saying "Incident in progress" for any alert;
+  - addresses, sizes and identifiers use the text face; "Virtual machines" is spelled the same in the menu and the titles; fencing is translated.
+
 ## [1.18.0] - 2026-11-13
 
 ### Changed

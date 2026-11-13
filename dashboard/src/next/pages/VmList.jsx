@@ -25,7 +25,11 @@ import { confirmAction } from "../../store/useConfirmStore";
 const VIEW_KEY = "hyperlite-next-vmview";
 const COLLAPSED_KEY = "hyperlite-next-vmcollapsed";
 const PROBLEM = new Set(["crashed", "blocked", "unknown"]);
-function readView() { try { return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "table"; } catch { return "table"; } }
+// Cards fit a phone better than a wide table: they are the default there, until the person chooses.
+function readView() {
+  try { const v = localStorage.getItem(VIEW_KEY); if (v === "cards" || v === "table") return v; } catch { /* preference only */ }
+  return typeof window !== "undefined" && window.matchMedia?.("(max-width: 640px)").matches ? "cards" : "table";
+}
 function readCollapsed() { try { const v = JSON.parse(localStorage.getItem(COLLAPSED_KEY) || "[]"); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); } }
 
 // Head of a group of the list: a fold toggle, the node (or tag, or pool) and how many machines it holds.
@@ -78,7 +82,8 @@ export default function VmList() {
   const group = mode !== "none";
   const setGroupMode = (m) => { setGroupModeState(m); saveGroupMode(m); };
   const setColumns = (c) => { setColumnsState(c); saveColumns(c); };
-  const col = (c) => columns.includes(c);
+  // Grouped by node, the node is named once in each group's head instead of on every row.
+  const col = (c) => columns.includes(c) && !(c === "node" && mode === "node");
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggleGroup = (id) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -158,7 +163,9 @@ export default function VmList() {
     noneLabel: t(mode === "node" ? "vmlist.unknownNode" : mode === "tag" ? "vmlist.noTag" : "vmlist.noPool"),
   }) || [];
   const COLS = ["node", "os", "res", "ip", "uptime"].filter(col);
-  const colCount = 4 + COLS.length + (selectable ? 1 : 0);
+  // The tags column only when some machine has a tag: an empty column is noise.
+  const anyTags = vms.some((v) => tagsOf(v).length > 0);
+  const colCount = 3 + (anyTags ? 1 : 0) + COLS.length + (selectable ? 1 : 0);
   const th = (key, label) => (
     <th scope="col" aria-sort={sort.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
       <button type="button" className="nx-thbtn" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : 1 }))}>{label}<span className="hc-sort" aria-hidden="true">{sort.key === key ? (sort.dir === 1 ? "↑" : "↓") : "↑↓"}</span></button>
@@ -167,7 +174,7 @@ export default function VmList() {
   const size = (v) => t("vmlist.size", { vcpu: v.vcpu, mem: formatSizeMb(v.memory_mb, lang) });
   const nodeCell = (id) => {
     const n = nodes.find((x) => x.id === id);
-    return n ? <button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); navigateTo("node", n.id, "summary"); }}>{n.name}</button> : <span>{id}</span>;
+    return n ? <button type="button" className="nx-lnk" title={n.name} onClick={(e) => { e.stopPropagation(); navigateTo("node", n.id, "summary"); }}>{n.name}</button> : <span>{id}</span>;
   };
   const open = (vm) => navigateTo("vm", vmKey(vm), "summary");
   const exportCsv = () => downloadCsv("virtual-machines.csv", [
@@ -193,16 +200,16 @@ export default function VmList() {
       {selectable && <td className="nx-pickcell">{pickBox(vm)}</td>}
       <th scope="row" className="hc-namecell">
         <div><Monitor size={16} aria-hidden="true" />
-          <span><button type="button" className="nx-lnk" onClick={() => open(vm)}>{vm.name}</button>
+          <span><button type="button" className="nx-lnk" title={vm.name} onClick={() => open(vm)}>{vm.name}</button>
             {PROBLEM.has(vm.state) && <small className="is-warn">{t(`vmlist.reason.${vm.state}`)}</small>}</span></div>
       </th>
       {col("node") && <td>{nodeCell(vm.node)}</td>}
       <td><StatusIndicator kind="vm" wire={vm.state} /></td>
-      {col("os") && <td>{vm.os || <span className="nx-muted">—</span>}</td>}
+      {col("os") && <td className="hc-cut" title={vm.os || undefined}>{vm.os || <span className="nx-muted">—</span>}</td>}
       {col("res") && <td>{size(vm)}</td>}
       {col("ip") && <td className="hc-num">{vm.ip || <span className="nx-muted">—</span>}</td>}
       {col("uptime") && <td className="nx-muted">{vm.state === "active" ? formatUptimeLong(vm.uptime_s, lang) || "—" : "—"}</td>}
-      <td className="hc-tagcell"><TagChips tags={tagsOf(vm)} onTag={setTagFilter} /></td>
+      {anyTags && <td className="hc-tagcell"><TagChips tags={tagsOf(vm)} onTag={setTagFilter} /></td>}
       <td className="hc-rowact"><button type="button" className="hc-ibtn" aria-label={t("ctx.menuOf", { name: vm.name })} onClick={ctx.open("vm", vm, vmKey(vm))}><Ellipsis size={16} aria-hidden="true" /></button></td>
     </tr>
   );
@@ -217,7 +224,8 @@ export default function VmList() {
       <div className="nx-colpick-p hc-viewopts" data-align={colAlign}>
         <fieldset className="hc-viewopts-f"><legend>{t("vmlist.columns")}</legend>
           {OPTIONAL_COLUMNS.map((c) => (
-            <label key={c} className="nx-check"><input type="checkbox" checked={columns.includes(c)}
+            <label key={c} className="nx-check"><input type="checkbox" checked={columns.includes(c)} disabled={c === "node" && mode === "node"}
+              title={c === "node" && mode === "node" ? t("vmlist.nodeInGroups") : undefined}
               onChange={(e) => setColumns(e.target.checked ? OPTIONAL_COLUMNS.filter((x) => x === c || columns.includes(x)) : columns.filter((x) => x !== c))} /> {t(`vmlist.col.${c}`)}</label>
           ))}
         </fieldset>
@@ -299,7 +307,7 @@ export default function VmList() {
               {col("res") && th("res", t("vmlist.col.res"))}
               {col("ip") && th("ip", t("vmlist.ip"))}
               {col("uptime") && th("uptime", t("vmlist.col.uptime"))}
-              <th scope="col">{t("vmlist.tags")}</th>
+              {anyTags && <th scope="col">{t("vmlist.tags")}</th>}
               <th scope="col"><span className="nx-sr">{t("actions")}</span></th>
             </tr></thead>
             {group ? groups.map((g) => {

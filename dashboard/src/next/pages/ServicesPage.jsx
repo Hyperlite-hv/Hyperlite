@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Search } from "lucide-react";
+import { Download, RefreshCw, Search } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
 import { capabilities } from "../lib/capabilities";
-import { useFreshness } from "../lib/inventory";
+import { refreshInventory, useFreshness } from "../lib/inventory";
 import { normalize } from "../lib/format";
 import { requestIntent } from "../lib/intents";
 import { vmKey } from "../lib/vmId";
@@ -13,6 +13,7 @@ import { CATEGORIES, LIST_OF, allowedServices, serviceLabel } from "../lib/servi
 import ServiceTile, { FavoriteButton } from "../components/ServiceTile";
 import StatusIndicator from "../components/StatusIndicator";
 import { PageHeader } from "../components/ui";
+import { Cmd, FilterPill, downloadCsv } from "../components/portal";
 import { EmptyState } from "../components/States";
 import { useApiDocsAccess } from "../layout/SideMenu";
 
@@ -35,7 +36,7 @@ export default function ServicesPage() {
   const shown = all.filter((s) => (!cat || s.cat === cat) && (!needle || normalize(`${t(serviceLabel(s.id))} ${t(`svc.d.${s.id}`)}`).includes(needle)));
   return (
     <>
-      <PageHeader title={t("svc.services")} count={all.length} />
+      <PageHeader title={t("svc.services")} />
       <div className="hc-cat">
         <nav className="hc-cat-l" aria-label={t("svc.families")}>
           <button type="button" aria-current={cat === null ? "true" : undefined} onClick={() => setCat(null)}>{t("svc.cat.all")}</button>
@@ -70,24 +71,28 @@ ServicesPage.ownHeader = true;
 // What can be created, by family. Machines and containers open their wizard; the others open their service with
 // the creation form ready.
 const CREATABLE = [
-  ["compute", [["vm", "vms", "action.createVm"], ["container", "containers", "action.createContainer"]]],
-  ["storage", [["pool", "storage", "action.createPool"], ["network", "network", "action.createNetwork"]]],
+  ["compute", [["vm", "vms", "action.createVm"], ["container", "containers", "action.createContainer"], ["k8s", "kubernetes", "create.k8s", true], ["node", "nodes", "create.node", true]]],
+  ["storage", [["pool", "storage", "action.createPool"], ["network", "network", "action.createNetwork"], ["iso", "library", "create.iso", true]]],
+  ["auto", [["job", "automation", "create.job", true], ["channel", "notifications", "create.channel", true], ["token", "api", "create.token", true]]],
   ["identity", [["user", "permissions", "action.createUser"]]],
 ];
+// Entries marked "admin" lead to a service only administrators may change.
+const ADMIN_ONLY_CREATE = new Set(["k8s", "node", "iso", "job", "channel", "token"]);
 export function CreatePage() {
   const t = useT();
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const caps = capabilities(useAuthStore((s) => s.role));
   const create = (kind, svc) => {
     if (kind === "vm" || kind === "container") { window.dispatchEvent(new CustomEvent("nx:wizard", { detail: kind })); return; }
-    requestIntent(kind);
+    // The services that have a creation form open it on arrival; the others open on their page.
+    if (["pool", "network", "user", "node"].includes(kind)) requestIntent(kind);
     navigateTo("datacenter", null, svc);
   };
   return (
     <>
       <PageHeader title={t("svc.create")} />
       <div className="hc-cat-r hc-cat-r--solo">
-        {CREATABLE.filter(([c]) => c !== "identity" || caps.admin).map(([c, entries]) => (
+        {CREATABLE.filter(([c]) => c !== "identity" || caps.admin).map(([c, list]) => [c, list.filter(([k]) => caps.admin || !ADMIN_ONLY_CREATE.has(k))]).filter(([, list]) => list.length).map(([c, entries]) => (
           <section key={c}>
             <h2>{t(`svc.cat.${c === "storage" ? "storageNetwork" : c}`)}</h2>
             <div className="hc-cgrid">
@@ -114,6 +119,7 @@ export function AllResourcesPage() {
   const { nodes, vms, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, navigateTo: s.navigateTo })));
   const containers = useFreshness((s) => s.containers);
   const [q, setQ] = useState("");
+  const [kind, setKind] = useState("");
   const nodeName = (id) => nodes.find((n) => n.id === (id || "local"))?.name || id || "";
   const rows = [
     ...vms.map((v) => ({ type: "vm", id: vmKey(v), name: v.name, kind: "vm", wire: v.state, node: nodeName(v.node), extra: v.ip || "" })),
@@ -121,24 +127,35 @@ export function AllResourcesPage() {
     ...nodes.map((n) => ({ type: "node", id: n.id, name: n.name, kind: "node", wire: n.state, node: "", extra: n.ip || "" })),
   ];
   const needle = normalize(q);
-  const shown = rows.filter((r) => !needle || normalize(`${r.name} ${t(`home.kind.${r.type}`)} ${r.node} ${r.extra}`).includes(needle));
+  const shown = rows.filter((r) => (!kind || r.type === kind)).filter((r) => !needle || normalize(`${r.name} ${t(`home.kind.${r.type}`)} ${r.node} ${r.extra}`).includes(needle));
   return (
     <>
-      <PageHeader title={t("svc.all")} count={rows.length} />
-      <Filter value={q} onChange={setQ} label={t("all.filter")} />
+      <PageHeader title={t("svc.all")} actions={(
+        <>
+          <Cmd icon={RefreshCw} label={t("action.refresh")} onClick={() => refreshInventory().catch(() => {})} />
+          <Cmd icon={Download} label={t("list.exportCsv")} disabled={shown.length === 0} onClick={() => downloadCsv("resources.csv", [
+            [t("ns.col.name"), t("home.type"), t("ns.col.state"), t("ns.node"), t("vmlist.ip")],
+            ...shown.map((r) => [r.name, t(`home.kind.${r.type}`), r.wire, r.node, r.extra]),
+          ])} />
+        </>
+      )} />
+      <div className="hc-fbar">
+        <Filter value={q} onChange={setQ} label={t("all.filter")} />
+        <FilterPill label={t("list.typeIs")} value={kind} onChange={setKind} options={[{ value: "", label: t("list.all") }, ...["vm", "container", "node"].map((k) => ({ value: k, label: t(`home.kind.${k}`) }))]} />
+      </div>
       <p className="hc-count">{t("all.count", { n: shown.length, total: rows.length })}</p>
       {shown.length === 0 ? <EmptyState title={t("all.none")} help={t("svc.noneHelp")} /> : (
         <div className="hc-gridwrap">
-          <table className="hc-grid">
+          <table className="hc-grid hc-grid--list">
             <thead><tr><th scope="col">{t("ns.col.name")}</th><th scope="col">{t("home.type")}</th><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("vmlist.ip")}</th></tr></thead>
             <tbody>
               {shown.map((r) => (
                 <tr key={`${r.type}:${r.id}`}>
-                  <td><span className="hc-nm"><ServiceTile id={LIST_OF[r.type]} size={18} /><button type="button" className="nx-lnk" onClick={() => navigateTo(r.type, r.id, "summary")}>{r.name}</button></span></td>
+                  <td><span className="hc-nm"><ServiceTile id={LIST_OF[r.type]} size={18} /><button type="button" className="nx-lnk" title={r.name} onClick={() => navigateTo(r.type, r.id, "summary")}>{r.name}</button></span></td>
                   <td>{t(`home.kind.${r.type}`)}</td>
                   <td><StatusIndicator kind={r.kind} wire={r.wire} /></td>
                   <td>{r.node || "—"}</td>
-                  <td className="nx-mono">{r.extra || "—"}</td>
+                  <td className="hc-num">{r.extra || "—"}</td>
                 </tr>
               ))}
             </tbody>

@@ -155,7 +155,7 @@ test("dialogs, menus and the palette stay inside the screen with every action re
     await page.keyboard.press("Escape");
     // palette
     await page.keyboard.press("Control+k");
-    await inside("Command palette", page.getByRole("dialog", { name: "Find a node or VM" }));
+    await inside("Command palette", page.getByRole("dialog", { name: "Search resources and actions" }));
     await page.keyboard.press("Escape");
     // user menu and its dialogs (the sidebar is a drawer below 1024px)
     const openDrawer = async () => {
@@ -201,14 +201,14 @@ test("keyboard: tab order reaches the skip link, sidebar, inventory, search and 
   }
   expect.soft(seen.length, "Tab moves the focus").toBeGreaterThan(20);
   expect.soft(seen.some((s) => s.startsWith("sidebar:")), "sidebar reachable").toBe(true);
-  expect.soft(seen.some((s) => s.includes("Find a node or VM")), "search reachable").toBe(true);
+  expect.soft(seen.some((s) => s.includes("Search resources and actions")), "search reachable").toBe(true);
   expect.soft(seen.some((s) => s.startsWith("main:")), "page content reachable").toBe(true);
   expect.soft(invisible, `elements focused without a visible focus indicator (of ${seen.length})`).toBeLessThanOrEqual(2);
   // no keyboard trap: Escape after opening the palette returns to the page
   await page.keyboard.press("Control+k");
-  await expect(page.getByRole("dialog", { name: "Find a node or VM" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Search resources and actions" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "Find a node or VM" })).toBeHidden();
+  await expect(page.getByRole("dialog", { name: "Search resources and actions" })).toBeHidden();
 });
 
 test("dialogs and menus open, are named, trap focus and close with Escape", async ({ page }) => {
