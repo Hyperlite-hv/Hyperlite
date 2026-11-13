@@ -13710,6 +13710,76 @@
     ]
    }
   },
+  "/api/v1/image-gallery": {
+   "get": {
+    "operationId": "list_images_api_v1_image_gallery_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Images",
+    "tags": [
+     "vm-disks"
+    ]
+   }
+  },
+  "/api/v1/image-gallery/{image_id}/download": {
+   "post": {
+    "description": "Starts the download as a task (gallery_download); the image lands in the imported disks as <id>-cloud.qcow2,\nreplacing an older download of the same image.",
+    "operationId": "download_image_api_v1_image_gallery__image_id__download_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "image_id",
+      "required": true,
+      "schema": {
+       "title": "Image Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Download Image",
+    "tags": [
+     "vm-disks"
+    ]
+   }
+  },
   "/api/v1/isos": {
    "get": {
     "operationId": "list_isos_api_v1_isos_get",

@@ -16,6 +16,7 @@ import { ErrorState } from "../components/States";
 import TemplatesPanel from "./TemplatesPage";
 import CopyIsoDialog from "../components/CopyIsoDialog";
 import OvaImportDrawer from "../components/OvaImportDrawer";
+import ImageGallery from "../components/ImageGallery";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 
 // Library: the ISO images (moved from Storage) and the templates, in two tabs. The historical ?tab=templates
@@ -72,7 +73,7 @@ export default function LibraryPage() {
     try { await deleteIso(iso.name, iso.node); pushToast({ kind: "success", title: t("stor.isoDeleted"), message: multiNode ? `${iso.name} · ${where}` : iso.name }); loadIsos(); }
     catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
-  const tabs = [["iso", t("lib.iso"), holders.size || (isos ? 0 : null)], ["tpl", t("lib.templates"), tplCount], ...(caps.admin ? [["disks", t("lib.disks"), null]] : [])];
+  const tabs = [["iso", t("lib.iso"), holders.size || (isos ? 0 : null)], ["gallery", t("lib.gallery"), null], ["tpl", t("lib.templates"), tplCount], ...(caps.admin ? [["disks", t("lib.disks"), null]] : [])];
   const upload = () => drop.current?.querySelector("input[type=file]")?.click();
 
   return (
@@ -124,7 +125,7 @@ export default function LibraryPage() {
             ]} />
             {copying && <CopyIsoDialog iso={copying} nodes={nodes} holders={holders.get(copying.name) || new Set()} onClose={() => setCopying(null)} />}
           </>
-        ) : tab === "disks" ? <ImportedDisksPanel /> : <TemplatesPanel />}
+        ) : tab === "disks" ? <ImportedDisksPanel /> : tab === "gallery" ? <ImageGallery /> : <TemplatesPanel />}
       </div>
     </>
   );
