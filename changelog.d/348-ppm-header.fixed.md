@@ -1,0 +1,1 @@
+- Console thumbnail (#348): the screen image's header is read without a regular expression, which a crafted header could make backtrack for ever.
