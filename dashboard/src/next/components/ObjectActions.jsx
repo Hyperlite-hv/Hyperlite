@@ -361,7 +361,7 @@ export function NodeHeaderActions({ node, setTab }) {
   // The common commands of a node in the bar; the menu "More" keeps every action with its exact rules.
   return (
     <div className="nx-oh-acts">
-      <HeadBtn state={caps.create && online ? { enabled: true } : { enabled: false, reason: caps.create ? "menu.reason.notRunning" : "menu.reason.admin" }} icon={Plus} label={t("node.createVm")} onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))} />
+      <HeadBtn state={caps.create && online ? { enabled: true } : { enabled: false, reason: caps.create ? "menu.reason.notRunning" : "menu.reason.admin" }} icon={Plus} label={t("res.createVm")} onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))} />
       <HeadBtn state={admin} icon={SquareTerminal} label={t("res.shell")} onClick={() => setTab("shell")} />
       {node.maintenance
         ? <HeadBtn state={admin} icon={Wrench} label={t("mt.leave")} onClick={() => leaveMaintenance(node, t, pushToast, refreshAll)} />

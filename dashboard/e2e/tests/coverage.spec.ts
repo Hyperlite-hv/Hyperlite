@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:net";
 import type { AddressInfo } from "node:net";
-import { apiLogin, expect, PREFIX, test, uiLogin, ADMIN } from "../support/fixtures";
+import { apiLogin, expect, PREFIX, test, uiLogin, ADMIN, resourcePage } from "../support/fixtures";
 
 const stamp = Date.now().toString().slice(-6);
 const VM = `${PREFIX}snap-${stamp}`;
@@ -101,7 +101,7 @@ test.describe("Snapshot restore (real backend)", () => {
     await compute.getByRole("button", { name: "Save", exact: true }).click();
     await expect.poll(async () => ((await (await request.get(`/vms/${VM}`, { headers: auth() })).json()) as { memory_mb: number }).memory_mb).toBe(512);
 
-    await page.getByRole("main").getByRole("tab", { name: "Snapshots", exact: true }).click();
+    await resourcePage(page, "Snapshots").click();
     await page.getByRole("button", { name: `Restore snapshot ${snap}` }).click();
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toContainText(snap);

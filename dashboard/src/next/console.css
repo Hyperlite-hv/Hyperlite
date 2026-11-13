@@ -121,9 +121,7 @@
 .hc-viewopts-f > legend { margin-bottom: 0.4rem; }
 
 /* The list takes the whole width; the detail of a row only takes its column once a row is chosen. */
-.nx-root.hc .nx-vmgrid { grid-template-columns: minmax(0, 1fr); }
-.nx-root.hc .nx-vmgrid.has-detail { grid-template-columns: minmax(0, 1fr) 25.3333rem; }
-@media (max-width: 1200px) { .nx-root.hc .nx-vmgrid.has-detail { grid-template-columns: minmax(0, 1fr); } }
+
 /* Figures in tables use the text face with aligned digits: quieter than a monospace column. */
 .nx-root.hc .nx-table .nx-mono { font-family: var(--font-ui); }
 
@@ -152,6 +150,8 @@
 .hc-pick:focus-within { outline: 2px solid var(--color-border-focus); outline-offset: 1px; }
 
 /* ---------- portal list ---------- */
+.hc-hint { font-size: var(--font-size-xs); }
+.hc-grid--list .nx-meter, .hc-grid--list .nx-meter2 { min-width: 7.4667rem; }
 .hc-grid--list th { height: 2.4rem; }
 .hc-grid--list .nx-thbtn { display: inline-flex; align-items: center; gap: 0.3333rem; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; }
 .hc-sort { color: var(--color-text-disabled); font-weight: 400; }
@@ -274,7 +274,6 @@
 .hc-pane-b p { margin: 0; }
 .hc-pane-f { padding: 0.8rem 1.3333rem; border-top: 1px solid var(--color-border-card); }
 
-
 /* ---------- every page: the existing building blocks in the console style ----------
    Tables are plain grids (no tinted header, one line per row, links in the brand colour); frames are thin and
    barely rounded; message bars are flat bands; buttons are rectangular. Scoped to the console root so the
@@ -312,6 +311,11 @@
 .nx-root.hc .nx-table .nx-ra .nx-btn--icon { color: var(--color-text-secondary); }
 .nx-root.hc .nx-table .nx-ra .nx-btn--icon:hover { color: var(--color-danger); }
 .nx-root.hc .nx-table td .nx-state, .nx-root.hc .nx-table td .nx-st { font-size: inherit; }
+/* A list that is the page itself is not framed: only its header line and its rows separate it. */
+.nx-root.hc .nx-page > .nx-card2--flush, .nx-root.hc .nx-page > .hc-listbody { border: 0; border-radius: 0; background: transparent; }
+.nx-root.hc .nx-page > .nx-card2--flush .nx-table thead th { border-top: 0; }
+.nx-root.hc .nx-page > .nx-card2--flush .nx-table thead th:first-child, .nx-root.hc .nx-page > .nx-card2--flush .nx-table tbody > tr > :first-child { padding-left: 0.8rem; }
+.nx-root.hc .hc-grid--list .nx-ra .nx-btn { height: 1.8667rem; padding: 0 0.5333rem; border-color: transparent; background: transparent; color: var(--color-accent); font-weight: 400; }
 /* In the command bar, a disabled command stays readable as "unavailable". */
 .hc-cmd .nx-btn[aria-disabled="true"] { cursor: default; }
 

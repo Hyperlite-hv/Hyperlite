@@ -81,7 +81,7 @@ export const RESOURCE_MENUS = {
     { group: "res.g.protection", pages: ["snapshots", "backup"] },
   ],
 };
-const PAGE_LABELS = { summary: "res.overview", tasks: "nav.activity", permissions: "tab.objPermissions", backup: "tab.backup" };
+const PAGE_LABELS = { summary: "res.overview", tasks: "tab.tasks", permissions: "tab.objPermissions", backup: "tab.backups" };
 export const resourcePageLabel = (id) => PAGE_LABELS[id] || `tab.${id}`;
 export const LIST_OF = { vm: "vms", node: "nodes", container: "containers" };
 

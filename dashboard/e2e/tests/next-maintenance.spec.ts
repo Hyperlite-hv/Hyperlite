@@ -57,7 +57,7 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
   await open(page);
   await page.goto("/node/local?tab=summary");
   const main = page.getByRole("main");
-  await main.getByRole("button", { name: "Actions", exact: true }).click();
+  await main.getByRole("button", { name: /^(More|Plus)\b/ }).click();
   await page.getByRole("menuitem", { name: /^Enter maintenance/ }).click();
   const dlg = page.getByRole("dialog", { name: /in maintenance$/ });
   // The only other online node is preselected, and the plan says what moves and why the rest stays.
@@ -86,7 +86,7 @@ test("enter maintenance: the plan is shown per target, the drain is confirmed, t
   // French labels.
   await page.evaluate(() => localStorage.setItem("hyperlite-next-lang", "fr"));
   await page.reload();
-  await page.getByRole("main").getByRole("button", { name: "Actions", exact: true }).click();
+  await page.getByRole("main").getByRole("button", { name: /^(More|Plus)\b/ }).click();
   await expect(page.getByRole("menuitem", { name: /^Mettre en maintenance/ })).toBeVisible();
 });
 
@@ -113,7 +113,7 @@ test("an error notification can be closed, and it would not stay forever", async
   await page.route(/\/nodes\/local\/maintenance$/, (route) => (route.request().method() === "POST" ? json(route, { detail: "Refused for this test" }, 409) : route.fallback()));
   await open(page);
   await page.goto("/node/local?tab=summary");
-  await page.getByRole("main").getByRole("button", { name: "Actions", exact: true }).click();
+  await page.getByRole("main").getByRole("button", { name: /^(More|Plus)\b/ }).click();
   await page.getByRole("menuitem", { name: /^Enter maintenance/ }).click();
   await page.getByRole("dialog", { name: /in maintenance$/ }).getByRole("button", { name: "Enter maintenance", exact: true }).click();
   const toast = page.locator("[data-sonner-toast]").filter({ hasText: "Refused for this test" });

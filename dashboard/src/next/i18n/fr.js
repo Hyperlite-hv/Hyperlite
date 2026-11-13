@@ -4465,4 +4465,7 @@ export default {
   "res.shell": "Shell",
   "res.maintenance": "Mode maintenance",
   "prop.migrateCmd": "Migrer",
+  "nd.vmsRun": "{run} en marche sur {total}",
+  "list.typeIs": "Type égal à",
+  "res.createVm": "Créer une VM",
 };

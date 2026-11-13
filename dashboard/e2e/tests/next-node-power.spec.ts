@@ -19,7 +19,7 @@ test("node reboot: typed name, running VMs shut down first", async ({ page }) =>
   });
 
   await page.goto("/node/local");
-  await page.getByRole("main").getByRole("button", { name: "Actions" }).click();
+  await page.getByRole("main").getByRole("button", { name: /^(More|Plus)\b/ }).click();
   await page.getByRole("menuitem", { name: "Reboot the node…" }).click();
   const dialog = page.getByRole("alertdialog", { name: /Reboot/ });
   await expect(dialog.getByText("Running on this node: e2e-power-web.")).toBeVisible();

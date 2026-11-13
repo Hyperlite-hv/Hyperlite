@@ -51,7 +51,7 @@ function AccountMenu({ dialog, setDialog }) {
   const place = cluster?.in_cluster ? cluster.name : t("crumb.datacenter");
   return (
     <span className="nx-relative">
-      <button ref={btn} type="button" className="hc-acct" aria-label={`${t("top.user")} — ${username}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((o) => !o)}>
+      <button ref={btn} type="button" className="hc-acct nx-rail-user" aria-label={`${t("top.user")} — ${username}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((o) => !o)}>
         <span className="hc-acct-t"><b>{username}</b><small>{place}</small></span>
         <span className="hc-avatar" aria-hidden="true">{(username || "?").slice(0, 2).toUpperCase()}</span>
       </button>

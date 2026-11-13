@@ -32,11 +32,20 @@ export async function uiLogin(page: Page, username = ADMIN.username, password = 
   await expect(page.locator(".nx-root")).toBeVisible({ timeout: 30_000 });
 }
 
-/** Opens a page of the sidebar by its label (an entry may end with its count, as "Nodes 2"). */
+/** Opens a service by its label: from the left menu when it is there (Home, the pinned services), otherwise from
+ *  "All services", the catalogue every service is listed in. */
 export async function goTo(page: Page, label: string) {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: new RegExp(`^${escaped}( \\d+)?$`) }).click();
+  const nav = page.getByRole("navigation", { name: "Main navigation" });
+  const entry = nav.getByRole("button", { name: new RegExp(`^${escaped}( \\d+)?$`) });
+  if (await entry.count()) { await entry.first().click(); return; }
+  await nav.getByRole("button", { name: "All services", exact: true }).click();
+  await page.getByRole("main").getByRole("button", { name: new RegExp(`^${escaped}\\b`) }).first().click();
 }
+
+/** The menu of a resource page (VM, node, container): one button per page, the one shown marked aria-current="page". */
+export const resourceMenu = (page: Page) => page.locator(".hc-rmenu");
+export const resourcePage = (page: Page, name: string | RegExp) => resourceMenu(page).getByRole("button", { name, exact: typeof name === "string" });
 
 /** A list as the API answers it (app/core/listing.py), for a route a test serves itself. */
 export const listing = <T>(items: T[]) => ({ items, total: items.length });
