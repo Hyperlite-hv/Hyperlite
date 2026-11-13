@@ -212,6 +212,13 @@
 .hc-run-pre { margin: 0; padding: 0.8rem; max-height: 28rem; overflow: auto; border: 1px solid var(--color-border-card); border-radius: var(--radius-md); background: var(--color-bg-surface-raised); font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .hc-run-pre--err { border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border-card)); }
 @media (max-width: 700px) { .hc-run-opts { grid-template-columns: minmax(0, 1fr); } }
+/* Notifications ▸ Weekly report. */
+.hc-wr { margin-top: 1.6rem; padding: 1.0667rem; border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); display: grid; gap: 0.6667rem; }
+.hc-wr h2 { margin: 0; font-size: 0.9333rem; font-weight: 600; }
+.hc-wr p { margin: 0; }
+.hc-wr-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.8rem 1.0667rem; }
+.hc-wr-row .nx-check { align-self: center; }
+.hc-wr-row select { min-width: 8rem; }
 /* Topology: the cluster above its nodes, each node a column of what runs and where it is stored. */
 .hc-topo-root { display: inline-flex; flex-direction: column; padding: 0.5333rem 1.0667rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); background: var(--color-bg-surface-raised); }
 .hc-topo-root small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
