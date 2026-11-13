@@ -66,9 +66,10 @@ export const RESOURCE_MENUS = {
   vm: [
     { pages: ["summary", "tasks", { id: "permissions", admin: true }] },
     { group: "res.g.connect", pages: ["console"] },
+    { group: "res.g.operations", pages: ["run"] },
     { group: "res.g.settings", pages: ["hardware", "advanced", "options", "network", "cloudinit"] },
     { group: "res.g.protection", pages: ["snapshots", "backup"] },
-    { group: "res.g.monitoring", pages: ["perf"] },
+    { group: "res.g.monitoring", pages: ["perf", "guest"] },
   ],
   node: [
     { pages: ["summary", "tasks"] },
