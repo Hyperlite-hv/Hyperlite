@@ -68,6 +68,7 @@ from app.routers.host import router as host_router
 from app.routers.host_firewall import router as host_firewall_router
 from app.routers.host_network import router as host_network_router
 from app.routers.host_system import router as host_system_router
+from app.routers.image_gallery import router as image_gallery_router
 from app.routers.isos import router as isos_router
 from app.routers.jobs import router as jobs_router
 from app.routers.kubernetes import router as kubernetes_router
@@ -227,6 +228,7 @@ _API_ROUTERS = (
     network_router,
     templates_router,
     isos_router,
+    image_gallery_router,
     audit_router,
     tasks_router,
     groups_router,

@@ -45,7 +45,7 @@ export const TASK_LABEL_KEYS = {
   create_vm: "Create VM", auto_install: "Automatic installation", update_vm: "Update VM resources", create_snapshot: "Create snapshot",
   restore_snapshot: "Restore snapshot", delete_snapshot: "Delete snapshot", clone_vm: "Clone VM", migrate_vm: "Migrate VM", move_disk: "Move disk", drain_node: "Drain node",
   backup_vm: "Back up VM", restore_backup: "Restore backup", export_vm: "Export VM", run_job: "Run job", upload_iso: "Upload ISO", copy_iso: "Copy ISO to a node", create_k8s_cluster: "Create Kubernetes cluster", delete_k8s_cluster: "Delete Kubernetes cluster",
-  upload_vm_disk: "Upload disk", create_container: "Create container", clone_container: "Clone container",
+  upload_vm_disk: "Upload disk", gallery_download: "Download cloud image", create_container: "Create container", clone_container: "Clone container",
   backup_container: "Back up container", hyperlite_update: "Hyperlite update", host_shell: "Host shell",
 };
 // Task labels follow the interface language (keys task.type.<type>); unknown types show their wire value.

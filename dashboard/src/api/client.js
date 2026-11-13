@@ -652,6 +652,13 @@ export async function fetchKubeconfig(name) {
 }
 
 // ---- Importable disks (importing a VM from a disk file) ----
+// Image gallery: the official cloud images, downloaded into the imported disks once their checksum matches.
+export async function fetchImageGallery() {
+  return realList("/image-gallery");
+}
+export async function downloadGalleryImage(id) {
+  return realFetch(`/image-gallery/${encodeURIComponent(id)}/download`, { method: "POST" });
+}
 export async function fetchVmDisks() {
   return realList("/vm-disks");
 }
