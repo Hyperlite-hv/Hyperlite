@@ -1,1 +1,2 @@
 - The lists of nodes and containers follow the console too (#862): commands above the list (add or create, Refresh, Export to CSV), a filter on any field and filters read as sentences ("State equals", "Type equals"), a plain grid with a menu on every row. Lists that are a whole page are no longer framed.
+- The filters of the Activity page read as sentences too ("Type", "Node", "Period"), next to its status buttons and its search.
