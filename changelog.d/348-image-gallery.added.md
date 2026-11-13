@@ -1,1 +1,0 @@
-The Library gains a Gallery of official cloud images (Debian 12 and 13, Ubuntu 22.04 and 24.04, Rocky Linux 9, AlmaLinux 9). An administrator downloads one as a task. The image is checked against the checksum list its distribution publishes and against the qcow2 format, then lands in the imported disks. "Create a VM" opens the VM wizard on that image.
