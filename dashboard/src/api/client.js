@@ -652,6 +652,13 @@ export async function fetchKubeconfig(name) {
 }
 
 // ---- Importable disks (importing a VM from a disk file) ----
+// Image gallery: the official cloud images, downloaded into the imported disks once their checksum matches.
+export async function fetchImageGallery() {
+  return realList("/image-gallery");
+}
+export async function downloadGalleryImage(id) {
+  return realFetch(`/image-gallery/${encodeURIComponent(id)}/download`, { method: "POST" });
+}
 export async function fetchVmDisks() {
   return realList("/vm-disks");
 }
@@ -1016,6 +1023,16 @@ export async function disableVMAutoCleanup(name) {
 export async function fetchNotifyEvents() {
   return realFetch("/notifications/events");
 }
+// The weekly report: its settings, a preview of what would be sent now, and a sending now.
+export async function fetchWeeklyReport() {
+  return realFetch("/reports/weekly");
+}
+export async function saveWeeklyReportSettings(settings) {
+  return realFetch("/reports/weekly/settings", { method: "PUT", ...jsonBody(settings) });
+}
+export async function sendWeeklyReport() {
+  return realFetch("/reports/weekly/send", { method: "POST" });
+}
 export async function fetchNotificationChannels() {
   return realList("/notifications/channels");
 }
@@ -1031,6 +1048,22 @@ export async function setNotificationChannelEnabled(id, enabled) {
 }
 export async function deleteNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}`, { method: "DELETE" });
+}
+// Alert rules (app/core/alert_rules.py): a metric of a node or a VM over or under a threshold for a few minutes.
+export async function fetchAlertRules() {
+  return realList("/alert-rules");
+}
+export async function createAlertRule(rule) {
+  return realFetch("/alert-rules", { method: "POST", ...jsonBody(rule) });
+}
+export async function updateAlertRule(id, rule) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function setAlertRuleEnabled(id, enabled) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}/enabled`, { method: "PUT", ...jsonBody({ enabled }) });
+}
+export async function deleteAlertRule(id) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 export async function testNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}/test`, { method: "POST" });
@@ -1195,6 +1228,45 @@ export function attachVMHostDevice(name, device, confirm = false) {
 }
 export function detachVMHostDevice(name, device) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
+}
+// A running VM's screen as a small PNG (the console thumbnail): a Blob, or null when it has none to show.
+export async function fetchVmScreenshot(name, node = null, width = 480) {
+  const params = new URLSearchParams({ width: String(width) });
+  if (node && node !== "local") params.set("node", node);
+  const res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/screenshot?${params}`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) return null;
+  return res.blob();
+}
+// A VM's configuration history: its definition after every change, and each version's diff against the one before.
+export async function fetchVmConfigHistory(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realList(`/vms/${encodeURIComponent(name)}/config-history${q}`);
+}
+export async function fetchVmConfigVersion(name, id, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/config-history/${encodeURIComponent(id)}${q}`);
+}
+// A VM's schedules: started, shut down, stopped or snapshotted at set times of chosen weekdays (the node's time).
+export async function fetchVmSchedules(name) {
+  return realList(`/vms/${encodeURIComponent(name)}/schedules`);
+}
+export async function createVmSchedule(name, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules`, { method: "POST", ...jsonBody(schedule) });
+}
+export async function updateVmSchedule(name, id, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "PUT", ...jsonBody(schedule) });
+}
+export async function deleteVmSchedule(name, id) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+// Inside a VM through its guest agent: what its OS says about itself, and a script run there (vm.exec).
+export async function fetchVmGuest(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/guest${q}`);
+}
+export async function runInVmGuest(name, node, { shell, script, timeoutS }) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/guest/run${q}`, { method: "POST", ...jsonBody({ shell, script, timeout_s: timeoutS }) });
 }
 export async function fetchVMMetricsHistory(name, range = "1h", node = null) {
   const params = new URLSearchParams({ range });

@@ -39,6 +39,10 @@ TABLES = {
     # Load balancing (docs/design/drs.md): the cluster's, read on every node.
     "drs_settings": {},
     "drs_rules": {},
+    # Alert rules (app/core/alert_rules.py): written by administrators, their state by the leader on a change only.
+    "alert_rules": {},
+    # VM schedules (app/core/vm_schedules.py): run by the node hosting the VM, which writes their outcome.
+    "vm_schedules": {},
     "drs_vms": {},
     # Its moves: written by the leader, carried out and answered by the member the VM runs on.
     "drs_requests": {},

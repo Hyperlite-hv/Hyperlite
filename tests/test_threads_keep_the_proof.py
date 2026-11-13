@@ -213,6 +213,8 @@ ALLOWED = {
     "app/core/update_check.py": {"start_update_check_scheduler": "hyperlite-scheduler's"},
     "app/core/vm_boot.py": {"start_boot_sequence": "hyperlite-scheduler's"},
     "app/core/vm_cleanup.py": {"start_auto_cleanup_scheduler": "hyperlite-scheduler's"},
+    "app/core/weekly_report.py": {"start_weekly_report": "hyperlite-scheduler's"},
+    "app/core/vm_schedules.py": {"start_vm_schedules": "hyperlite-scheduler's"},
     "app/core/vm_crash_watch.py": {"start_vm_crash_watch": "reads libvirt's events, read-only"},
     "app/main.py": {"on_startup": "protects the cloud-init drives, at start"},
     "app/repositories/cfs/inbound.py": {"start_apply_loop": "4e: as root (section 14.1)"},

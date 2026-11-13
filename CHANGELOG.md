@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-11-13
+
+### Added
+
+- Recommendations (#348): a Recommendations service checks the cluster against good practice: offline nodes, crashed VMs, VMs without a backup schedule or a guest agent, a single-node cluster, nodes short of memory or with overcommitted processors, full pools, stopped VMs, administrators without two-factor sign-in, API tokens that never expire, and no notification channel. Each recommendation has an impact, a category, the resources it concerns and a fix; it can be postponed or dismissed. VMs and nodes get a Recommendations page of their own.
+
+- Alert rules (#348): administrators write rules such as "the processor of a VM above 85 % for 10 minutes", scoped to one node, one VM, every node or every VM, on the processor, memory, disk or network. The cluster's leader evaluates them after each sample on the average over the window, notifies once when a rule fires for a resource and again when it resolves (to the channels the rule names, or to every channel taking the new "Alert rule" event), and writes both to the journal. The firing state is replicated, so every node shows it. A new Alert rules service lists the rules with their state.
+
+- VM change history (#348): VMs get a Change history page. The metrics collector compares each VM's persistent definition with the last version recorded, once a minute, and keeps a new version when it differs, whoever made the change: the console, the API, a migration or virsh. The page shows the versions and the diff against the previous one, with the journal's actions on the VM in between. The last 50 versions of each VM are kept.
+
+- Console thumbnail (#348): a running VM's overview shows a thumbnail of its screen beside the essentials, refreshed every 30 seconds while the page is open; a click opens the console. The screen is taken through libvirt by hyperlite-daemon and scaled to a small PNG. It needs the console privilege on the VM.
+
+- Guest system and Run command (#348): VMs gain two pages through their guest agent. Guest system shows the OS, kernel, host name, time zone, signed-in users and file systems with their usage. Run command runs a script in the guest's shell (sh, bash, PowerShell or cmd), with ready-made scripts and a timeout of up to 2 minutes, and shows its exit code, output and errors; nothing needs to be open on the VM's network. Running a command needs the new "vm.exec" privilege, which no predefined role holds. Every run is written to the journal without the script itself.
+
+- Setup checklist and capacity forecast (#348): Home shows a setup checklist to administrators (storage pool, network, first VM, backup schedule, notification channel, optional second node), each step checked from what exists, and a 90-day capacity forecast: storage pools and node memory filling up at the pace of the last 30 days. The Storage page gains a "Full in" column.
+
+- Image gallery (#348): the Library gains a Gallery of official cloud images (Debian 12 and 13, Ubuntu 22.04 and 24.04, Rocky Linux 9, AlmaLinux 9). An administrator downloads one as a task. The image is checked against the checksum list its distribution publishes and against the qcow2 format, then lands in the imported disks. "Create a VM" opens the VM wizard on that image.
+
+- Metrics explorer and Home dashboard (#348): a Metrics explorer puts several metrics of nodes and VMs (processor, memory, disk and network throughput) on one chart over the last hour, day, week or month, with an average, maximum or minimum aggregation, a statistics table and a CSV export. Charts can be pinned to a Dashboard section on Home, reordered and opened back in the explorer.
+
+- Topology and several template copies (#348): a Topology service shows the cluster in one view: each node with its processor and memory load, its virtual machines and containers with their state, and its storage pools with their usage. Each item opens its own page, and a filter shows only running or stopped machines. Templates can be deployed several at once: N copies named prefix-01, prefix-02 and so on, checked against existing names, deployed one after the other with each line showing how it went.
+
+- VM schedules (#348): VMs get Schedules: start, shut down, stop or snapshot a VM at a set time on chosen weekdays, in the node's local time. The node hosting the VM runs them, so they follow it when it migrates. A snapshot schedule keeps its last N snapshots and never touches those taken by hand. A run missed by more than 30 minutes is skipped and journaled. Power actions need the vm.power privilege on the VM, snapshots vm.snapshot.
+
+- Weekly report (#348): a weekly report sums up the last seven days: backups succeeded and failed, each node's processor and memory load, the busiest VMs, the fullest storage pools, the alerts and the failed operations. It goes to the notification channels that take the new "Weekly report" event, on the weekday and hour an administrator chooses. The cluster's leader sends it, once a week. The Notifications page sets it up, previews it and can send it at once.
+
+### Fixed
+
+- Threshold alert message (#348): the journal entry of a fixed threshold alert is in English ("threshold"), like the other entries.
+
 ## [1.18.1] - 2026-11-13
 
 ### Changed
