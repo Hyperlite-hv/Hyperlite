@@ -4468,4 +4468,5 @@ export default {
   "nd.vmsRun": "{run} en marche sur {total}",
   "list.typeIs": "Type égal à",
   "res.createVm": "Créer une VM",
+  "list.modeIs": "Mode égal à",
 };
