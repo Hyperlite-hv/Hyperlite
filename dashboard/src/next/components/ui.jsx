@@ -1,6 +1,10 @@
-import { useContext, useEffect, useId, useRef, useState } from "react";
-import { FrameContext } from "../lib/frame";
-import { Info, X } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { ChevronRight, Info, X } from "lucide-react";
+import { useInfraStore } from "../../store/useInfraStore";
+import { useFreshness } from "../lib/inventory";
+import { SERVICE, activeService } from "../lib/services";
+import ServiceTile, { FavoriteButton } from "./ServiceTile";
 import { useT } from "../i18n";
 import { stateInfo } from "../lib/enums";
 
@@ -46,13 +50,34 @@ export function Loading({ style }) {
   );
 }
 
-export function PageHeader({ title, count, desc, help, actions, level: asked = 1 }) {
+export function PageHeader({ title, count, desc, help, actions, level = 1 }) {
   const t = useT();
-  const framed = useContext(FrameContext);
-  const level = framed && asked === 1 ? 2 : asked;
-  const H = `h${level}`;
+  const { type, tab, navigateTo } = useInfraStore(useShallow((s) => ({ type: s.selection.type, tab: s.activeTab, navigateTo: s.navigateTo })));
+  const cluster = useFreshness((s) => s.cluster);
+  // The header of a service page: breadcrumb, tile, title and where it applies, then its commands in a bar.
+  if (level === 1 && type === "datacenter") {
+    const svc = activeService({ type }, tab);
+    const home = () => navigateTo("datacenter", null, "summary");
+    return (
+      <header className="hc-ph">
+        <nav className="hc-crumbs" aria-label={t("crumb.label")}><button type="button" className="nx-lnk" onClick={home}>{t("nav.overview")}</button><ChevronRight size={12} aria-hidden="true" /></nav>
+        <div className="hc-ph-row">
+          <ServiceTile id={svc} size={32} />
+          <div className="hc-ph-t">
+            <div className="nx-ph-title"><h1>{title}</h1>{count != null && <span className="nx-cnt">{count}</span>}{help && <HelpTip text={help} label={t("help")} />}</div>
+            <p className="hc-ph-sub">{cluster?.in_cluster ? cluster.name : t("crumb.datacenter")}</p>
+          </div>
+          {SERVICE[svc] && SERVICE[svc].cat !== "base" && <FavoriteButton id={svc} />}
+          <button type="button" className="hc-ibtn hc-ph-close" aria-label={t("action.close")} title={t("action.close")} onClick={home}><X size={18} aria-hidden="true" /></button>
+        </div>
+        {actions && <div className="hc-cmd" role="toolbar" aria-label={t("actions")}>{actions}</div>}
+        {desc && <p className="nx-ph-desc">{desc}</p>}
+      </header>
+    );
+  }
+  const H = `h${level === 1 ? 2 : level}`;
   return (
-    <div className={`nx-ph${level > 1 ? " nx-ph--sub" : ""}${framed && asked === 1 ? " nx-ph--framed" : ""}`}>
+    <div className="nx-ph nx-ph--sub">
       <div className="nx-ph-text">
         <div className="nx-ph-title">
           <H>{title}</H>

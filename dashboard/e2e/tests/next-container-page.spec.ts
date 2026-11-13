@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, resourcePage } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // A container's own page: reached from the list, resources and DNS edited, start at boot, its history. The
@@ -53,7 +53,7 @@ test("container page: open from the list, edit resources and DNS, start at boot,
   await expect(page.getByText("Start at boot saved")).toBeVisible();
   expect(patches).toEqual([{ vcpu: 2, memory_mb: 1024 }, { dns: ["10.0.0.53", "9.9.9.9"] }, { autostart: true }]);
 
-  await page.getByRole("tab", { name: "Tasks" }).click();
+  await resourcePage(page, "Tasks").click();
   await expect(main.getByRole("table")).toContainText(NAME);
   await expect(page).toHaveURL(/tab=tasks/);
 });

@@ -1,4 +1,4 @@
-import { expect, goTo, test, uiLogin } from "../support/fixtures";
+import { expect, goTo, test, uiLogin, resourcePage } from "../support/fixtures";
 
 const isExpectedHttpNoise = (p: string) => /Failed to load resource/.test(p);
 
@@ -23,15 +23,15 @@ test.describe("Navigation and tab persistence", () => {
     await page.getByRole("main").getByRole("table").getByRole("button").first().click();
     await expect(page).toHaveURL(/\/node\//);
     await expect(page).not.toHaveURL(/tab=/);
-    await expect(page.getByRole("main").getByRole("tab", { name: "Summary", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(resourcePage(page, "Overview")).toHaveAttribute("aria-current", "page");
     await goTo(page, "Home");
-    await expect(page.getByRole("main").getByRole("group", { name: "Inventory" })).toBeVisible();
+    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Hyperlite services" })).toBeVisible();
   });
 
   test("an unknown tab in the URL falls back to the summary", async ({ page, problems }) => {
     await uiLogin(page);
     await page.goto("/datacenter?tab=does-not-exist");
-    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Hyperlite services" })).toBeVisible();
     expect(problems.filter((p) => !isExpectedHttpNoise(p))).toEqual([]);
   });
 
@@ -39,6 +39,6 @@ test.describe("Navigation and tab persistence", () => {
     await uiLogin(page);
     await page.goto("/this/does/not/exist");
     await expect(page).toHaveURL(/\/datacenter/);
-    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+    await expect(page.getByRole("main").getByRole("heading", { level: 1, name: "Hyperlite services" })).toBeVisible();
   });
 });

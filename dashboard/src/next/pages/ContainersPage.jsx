@@ -17,8 +17,9 @@ import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu"
 import { ErrorState } from "../components/States";
 import { NAME_RE } from "../lib/containerImages";
 import { openShell, renameContainerFlow } from "../lib/containerActions";
+import { Cmd, FilterPill, downloadCsv } from "../components/portal";
 import { PageHeader, Card, Empty, Loading, TableWrap, Chip, SideDrawer } from "../components/ui";
-import { Box, Plus, Trash2 } from "lucide-react";
+import { Box, Download, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
 const backupWire = (s) => (s === "succeeded" ? "succeeded" : s === "failed" ? "failed" : "running");
 
@@ -87,27 +88,53 @@ export default function ContainersPage() {
     catch (err) { fail(t("ct.deleteFailed"))(err); }
   }
   const [logsOf, setLogsOf] = useState(null);
+  const [q, setQ] = useState("");
+  const [kind, setKind] = useState("");
+  const [stateF, setStateF] = useState("");
   const openTerminal = (ct) => window.open(`/container-terminal/${encodeURIComponent(ct.name)}`, `hyperlite-ct-terminal-${ct.name}`, "width=1000,height=700,noopener");
   async function rename(ct) { if (await renameContainerFlow(ct, t, pushToast)) await reload(); }
 
   const list = containers || [];
+  const needle = q.trim().toLowerCase();
+  const shown = list.filter((ct) => (!kind || (kind === "application" ? ct.mode === "application" : ct.mode !== "application"))
+    && (!stateF || (stateF === "active" ? ct.state === "active" : ct.state !== "active"))
+    && (!needle || `${ct.name} ${ct.image || ""} ${ct.ip || ""} ${ct.vmid ?? ""}`.toLowerCase().includes(needle)));
   const del = t("menu.delete").replace("…", "");
   const openWizard = () => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "container" }));
 
   return (
     <>
-      <PageHeader title={t("tab.containers")} count={containers ? list.length : null} help={t("ct.intro")}
-        actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={openWizard}><Plus size={15} aria-hidden="true" />{t("ct.create")}</button>} />
+      <PageHeader title={t("tab.containers")} help={t("ct.intro")} actions={(
+        <>
+          {caps.admin && <Cmd icon={Plus} label={t("action.create")} onClick={openWizard} />}
+          <Cmd icon={RefreshCw} label={t("action.refresh")} onClick={() => reload()} />
+          <Cmd icon={Download} label={t("list.exportCsv")} disabled={shown.length === 0} onClick={() => downloadCsv("containers.csv", [
+            [t("ct.name"), t("ns.col.state"), t("ct.type"), t("prop.image"), "vCPU", t("ct.memory"), "IP"],
+            ...shown.map((ct) => [ct.name, ct.state, ct.mode === "application" ? "Docker" : "LXC", ct.image || "", ct.vcpu, formatSizeMb(ct.memory_mb, lang), ct.ip || ""]),
+          ])} />
+        </>
+      )} />
+      {list.length > 0 && (
+        <>
+          <div className="hc-fbar">
+            <label className="hc-filter hc-filter--wide"><Search size={16} aria-hidden="true" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("list.filterAny")} aria-label={t("list.filterAny")} /></label>
+            <FilterPill label={t("list.typeIs")} value={kind} onChange={setKind} options={[{ value: "", label: t("list.all") }, { value: "application", label: "Docker" }, { value: "system", label: "LXC" }]} />
+            <FilterPill label={t("list.stateIs")} value={stateF} onChange={setStateF} options={[{ value: "", label: t("list.all") }, { value: "active", label: t("state.running") }, { value: "stopped", label: t("state.stopped") }]} />
+          </div>
+          <p className="hc-count" role="status">{t("list.showing", { n: shown.length, total: list.length })}</p>
+        </>
+      )}
       {error && containers == null ? <ErrorState message={error} onRetry={reload} /> : (
-        <div className="nx-card2 nx-card2--flush">
+        <div className="hc-listbody">
           {containers == null ? <Loading style={{ padding: "var(--space-4)" }} /> : list.length === 0 ? (
             <Empty icon={Box} title={t("ct.none")} text={caps.admin ? t("ct.noneHelp") : t("ct.noneObserver")} action={caps.admin && <button type="button" className="nx-btn" onClick={openWizard}><Plus size={15} aria-hidden="true" />{t("ct.create")}</button>} />
           ) : (
             <TableWrap>
-              <table className="nx-table">
+              <table className="nx-table hc-grid--list">
                 <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col">{t("ct.type")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">IP</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
-                  {list.map((ct) => {
+                  {shown.length === 0 && <tr><td colSpan={7} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
+                  {shown.map((ct) => {
                     const on = ct.state === "active";
                     return (
                       <tr key={ct.name} className={ctx.is("ct", ct.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-13
+
+### Changed
+
+- The interface is rebuilt as a console (#862):
+  - a header band with the search, the notifications (running operations and alerts) and the account; a menu of services on the left with the ones you pin; a Home page with the services, the resources opened recently, the state of the cluster and the running operations; "All services" lists every service by family, "All resources" every machine, container and node;
+  - every service page opens with a breadcrumb, its title and a command bar. The lists of virtual machines, nodes, containers, storage, networks and backups have their commands above them (create, Refresh, Export to CSV, and for virtual machines Start, Restart, Stop, Force stop, Delete and Migrate on a selection), a filter on any field, filters read as sentences ("Node equals", "State equals"...), the name first and a "…" menu on every row; virtual machines are grouped by node;
+  - a machine, a container or a node opens on its own page, its pages in a menu on its left, with a command bar (an unavailable command stays visible and says why, the rest is under More) and an overview that starts with an "Essentials" block (with a JSON view), then Properties by subject and Monitoring;
+  - new colours, typeface (Inter), one-colour icons and mark; the theme follows the system setting unless you choose light or dark;
+  - every page address and every `?tab=` link keeps working.
+
 ## [1.17.2] - 2026-11-12
 
 ### Fixed
