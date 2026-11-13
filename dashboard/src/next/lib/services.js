@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import {
-  Activity, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound,
+  Activity, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, ChartLine, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound,
   Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, ShipWheel, Users, Waypoints, Workflow,
 } from "lucide-react";
 
@@ -26,6 +26,7 @@ export const SERVICES = [
   { id: "snapshots", icon: Camera, cat: "protect" },
   { id: "exports", icon: PackageOpen, cat: "protect", admin: true },
   { id: "perf", icon: Gauge, cat: "monitor" },
+  { id: "explorer", icon: ChartLine, cat: "monitor" },
   { id: "activity", icon: Activity, cat: "monitor", label: "nav.activity" },
   { id: "journal", icon: ScrollText, cat: "monitor", admin: true },
   { id: "metrics", icon: ChartColumn, cat: "monitor", admin: true },
