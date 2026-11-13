@@ -4720,6 +4720,29 @@
     "title": "WebAuthnRegister",
     "type": "object"
    },
+   "WeeklySettings": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "hour": {
+      "title": "Hour",
+      "type": "integer"
+     },
+     "weekday": {
+      "title": "Weekday",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "enabled",
+     "weekday",
+     "hour"
+    ],
+    "title": "WeeklySettings",
+    "type": "object"
+   },
    "WithdrawRequest": {
     "properties": {
      "name": {
@@ -18247,6 +18270,100 @@
     "summary": "Status",
     "tags": [
      "backups"
+    ]
+   }
+  },
+  "/api/v1/reports/weekly": {
+   "get": {
+    "description": "The settings, when it was last sent, and the report as it would be sent now (its data and its text).",
+    "operationId": "get_weekly_api_v1_reports_weekly_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Weekly",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/v1/reports/weekly/send": {
+   "post": {
+    "description": "Sends the report now to the channels that take the weekly_report event.",
+    "operationId": "send_weekly_api_v1_reports_weekly_send_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Send Weekly",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/v1/reports/weekly/settings": {
+   "put": {
+    "operationId": "put_weekly_settings_api_v1_reports_weekly_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/WeeklySettings"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Weekly Settings",
+    "tags": [
+     "notifications"
     ]
    }
   },

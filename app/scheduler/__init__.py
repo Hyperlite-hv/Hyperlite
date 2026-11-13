@@ -30,11 +30,13 @@ def start():
     from app.core.update_check import start_update_check_scheduler
     from app.core.vm_boot import start_boot_sequence
     from app.core.vm_cleanup import start_auto_cleanup_scheduler
+    from app.core.weekly_report import start_weekly_report
     from app.core.zfs_storage import start_watch as start_zfs_watch
 
     start_backup_scheduler()
     start_replication_scheduler()
     start_auto_cleanup_scheduler()
+    start_weekly_report()
     start_update_check_scheduler()
     start_boot_sequence()
     start_node_poller()
