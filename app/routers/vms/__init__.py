@@ -23,6 +23,7 @@ from app.routers.vms import console  # noqa: F401
 from app.routers.vms import tunnel  # noqa: F401
 from app.routers.vms import hookscript  # noqa: F401
 from app.routers.vms import guest  # noqa: F401
+from app.routers.vms import screenshot  # noqa: F401
 from app.routers.vms import config_history  # noqa: F401
 from app.routers.vms import schedules  # noqa: F401
 

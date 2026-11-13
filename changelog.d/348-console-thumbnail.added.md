@@ -1,0 +1,1 @@
+A running VM's overview shows a thumbnail of its screen beside the essentials, refreshed every 30 seconds while the page is open; a click opens the console. The screen is taken through libvirt by hyperlite-daemon and scaled to a small PNG. It needs the console privilege on the VM.
