@@ -1,43 +1,68 @@
-// Bridge to the screens that are not rebuilt yet: the same panel components, rendered inside the new
-// workspace. Each domain replaces its entries here as it is migrated.
-import SecurityPage, { SecuritySsoPage } from "../pages/SecurityPage";
-import LibraryPage from "../pages/LibraryPage";
-import AutomationPage from "../pages/AutomationPage";
-import NodesPage from "../pages/NodesPage";
-import HaPage from "../pages/HaPage";
-import DrsPage from "../pages/DrsPage";
-import NotificationsPage from "../pages/NotificationsPage";
-import ContainersPage from "../pages/ContainersPage";
-import KubernetesPage from "../pages/KubernetesPage";
-import CompatibilityPage from "../pages/CompatibilityPage";
-import NodeSummary from "../pages/NodeSummary";
-import { NodeSystemPage, NodeNetworkPage, NodeDiskPage, NodeShellPage, NodeCompatPage } from "../pages/NodePages";
-import VmList from "../pages/VmList";
-import { ClusterPerf } from "../pages/Overview";
-import Home from "../pages/Home";
-import ServicesPage, { AllResourcesPage, CreatePage } from "../pages/ServicesPage";
-import ActivityPage from "../pages/ActivityPage";
-import StoragePage from "../pages/StoragePage";
-import NetworkPage from "../pages/NetworkPage";
-import FirewallPage from "../pages/FirewallPage";
-import { ActivityTasksPage, ActivityJournalPage } from "../pages/ActivityHub";
-import BackupsPage from "../pages/BackupsPage";
-import ExportsPage from "../pages/ExportsPage";
-import SnapshotsPage from "../pages/SnapshotsPage";
-import VmSummary from "../pages/VmSummary";
-import VmConsole from "../pages/VmConsole";
-import { VmSnapshotsPage, VmBackupPage } from "../pages/VmSnapshotsBackup";
-import { VmHardwarePage, VmOptionsPage, VmNetworkPage } from "../pages/VmConfigure";
-import VmPerformancePage, { NodePerformancePage } from "../pages/VmPerformance";
-import { ContainerSummary, ContainerConsolePage, ContainerBackupsPage, ContainerSnapshotsPage } from "../pages/ContainerPages";
-import VmCloudInitPage from "../pages/VmCloudInit";
-import VmAdvancedPage from "../pages/VmAdvanced";
-import MetricsPage from "../pages/MetricsPage";
-import ApiPage from "../pages/ApiPage";
-import CfsPage from "../pages/CfsPage";
-import SitesPage from "../pages/SitesPage";
-import { NodeUpdatesPage } from "../pages/NodeHostSystem";
-import { VmPermissionsPage, ContainerPermissionsPage } from "../pages/ObjectPermissions";
+// The screens of the console, each loaded when it is first opened: one bundle with every page made the first screen
+// wait for all of them. A file that cannot be fetched reloads the page (lib/lazyRetry.js).
+import { lazy } from "react";
+import { loadOrReload } from "../../lib/lazyRetry";
+
+const onDemand = (load, name = "default") => lazy(() => loadOrReload(load).then((m) => ({ default: m[name] })));
+
+const SecurityPage = onDemand(() => import("../pages/SecurityPage"));
+const SecuritySsoPage = onDemand(() => import("../pages/SecurityPage"), "SecuritySsoPage");
+const LibraryPage = onDemand(() => import("../pages/LibraryPage"));
+const AutomationPage = onDemand(() => import("../pages/AutomationPage"));
+const NodesPage = onDemand(() => import("../pages/NodesPage"));
+const HaPage = onDemand(() => import("../pages/HaPage"));
+const DrsPage = onDemand(() => import("../pages/DrsPage"));
+const NotificationsPage = onDemand(() => import("../pages/NotificationsPage"));
+const ContainersPage = onDemand(() => import("../pages/ContainersPage"));
+const KubernetesPage = onDemand(() => import("../pages/KubernetesPage"));
+const CompatibilityPage = onDemand(() => import("../pages/CompatibilityPage"));
+const NodeSummary = onDemand(() => import("../pages/NodeSummary"));
+const NodeSystemPage = onDemand(() => import("../pages/NodePages"), "NodeSystemPage");
+const NodeNetworkPage = onDemand(() => import("../pages/NodePages"), "NodeNetworkPage");
+const NodeDiskPage = onDemand(() => import("../pages/NodePages"), "NodeDiskPage");
+const NodeShellPage = onDemand(() => import("../pages/NodePages"), "NodeShellPage");
+const NodeCompatPage = onDemand(() => import("../pages/NodePages"), "NodeCompatPage");
+const VmList = onDemand(() => import("../pages/VmList"));
+const ClusterPerf = onDemand(() => import("../pages/Overview"), "ClusterPerf");
+const Home = onDemand(() => import("../pages/Home"));
+const ServicesPage = onDemand(() => import("../pages/ServicesPage"));
+const AllResourcesPage = onDemand(() => import("../pages/ServicesPage"), "AllResourcesPage");
+const CreatePage = onDemand(() => import("../pages/ServicesPage"), "CreatePage");
+const ActivityPage = onDemand(() => import("../pages/ActivityPage"));
+const StoragePage = onDemand(() => import("../pages/StoragePage"));
+const NetworkPage = onDemand(() => import("../pages/NetworkPage"));
+const FirewallPage = onDemand(() => import("../pages/FirewallPage"));
+const ActivityTasksPage = onDemand(() => import("../pages/ActivityHub"), "ActivityTasksPage");
+const ActivityJournalPage = onDemand(() => import("../pages/ActivityHub"), "ActivityJournalPage");
+const BackupsPage = onDemand(() => import("../pages/BackupsPage"));
+const ExportsPage = onDemand(() => import("../pages/ExportsPage"));
+const SnapshotsPage = onDemand(() => import("../pages/SnapshotsPage"));
+const VmSummary = onDemand(() => import("../pages/VmSummary"));
+const VmConsole = onDemand(() => import("../pages/VmConsole"));
+const VmSnapshotsPage = onDemand(() => import("../pages/VmSnapshotsBackup"), "VmSnapshotsPage");
+const VmBackupPage = onDemand(() => import("../pages/VmSnapshotsBackup"), "VmBackupPage");
+const VmHardwarePage = onDemand(() => import("../pages/VmConfigure"), "VmHardwarePage");
+const VmOptionsPage = onDemand(() => import("../pages/VmConfigure"), "VmOptionsPage");
+const VmNetworkPage = onDemand(() => import("../pages/VmConfigure"), "VmNetworkPage");
+const VmPerformancePage = onDemand(() => import("../pages/VmPerformance"));
+const NodePerformancePage = onDemand(() => import("../pages/VmPerformance"), "NodePerformancePage");
+const ContainerSummary = onDemand(() => import("../pages/ContainerPages"), "ContainerSummary");
+const ContainerConsolePage = onDemand(() => import("../pages/ContainerPages"), "ContainerConsolePage");
+const ContainerBackupsPage = onDemand(() => import("../pages/ContainerPages"), "ContainerBackupsPage");
+const ContainerSnapshotsPage = onDemand(() => import("../pages/ContainerPages"), "ContainerSnapshotsPage");
+const VmCloudInitPage = onDemand(() => import("../pages/VmCloudInit"));
+const VmAdvancedPage = onDemand(() => import("../pages/VmAdvanced"));
+const MetricsPage = onDemand(() => import("../pages/MetricsPage"));
+const ApiPage = onDemand(() => import("../pages/ApiPage"));
+const CfsPage = onDemand(() => import("../pages/CfsPage"));
+const SitesPage = onDemand(() => import("../pages/SitesPage"));
+const NodeUpdatesPage = onDemand(() => import("../pages/NodeHostSystem"), "NodeUpdatesPage");
+const VmPermissionsPage = onDemand(() => import("../pages/ObjectPermissions"), "VmPermissionsPage");
+const ContainerPermissionsPage = onDemand(() => import("../pages/ObjectPermissions"), "ContainerPermissionsPage");
+
+// The datacenter pages that draw their own header (the others get one from the workspace). Kept here because a page
+// that is not loaded yet cannot say so itself; src/__tests__/ownHeader.test.js checks it against the pages.
+export const OWN_HEADER = new Set(["activity", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "vms"]);
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {

@@ -66,7 +66,7 @@ test.describe("Keyboard-only use", () => {
     const { hostname } = await (await request.get("/health", { headers: { Authorization: `Bearer ${token}` } })).json();
     await uiLogin(page);
     await page.keyboard.press("Control+k");
-    const palette = page.getByRole("dialog", { name: "Find a node or VM" });
+    const palette = page.getByRole("dialog", { name: "Search resources and actions" });
     await palette.getByRole("combobox").fill(hostname.split(".")[0]);
     await expect(palette.getByRole("option").first()).toBeVisible();
     await page.keyboard.press("Enter");

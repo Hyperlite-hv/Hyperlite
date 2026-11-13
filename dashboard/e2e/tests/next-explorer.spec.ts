@@ -47,7 +47,7 @@ test.describe("Console: header band, service menu, Home and resource pages", () 
   test("shows the landmarks: header band with search and notifications, service menu, Home", async ({ page, problems }) => {
     await nextLogin(page);
     const banner = page.getByRole("banner");
-    await expect(banner.getByRole("button", { name: "Find a node or VM" })).toBeVisible();
+    await expect(banner.getByRole("button", { name: "Search resources and actions" })).toBeVisible();
     await expect(banner.getByRole("button", { name: /^Running operations/ })).toBeVisible();
     await expect(page.getByRole("tree")).toHaveCount(0);
     const nav = page.getByRole("navigation", { name: "Main navigation" });
@@ -103,7 +103,7 @@ test.describe("Console: header band, service menu, Home and resource pages", () 
   test("Ctrl+K and / open the command palette, which finds resources", async ({ page }) => {
     await nextLogin(page);
     await page.keyboard.press("Control+k");
-    const palette = page.getByRole("dialog", { name: "Find a node or VM" });
+    const palette = page.getByRole("dialog", { name: "Search resources and actions" });
     await expect(palette).toBeVisible();
     await palette.getByRole("combobox").fill("Datacenter");
     await expect(palette.getByRole("option").first()).toBeVisible();
@@ -200,7 +200,7 @@ test.describe("Console: header band, service menu, Home and resource pages", () 
     await vm.click();
     const main = page.getByRole("main");
     await expect(main.getByRole("region", { name: "Essentials" })).toBeVisible();
-    for (const h of ["Virtual machine", "Networking", "Availability and placement", "Size", "Disks", "Backup and snapshots"]) await expect(main.getByRole("heading", { level: 2, name: h, exact: true })).toBeVisible();
+    for (const h of ["Virtual machine", "Networking", "Availability and placement", "Disks", "Backup and snapshots"]) await expect(main.getByRole("heading", { level: 2, name: h, exact: true })).toBeVisible();
     for (const p of ["Overview", "Tasks", "Console", "Hardware", "Advanced", "Options and limits", "Network", "Cloud-init", "Snapshots", "Backups", "Performance"]) await expect(resourcePage(page, p)).toBeVisible();
     const bar = page.locator(".nx-oh-acts");
     for (const cmd of ["Connect", "Start", "Restart", "Stop", "Refresh"]) await expect(bar.getByRole("button", { name: new RegExp(`^${cmd}`) })).toBeVisible();
@@ -250,7 +250,7 @@ test.describe("Console: header band, service menu, Home and resource pages", () 
       await expect(page.locator(".nx-root")).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), path).toBe(false);
     }
-    await expect(page.getByRole("button", { name: "Find a node or VM" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Search resources and actions" })).toBeVisible();
     await expect(resourceMenu(page)).toBeVisible();
   });
 

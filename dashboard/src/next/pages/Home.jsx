@@ -91,7 +91,7 @@ export default function Home() {
             <button type="button" role="tab" aria-selected={tab === "favorites"} onClick={() => setTab("favorites")}>{t("home.favorites")}</button>
           </div>
           {tab === "recent" ? (rows.length === 0 ? <p className="nx-muted">{t("home.recentNone")}</p> : (
-            <div className="hc-gridwrap"><table className="hc-grid">
+            <div className="hc-gridwrap"><table className="hc-grid hc-grid--list">
               <thead><tr><th scope="col">{t("ns.col.name")}</th><th scope="col">{t("home.type")}</th><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("home.lastOpened")}</th></tr></thead>
               <tbody>
                 {rows.map(({ r, l }) => (

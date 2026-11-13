@@ -15,7 +15,7 @@ export function ErrorState({ title, message, onRetry }) {
   return (
     <div className="nx-error" role="alert">
       <h2>{title || t("err.title")}</h2>
-      {message && <p className="nx-mono" style={{ margin: 0, overflowWrap: "anywhere" }}>{message}</p>}
+      {message && <p style={{ margin: 0, overflowWrap: "anywhere" }}>{message}</p>}
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
         {onRetry && <button type="button" className="nx-btn" onClick={onRetry}>{t("action.retry")}</button>}
         {message && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => navigator.clipboard?.writeText(message)}>{t("err.copy")}</button>}

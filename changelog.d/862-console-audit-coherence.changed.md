@@ -1,0 +1,10 @@
+- Console coherence (#862):
+  - the overview of a machine says each thing once: Essentials keep the identity and the size (with its edit link), Properties only add what Essentials do not show;
+  - "All resources" gets the commands, the type filter and the grid of the other lists; no page shows a count beside its title any more; Home's recent resources use the same grid;
+  - "Create a resource" also offers a Kubernetes cluster, a node, an ISO image, an automation job, a notification channel and an API token, and has its own icon;
+  - the catalogue shows descriptions on two lines instead of cutting them; Home's shortcuts fill their row;
+  - the list of virtual machines shows the tags column only when a machine has a tag, names its size column "Size", and shows sort arrows on the sorted column or under the pointer;
+  - failures share one look; confirmations have a plain backdrop and the icon beside the title; creating a machine or a container is a page under the header instead of a floating box; the pages of a resource use titled sections like its overview; check boxes take the brand colour in both themes;
+  - the search in the header says it finds resources and actions;
+  - an address of a remote machine written with "@" keeps the page it asks for;
+  - each page of the interface is loaded when it is first opened, so the first screen no longer waits for all of them (821 kB → 221 kB).

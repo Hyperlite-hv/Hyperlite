@@ -163,7 +163,9 @@ export default function VmList() {
     noneLabel: t(mode === "node" ? "vmlist.unknownNode" : mode === "tag" ? "vmlist.noTag" : "vmlist.noPool"),
   }) || [];
   const COLS = ["node", "os", "res", "ip", "uptime"].filter(col);
-  const colCount = 4 + COLS.length + (selectable ? 1 : 0);
+  // The tags column only when some machine has a tag: an empty column is noise.
+  const anyTags = vms.some((v) => tagsOf(v).length > 0);
+  const colCount = 3 + (anyTags ? 1 : 0) + COLS.length + (selectable ? 1 : 0);
   const th = (key, label) => (
     <th scope="col" aria-sort={sort.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}>
       <button type="button" className="nx-thbtn" onClick={() => setSort((s) => ({ key, dir: s.key === key ? -s.dir : 1 }))}>{label}<span className="hc-sort" aria-hidden="true">{sort.key === key ? (sort.dir === 1 ? "↑" : "↓") : "↑↓"}</span></button>
@@ -207,7 +209,7 @@ export default function VmList() {
       {col("res") && <td>{size(vm)}</td>}
       {col("ip") && <td className="hc-num">{vm.ip || <span className="nx-muted">—</span>}</td>}
       {col("uptime") && <td className="nx-muted">{vm.state === "active" ? formatUptimeLong(vm.uptime_s, lang) || "—" : "—"}</td>}
-      <td className="hc-tagcell"><TagChips tags={tagsOf(vm)} onTag={setTagFilter} /></td>
+      {anyTags && <td className="hc-tagcell"><TagChips tags={tagsOf(vm)} onTag={setTagFilter} /></td>}
       <td className="hc-rowact"><button type="button" className="hc-ibtn" aria-label={t("ctx.menuOf", { name: vm.name })} onClick={ctx.open("vm", vm, vmKey(vm))}><Ellipsis size={16} aria-hidden="true" /></button></td>
     </tr>
   );
@@ -305,7 +307,7 @@ export default function VmList() {
               {col("res") && th("res", t("vmlist.col.res"))}
               {col("ip") && th("ip", t("vmlist.ip"))}
               {col("uptime") && th("uptime", t("vmlist.col.uptime"))}
-              <th scope="col">{t("vmlist.tags")}</th>
+              {anyTags && <th scope="col">{t("vmlist.tags")}</th>}
               <th scope="col"><span className="nx-sr">{t("actions")}</span></th>
             </tr></thead>
             {group ? groups.map((g) => {
