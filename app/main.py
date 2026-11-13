@@ -47,6 +47,7 @@ from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
 from app.routers.acl import router as acl_router
 from app.routers.admin_cli import router as admin_cli_router
+from app.routers.alert_rules import router as alert_rules_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
@@ -242,6 +243,7 @@ _API_ROUTERS = (
     ha_router,
     drs_router,
     notifications_router,
+    alert_rules_router,
     workstation_router,
     kubernetes_router,
     meta_router,

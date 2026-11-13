@@ -13,6 +13,7 @@ const NodesPage = onDemand(() => import("../pages/NodesPage"));
 const HaPage = onDemand(() => import("../pages/HaPage"));
 const DrsPage = onDemand(() => import("../pages/DrsPage"));
 const NotificationsPage = onDemand(() => import("../pages/NotificationsPage"));
+const AlertRulesPage = onDemand(() => import("../pages/AlertRulesPage"));
 const ContainersPage = onDemand(() => import("../pages/ContainersPage"));
 const KubernetesPage = onDemand(() => import("../pages/KubernetesPage"));
 const CompatibilityPage = onDemand(() => import("../pages/CompatibilityPage"));
@@ -55,29 +56,33 @@ const VmAdvancedPage = onDemand(() => import("../pages/VmAdvanced"));
 const VmGuestInfoPage = onDemand(() => import("../pages/VmGuest"), "VmGuestInfoPage");
 const VmRunCommandPage = onDemand(() => import("../pages/VmGuest"), "VmRunCommandPage");
 const MetricsPage = onDemand(() => import("../pages/MetricsPage"));
+const MetricsExplorer = onDemand(() => import("../pages/MetricsExplorer"));
 const ApiPage = onDemand(() => import("../pages/ApiPage"));
 const CfsPage = onDemand(() => import("../pages/CfsPage"));
 const SitesPage = onDemand(() => import("../pages/SitesPage"));
 const NodeUpdatesPage = onDemand(() => import("../pages/NodeHostSystem"), "NodeUpdatesPage");
 const VmPermissionsPage = onDemand(() => import("../pages/ObjectPermissions"), "VmPermissionsPage");
 const ContainerPermissionsPage = onDemand(() => import("../pages/ObjectPermissions"), "ContainerPermissionsPage");
+const AdvisorPage = onDemand(() => import("../pages/AdvisorPage"));
+const VmAdvisorPage = onDemand(() => import("../pages/AdvisorPage"), "VmAdvisorPage");
+const NodeAdvisorPage = onDemand(() => import("../pages/AdvisorPage"), "NodeAdvisorPage");
 
 // The datacenter pages that draw their own header (the others get one from the workspace). Kept here because a page
 // that is not loaded yet cannot say so itself; src/__tests__/ownHeader.test.js checks it against the pages.
-export const OWN_HEADER = new Set(["activity", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "vms"]);
+export const OWN_HEADER = new Set(["activity", "advisor", "alerts", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "explorer", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "vms"]);
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Home, services: ServicesPage, all: AllResourcesPage, create: CreatePage, perf: ClusterPerf, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, firewall: FirewallPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, api: ApiPage, cfs: CfsPage, sites: SitesPage,
+  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, explorer: MetricsExplorer, api: ApiPage, cfs: CfsPage, sites: SitesPage, advisor: AdvisorPage, alerts: AlertRulesPage,
 };
 export const NODE_TABS = {
-  summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage,
+  summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage, advisor: NodeAdvisorPage,
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, guest: VmGuestInfoPage, run: VmRunCommandPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, advisor: VmAdvisorPage, guest: VmGuestInfoPage, run: VmRunCommandPage,
 };
 export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, snapshots: ContainerSnapshotsPage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
@@ -100,6 +105,7 @@ export const OBJECT_TABS = {
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
     { id: "compat", label: "tab.compat", pages: [page("compat")] },
     { id: "shell", label: "tab.shell", pages: [page("shell")] },
+    { id: "advisor", label: "tab.advisor", pages: [page("advisor")] },
   ],
   // Same order as the reference console; Hardware keeps Options (resources and live limits) as its second page.
   vm: [
@@ -114,6 +120,7 @@ export const OBJECT_TABS = {
     { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
     { id: "guest", label: "tab.guest", pages: [page("guest")] },
     { id: "run", label: "tab.run", pages: [page("run")] },
+    { id: "advisor", label: "tab.advisor", pages: [page("advisor")] },
   ],
   container: [
     { id: "summary", label: "tab.summary", pages: [page("summary")] },

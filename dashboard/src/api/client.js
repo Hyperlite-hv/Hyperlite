@@ -1032,6 +1032,22 @@ export async function setNotificationChannelEnabled(id, enabled) {
 export async function deleteNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}`, { method: "DELETE" });
 }
+// Alert rules (app/core/alert_rules.py): a metric of a node or a VM over or under a threshold for a few minutes.
+export async function fetchAlertRules() {
+  return realList("/alert-rules");
+}
+export async function createAlertRule(rule) {
+  return realFetch("/alert-rules", { method: "POST", ...jsonBody(rule) });
+}
+export async function updateAlertRule(id, rule) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function setAlertRuleEnabled(id, enabled) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}/enabled`, { method: "PUT", ...jsonBody({ enabled }) });
+}
+export async function deleteAlertRule(id) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
 export async function testNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}/test`, { method: "POST" });
 }
