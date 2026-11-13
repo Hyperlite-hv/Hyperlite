@@ -212,6 +212,36 @@
 .hc-run-pre { margin: 0; padding: 0.8rem; max-height: 28rem; overflow: auto; border: 1px solid var(--color-border-card); border-radius: var(--radius-md); background: var(--color-bg-surface-raised); font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .hc-run-pre--err { border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border-card)); }
 @media (max-width: 700px) { .hc-run-opts { grid-template-columns: minmax(0, 1fr); } }
+/* Topology: the cluster above its nodes, each node a column of what runs and where it is stored. */
+.hc-topo-root { display: inline-flex; flex-direction: column; padding: 0.5333rem 1.0667rem; border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg); background: var(--color-bg-surface-raised); }
+.hc-topo-root small { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.hc-topo-nodes { list-style: none; margin: 0; padding: 1.0667rem 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 1.0667rem; position: relative; }
+.hc-topo-nodes::before { content: ""; position: absolute; top: 0; left: 1.6rem; width: 1px; height: 1.0667rem; background: var(--color-border-strong); }
+.hc-topo-node { border: 1px solid var(--color-border-card); border-top: 2px solid var(--color-border-strong); border-radius: var(--radius-lg); padding: 0.6667rem 0.8rem; display: grid; gap: 0.6667rem; align-content: start; min-width: 0; }
+.hc-topo-node[data-off] { border-top-color: var(--color-danger); background: var(--color-bg-surface-raised); }
+.hc-topo-head { display: flex; align-items: center; gap: 0.5333rem; padding: 0; border: 0; background: none; color: var(--color-text-primary); font: inherit; cursor: pointer; text-align: left; }
+.hc-topo-head b { margin-right: auto; }
+.hc-topo-head:hover b { text-decoration: underline; }
+.hc-topo-load { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.2667rem 0.6667rem; align-items: center; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.hc-topo-bar[data-tone="warning"] span { background: var(--color-warning); } .hc-topo-bar[data-tone="danger"] span { background: var(--color-danger); }
+.hc-topo-node h3 { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.2667rem; font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-secondary); }
+.hc-topo-node h3 span { color: var(--color-text-muted); font-weight: 400; }
+.hc-topo-node p { margin: 0; font-size: var(--font-size-xs); }
+.hc-topo-items { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.2667rem; }
+.hc-topo-items button { display: inline-flex; align-items: center; gap: 0.2667rem; max-width: 100%; padding: 0.1333rem 0.5333rem 0.1333rem 0.4rem; border: 1px solid var(--color-border-card); border-radius: var(--radius-sm); background: var(--color-bg-surface); color: var(--color-text-primary); font: inherit; font-size: var(--font-size-xs); cursor: pointer; }
+.hc-topo-items button:hover { background: var(--color-bg-hover); }
+.hc-topo-items button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-topo-items .nx-state { font-size: 0; gap: 0; }
+.hc-topo-pools { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.hc-topo-pools button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.1333rem 0.5333rem; width: 100%; padding: 0; border: 0; background: none; color: var(--color-text-primary); font: inherit; font-size: var(--font-size-xs); text-align: left; cursor: pointer; }
+.hc-topo-pools button small { color: var(--color-text-muted); }
+.hc-topo-pools .hc-topo-bar { grid-column: 1 / -1; }
+/* Several copies of a template: one line per name. */
+.hc-bulk { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2667rem; }
+.hc-bulk li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 0.5333rem; font-size: var(--font-size-sm); }
+.hc-bulk li small { color: var(--color-text-muted); overflow-wrap: anywhere; }
+.hc-bulk li[data-state="done"] svg { color: var(--color-success); }
+.hc-bulk li[data-state="bad"] svg, .hc-bulk li[data-state="failed"] svg, .hc-bulk li[data-state="failed"] small, .hc-bulk li[data-state="bad"] small { color: var(--color-danger); }
 .hc-kv { margin: 0; }
 .hc-kv > div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.8rem; padding: 0.2rem 0; line-height: 1.6rem; }
 .hc-kv dt { color: var(--color-text-secondary); }
