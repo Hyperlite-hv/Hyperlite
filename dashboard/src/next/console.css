@@ -361,6 +361,28 @@
   .hc-count { margin: 0.2667rem 0; }
 }
 
+
+/* ---------- coherence ---------- */
+/* Sort arrows only where they say something: the sorted column, or the one under the pointer or the keyboard. */
+.hc-sort { opacity: 0; transition: opacity var(--duration-fast); }
+th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hover .hc-sort, th:focus-within .hc-sort { opacity: 1; }
+/* One look for a failure: a message bar, a stripe of the danger colour, the text in the text face. */
+.nx-root.hc .nx-error { border: 0; border-left: 3px solid var(--color-danger); border-radius: var(--radius-sm); padding: 0.8rem 1.0667rem; max-width: 48rem; }
+.nx-root.hc .nx-error h2 { font-size: var(--font-size-md); font-weight: 600; }
+/* Home's shortcuts fill their row instead of leaving one alone on a second line. */
+.hc-navs { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+/* The catalogue shows whole descriptions, on two lines at most. */
+.hc-centry-go small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* Check boxes in the brand colour, in both themes. */
+:root[data-ui="next"] input[type="checkbox"] { accent-color: var(--color-accent); }
+/* The pages of a resource use the same titled sections as its overview, not framed cards. */
+.nx-root.hc .hc-rbody .nx-card2 { border: 0; border-radius: 0; background: transparent; }
+.nx-root.hc .hc-rbody .nx-card2-h { padding: 0 0 0.4rem; min-height: 0; border-bottom: 1px solid var(--color-border-card); margin-bottom: 0.4rem; }
+.nx-root.hc .hc-rbody .nx-card2-h h2 { font-size: 0.9333rem; }
+.nx-root.hc .hc-rbody .nx-card2-b { padding: 0.4rem 0 0; }
+.nx-root.hc .hc-rbody .nx-card2--flush > .nx-card2-b { padding: 0; }
+.nx-root.hc .hc-rbody .nx-card2 + .nx-card2, .nx-root.hc .hc-rbody .nx-cols2 { margin-top: 1.6rem; }
+
 /* ---------- narrow screens ---------- */
 @media (max-width: 1023px) {
   .nx-root.hc, .nx-root.hc[data-sidebar="collapsed"] { --sidebar-width: 0rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main" "dock"; }

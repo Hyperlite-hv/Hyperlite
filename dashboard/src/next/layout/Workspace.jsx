@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -7,7 +7,7 @@ import { useT, useLangStore } from "../i18n";
 import { findVm, isRemoteVm } from "../lib/vmId";
 import { EmptyState } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
-import { CONTAINER_TABS, DATACENTER_TABS, NODE_TABS, VM_TABS, locate } from "../legacy/tabs";
+import { CONTAINER_TABS, DATACENTER_TABS, NODE_TABS, OWN_HEADER, VM_TABS, locate } from "../legacy/tabs";
 import { selectionToPath, withTab } from "../lib/urls";
 import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
@@ -16,7 +16,7 @@ import { ChevronRight, Search, X } from "lucide-react";
 import { LIST_OF, RESOURCE_MENUS, resourcePageLabel, serviceLabel, useConsoleStore } from "../lib/services";
 import ServiceTile from "../components/ServiceTile";
 import { setDocumentTitle } from "../lib/environment";
-import { PageHeader, StatePill } from "../components/ui";
+import { Loading, PageHeader, StatePill } from "../components/ui";
 import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions";
 import { ContainerHeaderActions } from "../pages/ContainerPages";
 import { formatSizeMb } from "../lib/format";
@@ -63,10 +63,13 @@ function useUrlSync() {
     handled.current = key;
     const params = new URLSearchParams(search);
     const currentTab = params.get("tab") || "summary";
-    const wantedTab = pendingTab || (base === pathname ? currentTab : "summary");
+    // The same page whether its address spells "@" or "%40" (a remote VM's key, typed or pasted by hand): the tab of
+    // the address is kept instead of falling back to the summary.
+    const samePath = (x, y) => { try { return decodeURIComponent(x) === decodeURIComponent(y); } catch { return x === y; } };
+    const wantedTab = pendingTab || (samePath(base, pathname) ? currentTab : "summary");
     const target = withTab(base, wantedTab);
     if (pendingTab) clearPendingTab();
-    if (target !== `${pathname}${search}`) navigate(target);
+    if (!samePath(target, `${pathname}${search}`)) navigate(target);
     if (useInfraStore.getState().activeTab !== wantedTab) setActiveTab(wantedTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection.type, selection.id, pendingTab]);
@@ -194,7 +197,7 @@ export default function Workspace({ children }) {
     && !(tab === "backup" && vmNode?.member);
   const pageEl = localOnly
     ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.name || resource.node })} />
-    : Active ? <Active resource={resource} selection={selection} /> : null;
+    : Active ? <Suspense fallback={<Loading />}><Active resource={resource} selection={selection} /></Suspense> : null;
 
   return (
     <main className="nx-main" id="nx-main" tabIndex={-1}>
@@ -208,7 +211,7 @@ export default function Workspace({ children }) {
           <div className="nx-page" id="nx-panel">
             {ADMIN_ONLY.has(tab) && !caps.admin ? (<><PageHeader title={t(serviceLabel(tab))} /><PermissionNotice requires={t("top.role.admin")} /></>)
               : loading && tab !== "summary" ? null
-              : Active?.ownHeader ? pageEl
+              : OWN_HEADER.has(tab) ? pageEl
               : (<><PageHeader title={t(serviceLabel(tab))} />{pageEl}</>)}
           </div>
         ) : !isObj ? (
