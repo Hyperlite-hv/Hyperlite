@@ -26058,6 +26058,78 @@
     ]
    }
   },
+  "/api/v1/vms/{name}/screenshot": {
+   "get": {
+    "description": "The VM's display now, scaled to `width` pixels at most (64 to 1920), as PNG. 422 when it is not running.",
+    "operationId": "get_vm_screenshot_api_v1_vms__name__screenshot_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     },
+     {
+      "in": "query",
+      "name": "width",
+      "required": false,
+      "schema": {
+       "default": 480,
+       "title": "Width",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "image/png": {}
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Vm Screenshot",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
   "/api/v1/vms/{name}/serial-ticket": {
    "post": {
     "description": "node: as for the console ticket. A VM with no serial port gets one, effective at its next start.",

@@ -216,6 +216,47 @@ def agent_exec(args, ctx):
             raise DaemonError("refused", str(e)) from None
 
 
+class ScreenshotArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
+    max_width: int = Field(480, ge=64, le=1920)
+
+
+@operation("vm.screenshot", ScreenshotArgs, needs=on_vm("vm.console"))
+@_libvirt
+def screenshot(args, ctx):
+    """The VM's screen as a small PNG, base64 ({"png", "width", "height"}): libvirt's screenshot needs a connection
+    that may write. A stopped VM has no screen: "refused"."""
+    import base64
+
+    from app.core import libvirt_utils
+    from app.core import screenshot as shot
+
+    with libvirt_utils.node_conn(args.node) as conn:
+        domain = _domain(conn, args.vm)
+        if not domain.isActive():
+            raise DaemonError("refused", "The VM is not running")
+        stream = conn.newStream(0)
+        parts = []
+        try:
+            domain.screenshot(stream, 0, 0)
+
+            def keep(_stream, data, _opaque):
+                if sum(len(p) for p in parts) + len(data) > shot.MAX_SOURCE_BYTES:
+                    raise RuntimeError("screen too large")
+                parts.append(data)
+                return len(data)
+
+            stream.recvAll(keep, None)
+            stream.finish()
+        except Exception:
+            stream.abort()
+            raise
+        image = shot.thumbnail(b"".join(parts), args.max_width)
+    width, height = int.from_bytes(image[16:20], "big"), int.from_bytes(image[20:24], "big")
+    return {"png": base64.b64encode(image).decode(), "width": width, "height": height}
+
+
 # --- Part 2a: a VM's processors, memory, limits, CPU pinning and advanced hardware ---
 
 MAX_VCPU = 1024

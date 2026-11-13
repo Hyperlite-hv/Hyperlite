@@ -1219,6 +1219,14 @@ export function attachVMHostDevice(name, device, confirm = false) {
 export function detachVMHostDevice(name, device) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
 }
+// A running VM's screen as a small PNG (the console thumbnail): a Blob, or null when it has none to show.
+export async function fetchVmScreenshot(name, node = null, width = 480) {
+  const params = new URLSearchParams({ width: String(width) });
+  if (node && node !== "local") params.set("node", node);
+  const res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/screenshot?${params}`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) return null;
+  return res.blob();
+}
 // Inside a VM through its guest agent: what its OS says about itself, and a script run there (vm.exec).
 export async function fetchVmGuest(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";

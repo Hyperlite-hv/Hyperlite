@@ -212,6 +212,16 @@
 .hc-run-pre { margin: 0; padding: 0.8rem; max-height: 28rem; overflow: auto; border: 1px solid var(--color-border-card); border-radius: var(--radius-md); background: var(--color-bg-surface-raised); font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .hc-run-pre--err { border-color: color-mix(in oklab, var(--color-danger) 40%, var(--color-border-card)); }
 @media (max-width: 700px) { .hc-run-opts { grid-template-columns: minmax(0, 1fr); } }
+/* VM overview: the console thumbnail beside the essentials. */
+.hc-sum-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1.6rem; align-items: start; }
+.hc-sum-top:not(:has(.hc-thumb)) { grid-template-columns: minmax(0, 1fr); }
+.hc-thumb { margin: 0.2667rem 0 0; width: 16rem; }
+.hc-thumb button { position: relative; display: block; width: 100%; padding: 0; border: 1px solid var(--color-border-card); border-radius: var(--radius-md); background: #000; cursor: pointer; overflow: hidden; }
+.hc-thumb img { display: block; width: 100%; height: auto; }
+.hc-thumb-go { position: absolute; right: 0.4rem; bottom: 0.4rem; display: inline-flex; align-items: center; gap: 0.2667rem; padding: 0.1333rem 0.5333rem; border-radius: var(--radius-sm); background: rgba(0, 0, 0, 0.72); color: #fff; font-size: var(--font-size-xs); opacity: 0; transition: opacity var(--duration-fast); }
+.hc-thumb button:hover .hc-thumb-go, .hc-thumb button:focus-visible .hc-thumb-go { opacity: 1; }
+.hc-thumb figcaption { margin-top: 0.2667rem; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+@media (max-width: 900px) { .hc-sum-top { grid-template-columns: minmax(0, 1fr); } .hc-thumb { width: min(100%, 20rem); } }
 .hc-kv { margin: 0; }
 .hc-kv > div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.8rem; padding: 0.2rem 0; line-height: 1.6rem; }
 .hc-kv dt { color: var(--color-text-secondary); }
