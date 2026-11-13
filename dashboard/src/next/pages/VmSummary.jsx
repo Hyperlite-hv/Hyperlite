@@ -105,7 +105,7 @@ export default function VmSummary({ resource: vm }) {
           [t("prop.network"), net == null ? wait : firstNic ? `${firstNic.network || firstNic.type_source || "—"}${firstNic.vlan != null ? ` / VLAN ${firstNic.vlan}` : ""}` : na],
           [t("vm.tools"), vm.guest_agent ? t(`vm.tools.${vm.guest_agent}`) : <span className="nx-muted">{t("vm.toolsStopped")}</span>],
         ]}
-        footer={<div className="hc-kv"><div><dt>{t("vmlist.tags")}</dt><dd>{tags.length ? <TagChips tags={tags} /> : <span className="nx-muted">{t("prop.noTags")}</span>}</dd></div></div>}
+        footer={<dl className="hc-kv"><div><dt>{t("vmlist.tags")}</dt><dd>{tags.length ? <TagChips tags={tags} /> : <span className="nx-muted">{t("prop.noTags")}</span>}</dd></div></dl>}
       />
 
       <PageTabs label={vm.name} value={tab} onChange={setTab} tabs={[["props", t("prop.tab.props")], ["monitor", t("prop.tab.monitor")]]} />

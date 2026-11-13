@@ -1,0 +1,9 @@
+- Console fixes from an audit of the interface (#862):
+  - the Performance page has its header again (breadcrumb, title);
+  - a server that cannot be reached, or does not answer in time, is said in the language of the interface;
+  - the keyboard reaches the header (search, notifications, account) before the service menu; the notifications pane keeps the focus while it is open; the menu opened as a drawer on a narrow screen takes the focus and gives it back when it closes;
+  - the account and notifications buttons are named after what they show, the status pills meet the contrast minimum, and the tags of a machine are a proper description list;
+  - the browser tab is titled after the page or the resource shown;
+  - a resource that no longer exists gets a page with its header, a way back to its list and the search;
+  - Home on an empty cluster: counts agree with their number, "No storage pool yet" instead of "0 GB used of 0 GB", and an invitation to create the first virtual machine; the cluster state counts the problems instead of saying "Incident in progress" for any alert;
+  - addresses, sizes and identifiers use the text face; "Virtual machines" is spelled the same in the menu and the titles; fencing is translated.

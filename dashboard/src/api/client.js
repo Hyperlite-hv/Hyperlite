@@ -4,6 +4,10 @@
 import { apiPath } from "./prefix";
 
 import { normalizeDetail } from "../next/lib/errors";
+import { translate, useLangStore } from "../next/i18n";
+// Errors that never reached the API are written here, in the language of the interface (the API's own errors come
+// back already worded by the server).
+const uiText = (key, vars) => translate(useLangStore.getState().lang, key, vars);
 
 let taskIdCounter = 0;
 export function makeTaskId() {
@@ -62,9 +66,9 @@ async function realFetch(path, opts = {}) {
   try {
     res = await fetch(apiPath(path), { ...opts, headers, ...(controller ? { signal: controller.signal } : {}) });
   } catch (e) {
-    if (controller?.signal.aborted) throw new Error(`The server did not answer within ${READ_TIMEOUT_MS / 1000} s.`);
+    if (controller?.signal.aborted) throw new Error(uiText("err.timeout", { s: READ_TIMEOUT_MS / 1000 }));
     if (e?.name === "AbortError") throw e;
-    throw new Error("Cannot reach the server. Check your network connection and try again.");
+    throw new Error(uiText("err.network"));
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -690,7 +694,7 @@ async function downloadCsv(path, filters, fallbackName) {
   try {
     res = await fetch(apiPath(`${path}${qs ? `?${qs}` : ""}`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   } catch {
-    throw new Error("Cannot reach the server. Check your network connection and try again.");
+    throw new Error(uiText("err.network"));
   }
   if (!res.ok) {
     let detail = null;
@@ -1338,7 +1342,7 @@ export async function downloadSpiceFile(name, node = null) {
   try {
     res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/spice-ticket${nodeQuery(node)}`), { method: "POST", headers: token ? { Authorization: `Bearer ${token}` } : {} });
   } catch {
-    throw new Error("Cannot reach the server. Check your network connection and try again.");
+    throw new Error(uiText("err.network"));
   }
   if (!res.ok) {
     let detail = null;

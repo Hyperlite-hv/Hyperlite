@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -24,7 +24,7 @@ export function useApiDocsAccess(admin) {
 
 // The service menu on the left: create, home, every resource, the catalogue, then the services this person pinned.
 // Collapsed, it keeps the icons (each still named for assistive technology).
-export default function SideMenu({ collapsed, onToggleCollapse }) {
+export default function SideMenu({ collapsed, drawerOpen = false, onToggleCollapse }) {
   const t = useT();
   const { selection, tab, navigateTo } = useInfraStore(useShallow((s) => ({ selection: s.selection, tab: s.activeTab, navigateTo: s.navigateTo })));
   const caps = capabilities(useAuthStore((s) => s.role));
@@ -33,6 +33,18 @@ export default function SideMenu({ collapsed, onToggleCollapse }) {
   const allowed = new Set(allowedServices({ admin: caps.admin, apiDocs }).map((s) => s.id));
   const active = activeService(selection, tab);
   const go = (id) => { navigateTo("datacenter", null, id); window.dispatchEvent(new Event("nx:navigated")); };
+  // On a narrow screen the menu is a drawer: opening it takes the keyboard into it, closing it gives the focus back.
+  const navRef = useRef(null);
+  const opener = useRef(null);
+  useEffect(() => {
+    if (drawerOpen) {
+      opener.current = document.activeElement;
+      requestAnimationFrame(() => navRef.current?.querySelector("button")?.focus());
+    } else if (opener.current) {
+      if (document.body.contains(opener.current) && navRef.current?.contains(document.activeElement)) opener.current.focus();
+      opener.current = null;
+    }
+  }, [drawerOpen]);
 
   const item = (id) => {
     const label = t(serviceLabel(id));
@@ -46,7 +58,7 @@ export default function SideMenu({ collapsed, onToggleCollapse }) {
   };
 
   return (
-    <nav className="hc-side" aria-label={t("nav.main")}>
+    <nav ref={navRef} className="hc-side" aria-label={t("nav.main")}>
       <div className="hc-side-scroll">
         {caps.create && (
           <button type="button" className="hc-si hc-si--create" aria-current={active === "create" ? "page" : undefined} title={collapsed ? t("svc.create") : undefined} onClick={() => go("create")}>

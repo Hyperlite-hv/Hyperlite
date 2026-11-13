@@ -55,10 +55,10 @@
   --color-danger: #FF8076;
   --color-offline: #939BAE;
   --color-unknown: #939BAE;
-  --color-success-subtle: color-mix(in oklab, var(--color-success) 14%, var(--color-bg-surface));
-  --color-warning-subtle: color-mix(in oklab, var(--color-warning) 14%, var(--color-bg-surface));
-  --color-danger-subtle: color-mix(in oklab, var(--color-danger) 14%, var(--color-bg-surface));
-  --color-info-subtle: color-mix(in oklab, var(--color-info) 14%, var(--color-bg-surface));
+  --color-success-subtle: color-mix(in oklab, var(--color-success) 10%, var(--color-bg-surface));
+  --color-warning-subtle: color-mix(in oklab, var(--color-warning) 10%, var(--color-bg-surface));
+  --color-danger-subtle: color-mix(in oklab, var(--color-danger) 10%, var(--color-bg-surface));
+  --color-info-subtle: color-mix(in oklab, var(--color-info) 10%, var(--color-bg-surface));
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 16%, var(--color-bg-surface));
   /* Aliases used by a few components */
   --color-bg-raised: var(--color-bg-surface-raised);

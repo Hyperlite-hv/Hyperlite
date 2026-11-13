@@ -33,6 +33,7 @@
 .hc-acct-t b { display: block; font-size: 0.8rem; font-weight: 500; line-height: 1rem; }
 .hc-acct-t small { display: block; font-size: 0.6667rem; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; line-height: 0.8667rem; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hc-avatar { width: 1.8667rem; height: 1.8667rem; border-radius: 50%; background: #FFFFFF; color: #1B3CA8; display: grid; place-items: center; font-size: 0.7333rem; font-weight: 700; }
+.hc-avatar::before { content: attr(data-initials); }
 .hc-top .nx-menu { color: var(--color-text-primary); }
 
 /* ---------- service menu ---------- */
@@ -316,6 +317,9 @@
 .nx-root.hc .nx-page > .nx-card2--flush .nx-table thead th { border-top: 0; }
 .nx-root.hc .nx-page > .nx-card2--flush .nx-table thead th:first-child, .nx-root.hc .nx-page > .nx-card2--flush .nx-table tbody > tr > :first-child { padding-left: 0.8rem; }
 .nx-root.hc .hc-grid--list .nx-ra .nx-btn { height: 1.8667rem; padding: 0 0.5333rem; border-color: transparent; background: transparent; color: var(--color-accent); font-weight: 400; }
+/* Values read as text: addresses, sizes, paths and identifiers take the text face; code, terminals and the fields
+   where one types an address or a key keep the fixed-width one. */
+.nx-root.hc .nx-mono:not(pre):not(code):not(input):not(textarea):not(.nx-kbd) { font-family: var(--font-ui); letter-spacing: normal; }
 /* In the command bar, a disabled command stays readable as "unavailable". */
 .hc-cmd .nx-btn[aria-disabled="true"] { cursor: default; }
 
