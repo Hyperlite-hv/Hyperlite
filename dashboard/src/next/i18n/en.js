@@ -3113,7 +3113,7 @@ export default {
   "vmlist.col.res": "CPU · memory",
   "vmlist.col.uptime": "Uptime",
   "vmlist.views": "Saved views",
-  "vmlist.viewsNone": "Saved views…",
+  "vmlist.viewsNone": "No saved view",
   "vmlist.saveView": "Save the view",
   "vmlist.saveViewTitle": "Save this view",
   "vmlist.viewName": "Name",
@@ -4451,4 +4451,5 @@ export default {
   "home.emptyHelp": "Create the first one from an ISO image, a template or an OVA file.",
   "home.health.warning.one": "{n} point to watch",
   "home.health.danger.one": "{n} problem to deal with",
+  "vmlist.nodeInGroups": "Grouped by node: the node is named in each group's head.",
 };

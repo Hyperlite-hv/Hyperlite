@@ -3144,7 +3144,7 @@ export default {
   "vmlist.col.res": "CPU · mémoire",
   "vmlist.col.uptime": "Temps de fonctionnement",
   "vmlist.views": "Vues enregistrées",
-  "vmlist.viewsNone": "Vues enregistrées…",
+  "vmlist.viewsNone": "Aucune vue enregistrée",
   "vmlist.saveView": "Enregistrer la vue",
   "vmlist.saveViewTitle": "Enregistrer cette vue",
   "vmlist.viewName": "Nom",
@@ -4482,4 +4482,5 @@ export default {
   "home.emptyHelp": "Créez la première depuis une image ISO, un modèle ou un fichier OVA.",
   "home.health.warning.one": "{n} point à surveiller",
   "home.health.danger.one": "{n} problème à traiter",
+  "vmlist.nodeInGroups": "Regroupées par nœud : le nœud est nommé en tête de chaque groupe.",
 };

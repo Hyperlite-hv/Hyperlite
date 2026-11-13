@@ -1,0 +1,6 @@
+- Console on phones, with many machines and at large zoom (#862):
+  - on a phone the list of virtual machines opens as cards, the commands that wait for a selection only show once something is selected, the running-operations strip leaves room (the notifications keep them), Home's services scroll sideways, and every control is at least 24 px;
+  - long names are cut with "…" and shown whole on hover; grouped by node, the node is named once in each group's head instead of on every row; the column names stay in sight while a long list scrolls;
+  - in a short window (a laptop at 200 % zoom) the page header shrinks so the content shows;
+  - a read-only account sees only the commands it can use in a resource's bar; More still lists every action with why it is unavailable;
+  - the saved views list says "No saved view" when there is none.

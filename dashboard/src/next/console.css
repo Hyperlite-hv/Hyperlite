@@ -323,6 +323,44 @@
 /* In the command bar, a disabled command stays readable as "unavailable". */
 .hc-cmd .nx-btn[aria-disabled="true"] { cursor: default; }
 
+
+/* ---------- long names, many rows ---------- */
+/* A long name is cut with "…" (the full one is in its tooltip) instead of pushing the other columns off the screen. */
+.hc-grid--list .hc-namecell .nx-lnk, .hc-grid--list td .nx-lnk { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.hc-grid--list td.hc-cut { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.hc-grp .nx-lnk { max-width: 28rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+@media (min-width: 1024px) {
+  /* The column names stay in sight while a long list scrolls (the page is the scroller, not the table). */
+  .hc-gridwrap { overflow: visible; }
+  .hc-grid--list thead th { position: sticky; top: 0; z-index: 2; background: var(--color-bg-app); }
+}
+
+/* ---------- phones and small windows ---------- */
+@media (max-width: 1023px) {
+  /* Commands that wait for a selection come back once something is selected. */
+  .hc-cmd .nx-btn[aria-disabled="true"], .hc-cmd .hc-cmd-sep { display: none; }
+  /* The running operations are in the notifications: no strip at the bottom of a small screen. */
+  .nx-root.hc .nx-tray { display: none; }
+  /* Home: the services scroll sideways instead of filling the first screen. */
+  .hc-svcs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -1.0667rem; padding: 0 0.6667rem; }
+  .hc-svc { width: 6rem; flex: none; }
+}
+@media (max-width: 1023px), (pointer: coarse) {
+  /* Every control is at least 24 px in both directions. */
+  .nx-root.hc .nx-pick, .nx-root.hc input[type="checkbox"] { width: 1.6rem; height: 1.6rem; }
+  .nx-root.hc .hc-grid--list .nx-thbtn { min-height: 1.6rem; }
+  .nx-root.hc .hc-crumbs .nx-lnk, .nx-root.hc .hc-grid--list .nx-lnk, .nx-root.hc .hc-card .nx-lnk, .nx-root.hc .hc-prop .nx-lnk, .nx-root.hc .nx-tray .nx-lnk, .hc-ess-h > button { min-height: 1.6rem; display: inline-flex; align-items: center; }
+}
+/* A short window (a laptop at 200 % zoom, a phone held sideways): the page header shrinks so the content shows. */
+@media (max-height: 560px) {
+  .nx-root.hc { --topbar-height: 2.6667rem; }
+  .hc-crumbs, .hc-ph-sub, .hc-ph .hc-tile--box { display: none; }
+  .hc-ph-row { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+  .hc-ph h1 { font-size: 1.0667rem; line-height: 1.4667rem; }
+  .hc-fbar { margin: 0 0 0.2667rem; }
+  .hc-count { margin: 0.2667rem 0; }
+}
+
 /* ---------- narrow screens ---------- */
 @media (max-width: 1023px) {
   .nx-root.hc, .nx-root.hc[data-sidebar="collapsed"] { --sidebar-width: 0rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main" "dock"; }
