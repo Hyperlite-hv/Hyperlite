@@ -1228,6 +1228,19 @@ export async function fetchVmConfigVersion(name, id, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
   return realFetch(`/vms/${encodeURIComponent(name)}/config-history/${encodeURIComponent(id)}${q}`);
 }
+// A VM's schedules: started, shut down, stopped or snapshotted at set times of chosen weekdays (the node's time).
+export async function fetchVmSchedules(name) {
+  return realList(`/vms/${encodeURIComponent(name)}/schedules`);
+}
+export async function createVmSchedule(name, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules`, { method: "POST", ...jsonBody(schedule) });
+}
+export async function updateVmSchedule(name, id, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "PUT", ...jsonBody(schedule) });
+}
+export async function deleteVmSchedule(name, id) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
 // Inside a VM through its guest agent: what its OS says about itself, and a script run there (vm.exec).
 export async function fetchVmGuest(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";

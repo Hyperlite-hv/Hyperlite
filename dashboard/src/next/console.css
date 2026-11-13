@@ -230,6 +230,14 @@
 .hc-diff span[data-kind="hunk"] { color: var(--color-text-muted); }
 pre.hc-diff:not(:has(span)) { padding: 0.6667rem 0.8rem; }
 @media (max-width: 900px) { .hc-chg { grid-template-columns: minmax(0, 1fr); } .hc-chg-list { max-height: 14rem; } }
+/* VM ▸ Schedules. */
+.hc-sch-days { border: 0; margin: 0 0 0.8rem; padding: 0; }
+.hc-sch-days legend { padding: 0; margin-bottom: 0.4rem; font-size: var(--font-size-sm); }
+.hc-sch-days .nx-seg { flex-wrap: wrap; }
+.hc-sch-quick { display: flex; gap: 1.0667rem; margin-top: 0.4rem; font-size: var(--font-size-xs); }
+.hc-sch-last { display: inline-flex; align-items: center; gap: 0.4rem; }
+.hc-sch-last::before { content: ""; width: 0.5333rem; height: 0.5333rem; border-radius: 50%; background: var(--color-danger); flex: none; }
+.hc-sch-last[data-ok]::before { background: var(--color-success); }
 .hc-kv { margin: 0; }
 .hc-kv > div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.8rem; padding: 0.2rem 0; line-height: 1.6rem; }
 .hc-kv dt { color: var(--color-text-secondary); }

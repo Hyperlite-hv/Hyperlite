@@ -356,6 +356,9 @@ def _delete_vm(name, confirm, node, user):
             raise privileged.http_error(e) from None
 
         log_action(user["username"], "delete_vm", name, "success", _kept_sentence(keep) or None, task_id=task_id)
+        from app.core import vm_schedules
+
+        vm_schedules.forget_vm(name)  # a later VM of the same name starts without them
         # kept_disks: what stays on the storage's tasks say it.
         return {"message": f"VM '{name}' deleted", "kept_disks": keep}
     finally:

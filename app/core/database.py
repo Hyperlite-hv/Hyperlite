@@ -799,6 +799,25 @@ def _init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_vm_config_versions ON vm_config_versions(target, id)")
+        # VM schedules: a VM started, shut down, stopped or snapshotted at set times of chosen weekdays, run by the node
+        # that hosts the VM (app/core/vm_schedules.py). Replicated: a VM that migrates keeps its schedules.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_schedules (
+                id TEXT PRIMARY KEY,
+                vm_name TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('start', 'shutdown', 'stop', 'snapshot')),
+                days TEXT NOT NULL DEFAULT '[0,1,2,3,4,5,6]',
+                time TEXT NOT NULL,
+                keep INTEGER NOT NULL DEFAULT 7,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                next_run TEXT,
+                last_run TEXT,
+                last_result TEXT,
+                made TEXT NOT NULL DEFAULT '[]',
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         # Alert rules (#348): a metric of a node or a VM above or below a threshold for a few minutes, evaluated by the
         # leader (app/core/alert_rules.py). Replicated, their state too: every node shows which rules fire.
         conn.execute("""

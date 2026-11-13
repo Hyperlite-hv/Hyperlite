@@ -55,6 +55,7 @@ const VmCloudInitPage = onDemand(() => import("../pages/VmCloudInit"));
 const VmAdvancedPage = onDemand(() => import("../pages/VmAdvanced"));
 const VmGuestInfoPage = onDemand(() => import("../pages/VmGuest"), "VmGuestInfoPage");
 const VmConfigHistoryPage = onDemand(() => import("../pages/VmConfigHistory"));
+const VmSchedulesPage = onDemand(() => import("../pages/VmSchedules"));
 const VmRunCommandPage = onDemand(() => import("../pages/VmGuest"), "VmRunCommandPage");
 const MetricsPage = onDemand(() => import("../pages/MetricsPage"));
 const MetricsExplorer = onDemand(() => import("../pages/MetricsExplorer"));
@@ -83,7 +84,7 @@ export const NODE_TABS = {
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, advisor: VmAdvisorPage, guest: VmGuestInfoPage, run: VmRunCommandPage, history: VmConfigHistoryPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, advisor: VmAdvisorPage, guest: VmGuestInfoPage, run: VmRunCommandPage, schedules: VmSchedulesPage, history: VmConfigHistoryPage,
 };
 export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, snapshots: ContainerSnapshotsPage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
@@ -122,6 +123,7 @@ export const OBJECT_TABS = {
     { id: "guest", label: "tab.guest", pages: [page("guest")] },
     { id: "run", label: "tab.run", pages: [page("run")] },
     { id: "history", label: "tab.history", pages: [page("history")] },
+    { id: "schedules", label: "tab.schedules", pages: [page("schedules")] },
     { id: "advisor", label: "tab.advisor", pages: [page("advisor")] },
   ],
   container: [
