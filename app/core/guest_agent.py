@@ -202,3 +202,121 @@ def quiesced_snapshot(domain, snap_xml, flags):
         except libvirt.libvirtError:
             logger.warning("Quiesced snapshot of %s failed, taking it without freeze", domain.name(), exc_info=True)
     return domain.snapshotCreateXML(snap_xml, flags), False
+
+
+# --- Inside the guest: what its OS says about itself, and commands run there (#348) ---
+
+INFO_TIMEOUT_S = 3
+MAX_OUTPUT = 64 * 1024  # bytes kept of each of stdout and stderr
+EXEC_POLL_S = 0.25
+# Shells a command may run in: the guest's own, looked up by the agent on its PATH (Windows) or by path (Linux).
+SHELLS = {
+    "sh": ("/bin/sh", ["-c"]),
+    "bash": ("/bin/bash", ["-c"]),
+    "powershell": ("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command"]),
+    "cmd": ("cmd.exe", ["/c"]),
+}
+
+
+class AgentUnavailable(RuntimeError):
+    """The VM is stopped, has no agent, or its agent did not answer."""
+
+
+def _command(domain, execute, arguments=None, timeout=INFO_TIMEOUT_S):
+    payload = {"execute": execute}
+    if arguments is not None:
+        payload["arguments"] = arguments
+    try:
+        answer = libvirt_qemu.qemuAgentCommand(domain, json.dumps(payload), timeout, 0)
+    except libvirt.libvirtError as e:
+        raise AgentUnavailable(str(e)) from None
+    return json.loads(answer).get("return")
+
+
+def _optional(domain, execute):
+    """An answer an older agent may not give (it does not know the command): None rather than a failure."""
+    try:
+        return _command(domain, execute)
+    except (AgentUnavailable, ValueError):
+        return None
+
+
+def os_info(domain):
+    """What the guest says about itself: its OS, kernel, host name, time zone, users and file systems. Raises
+    AgentUnavailable when the agent cannot be asked at all."""
+    if not connected(domain):
+        raise AgentUnavailable("The guest agent is not running in this VM")
+    osinfo = _command(domain, "guest-get-osinfo") or {}
+    host = _optional(domain, "guest-get-host-name") or {}
+    tz = _optional(domain, "guest-get-timezone") or {}
+    users = _optional(domain, "guest-get-users") or []
+    fs = _optional(domain, "guest-get-fsinfo") or []
+    agent = _optional(domain, "guest-info") or {}
+    return {
+        "os": {
+            k: osinfo.get(k)
+            for k in ("id", "name", "pretty-name", "version", "version-id", "kernel-release", "machine")
+        },
+        "hostname": host.get("host-name"),
+        "timezone": tz.get("zone"),
+        "users": sorted({u.get("user") for u in users if u.get("user")}),
+        "filesystems": [
+            {
+                "mountpoint": f.get("mountpoint"),
+                "type": f.get("type"),
+                "used_bytes": f.get("used-bytes"),
+                "total_bytes": f.get("total-bytes"),
+            }
+            for f in fs
+            if f.get("mountpoint") and f.get("type") not in ("tmpfs", "devtmpfs", "squashfs", "overlay")
+        ][:32],
+        "agent_version": agent.get("version"),
+    }
+
+
+def _decode(data):
+    import base64
+
+    raw = base64.b64decode(data or "")
+    return raw[:MAX_OUTPUT].decode("utf-8", errors="replace"), len(raw) > MAX_OUTPUT
+
+
+def run(domain, shell, script, timeout_s):
+    """Runs `script` in the guest's `shell` through guest-exec and waits for it at most `timeout_s`. Returns
+    {exit_code, stdout, stderr, truncated, timed_out, duration_s}; a command still running at the deadline keeps
+    running in the guest (the agent cannot stop it) and is reported as timed out."""
+    if shell not in SHELLS:
+        raise ValueError(f"Unknown shell: {shell}")
+    if not connected(domain):
+        raise AgentUnavailable("The guest agent is not running in this VM")
+    path, args = SHELLS[shell]
+    started = time.monotonic()
+    pid = (_command(domain, "guest-exec", {"path": path, "arg": [*args, script], "capture-output": True}) or {}).get(
+        "pid"
+    )
+    if pid is None:
+        raise AgentUnavailable("The guest agent did not start the command")
+    while True:
+        status = _command(domain, "guest-exec-status", {"pid": pid}) or {}
+        elapsed = time.monotonic() - started
+        if status.get("exited"):
+            out, out_cut = _decode(status.get("out-data"))
+            err, err_cut = _decode(status.get("err-data"))
+            return {
+                "exit_code": status.get("exitcode", status.get("signal")),
+                "stdout": out,
+                "stderr": err,
+                "truncated": out_cut or err_cut or bool(status.get("out-truncated") or status.get("err-truncated")),
+                "timed_out": False,
+                "duration_s": round(elapsed, 2),
+            }
+        if elapsed >= timeout_s:
+            return {
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "",
+                "truncated": False,
+                "timed_out": True,
+                "duration_s": round(elapsed, 2),
+            }
+        time.sleep(EXEC_POLL_S)
