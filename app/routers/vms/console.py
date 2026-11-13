@@ -261,7 +261,7 @@ async def vm_terminal(websocket: WebSocket, name: str):
 
 # --- Serial console (xterm.js + `virsh console`) ---
 # What the guest prints on its first serial port, and the login prompt its system offers there: the way in when the
-# guest's network or display is broken, as Proxmox VE's xterm.js console. It reaches the same login prompt as the
+# guest's network or display is broken. It reaches the same login prompt as the
 # graphical console, so it takes the same privilege, not the administrator role the SSH terminal needs.
 
 SERIAL_TICKETS = {}

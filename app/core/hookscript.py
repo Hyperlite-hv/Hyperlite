@@ -1,4 +1,4 @@
-"""Hook scripts on a VM's lifecycle (docs/design/hook-scripts.md), as Proxmox VE's `hookscript`.
+"""Hook scripts on a VM's lifecycle (docs/design/hook-scripts.md)`hookscript`.
 
 A script from the node's library (paths.SNIPPETS, filled by root only: the dashboard picks one, never uploads one) is
 attached to a VM in its own metadata (METADATA_NS), so it follows the VM in a migration and a clone. It runs
@@ -447,7 +447,7 @@ def _hook(vm, phase, xml):
         script = script_of_domain_xml(ET.fromstring(xml))
     except ET.ParseError:
         script = None
-    # libvirt also releases a VM whose start the pre-start refused: that VM gets no post-stop, as in Proxmox VE.
+    # libvirt also releases a VM whose start the pre-start refused: that VM gets no post-stop.
     refused = _vm_file(vm, ".refused")
     if phase == "post-stop" and refused.exists():
         refused.unlink(missing_ok=True)

@@ -155,7 +155,7 @@ export default function Workspace({ children }) {
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const caps = capabilities(useAuthStore((s) => s.role));
   const failing = useFreshness((s) => s.failing);
-  // A cluster node that lost the quorum changes nothing (as on Proxmox), nor does a cluster updated to 1.0 while a
+  // A cluster node that lost the quorum changes nothing, nor does a cluster updated to 1.0 while a
   // member still runs an earlier version: said above every page while it lasts, with its real cause.
   const localNode = nodes.find((n) => n.id === "local");
   const readOnly = Boolean(localNode?.read_only);

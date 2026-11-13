@@ -1,0 +1,410 @@
+{
+  "about": "Hyperlite's features, one row each, and the issue that tracks every gap. docs/roadmap.html shows it, with the live state of each issue (a closed issue shows as done). Update a row, and checked, in the PR that changes it: tests/test_roadmap.py refuses a release that cites a tracked issue the file was not reviewed for. status: ahead (extended), parity (available), partial, missing (planned).",
+  "checked": "2026-11-01",
+  "categories": [
+    {
+      "id": "cluster",
+      "fr": "Cluster et haute disponibilité",
+      "en": "Cluster and high availability",
+      "rows": [
+        {
+          "fr": "Configuration répliquée et quorum",
+          "en": "Replicated configuration and quorum",
+          "status": "parity",
+          "hl": "hyperlite-cfs on Corosync, read-only without quorum, primary node for two-node clusters"
+        },
+        {
+          "fr": "Gérer depuis n'importe quel nœud",
+          "en": "Manage from any node",
+          "status": "parity",
+          "hl": "Any node serves the dashboard and API v1, same accounts and sessions, and acts on any member's VMs, templates, networks, storage and ISO images (?node=, done by that member); a node that is down never holds a list or a call"
+        },
+        {
+          "fr": "Statut des invités diffusé",
+          "en": "Guest status broadcast",
+          "status": "parity",
+          "hl": "Every node sends its VMs' summary every 10 s and at once after a change"
+        },
+        {
+          "fr": "Configuration répliquée, seule source de vérité",
+          "en": "Replicated configuration as the only source of truth",
+          "status": "parity",
+          "issue": 416,
+          "hl": "The cluster's configuration in hyperlite-cfs, applied by every node in one order, read-only without quorum; tasks, audit log, backups and their CSV exports of every node from any node; no controller (hosts driven over SSH: deprecated, gone with API v2)"
+        },
+        {
+          "fr": "HA automatique (redémarrage ailleurs)",
+          "en": "Automatic HA (restart elsewhere)",
+          "status": "parity",
+          "issue": 333,
+          "hl": "The leader restarts a lost member's HA VMs once it is fenced, by priority and where they fit, with admission control and VM monitoring (restarted 80 s after its node was cut, in the lab)"
+        },
+        {
+          "fr": "Fencing",
+          "en": "Fencing",
+          "status": "parity",
+          "issue": 333,
+          "hl": "Watchdog self-fencing of a node cut off, and a BMC power-off (IPMI, Redfish) confirmed before a restart; AMT power control still read-only"
+        },
+        {
+          "fr": "Verrous des disques sur le stockage partagé",
+          "en": "Disk locks on the shared storage",
+          "status": "parity",
+          "issue": 333,
+          "hl": "QEMU's image locks refuse a disk another node runs (checked on NFS 4.2, released 94 s after the node died); HA refused on a share whose locks stay on one node (NFS nolock or local_lock, SMB nobrl)"
+        },
+        {
+          "fr": "Priorité de redémarrage HA",
+          "en": "HA restart priority",
+          "status": "parity",
+          "issue": 333,
+          "hl": "High, medium, low per VM, with preferred nodes"
+        },
+        {
+          "fr": "Contrôle d'admission HA",
+          "en": "HA admission control",
+          "status": "parity",
+          "issue": 333,
+          "hl": "The loss of any one member must leave room for its HA VMs on the others: warn (default), strict or off"
+        },
+        {
+          "fr": "Surveillance des VM (invité figé)",
+          "en": "VM monitoring (hung guest)",
+          "status": "parity",
+          "issue": 333,
+          "hl": "A guest that stops answering the QEMU guest agent, with no disk or network I/O, is reset in place by its node (at most three times an hour)"
+        },
+        {
+          "fr": "Répartition de charge (DRS)",
+          "en": "Load balancing (DRS)",
+          "status": "ahead",
+          "issue": 334,
+          "hl": "For the VMs on shared storage: off, manual or automatic, threshold 1 to 5, VMs together, apart, on or never on members (must or should, binding HA), per-VM exceptions, a drain that spreads the VMs, \"Auto\" placement of a new VM; moved in the lab 24 s after two VMs loaded their node"
+        },
+        {
+          "fr": "Mode maintenance",
+          "en": "Maintenance mode",
+          "status": "parity",
+          "hl": "Drain by live migration, the VMs that stay listed with their reason"
+        },
+        {
+          "fr": "Mise à jour d'un cluster",
+          "en": "Cluster update",
+          "status": "ahead",
+          "hl": "Rolling update: plan, maintenance, migration, update, reboot, one node after the other"
+        },
+        {
+          "fr": "Deux sites",
+          "en": "Two sites",
+          "status": "ahead",
+          "hl": "Incremental replication to the other site every few minutes, guided recovery"
+        },
+        {
+          "fr": "Plusieurs clusters et sites depuis une seule vue",
+          "en": "Several clusters and sites from one view",
+          "status": "parity",
+          "issue": 656,
+          "hl": "Every cluster views the others (Sites page): their state, nodes and problems, a search through all their VMs, power actions and moves between a remote's nodes with a manage token; VMs moved between clusters offline or live (as qm remote-migrate --online, the target's libvirt behind a filtering relay), over pinned HTTPS, served by any node"
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "fr": "Stockage",
+      "en": "Storage",
+      "rows": [
+        {
+          "fr": "Répertoire, NFS, iSCSI",
+          "en": "Directory, NFS, iSCSI",
+          "status": "parity",
+          "hl": "Yes, shared pools created on every node"
+        },
+        {
+          "fr": "LVM et LVM-thin",
+          "en": "LVM and LVM-thin",
+          "status": "parity",
+          "issue": 417,
+          "hl": "LVM pools on an existing volume group or an empty disk, thick or thin (a thin pool adopted or created); VM disks grown and deleted with the VM; LVM-thin snapshots and rollback, disk only; backups and live migration refuse block disks, as for ZFS and iSCSI"
+        },
+        {
+          "fr": "ZFS sur de vrais disques",
+          "en": "ZFS on real disks",
+          "status": "partial",
+          "issue": 419,
+          "hl": "Pools on the node's free disks from the dashboard: single, mirror, RAIDZ1/2/3, health of every disk, scrub, a disk attached (mirror, RAIDZ expansion), room added, a failed disk replaced, a degraded pool notified; not yet moved or replicated between nodes"
+        },
+        {
+          "fr": "SMB/CIFS",
+          "en": "SMB/CIFS",
+          "status": "parity",
+          "issue": 418,
+          "hl": "Yes, shared like NFS (migration, HA, every node); credentials root-only on each node, SMB version negotiated or fixed"
+        },
+        {
+          "fr": "Ceph",
+          "en": "Ceph",
+          "status": "missing",
+          "issue": 338,
+          "hl": "None"
+        },
+        {
+          "fr": "Clones liés",
+          "en": "Linked clones",
+          "status": "parity",
+          "issue": 423,
+          "hl": "From templates whose disk is qcow2, on the template's node; the template cannot be deleted or renamed while clones read it"
+        },
+        {
+          "fr": "Déplacer ou agrandir un disque à chaud",
+          "en": "Move or grow a disk live",
+          "status": "parity",
+          "hl": "Yes (block copy and pivot)"
+        }
+      ]
+    },
+    {
+      "id": "network",
+      "fr": "Réseau",
+      "en": "Network",
+      "rows": [
+        {
+          "fr": "Réseaux NAT, isolés, bridge, DHCP",
+          "en": "NAT, isolated, bridged networks, DHCP",
+          "status": "parity",
+          "hl": "libvirt networks, DHCP ranges and reservations"
+        },
+        {
+          "fr": "VLAN sur bridges Linux",
+          "en": "VLAN-aware Linux bridges",
+          "status": "parity",
+          "issue": 345,
+          "hl": "VLAN-aware Linux bridges made from the dashboard (with a 60 s rollback, set again at boot); VLAN tag and trunks per VM, set on the bridge port at start, migration and change"
+        },
+        {
+          "fr": "Interfaces de l'hôte (bridges, bonds)",
+          "en": "Host interfaces (bridges, bonds)",
+          "status": "parity",
+          "issue": 512,
+          "hl": "Bridges, bonds and VLAN interfaces created, edited and deleted from each node's Network page, in a file of their own; the change is shown as a diff, applied interface by interface and rolled back by a timer unless confirmed from the browser"
+        },
+        {
+          "fr": "Pare-feu du cluster et de l'hôte",
+          "en": "Cluster and host firewall",
+          "status": "parity",
+          "issue": 422,
+          "hl": "Per VM (nwfilter) and per network; the nodes' own input rules at the cluster and node levels (nftables), applied with a rollback unless confirmed and followed by every member; security groups and IP sets used by the nodes' rules and referenced by VMs (nwfilter) and networks"
+        },
+        {
+          "fr": "SDN (VXLAN, EVPN, IPAM)",
+          "en": "SDN (VXLAN, EVPN, IPAM)",
+          "status": "missing",
+          "issue": 421,
+          "hl": "None"
+        }
+      ]
+    },
+    {
+      "id": "guests",
+      "fr": "Machines virtuelles et conteneurs",
+      "en": "Virtual machines and containers",
+      "rows": [
+        {
+          "fr": "Cycle de vie, snapshots, modèles",
+          "en": "Lifecycle, snapshots, templates",
+          "status": "parity",
+          "hl": "Yes, native ZFS snapshots on ZFS pools; a template made as a copy (the VM kept) or by conversion"
+        },
+        {
+          "fr": "Cloud-init",
+          "en": "Cloud-init",
+          "status": "parity",
+          "hl": "The same, editable after creation, ready Debian image"
+        },
+        {
+          "fr": "UEFI, Secure Boot, TPM 2.0",
+          "en": "UEFI, Secure Boot, TPM 2.0",
+          "status": "parity",
+          "hl": "Yes, Windows 11 / Server 2025 profile"
+        },
+        {
+          "fr": "Passthrough PCI et USB",
+          "en": "PCI and USB passthrough",
+          "status": "parity",
+          "hl": "Yes, host-needed devices excluded; per node"
+        },
+        {
+          "fr": "vGPU et périphériques médiés",
+          "en": "vGPU and mediated devices",
+          "status": "missing",
+          "issue": 514,
+          "hl": "None"
+        },
+        {
+          "fr": "Consoles",
+          "en": "Consoles",
+          "status": "parity",
+          "issue": 518,
+          "hl": "noVNC, serial console, terminals, and SPICE in virt-viewer through a proxy (TLS, a ticket valid 30 s); no SPICE audio or USB redirection yet"
+        },
+        {
+          "fr": "Console série dans le navigateur",
+          "en": "Serial console in the browser",
+          "status": "parity",
+          "issue": 425,
+          "hl": "xterm.js on the VM's serial port, any node of the cluster; a VM without one gets it for its next start"
+        },
+        {
+          "fr": "Import depuis VMware ESXi",
+          "en": "Import from VMware ESXi",
+          "status": "partial",
+          "issue": 426,
+          "hl": "OVA/OVF exported from VMware imported from the dashboard (settings mapped, disks checked against the manifest); disk import (vmdk and others); no live ESXi connection yet"
+        },
+        {
+          "fr": "Hookscripts",
+          "en": "Hook scripts",
+          "status": "parity",
+          "issue": 515,
+          "hl": "Per VM: pre-start, post-start, pre-stop and post-stop, a script placed by root on the node and attached by an administrator; a failing pre-start or pre-stop refuses the action; output in the task log"
+        },
+        {
+          "fr": "Identifiants numériques (VMID)",
+          "en": "Numeric identifiers (VMID)",
+          "status": "parity",
+          "issue": 517,
+          "hl": "A VMID from 100 for every VM and container, unique in the cluster (hyperlite-cfs counter), kept in the guest's definition with its UUID, accepted by the API wherever a name is, shown in the dashboard; names stay identifiers"
+        },
+        {
+          "fr": "Conteneurs LXC",
+          "en": "LXC containers",
+          "status": "parity",
+          "issue": 424,
+          "hl": "Yes, with snapshots of the stopped container (a copy of its directory, each one keeping only what changed)"
+        },
+        {
+          "fr": "Images OCI / Docker",
+          "en": "OCI / Docker images",
+          "status": "ahead",
+          "hl": "Any OCI image, no Docker daemon"
+        },
+        {
+          "fr": "Kubernetes",
+          "en": "Kubernetes",
+          "status": "ahead",
+          "hl": "k3s clusters on VMs, offline, encrypted kubeconfig"
+        }
+      ]
+    },
+    {
+      "id": "backups",
+      "fr": "Sauvegardes",
+      "en": "Backups",
+      "rows": [
+        {
+          "fr": "Planification, rétention, vérification",
+          "en": "Schedules, retention, verification",
+          "status": "parity",
+          "hl": "Per VM, tag or pool; GFS retention; weekly verification"
+        },
+        {
+          "fr": "Restauration de fichiers",
+          "en": "File restore",
+          "status": "ahead",
+          "hl": "Built in, no backup server"
+        },
+        {
+          "fr": "Sauvegardes incrémentales",
+          "en": "Incremental backups",
+          "status": "parity",
+          "issue": 337,
+          "hl": "Every disk type (qcow2, raw, ZFS, LVM, iSCSI) into a backup store; a running VM's qcow2 disks read only where the guest wrote since the last backup (dirty bitmaps); every backup a complete image, never a chain"
+        },
+        {
+          "fr": "Déduplication et chiffrement",
+          "en": "Deduplication and encryption",
+          "status": "parity",
+          "issue": 420,
+          "hl": "A chunk store as PBS's: 4 MiB chunks held once across every VM, optional client-side AES-256-GCM with a master recovery key, verification, garbage collection, off-site copies pulled by the other site (another store or another cluster, a read-only account, no key there) with their own retention"
+        },
+        {
+          "fr": "Restauration à chaud",
+          "en": "Live restore",
+          "status": "parity",
+          "issue": 513,
+          "hl": "A backup restored as a new VM that starts at once, its disks copied while it runs (block pull): from a backup kept as files, or from a backup store (encrypted or not) served to QEMU by the node as a read-only NBD export"
+        }
+      ]
+    },
+    {
+      "id": "operations",
+      "fr": "Sécurité et exploitation",
+      "en": "Security and operations",
+      "rows": [
+        {
+          "fr": "Séparation des privilèges",
+          "en": "Privilege separation",
+          "status": "parity",
+          "issue": 511,
+          "hl": "The API runs as www-data and reads libvirt through its read-only socket; hyperlite-daemon (root, local socket) does root's work after checking each call's proof and rights, opens the sessions and signs them with keys only root reads; the calls between nodes are signed with each node's own key"
+        },
+        {
+          "fr": "Emplacement des fichiers",
+          "en": "File layout",
+          "status": "parity",
+          "issue": 525,
+          "hl": "The same layout from 1.1 (/var/lib/hyperlite, /usr/lib/hyperlite); from 1.14 /etc/hyperlite is the replicated cluster configuration as read-only files (FUSE): priv/ root's, nodes/<host>/ with each node's certificate and keys, local pointing at this node's, .members, .version, .quorum"
+        },
+        {
+          "fr": "Authentification et droits",
+          "en": "Authentication and permissions",
+          "status": "parity",
+          "hl": "The same"
+        },
+        {
+          "fr": "Certificats ACME",
+          "en": "ACME certificates",
+          "status": "parity",
+          "hl": "Yes"
+        },
+        {
+          "fr": "Métriques et notifications",
+          "en": "Metrics and notifications",
+          "status": "parity",
+          "hl": "Prometheus, InfluxDB, Graphite; webhook, SMTP"
+        },
+        {
+          "fr": "API versionnée",
+          "en": "Versioned API",
+          "status": "parity",
+          "hl": "API v1, its contract checked in CI"
+        },
+        {
+          "fr": "Infrastructure as code (Terraform / OpenTofu)",
+          "en": "Infrastructure as code (Terraform / OpenTofu)",
+          "status": "ahead",
+          "issue": 330,
+          "hl": "Official provider, published on the Terraform and OpenTofu registries and tested on a real Hyperlite (VMs, templates, networks, storage, ISO images, snapshots, backups, HA, rights); every member's objects through one node (node)"
+        },
+        {
+          "fr": "CLI d'administration",
+          "en": "Administration CLI",
+          "status": "parity",
+          "issue": 516,
+          "hl": "hyperlite-admin: any route of API v1 and short commands for VMs, containers, storage, networks, backups, tasks and the cluster; root of a node signed in as root@<node>, with no token"
+        },
+        {
+          "fr": "Mises à jour",
+          "en": "Updates",
+          "status": "ahead",
+          "hl": "Release notes, channels, offline signed file, nightly security updates; a failed update rolls back by itself, by reinstalling the previous package"
+        },
+        {
+          "fr": "Accès depuis le poste",
+          "en": "Workstation access",
+          "status": "ahead",
+          "hl": "SSH and remote desktop through an HTTPS tunnel, SSO and 2FA"
+        }
+      ]
+    }
+  ]
+}

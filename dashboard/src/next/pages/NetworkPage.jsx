@@ -37,7 +37,7 @@ function FirewallSection({ name, isAdmin }) {
 // settle, well inside the host's own 60 s before it undoes the change.
 const CONFIRM_AFTER_MS = 3000;
 
-// A bridge network on a Linux bridge: make the bridge VLAN-aware (as Proxmox VE's "VLAN aware"), or stop it. The change
+// A bridge network on a Linux bridge: make the bridge VLAN-aware, or stop it. The change
 // is confirmed from a new request: if the dashboard can no longer reach the host, the host undoes it by itself.
 function VlanAwareSection({ net, isAdmin, onChange }) {
   const t = useT();

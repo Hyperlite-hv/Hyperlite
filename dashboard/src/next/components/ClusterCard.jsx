@@ -19,7 +19,7 @@ export function clusterOf(information) {
   }
 }
 
-// Create a cluster, let another node in, join one, remove a member: all nodes are equal, as on Proxmox
+// Create a cluster, let another node in, join one, remove a member: all nodes are equal
 // (app/core/cluster_setup.py). Shown on Administration › Replicated configuration.
 export default function ClusterCard() {
   const t = useT();

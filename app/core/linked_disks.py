@@ -1,4 +1,4 @@
-"""Linked clones: a VM's disk that only stores its own changes over a template's disk, as Proxmox VE's linked clones.
+"""Linked clones: a VM's disk that only stores its own changes over a template's disk.
 
 A linked disk is a qcow2 image whose backing file is the template's disk: it is created in an instant and stays
 small, and QEMU reads through it to the template for every block the VM has not written. The template's disk is then

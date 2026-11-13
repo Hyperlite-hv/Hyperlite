@@ -9,7 +9,7 @@ Status: **design, for review**. No code before Antho's approval. It details sect
 After the quick fixes (#476, #477), a member's VM list comes from that member in one HTTPS call. That still grows with
 the cluster: the dashboard asks every node in turn (6 at a time in a browser), so 100 nodes are 17 rounds of a call,
 and every node reads its own VMs again whenever its 2-second cache has expired (the remaining p95 of 200-280 ms on the
-lab, CPU saturated under 20 users). Proxmox does not ask: `pvestatd` on every node "queries the status of VMs,
+lab, CPU saturated under 20 users). The reference platform does not ask: the reference status daemon on every node "queries the status of VMs,
 storages and containers at regular intervals. The result is sent to all nodes in the cluster", and every page is
 answered from that.
 

@@ -19,20 +19,19 @@ FastAPI service (uvicorn, runs as root)         SQLite (WAL) hyperlite.db
 There is no agent on the managed nodes: remote hosts are driven through libvirt over SSH.
 
 **hyperlite-daemon** (`app/daemon/`, `hyperlite-daemon.service`) runs next to the API, as root, behind a local socket
-(`/run/hyperlite/daemon.sock`), the way Proxmox VE splits pveproxy and pvedaemon: it signs the sessions and does a fixed
+(`/run/hyperlite/daemon.sock`): it signs the sessions and does a fixed
 list of root operations, each with checked arguments (no "run this command"). The API asks for one by name through
 `app/core/privileged.py`; the domains move to it one by one, after which the API runs without root
 ([design](design/privilege-separation.md), section 13 for the rules a domain follows).
 
-**hyperlite-scheduler** (`app/scheduler/`, `hyperlite-scheduler.service`) runs the work no person asks for, as Proxmox
-VE's pvescheduler: the scheduled backups (and the backup groups, the stores' copies and garbage collections), the
+**hyperlite-scheduler** (`app/scheduler/`, `hyperlite-scheduler.service`) runs the work no person asks for: the scheduled backups (and the backup groups, the stores' copies and garbage collections), the
 replication, the inactive VMs' automatic deletion, the update check and the start at boot. It is started and restarted
 with the API (`PartOf=`), so both run the same version, and keeps running if the API crashes. Its tasks record it as
 their runner, and the claims on VMs are shared files, so the dashboard lists and cancels its tasks as the API's own.
 A checkout and the test suite run these schedulers in the API (`HYPERLITE_SCHEDULER_SERVICE` unset). Its writes to the replicated configuration
 go out through the API's copy loop (`app/repositories/cfs/shadow.py`): while the API is down, they wait in the outbox.
 
-**hyperlite-ha-lrm** and **hyperlite-ha-crm** (`app/ha_services/`) run HA as Proxmox VE's pve-ha-lrm and pve-ha-crm.
+**hyperlite-ha-lrm** and **hyperlite-ha-crm** (`app/ha_services/`) run HA.
 The LRM, on every node, feeds the watchdog, watches its own HA VMs, sends the node's heartbeat and carries out the
 load-balancing moves asked of it; the CRM, active on the leader, recovers a lost member's HA VMs and evaluates load
 balancing, and publishes what the API's pages show (`app/core/service_state.py`). A hang of the CRM never stops the
@@ -60,7 +59,7 @@ Hyperlite keeps very little state of its own: libvirt is the source of truth for
 
 ## Security model
 
-- Authentication: local accounts (bcrypt), optional TOTP, API tokens (`hlt_` prefix, SHA-256 hash stored), optional OIDC single sign-on. hyperlite-daemon checks the proof and signs the session, an Ed25519 ticket as Proxmox VE's (`app/core/tickets.py`); the API only verifies it.
+- Authentication: local accounts (bcrypt), optional TOTP, API tokens (`hlt_` prefix, SHA-256 hash stored), optional OIDC single sign-on. hyperlite-daemon checks the proof and signs the session, an Ed25519 ticket (`app/core/tickets.py`); the API only verifies it.
 - Authorization: a global role (`admin` or `viewer`) plus scoped rights (roles, groups, pools, per-VM and per-container ACL) evaluated in `app/core/permissions.py`. Endpoints declare the privilege they require.
 - Consoles and terminals use short-lived single-use tickets.
 - Secrets in the database (SMTP password, OIDC client secret) are encrypted with a Fernet key from the node's env file (`/etc/hyperlite/local/priv/env`, `/etc/hyperlite/priv/env` up to 1.13).
@@ -69,4 +68,4 @@ Hyperlite keeps very little state of its own: libvirt is the source of truth for
 
 ## Deployment layout
 
-The package installs the application in `/usr/lib/hyperlite` and a systemd unit (`hyperlite.service`) serving HTTPS on port 8000 with a self-signed certificate created on first start (`scripts/ensure-tls-cert.sh`). The data lives under `/var/lib/hyperlite` (database, ISOs, templates, backups, exports) and the node's secrets under `/etc/hyperlite` (keys, SSH keys, TLS), as Proxmox VE keeps its own: see [configuration.md](configuration.md#files).
+The package installs the application in `/usr/lib/hyperlite` and a systemd unit (`hyperlite.service`) serving HTTPS on port 8000 with a self-signed certificate created on first start (`scripts/ensure-tls-cert.sh`). The data lives under `/var/lib/hyperlite` (database, ISOs, templates, backups, exports) and the node's secrets under `/etc/hyperlite` (keys, SSH keys, TLS): see [configuration.md](configuration.md#files).

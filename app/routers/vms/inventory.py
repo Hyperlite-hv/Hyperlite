@@ -32,7 +32,7 @@ def _cluster_vms(username):
     from app.core import node_health, peer_auth, self_node, statd
 
     table = statd.table()
-    # This node's own VMs from its status too, as Proxmox does (Antho, 2026-10-18): a change made through Hyperlite
+    # This node's own VMs from its status too (Antho, 2026-10-18): a change made through Hyperlite
     # is sent again within a second (statd.changed), one made outside it within statd.PERIOD_S. Read live when there
     # is no current status (outside a cluster, hyperlite-cfs not answering).
     own = table.get(self_node.name())

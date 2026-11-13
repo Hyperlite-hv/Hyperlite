@@ -28,32 +28,32 @@ def host(tmp_path, monkeypatch):
 
 def test_a_full_name_sets_the_host_name_and_the_hosts_line(host):
     host_system, hosts, calls = host
-    assert host_system.set_hostname("PVE1.lan", current="hyperlite.home") == {
-        "name": "pve1.lan",
+    assert host_system.set_hostname("NODE1.lan", current="hyperlite.home") == {
+        "name": "node1.lan",
         "old": "hyperlite.home",
     }
-    assert calls == [["sethostname", "pve1"]]
-    assert (hosts.parent / "hostname").read_text() == "pve1\n"
+    assert calls == [["sethostname", "node1"]]
+    assert (hosts.parent / "hostname").read_text() == "node1\n"
     text = hosts.read_text()
-    assert "127.0.1.1\tpve1.lan\tpve1\n" in text and "hyperlite" not in text
+    assert "127.0.1.1\tnode1.lan\tnode1\n" in text and "hyperlite" not in text
     assert text.startswith("127.0.0.1\tlocalhost\n") and "ip6-localhost" in text  # the rest is kept
 
 
 def test_a_short_name_is_shown_as_given(host):
     host_system, hosts, _calls = host
-    host_system.set_hostname("pve1", current="hyperlite.home")
-    assert "127.0.1.1\tpve1\n" in hosts.read_text()
+    host_system.set_hostname("node1", current="hyperlite.home")
+    assert "127.0.1.1\tnode1\n" in hosts.read_text()
 
 
 def test_other_lines_naming_the_host_follow_and_a_missing_line_is_added(host):
     host_system, hosts, _calls = host
     hosts.write_text("127.0.0.1 localhost\n10.0.0.5 hyperlite.home hyperlite # this host\n10.0.0.6 other\n")
-    host_system.set_hostname("pve1.lan", current="hyperlite.home")
+    host_system.set_hostname("node1.lan", current="hyperlite.home")
     lines = hosts.read_text().splitlines()
     assert lines == [
         "127.0.0.1 localhost",
-        "127.0.1.1\tpve1.lan\tpve1",
-        "10.0.0.5\tpve1.lan\tpve1 # this host",
+        "127.0.1.1\tnode1.lan\tnode1",
+        "10.0.0.5\tnode1.lan\tnode1 # this host",
         "10.0.0.6 other",
     ]
 
@@ -74,13 +74,13 @@ def test_a_refused_host_name_leaves_the_files(host, monkeypatch):
 
     monkeypatch.setattr(host_system.socket, "sethostname", refuse)
     with pytest.raises(host_system.SettingError, match="not permitted"):
-        host_system.set_hostname("pve1")
+        host_system.set_hostname("node1")
     assert hosts.read_text() == DEBIAN and not (hosts.parent / "hostname").exists()
 
 
 def test_renaming_the_node_is_for_administrators(client, auth_headers, host):
-    r = client.put("/host/system/hostname", json={"name": "pve1"}, headers=auth_headers("olga", role="viewer"))
+    r = client.put("/host/system/hostname", json={"name": "node1"}, headers=auth_headers("olga", role="viewer"))
     assert r.status_code == 403
-    r = client.put("/host/system/hostname", json={"name": "pve1.home"}, headers=auth_headers("alice"))
-    assert r.status_code == 200 and r.json()["name"] == "pve1.home"
+    r = client.put("/host/system/hostname", json={"name": "node1.home"}, headers=auth_headers("alice"))
+    assert r.status_code == 200 and r.json()["name"] == "node1.home"
     assert client.put("/host/system/hostname", json={"name": "no way"}, headers=auth_headers("bob")).status_code == 422

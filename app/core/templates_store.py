@@ -50,8 +50,7 @@ def disk_size_gb(path):
 
 
 def _described(meta):
-    """The listing of a template: its stored description, with what a client sizes a deployment by (vSphere's
-    template facts): its firmware and its disk, read from its own files, so templates made before are described too."""
+    """The listing of a template: its stored description, with what a client sizes a deployment by: its firmware and its disk, read from its own files, so templates made before are described too."""
     name = meta["name"]
     try:
         root = ET.parse(_xml_path(name)).getroot()

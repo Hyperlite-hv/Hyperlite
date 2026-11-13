@@ -41,14 +41,14 @@ The lab cannot have 100 nodes. A harness (`lab/scale/simulate.py`, not run by CI
 
 It measures the same pages and the code paths that grow with the number of nodes, read in the code during the review:
 
-- the cluster views ask **8 nodes at a time** (`cluster_view.gather`): 100 nodes are 13 rounds of a node-to-node call;
+- The cluster views ask **8 nodes at a time** (`cluster_view.gather`): 100 nodes are 13 rounds of a node-to-node call;
 - a new VM's NAT address asks **every node in turn** (`network_alloc.cluster_used_ips`);
 - the node poller, the HA watch and the boot sequence, whose cost per round grows with nodes and VMs.
 
 ## Results and what follows
 
 A report (`docs/scale-results.md` in the repository, the raw numbers in the PR): every measure against its threshold,
-the slowest code paths with a profile (`py-spy` on the lab only, never on serveur-antho). Each threshold missed becomes
+the slowest code paths with a profile (`py-spy` on the lab only, never on a production node). Each threshold missed becomes
 an issue, fixed in its own PR and measured again. Phase E's status channel (`hyperlite-statd`) is designed only if the
 numbers show the listings need it.
 

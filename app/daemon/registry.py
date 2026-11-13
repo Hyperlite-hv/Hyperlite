@@ -149,7 +149,7 @@ def proven(proof):
 
 def proven_account(proof):
     """The account a caller's credential proves, as the API resolves it (a users row, or root of a node through
-    hyperlite-admin, which has none, as root@pam on Proxmox VE), or None."""
+    hyperlite-admin, which has none), or None."""
     if not proof:
         return None
     from app.core import peer_auth, security

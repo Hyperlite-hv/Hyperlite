@@ -60,7 +60,7 @@ export function poolFormErrors(form) {
     if (!form.smb_password) e.smb_password = "stor.e.required"; else if (/[\r\n]/.test(form.smb_password)) e.smb_password = "stor.e.smbPassword";
     if (form.smb_domain.trim() && !SMB_DOMAIN_RE.test(form.smb_domain.trim())) e.smb_domain = "stor.e.smbDomain";
   }
-  // Shared storage (NFS, SMB, iSCSI) can go on several nodes, as on Proxmox: every node, or the ones chosen.
+  // Shared storage (NFS, SMB, iSCSI) can go on several nodes: every node, or the ones chosen.
   if (SHARED.includes(form.type) && form.scope === "choix" && !form.chosen.length) e.chosen = "stor.e.nodes";
   if (form.type === "lvm") {
     if (req(form.lvm_vg)) e.lvm_vg = "stor.e.required"; else if (!LVM_NAME_RE.test(form.lvm_vg.trim()) || [".", ".."].includes(form.lvm_vg.trim())) e.lvm_vg = "stor.e.lvmName";

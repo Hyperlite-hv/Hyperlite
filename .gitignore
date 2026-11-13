@@ -35,7 +35,7 @@ hyperlite.db
 data/tmp/
 data/backups/
 .publish.env
-CLAUDE.local.md
+*.local.md
 dashboard/e2e-report/
 dashboard/e2e-results/
 

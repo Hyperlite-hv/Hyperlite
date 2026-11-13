@@ -1,11 +1,10 @@
 # Design: the official Terraform / OpenTofu provider (#330)
 
-Status: **accepted** (Antho, 2026-10-21, section 17), inspired by vSphere as the maintainer asked (section 4).
+Status: **accepted** (Antho, 2026-10-21, section 17), inspired by the commercial reference as the maintainer asked (section 4).
 
 ## 1. Why
 
-A company that adopts a hypervisor describes its machines in code. vSphere has an official provider
-(`hashicorp/vsphere`); Proxmox VE only has community ones (`bpg/proxmox`, `Telmate/proxmox`), which its users name
+A company that adopts a hypervisor describes its machines in code. The commercial reference has an official provider; the reference platform only has community ones, which its users name
 as a gap. API v1 was made stable for exactly this (`docs/design/api-v1.md`, "Why"): an official provider, released
 with Hyperlite and tested against it, is the client that proves the contract.
 
@@ -35,30 +34,30 @@ with Hyperlite and tested against it, is the client that proves the contract.
 1. A provider `hyperlite` for Terraform and OpenTofu, published in both registries, signed, versioned on its own.
 2. Resources for what a team describes in code: VMs (from a template or a cloud image, with cloud-init), their disks
    and interfaces, networks, storage pools, backup jobs, users, groups, roles and permissions; data sources to read
-   what exists (templates first, as `vsphere_virtual_machine` is read to clone it).
+   what exists (templates first, as the reference provider's matching resource is read to clone it).
 3. Every change waits for the work to be done, or fails with the task's error: `apply` never ends on a half-made VM.
 4. `terraform import` for everything that a resource manages.
 5. Acceptance tests against a real Hyperlite in CI, on every pull request of the provider and every night against
    `test`.
 
 What it does not do: create a cluster, join a node, update Hyperlite, install it (Ansible, #332, and the installer
-do that). The node itself is an input, as `vsphere_host` is a data source, not something the provider builds.
+do that). The node itself is an input, as the reference provider's matching resource is a data source, not something the provider builds.
 
-## 4. Inspired by vSphere (Antho, 2026-10-21)
+## 4. Inspired by the commercial reference (Antho, 2026-10-21)
 
-The maintainer's direction: **take inspiration from vSphere**, the reference for an official provider, without
-copying it. What `hashicorp/vsphere`, its client library and vCenter do well is taken; the names, the objects and the
+The maintainer's direction: **take inspiration from the commercial reference**, the reference for an official provider, without
+copying it. What the reference provider, its client library and the commercial reference do well is taken; the names, the objects and the
 API stay Hyperlite's (`vcpu`, `memory_mb`, `node`, `size_gb`, as in API v1), so that the provider reads like the rest
 of the product.
 
-| Question | What vSphere does | What Hyperlite takes |
+| Question | What the commercial reference does | What Hyperlite takes |
 |---|---|---|
-| Where the code lives | its own repository, `hashicorp/terraform-provider-vsphere`, versioned on its own | **`Hyperlite-hv/terraform-provider-hyperlite`** (both registries read a repository named `terraform-provider-<name>`), registry name **`hyperlite-hv/hyperlite`** |
-| The client | `govmomi`, a Go library for the vSphere API, its types generated from the API's description; the CLI `govc` is built on it | **A Go library for API v1** in the CLI's module (`cli/hyperlite`): `Client`, the TLS check, the errors, the task wait, typed objects (generated from `openapi-v1.json` once its answers are typed, section 9; written by hand until then). `hyperlite-cli` is built on it |
+| Where the code lives | its own repository, the reference provider, versioned on its own | **`Hyperlite-hv/terraform-provider-hyperlite`** (both registries read a repository named `terraform-provider-<name>`), registry name **`hyperlite-hv/hyperlite`** |
+| The client | `govmomi`, a Go library for the commercial reference API, its types generated from the API's description; the CLI `govc` is built on it | **A Go library for API v1** in the CLI's module (`cli/hyperlite`): `Client`, the TLS check, the errors, the task wait, typed objects (generated from `openapi-v1.json` once its answers are typed, section 9; written by hand until then). `hyperlite-cli` is built on it |
 | Framework | SDKv2 (the provider dates from 2017) | **Plugin Framework**, which HashiCorp asks new providers to use; nothing differs for a user |
 | Signing | releases signed with the organisation's release key | **one release key of the organisation** for its providers, in a protected GitHub environment; not the APT key |
 | Long operations | every call that takes time answers a `Task` at once; the provider waits for it and fails with its error | the same: every route that makes a task answers its id, the provider waits (section 6) |
-| One address | the provider talks to vCenter, which sends the work to the right host | the provider talks to any member, which sends the work to the object's node (section 8) |
+| One address | the provider talks to the commercial reference, which sends the work to the right host | the provider talks to any member, which sends the work to the object's node (section 8) |
 | Placement | a new VM goes in a resource pool; DRS picks the host unless one is named | `node` optional; absent, the cluster picks it (section 8) |
 | Identity | a VM is its instance UUID; the name is an attribute | the same, with the libvirt UUID |
 | Building a clone | a data source reads the template (system, firmware, disks) to size the clone; `clone { customize }` sets host name, addresses and resolvers | `data "hyperlite_template"` gives the same facts; a `customize` block written to the cloud-init drive |
@@ -84,9 +83,9 @@ provider "hyperlite" {
 ```
 
 - **Same variables as the CLI** (`HYPERLITE_SERVER`, `HYPERLITE_TOKEN`), and the same TLS rule: the system trust
-  store, then the pinned fingerprint. `insecure` exists because labs ask for it (`vsphere`'s `allow_unverified_ssl`);
+  store, then the pinned fingerprint. `insecure` exists because labs ask for it;
   it is logged as a warning.
-- **Tokens, not a user and password**: where `vsphere` opens a session with a user and password, Hyperlite has tokens
+- **Tokens, not a user and password**: where the reference provider opens a session with a user and password, Hyperlite has tokens
   made for this (no second factor to answer, no session to renew, revocable on its own). The documentation shows how to
   create one with the least rights (section 10).
 - **At configure**: `GET /health` (section 7), then `GET /auth/me`, so that a wrong token fails at once, with its
@@ -166,26 +165,26 @@ resource "hyperlite_vm" "web" {
 }
 ```
 
-- **Identity**: the Terraform id is the VM's **UUID**, as in `vsphere`; `name` is an attribute. A rename made in the
+- **Identity**: the Terraform id is the VM's **UUID**, as in the reference provider; `name` is an attribute. A rename made in the
   dashboard is a change of `name`, put back by the next `apply` (`POST /rename`), not a VM gone and a new one. With
   #517, the VMID becomes an attribute too.
 - **Read**: the VM is found by UUID in `GET /vms?cluster=true` (one call, from the cluster's status), then read in one
   call on its node (section 9). A VM migrated elsewhere is found there; `node` then shows a change, put back by a
   migration only when it is set.
 - **Create**: the clone (template deployment or VM clone), or a new VM from the cloud image or an ISO (`iso`,
-  `import_disk`, as `POST /vms`); then the settings the creation does not take; then **started**, as `vsphere` powers
+  `import_disk`, as `POST /vms`); then the settings the creation does not take; then **started**, as the reference provider powers
   a VM on. A failure after the VM exists marks it *tainted*: the next `apply` deletes and recreates it.
-- **Customisation**: `vsphere` writes `customize` into the guest through VMware Tools; Hyperlite writes it into the
-  VM's cloud-init drive, which a cloud image reads at first boot (Proxmox does the same). A Windows guest needs
+- **Customisation**: the reference provider writes `customize` into the guest through VMware Tools; Hyperlite writes it into the
+  VM's cloud-init drive, which a cloud image reads at first boot. A Windows guest needs
   cloudbase-init in its image; without a cloud-init drive (a VM installed from an ISO), `customize` is refused at plan.
 - **Changes that need a restart**: read from the server (`GET /vms/{name}/pending-changes`), not guessed. The provider
-  shuts the guest down, waits `shutdown_timeout`, stops it hard if `force_stop`, applies, starts it, as `vsphere`
+  shuts the guest down, waits `shutdown_timeout`, stops it hard if `force_stop`, applies, starts it, as the reference provider
   does. **Replace**: the firmware, the clone source, a smaller disk.
 - **Delete**: the same shutdown, then `DELETE /vms/{name}?confirm=true`.
 - **Waiting for the guest**: `wait_for_ip` waits for an address (guest agent or DHCP lease, `ip` of the VM), exposed as
   `ip_address` for outputs and provisioners.
 - **Moving**: a new `node` migrates the VM (`POST /migrate`); a disk's new `storage_pool` moves the disk
-  (`/disks/{dev}/move`), as vMotion and Storage vMotion do in `vsphere`.
+  (`/disks/{dev}/move`), as live migration and storage migration do in the reference provider.
 
 ## 6. Long operations
 
@@ -200,9 +199,8 @@ What the API does today:
 
 A held request is a problem for any client, not only Terraform: a clone of a 200 GB disk outlives every proxy and load
 balancer timeout (the CLI's client gives up at 30 s), and a request cut that way leaves a task that runs on with nobody
-to read its end. Proxmox answers every such call with its task id at once (UPID, `POST /nodes/{node}/qemu/{vmid}/clone`
-→ `UPID:...`) and `vsphere` returns a `Task` object for every `*_Task` method; both providers then poll it
-(`bpg/proxmox`: `WaitForTask`; `vsphere`: `task.WaitForResult`).
+to read its end. The reference platform answers every such call with its task id at once (task id, `POST /nodes/{node}/qemu/{vmid}/clone`
+→ `task id:...`) and the reference provider returns a `Task` object for every `*_Task` method; both providers then poll it.
 
 **Common rule for API v1** (decided, section 17): every route that makes a task answers `202 {"task_id", "status": "running", ...}`
 at once, plus what the caller needs to find the result (`name`, `node`). This is not an additive change for a route
@@ -227,7 +225,7 @@ is `cancellable`, and says so. A task of another node is followed with `?on=` (s
   targets (`GET /nodes/{name}/summary`, which gives the version, section 9).
 
 The provider's version is its own (`1.0.0` for the first release), and its documentation has a table "provider
-version → oldest Hyperlite version", as `vsphere`'s "vSphere 7.0 or later".
+version → oldest Hyperlite version", as the reference provider "the commercial reference 7.0 or later".
 
 ## 8. Clusters: the `node` argument
 
@@ -236,8 +234,8 @@ create, clone, the update (`PATCH`), disks, interfaces, cloud-init, snapshots an
 answers. And `node` means two things: forwarded to that member's own API (`cluster_view.forward_to`, the list and the
 backups), or reached from here through libvirt over SSH (`open_conn(node)`, the others). The tasks call it `?on=`.
 
-Proxmox has one rule: everything about a guest is under `/nodes/{node}/…`, and `pveproxy` passes a request for another
-node to that node's `pveproxy`. A client talks to any node; the node that owns the guest does the work, with its own
+The reference platform has one rule: everything about a guest is under `/nodes/{node}/…`, and the reference HTTPS proxy passes a request for another
+node to that node's the reference HTTPS proxy. A client talks to any node; the node that owns the guest does the work, with its own
 locks and tasks.
 
 **Decided**, as one change for the API (not the provider alone):
@@ -249,16 +247,16 @@ locks and tasks.
 - `open_conn(node)` stays for nodes registered over SSH only (not members, no Hyperlite on them).
 - `?on=` of the tasks is also accepted as `?node=` (additive), so a client uses one name.
 
-vSphere does the same with one address: the provider talks to vCenter, vCenter sends the work to the host. Hyperlite
-has no vCenter; any member plays its part.
+The commercial reference does the same with one address: the provider talks to the commercial reference, the commercial reference sends the work to the host. Hyperlite
+has no the commercial reference; any member plays its part.
 
-**Placement.** vSphere puts a new VM in a resource pool and lets DRS pick the host unless `host_system_id` is given.
+**Placement.** the commercial reference puts a new VM in a resource pool and lets DRS pick the host unless `host_system_id` is given.
 Hyperlite, when `node` is absent: `POST /vms?node=auto` (additive) picks among the members that are online, out of
 maintenance and see the storage pool and the network, the one with the most free memory; DRS (#334) replaces this rule
 when it lands. The node picked is read back into the state.
 
 In the provider, `node` is optional on each resource that lives on a node (VM, template, network, local pool).
-Changing it on a VM is a **migration** (`POST /vms/{name}/migrate`), as `vsphere` moves a VM when `host_system_id`
+Changing it on a VM is a **migration** (`POST /vms/{name}/migrate`), as the reference provider moves a VM when `host_system_id`
 changes; on a network or a local pool it is a replacement. A shared pool (NFS, iSCSI on several nodes) takes
 `nodes`.
 
@@ -272,14 +270,14 @@ changes; on a network or a local pool it is a replacement. A shared pool (NFS, i
 | all | answers mostly untyped in `openapi-v1.json` | `response_model` on the routes the provider reads, so the document describes them and the contract check covers them | additive |
 | `hyperlite_vm` | `POST /vms` (`vms/create.py`), held until done | `?wait=false` → `202 {"task_id", "name"}`; `ssh_keys` at creation (today only at the next boot, `PUT /cloud-init`); `vlan_tag` of the first interface | additive |
 | `hyperlite_vm` (clone) | `POST /vms/{name}/clone` (`vms/clone.py`), held; `POST /templates/{name}/deploy` (`templates.py`), held, no task | `?wait=false` and a task for both (#546); `storage_pool` of the copy (today the source's pool) | additive |
-| `hyperlite_vm` (customisation) | cloud-init at creation: `user`, `password`; hostname = VM name (`core/vm_builder.py`) | what `customize` holds (inspired by `vsphere`'s): a host name and domain other than the VM's name, static addresses per interface, a gateway, resolvers; and a user-data snippet appended to Hyperlite's own (`user_data`) | additive |
+| `hyperlite_vm` (customisation) | cloud-init at creation: `user`, `password`; hostname = VM name (`core/vm_builder.py`) | what `customize` holds: a host name and domain other than the VM's name, static addresses per interface, a gateway, resolvers; and a user-data snippet appended to Hyperlite's own (`user_data`) | additive |
 | `hyperlite_vm` | `GET /vms/{name}`, `/disks`, `/network`, `/boot`, `/cloud-init`, `GET /meta/vm/{name}` | one read with all of them (`GET /vms/{name}?full=true`): six calls per VM per plan is slow at 100 VMs | additive |
 | `hyperlite_vm` | `PATCH /vms/{name}` (`vcpu`, `memory_mb`, `os_label`), local only | `?node=`; nothing else | additive |
 | `hyperlite_vm` | `POST /vms/{name}/start`, `/stop` (`force`, `force_after`), quick, both with `?node=` | nothing: the provider sends `force_after` (its `shutdown_timeout` with `force_stop`) and follows the VM's state | |
 | `hyperlite_vm` | `POST /vms/{name}/migrate` (`vms/migration.py`), 202 | nothing | |
 | `hyperlite_vm` | `POST /vms` requires `admin`; clone requires `vm.clone` | the privileges of section 10, so that a token for Terraform is not an administrator's | additive |
 | `hyperlite_vm` (disks) | `POST /vms/{name}/disks` (`DiskAttach`: an existing volume), `/resize`, `DELETE` (`vms/devices.py`) | create and attach in one call (`size_gb`, `storage_pool`), as the creation form does | additive |
-| `hyperlite_template` (data) | `GET /templates` (`name`, `vcpu`, `memory_mb`, `vm_source`) | what a clone is sized from, as `vsphere`'s data source gives: the system, `firmware`, `disks` (`size_gb`, bus, pool), the interfaces | additive |
+| `hyperlite_template` (data) | `GET /templates` (`name`, `vcpu`, `memory_mb`, `vm_source`) | what a clone is sized from, as the reference provider data source gives: the system, `firmware`, `disks` (`size_gb`, bus, pool), the interfaces | additive |
 | `hyperlite_template` | `POST /templates/from-vm/{name}` (`keep_vm`), held, no task | `?wait=false` and a task | additive |
 | `hyperlite_network` | `POST`, `GET`, `PATCH`, `DELETE /networks/{name}`, `/rename`, `/autostart`, `/firewall` (`network.py`) | nothing for the first version (a `PATCH` that needs a restart says it: `needs_restart`) | |
 | `hyperlite_network_reservation` | `POST`, `DELETE /networks/{name}/reservations/{mac}`, read in `GET /networks/{name}` (`ipam`) | nothing | |
@@ -302,12 +300,12 @@ provider resource that uses it; the provider's first release needs the rows of `
 
 ## 10. Rights
 
-The `vsphere` documentation lists the privileges a provider's account needs, and vSphere has one for each step of a
+The the reference provider documentation lists the privileges a provider's account needs, and the commercial reference has one for each step of a
 VM's creation (create the VM in a folder and resource pool, use space on a datastore, connect a network). A pipeline
 is given exactly those.
 
 Hyperlite today: creating a VM needs the global `admin` role, and no privilege says on which storage pool or network a
-user may put a VM. The same idea, as additive privileges (`app/core/permissions.py`), close to Proxmox's
+user may put a VM. The same idea, as additive privileges (`app/core/permissions.py`), close to the reference platform's
 `VM.Allocate`, `Datastore.AllocateSpace` and `SDN.Use`:
 
 | Privilege | Allows | Checked on |
@@ -321,15 +319,15 @@ The provider's documentation then gives a role "Terraform" (`vm.allocate`, `vm.h
 what it may use: the pipeline creates VMs in its pool, on its storage and networks, only. A user without `admin` gives
 `resource_pool`. Networks, storage pools, users and roles stay administrator resources.
 
-## 11. Compared with `hashicorp/vsphere`, point by point
+## 11. Compared with the reference provider, point by point
 
-| Point | `hashicorp/vsphere` | Hyperlite provider |
+| Point | the reference provider | Hyperlite provider |
 |---|---|---|
-| Authentication | user and password (a vCenter session), `allow_unverified_ssl` | an API token; the CLI's TLS rule with a pinned fingerprint; `insecure` for labs |
+| Authentication | user and password, `allow_unverified_ssl` | an API token; the CLI's TLS rule with a pinned fingerprint; `insecure` for labs |
 | Identity of a VM | the instance UUID; the name and folder are attributes | the libvirt UUID; the name is an attribute; the VMID when #517 lands |
 | Where a VM runs | `resource_pool_id` (required), `host_system_id` (else DRS), `datastore_id` | `resource_pool` (required but for an administrator), `node` (else the placement rule, then DRS), `storage_pool` per disk |
 | Clone | `clone { template_uuid, linked_clone, timeout }` | `clone { template \| vm }`; linked clones when #423 lands |
-| Reading a template | data source `vsphere_virtual_machine`: `guest_id`, `firmware`, `scsi_type`, `disks[].size`, `network_interface_types` | data source `hyperlite_template`: `os`, `firmware`, `disks[].size_gb`, `vcpu`, `memory_mb`, `ssh_user` (section 9) |
+| Reading a template | data source the reference provider's matching resource: `guest_id`, `firmware`, `scsi_type`, `disks[].size`, `network_interface_types` | data source `hyperlite_template`: `os`, `firmware`, `disks[].size_gb`, `vcpu`, `memory_mb`, `ssh_user` (section 9) |
 | Customisation | `clone.customize { linux_options, network_interface, ipv4_gateway, dns_server_list, windows_options }` through VMware Tools | `clone.customize { hostname, domain, gateway, dns }` and `network_interface.ipv4`, through the cloud-init drive |
 | cloud-init | `extra_config` (`guestinfo.userdata`) or `vapp.properties` | a `cloud_init` block (`user`, `ssh_keys`, `password`, `user_data`) |
 | Disks | `disk { label, size, unit_number, thin_provisioned, datastore_id }`; grow only | `disk { size_gb, storage_pool, bus, cache, discard }` in order; grow only |
@@ -338,21 +336,21 @@ what it may use: the pipeline creates VMs in its pool, on its storage and networ
 | Changes needing a power-off | shutdown, `shutdown_wait_timeout`, `force_power_off`, power on | the same rule (`shutdown_timeout`, `force_stop`), what needs it read from the server |
 | Long operations | each call is a `Task`, waited with `task.WaitForResult` | each call answers a `task_id` (section 6), waited with `WaitTask`, cancelled on timeout |
 | Waiting for the guest | `wait_for_guest_net_timeout`, `wait_for_guest_ip_timeout` | `wait_for_ip` |
-| Import | `terraform import vsphere_virtual_machine.vm /dc/vm/folder/name` | `terraform import hyperlite_vm.web node2/web-1` (or the UUID) |
-| Moving a VM | a new `host_system_id` (vMotion) or `datastore_id` (Storage vMotion) | a new `node` (migration) or `storage_pool` (disk move) |
-| Permissions | `vsphere_role`, `vsphere_entity_permissions`, one privilege per creation step | `hyperlite_role`, `hyperlite_acl` (one assignment each, see below), the privileges of section 10 |
-| HA | `vsphere_ha_vm_override` | `hyperlite_vm_ha` |
+| Import | by inventory path | `terraform import hyperlite_vm.web node2/web-1` (or the UUID) |
+| Moving a VM | a new `host_system_id` (live migration) or `datastore_id` (storage migration) | a new `node` (migration) or `storage_pool` (disk move) |
+| Permissions | the reference provider's matching resource, the reference provider's matching resource, one privilege per creation step | `hyperlite_role`, `hyperlite_acl` (one assignment each, see below), the privileges of section 10 |
+| HA | the reference provider's matching resource | `hyperlite_vm_ha` |
 | Backups | none (other products) | `hyperlite_vm_backup_schedule`, `hyperlite_backup_job` |
 
-**Why one assignment per `hyperlite_acl`, not every assignment of an object as `vsphere_entity_permissions`.** An object
+**Why one assignment per `hyperlite_acl`, not every assignment of an object as the reference provider's matching resource.** An object
 is often shared: an administrator gives rights on the `default` storage pool from the dashboard, a team's
 configuration gives its own. A resource owning every assignment of the object would remove, at its next apply, those
-it did not write; one assignment per resource only ever touches its own, as Proxmox VE's community providers do with
-`proxmox_virtual_environment_acl`. Membership of a group is the group's `members` attribute for the same reason a
+it did not write; one assignment per resource only ever touches its own
+its matching resource. Membership of a group is the group's `members` attribute for the same reason a
 person reads it so: the group is one object of the dashboard, its members are part of it.
 
-And from Proxmox's community providers, what to keep: `bpg/proxmox` waits for every UPID and fails with the task's
-log; `Telmate/proxmox`, which did not at first, had VMs half-made at the end of an `apply` for years.
+And from the reference platform's community providers, what to keep: a community provider waits for every task id and fails with the task's
+log; a community provider, which did not at first, had VMs half-made at the end of an `apply` for years.
 
 ## 12. `terraform import`
 
@@ -407,7 +405,7 @@ an id so that `terraform plan -generate-config-out` writes the configuration of 
 | 5 | provider | `hyperlite_vm` (create, clone, customisation, cloud-init, disks, interfaces, power-off rule, guest wait, import), the acceptance job |
 | 6 | provider | networks, storage pools and volumes, ISO images, snapshots, HA, backup schedules and jobs |
 | 7 | Hyperlite + provider | the privileges of section 10; `hyperlite_user`, `hyperlite_group`, `hyperlite_role`, `hyperlite_acl`, `hyperlite_resource_pool` |
-| 8 | provider | `v1.0.0` in both registries, with the documentation and a guide "from vSphere" |
+| 8 | provider | `v1.0.0` in both registries, with the documentation and a guide "from the commercial reference" |
 
 ## 16. Risks
 
@@ -422,7 +420,7 @@ an id so that `terraform plan -generate-config-out` writes the configuration of 
 
 ## 17. Decisions (Antho, 2026-10-21)
 
-1. **Inspired by vSphere**, not a copy of it: section 4.
+1. **Inspired by the commercial reference**, not a copy of it: section 4.
 2. **The privileges of section 10**, all three: `vm.allocate`, `storage.allocate`, `network.assign`.
 3. **Placement**: without a node, the cluster picks the member with the most free memory among those that can host the
    VM (section 8), until DRS (#334).

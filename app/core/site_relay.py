@@ -1,6 +1,6 @@
 """The target's guard on a live migration between clusters (docs/design/multi-cluster.md, section 9.2, choice A): the
 source cluster's libvirt talks to this host's libvirt through it, and it lets through only what a migration's
-destination answers, as Proxmox's tunnel carries only its own small command set.
+destination answers.
 
 libvirt's RPC framing (src/rpc/virnetprotocol.x): a 4-byte length (itself included), a 24-byte header (program,
 version, procedure, type, serial, status), the XDR payload. From the source, only calls of REMOTE_PROGRAM's procedures
