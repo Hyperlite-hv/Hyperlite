@@ -72,7 +72,7 @@ export const RESOURCE_MENUS = {
     { group: "res.g.operations", pages: ["run", "schedules"] },
     { group: "res.g.settings", pages: ["hardware", "advanced", "options", "network", "cloudinit"] },
     { group: "res.g.protection", pages: ["snapshots", "backup"] },
-    { group: "res.g.monitoring", pages: ["perf", "guest", "advisor"] },
+    { group: "res.g.monitoring", pages: ["perf", "guest", "history", "advisor"] },
   ],
   node: [
     { pages: ["summary", "tasks"] },

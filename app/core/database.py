@@ -787,6 +787,18 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # Each VM's definition as it was after every change the collector saw (app/core/config_history.py). History of
+        # this node's own sampling: not replicated, like the metrics.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_config_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT NOT NULL,
+                ts TEXT NOT NULL,
+                hash TEXT NOT NULL,
+                xml TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vm_config_versions ON vm_config_versions(target, id)")
         # VM schedules: a VM started, shut down, stopped or snapshotted at set times of chosen weekdays, run by the node
         # that hosts the VM (app/core/vm_schedules.py). Replicated: a VM that migrates keeps its schedules.
         conn.execute("""

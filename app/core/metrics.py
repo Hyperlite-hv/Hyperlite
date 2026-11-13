@@ -284,8 +284,11 @@ def _sample_remote_node(node, ts, now):
     conn = None
     try:
         conn = open_conn(name, readonly=True)
+        from app.core import config_history
+
         for domain in conn.listAllDomains():
             target = f"{name}:{domain.name()}"
+            config_history.observe(domain, target)
             s = _sample_vm(domain, target, now)
             if s is not None:
                 rows.append(_vm_row(target, s))
@@ -412,8 +415,11 @@ def _collect_tick():
     conn = open_conn(readonly=True)
     vm_loads = {}
     try:
+        from app.core import config_history
+
         for domain in conn.listAllDomains():
             name = domain.name()
+            config_history.observe(domain, name)
             s = _sample_vm(domain, name, now)
             if s is None:
                 continue
