@@ -1219,6 +1219,28 @@ export function attachVMHostDevice(name, device, confirm = false) {
 export function detachVMHostDevice(name, device) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
 }
+// A VM's configuration history: its definition after every change, and each version's diff against the one before.
+export async function fetchVmConfigHistory(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realList(`/vms/${encodeURIComponent(name)}/config-history${q}`);
+}
+export async function fetchVmConfigVersion(name, id, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/config-history/${encodeURIComponent(id)}${q}`);
+}
+// A VM's schedules: started, shut down, stopped or snapshotted at set times of chosen weekdays (the node's time).
+export async function fetchVmSchedules(name) {
+  return realList(`/vms/${encodeURIComponent(name)}/schedules`);
+}
+export async function createVmSchedule(name, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules`, { method: "POST", ...jsonBody(schedule) });
+}
+export async function updateVmSchedule(name, id, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "PUT", ...jsonBody(schedule) });
+}
+export async function deleteVmSchedule(name, id) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
 // Inside a VM through its guest agent: what its OS says about itself, and a script run there (vm.exec).
 export async function fetchVmGuest(name, node = null) {
   const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";

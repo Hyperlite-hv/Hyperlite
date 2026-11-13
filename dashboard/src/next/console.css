@@ -242,6 +242,32 @@
 .hc-bulk li small { color: var(--color-text-muted); overflow-wrap: anywhere; }
 .hc-bulk li[data-state="done"] svg { color: var(--color-success); }
 .hc-bulk li[data-state="bad"] svg, .hc-bulk li[data-state="failed"] svg, .hc-bulk li[data-state="failed"] small, .hc-bulk li[data-state="bad"] small { color: var(--color-danger); }
+/* VM ▸ Change history: the versions on the left, the diff on the right. */
+.hc-chg { display: grid; grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); gap: 1.0667rem; align-items: start; }
+.hc-chg-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); max-height: 36rem; overflow: auto; }
+.hc-chg-list li + li { border-top: 1px solid var(--color-border-card); }
+.hc-chg-list button { display: flex; flex-direction: column; gap: 0.1333rem; width: 100%; padding: 0.5333rem 0.8rem; border: 0; background: none; color: var(--color-text-primary); font: inherit; text-align: left; cursor: pointer; }
+.hc-chg-list button:hover { background: var(--color-bg-hover); }
+.hc-chg-list button[aria-current] { background: var(--color-bg-selected); box-shadow: inset 3px 0 0 var(--color-accent); }
+.hc-chg-list small { color: var(--color-text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }
+.hc-chg-list .hc-chg-who { color: var(--color-text-secondary); }
+.hc-chg-view h2 { display: flex; align-items: center; margin: 0 0 0.5333rem; font-size: 0.9333rem; font-weight: 600; }
+.hc-chg-view h2 .nx-lnk { margin-left: auto; font-size: var(--font-size-xs); font-weight: 400; }
+.hc-diff { margin: 0; padding: 0.6667rem 0; max-height: 36rem; overflow: auto; border: 1px solid var(--color-border-card); border-radius: var(--radius-md); background: var(--color-bg-surface-raised); font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 1.55; white-space: pre; }
+.hc-diff span { display: block; padding: 0 0.8rem; }
+.hc-diff span[data-kind="add"] { background: var(--color-success-subtle); color: var(--color-text-primary); }
+.hc-diff span[data-kind="del"] { background: var(--color-danger-subtle); color: var(--color-text-primary); }
+.hc-diff span[data-kind="hunk"] { color: var(--color-text-muted); }
+pre.hc-diff:not(:has(span)) { padding: 0.6667rem 0.8rem; }
+@media (max-width: 900px) { .hc-chg { grid-template-columns: minmax(0, 1fr); } .hc-chg-list { max-height: 14rem; } }
+/* VM ▸ Schedules. */
+.hc-sch-days { border: 0; margin: 0 0 0.8rem; padding: 0; }
+.hc-sch-days legend { padding: 0; margin-bottom: 0.4rem; font-size: var(--font-size-sm); }
+.hc-sch-days .nx-seg { flex-wrap: wrap; }
+.hc-sch-quick { display: flex; gap: 1.0667rem; margin-top: 0.4rem; font-size: var(--font-size-xs); }
+.hc-sch-last { display: inline-flex; align-items: center; gap: 0.4rem; }
+.hc-sch-last::before { content: ""; width: 0.5333rem; height: 0.5333rem; border-radius: 50%; background: var(--color-danger); flex: none; }
+.hc-sch-last[data-ok]::before { background: var(--color-success); }
 .hc-kv { margin: 0; }
 .hc-kv > div { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 0.8rem; padding: 0.2rem 0; line-height: 1.6rem; }
 .hc-kv dt { color: var(--color-text-secondary); }
