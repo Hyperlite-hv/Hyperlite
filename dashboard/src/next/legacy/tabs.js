@@ -13,6 +13,7 @@ const NodesPage = onDemand(() => import("../pages/NodesPage"));
 const HaPage = onDemand(() => import("../pages/HaPage"));
 const DrsPage = onDemand(() => import("../pages/DrsPage"));
 const NotificationsPage = onDemand(() => import("../pages/NotificationsPage"));
+const AlertRulesPage = onDemand(() => import("../pages/AlertRulesPage"));
 const ContainersPage = onDemand(() => import("../pages/ContainersPage"));
 const KubernetesPage = onDemand(() => import("../pages/KubernetesPage"));
 const CompatibilityPage = onDemand(() => import("../pages/CompatibilityPage"));
@@ -66,13 +67,13 @@ const NodeAdvisorPage = onDemand(() => import("../pages/AdvisorPage"), "NodeAdvi
 
 // The datacenter pages that draw their own header (the others get one from the workspace). Kept here because a page
 // that is not loaded yet cannot say so itself; src/__tests__/ownHeader.test.js checks it against the pages.
-export const OWN_HEADER = new Set(["activity", "advisor", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "explorer", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "vms"]);
+export const OWN_HEADER = new Set(["activity", "advisor", "alerts", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "explorer", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "vms"]);
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Home, services: ServicesPage, all: AllResourcesPage, create: CreatePage, perf: ClusterPerf, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, firewall: FirewallPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, explorer: MetricsExplorer, api: ApiPage, cfs: CfsPage, sites: SitesPage, advisor: AdvisorPage,
+  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, explorer: MetricsExplorer, api: ApiPage, cfs: CfsPage, sites: SitesPage, advisor: AdvisorPage, alerts: AlertRulesPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage, advisor: NodeAdvisorPage,
