@@ -14,6 +14,7 @@ import ServiceTile from "../components/ServiceTile";
 import StatusIndicator from "../components/StatusIndicator";
 import { useAlerts, useRunningOps } from "../layout/TopBar";
 import { useApiDocsAccess } from "../layout/SideMenu";
+import HomePins from "../components/HomePins";
 import SetupChecklist from "../components/SetupChecklist";
 import { useCapacityForecast } from "../lib/useForecast";
 import { formatDays } from "../lib/forecast";
@@ -116,6 +117,8 @@ export default function Home() {
             <button type="button" className="hc-svc" onClick={() => go("services")}><span className="hc-tile hc-tile--ghost" style={{ "--s": "2.6667rem" }}><ArrowRight size={24} aria-hidden="true" /></span><span>{t("svc.services")}</span></button>
           </div>
         </section>
+
+        <HomePins />
 
         <section>
           <h2>{t("home.resources")}</h2>

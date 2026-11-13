@@ -60,6 +60,8 @@
   --color-danger-subtle: color-mix(in oklab, var(--color-danger) 10%, var(--color-bg-surface));
   --color-info-subtle: color-mix(in oklab, var(--color-info) 10%, var(--color-bg-surface));
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 16%, var(--color-bg-surface));
+  /* Chart series: quiet, distinct hues for several lines on one chart */
+  --color-series-1: #8FABFF; --color-series-2: #35C2CB; --color-series-3: #F0B429; --color-series-4: #C49BE8; --color-series-5: #A9B1C2; --color-series-6: #E89A7F;
   /* Aliases used by a few components */
   --color-bg-raised: var(--color-bg-surface-raised);
   --color-border: var(--color-border-default);
@@ -110,6 +112,7 @@
   --color-warning: #8A5700; --color-danger: #BD2A20; --color-offline: #5E6779; --color-unknown: #5E6779;
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 12%, var(--color-bg-surface));
   --shadow-float: 0 10px 30px rgba(16, 24, 48, 0.16);
+  --color-series-1: #2148D4; --color-series-2: #0B7C86; --color-series-3: #8A5700; --color-series-4: #6B46B8; --color-series-5: #5E6779; --color-series-6: #A3462B;
 }
 
 /* The section rail stays dark graphite in both themes: it frames the workspace. */
