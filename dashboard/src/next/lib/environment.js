@@ -4,6 +4,14 @@ import { useEffect, useState } from "react";
 // from /health. Shown in the top bar and on the sign-in page, and put in front of the tab title, so a
 // development instance open next to production is never mistaken for it.
 let pending = null;
+let known = null; // the label once read
+let pageTitle = "Hyperlite";
+
+// The title of the browser tab: the page, then the product, with the installation's label in front.
+export function setDocumentTitle(text) {
+  pageTitle = text ? `${text} – Hyperlite` : "Hyperlite";
+  document.title = known ? `[${known}] ${pageTitle}` : pageTitle;
+}
 
 export function fetchEnvironmentLabel() {
   if (!pending) {
@@ -24,8 +32,8 @@ export function useEnvironmentLabel() {
   }, []);
   useEffect(() => {
     if (!label) return;
-    const base = document.title.replace(/^\[[^\]]*\] /, "");
-    document.title = `[${label}] ${base}`;
+    known = label;
+    document.title = `[${label}] ${pageTitle}`;
   }, [label]);
   return label;
 }

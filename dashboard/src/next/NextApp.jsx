@@ -72,6 +72,12 @@ export default function NextApp() {
   }, [toggleSidebar]);
 
   useEffect(() => {
+    const open = () => setPaletteOpen(true);
+    window.addEventListener("nx:palette", open);
+    return () => window.removeEventListener("nx:palette", open);
+  }, []);
+
+  useEffect(() => {
     const on = (e) => setWizards({ [e.detail]: true });
     window.addEventListener("nx:wizard", on);
     return () => window.removeEventListener("nx:wizard", on);
@@ -97,9 +103,9 @@ export default function NextApp() {
     <TooltipProvider delayDuration={300}>
       <div className="nx-root hc" data-sidebar={sidebarState}>
         <a className="nx-skip" href="#nx-main" onClick={(e) => { e.preventDefault(); document.getElementById("nx-main")?.focus(); }}>{t("skip")}</a>
-        <SideMenu collapsed={sidebarCollapsed && !sidebarOpen} onToggleCollapse={toggleSidebar} />
         {sidebarOpen && <div className="nx-scrim nx-scrim--nav" onClick={() => setSidebarOpen(false)} />}
         <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleNavigator={toggleSidebar} wizards={wizards} setWizards={setWizards} />
+        <SideMenu collapsed={sidebarCollapsed && !sidebarOpen} drawerOpen={sidebarOpen} onToggleCollapse={toggleSidebar} />
         <Routes>
           <Route path="/" element={<Navigate to="/datacenter" replace />} />
           <Route path="/datacenter" element={<Workspace />} />

@@ -42,6 +42,8 @@ export default function Home() {
   const [tab, setTab] = useState("recent");
   const allowed = new Set(allowedServices({ admin: caps.admin, apiDocs }).map((s) => s.id));
   const go = (id) => navigateTo("datacenter", null, id);
+  // A counted text takes its ".one" form for a single item (and for none in French).
+  const tn = (key, n, vars = {}) => t((lang === "fr" ? n < 2 : n === 1) ? `${key}.one` : key, { n, ...vars });
 
   const online = nodes.filter((n) => n.state === "online");
   const critical = alerts.some((a) => a.level === "danger");
@@ -65,6 +67,12 @@ export default function Home() {
   return (
     <div className="hc-home">
       <div className="hc-home-main">
+        {vms.length === 0 && caps.create && (
+          <div className="nx-bn" data-tone="info" role="status">
+            <span className="nx-bn-t"><b>{t("home.emptyTitle")}</b> {t("home.emptyHelp")}</span>
+            <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}>{t("vmlist.create")}</button>
+          </div>
+        )}
         <section>
           <h1>{t("home.services")}</h1>
           <div className="hc-svcs">
@@ -105,9 +113,9 @@ export default function Home() {
         <section>
           <h2>{t("home.navigate")}</h2>
           <div className="hc-navs">
-            <button type="button" className="hc-nav" onClick={() => go("all")}><ServiceTile id="all" size={28} /><span><b>{t("svc.all")}</b><small>{t("home.nResources", { n: vms.length + containers.length + nodes.length })}</small></span></button>
-            <button type="button" className="hc-nav" onClick={() => go("nodes")}><ServiceTile id="nodes" size={28} /><span><b>{t("tab.nodes")}</b><small>{t("home.nOnline", { n: online.length, total: nodes.length })}</small></span></button>
-            <button type="button" className="hc-nav" onClick={() => go("activity")}><ServiceTile id="activity" size={28} /><span><b>{t("nav.activity")}</b><small>{t("top.opsLabel", { n: ops.length })}</small></span></button>
+            <button type="button" className="hc-nav" onClick={() => go("all")}><ServiceTile id="all" size={28} /><span><b>{t("svc.all")}</b><small>{tn("home.nResources", vms.length + containers.length + nodes.length)}</small></span></button>
+            <button type="button" className="hc-nav" onClick={() => go("nodes")}><ServiceTile id="nodes" size={28} /><span><b>{t("tab.nodes")}</b><small>{tn("home.nOnline", online.length, { total: nodes.length })}</small></span></button>
+            <button type="button" className="hc-nav" onClick={() => go("activity")}><ServiceTile id="activity" size={28} /><span><b>{t("nav.activity")}</b><small>{ops.length ? tn("home.nOps", ops.length) : t("top.opsNone")}</small></span></button>
             <button type="button" className="hc-nav" onClick={() => go("perf")}><ServiceTile id="perf" size={28} /><span><b>{t("tab.perf")}</b><small>{t("svc.d.perf")}</small></span></button>
           </div>
         </section>
@@ -116,11 +124,12 @@ export default function Home() {
       <aside className="hc-home-side">
         <section className="hc-card">
           <h2>{t("home.cluster")}{allowed.has("cfs") && <button type="button" className="nx-lnk" onClick={() => go("cfs")}>{t("home.details")}</button>}</h2>
-          <p className="hc-hstate" data-tone={health}>{t(`home.health.${health}`)}</p>
-          <p className="nx-muted">{cluster?.in_cluster ? `${cluster.name} · ` : ""}{t("home.nOnline", { n: online.length, total: nodes.length })} · {t("chead.vms", { n: vms.length, r: vms.filter((v) => v.state === "active").length })}</p>
+          <p className="hc-hstate" data-tone={health}>{health === "ok" ? t("home.health.ok") : tn(`home.health.${health}`, health === "danger" ? alerts.filter((a) => a.level === "danger").length : alerts.length)}</p>
+          <p className="nx-muted">{cluster?.in_cluster ? `${cluster.name} · ` : ""}{tn("home.nOnline", online.length, { total: nodes.length })} · {t("chead.vms", { n: vms.length, r: vms.filter((v) => v.state === "active").length })}</p>
           <Capacity label={t("ns.cpu")} text={t("home.vcpuOf", { used: vcpu, total: cores })} value={pct(vcpu, cores)} />
           <Capacity label={t("ns.memory")} text={t("home.usedOf", { used: formatSizeMb(memUsed, lang), total: formatSizeMb(memTotal, lang) })} value={pct(memUsed, memTotal)} />
-          <Capacity label={t("tab.storage")} text={t("home.usedOf", { used: formatSizeGb(usedGb, lang), total: formatSizeGb(capGb, lang) })} value={pct(usedGb, capGb)} />
+          {capGb > 0 ? <Capacity label={t("tab.storage")} text={t("home.usedOf", { used: formatSizeGb(usedGb, lang), total: formatSizeGb(capGb, lang) })} value={pct(usedGb, capGb)} />
+            : <div className="hc-cap"><div className="hc-cap-row"><b>{t("tab.storage")}</b><span>{t("home.noPool")}</span></div></div>}
         </section>
         <section className="hc-card">
           <h2>{t("home.watch")}</h2>
