@@ -81,6 +81,7 @@ from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
 from app.routers.replication import router as replication_router
+from app.routers.reports import router as reports_router
 from app.routers.sites import router as sites_router
 from app.routers.sso import pages as sso_pages
 from app.routers.sso import router as sso_router
@@ -245,6 +246,7 @@ _API_ROUTERS = (
     ha_router,
     drs_router,
     notifications_router,
+    reports_router,
     alert_rules_router,
     workstation_router,
     kubernetes_router,

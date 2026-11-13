@@ -1023,6 +1023,16 @@ export async function disableVMAutoCleanup(name) {
 export async function fetchNotifyEvents() {
   return realFetch("/notifications/events");
 }
+// The weekly report: its settings, a preview of what would be sent now, and a sending now.
+export async function fetchWeeklyReport() {
+  return realFetch("/reports/weekly");
+}
+export async function saveWeeklyReportSettings(settings) {
+  return realFetch("/reports/weekly/settings", { method: "PUT", ...jsonBody(settings) });
+}
+export async function sendWeeklyReport() {
+  return realFetch("/reports/weekly/send", { method: "POST" });
+}
 export async function fetchNotificationChannels() {
   return realList("/notifications/channels");
 }
