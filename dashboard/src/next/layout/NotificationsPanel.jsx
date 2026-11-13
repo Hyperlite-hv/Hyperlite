@@ -14,7 +14,16 @@ export default function NotificationsPanel({ open, onClose, ops, alerts, returnF
   useEffect(() => {
     if (!open) return undefined;
     requestAnimationFrame(() => ref.current?.focus());
-    const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) onClose(); };
+    const onKey = (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) { onClose(); return; }
+      if (e.key !== "Tab" || !ref.current) return;
+      // A modal pane keeps the focus: Tab past its last control comes back to its first, and the other way round.
+      const items = [...ref.current.querySelectorAll("button, a[href], [tabindex]:not([tabindex='-1'])")].filter((el) => !el.disabled);
+      if (!items.length) return;
+      const first = items[0]; const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
     const back = returnFocusRef?.current;
     return () => { window.removeEventListener("keydown", onKey); if (back && document.body.contains(back)) back.focus(); };

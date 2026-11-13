@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
   Activity, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound,
-  Layers, LayoutGrid, ListChecks, Monitor, Network, PackageOpen, Scale, ScrollText, Server, ShipWheel, Users, Waypoints, Workflow,
+  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, ShipWheel, Users, Waypoints, Workflow,
 } from "lucide-react";
 
 // The services of the console: one per datacenter page, under its historical `?tab=` id so every existing link
@@ -40,6 +40,7 @@ const BASE = [
   { id: "summary", icon: House, cat: "base", label: "nav.overview" },
   { id: "all", icon: Layers, cat: "base", label: "svc.all" },
   { id: "services", icon: LayoutGrid, cat: "base", label: "svc.services" },
+  { id: "create", icon: Plus, cat: "base", label: "svc.create" },
 ];
 export const SERVICE = Object.fromEntries([...SERVICES, ...BASE].map((s) => [s.id, s]));
 export const serviceLabel = (id) => SERVICE[id]?.label || `tab.${id}`;

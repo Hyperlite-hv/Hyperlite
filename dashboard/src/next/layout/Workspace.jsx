@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -7,7 +7,7 @@ import { useT, useLangStore } from "../i18n";
 import { findVm, isRemoteVm } from "../lib/vmId";
 import { EmptyState } from "../components/States";
 import PermissionNotice from "../components/PermissionNotice";
-import { CONTAINER_TABS, DATACENTER_TABS, NODE_TABS, VM_TABS, locate } from "../legacy/tabs";
+import { CONTAINER_TABS, DATACENTER_TABS, NODE_TABS, OWN_HEADER, VM_TABS, locate } from "../legacy/tabs";
 import { selectionToPath, withTab } from "../lib/urls";
 import { capabilities } from "../lib/capabilities";
 import { useFreshness } from "../lib/inventory";
@@ -15,7 +15,8 @@ import { formatUptimeLong, formatVersionInt, normalize } from "../lib/format";
 import { ChevronRight, Search, X } from "lucide-react";
 import { LIST_OF, RESOURCE_MENUS, resourcePageLabel, serviceLabel, useConsoleStore } from "../lib/services";
 import ServiceTile from "../components/ServiceTile";
-import { PageHeader, StatePill } from "../components/ui";
+import { setDocumentTitle } from "../lib/environment";
+import { Loading, PageHeader, StatePill } from "../components/ui";
 import { VmHeaderActions, NodeHeaderActions } from "../components/ObjectActions";
 import { ContainerHeaderActions } from "../pages/ContainerPages";
 import { formatSizeMb } from "../lib/format";
@@ -62,10 +63,13 @@ function useUrlSync() {
     handled.current = key;
     const params = new URLSearchParams(search);
     const currentTab = params.get("tab") || "summary";
-    const wantedTab = pendingTab || (base === pathname ? currentTab : "summary");
+    // The same page whether its address spells "@" or "%40" (a remote VM's key, typed or pasted by hand): the tab of
+    // the address is kept instead of falling back to the summary.
+    const samePath = (x, y) => { try { return decodeURIComponent(x) === decodeURIComponent(y); } catch { return x === y; } };
+    const wantedTab = pendingTab || (samePath(base, pathname) ? currentTab : "summary");
     const target = withTab(base, wantedTab);
     if (pendingTab) clearPendingTab();
-    if (target !== `${pathname}${search}`) navigate(target);
+    if (!samePath(target, `${pathname}${search}`)) navigate(target);
     if (useInfraStore.getState().activeTab !== wantedTab) setActiveTab(wantedTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection.type, selection.id, pendingTab]);
@@ -181,6 +185,9 @@ export default function Workspace({ children }) {
 
   function setTab(id) { navigateTo(selection.type, selection.id, id); }
   const toList = () => navigateTo("datacenter", null, LIST_OF[selection.type]);
+  // The tab title names what is shown: the service, or the resource and its page.
+  const docTitle = !isObj ? t(serviceLabel(tab)) : missing ? t("res.notFoundTitle") : resource ? (tab === "summary" ? resource.name : `${resource.name} – ${t(resourcePageLabel(tab))}`) : "";
+  useEffect(() => { setDocumentTitle(docTitle); }, [docTitle]);
   const visit = useConsoleStore((st) => st.visit);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (isObj && resource) visit(selection.type, selection.id, resource.name); }, [isObj, resource?.name, selection.type, selection.id, visit]);
@@ -190,7 +197,7 @@ export default function Workspace({ children }) {
     && !(tab === "backup" && vmNode?.member);
   const pageEl = localOnly
     ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.name || resource.node })} />
-    : Active ? <Active resource={resource} selection={selection} /> : null;
+    : Active ? <Suspense fallback={<Loading />}><Active resource={resource} selection={selection} /></Suspense> : null;
 
   return (
     <main className="nx-main" id="nx-main" tabIndex={-1}>
@@ -204,13 +211,30 @@ export default function Workspace({ children }) {
           <div className="nx-page" id="nx-panel">
             {ADMIN_ONLY.has(tab) && !caps.admin ? (<><PageHeader title={t(serviceLabel(tab))} /><PermissionNotice requires={t("top.role.admin")} /></>)
               : loading && tab !== "summary" ? null
-              : Active?.ownHeader ? pageEl
+              : OWN_HEADER.has(tab) ? pageEl
               : (<><PageHeader title={t(serviceLabel(tab))} />{pageEl}</>)}
           </div>
         ) : !isObj ? (
           <div className="nx-page"><div className="nx-legacy"><p>{t("res.storagePlaceholder")}</p></div></div>
         ) : missing ? (
-          <div className="nx-page"><EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={<button type="button" className="nx-btn" onClick={() => navigateTo("datacenter", null, "summary")}>{t("nav.overview")}</button>} /></div>
+          <div className="nx-page">
+            <header className="hc-ph">
+              <nav className="hc-crumbs" aria-label={t("crumb.label")}>
+                <button type="button" className="nx-lnk" onClick={() => navigateTo("datacenter", null, "summary")}>{t("nav.overview")}</button><ChevronRight size={12} aria-hidden="true" />
+                <button type="button" className="nx-lnk" onClick={toList}>{t(serviceLabel(LIST_OF[selection.type]))}</button><ChevronRight size={12} aria-hidden="true" />
+              </nav>
+              <div className="hc-ph-row">
+                <ServiceTile id={LIST_OF[selection.type]} size={32} />
+                <div className="hc-ph-t"><div className="nx-ph-title"><h1>{t("res.notFoundTitle")}</h1></div><p className="hc-ph-sub">{selection.id}</p></div>
+              </div>
+            </header>
+            <EmptyState title={t("res.notFound")} help={t("res.notFoundHelp")} action={(
+              <span className="nx-inline">
+                <button type="button" className="nx-btn nx-btn--primary" onClick={toList}>{t("res.backToList", { list: t(serviceLabel(LIST_OF[selection.type])) })}</button>
+                <button type="button" className="nx-btn" onClick={() => window.dispatchEvent(new Event("nx:palette"))}>{t("res.search")}</button>
+              </span>
+            )} />
+          </div>
         ) : resource ? (
           <div className="hc-respage">
             <header className="hc-ph hc-ph--res">

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Activity, Cpu, DatabaseBackup, HardDrive, HeartPulse, Monitor, Network, TriangleAlert } from "lucide-react";
+import { Activity, DatabaseBackup, HardDrive, HeartPulse, Monitor, Network, TriangleAlert } from "lucide-react";
 import { fetchSnapshots, fetchVMBackups, fetchHaProtected, fetchTasks, fetchVMDisks, fetchVMNetwork, fetchBackupSchedule, fetchVMAutoCleanup } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
@@ -95,17 +95,16 @@ export default function VmSummary({ resource: vm }) {
           [t("ns.node"), <>{lnk(nodeName, () => navigateTo("node", vm.node, "summary"))}{canMigrate && <> ({lnk(t("prop.migrate"), () => setMigrating(true))})</>}</>],
           [t("ns.col.state"), <StatusIndicator key="state" kind="vm" wire={vm.state} />],
           [t("prop.cluster"), cluster?.in_cluster ? cluster.name : t("crumb.datacenter")],
-          ["VMID", vm.vmid != null ? String(vm.vmid) : <span className="nx-muted">{t("vmid.pending")}</span>],
           [t("prop.uptime"), running && vm.uptime_s ? formatUptimeLong(vm.uptime_s, lang) : "—"],
         ]}
         right={[
           [t("vm.os"), vm.os || na],
-          [t("prop.size"), t("vmlist.size", { vcpu: vm.vcpu, mem: formatSizeMb(vm.memory_mb, lang) })],
+          [t("prop.size"), <>{t("vmlist.size", { vcpu: vm.vcpu, mem: formatSizeMb(vm.memory_mb, lang) })}{caps.admin && !remote && <> ({lnk(t("prop.edit").toLowerCase(), () => go("hardware"))})</>}</>],
           [t("vmlist.ip"), vm.ip || <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>],
           [t("prop.network"), net == null ? wait : firstNic ? `${firstNic.network || firstNic.type_source || "—"}${firstNic.vlan != null ? ` / VLAN ${firstNic.vlan}` : ""}` : na],
           [t("vm.tools"), vm.guest_agent ? t(`vm.tools.${vm.guest_agent}`) : <span className="nx-muted">{t("vm.toolsStopped")}</span>],
         ]}
-        footer={<div className="hc-kv"><div><dt>{t("vmlist.tags")}</dt><dd>{tags.length ? <TagChips tags={tags} /> : <span className="nx-muted">{t("prop.noTags")}</span>}</dd></div></div>}
+        footer={<dl className="hc-kv"><div><dt>{t("vmlist.tags")}</dt><dd>{tags.length ? <TagChips tags={tags} /> : <span className="nx-muted">{t("prop.noTags")}</span>}</dd></div></dl>}
       />
 
       <PageTabs label={vm.name} value={tab} onChange={setTab} tabs={[["props", t("prop.tab.props")], ["monitor", t("prop.tab.monitor")]]} />
@@ -113,30 +112,21 @@ export default function VmSummary({ resource: vm }) {
       {tab === "monitor" ? <div className="hc-tabpanel"><VmPerformancePage resource={vm} /></div> : (
         <PropGrid>
           <PropSection icon={Monitor} title={t("prop.vm")} rows={[
-            [t("ns.col.name"), vm.name],
-            [t("vm.os"), vm.os || na],
             [t("wz.firmware"), vm.firmware ? t(`fw.${vm.firmware}`) : na],
             [t("vm.storageType"), vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"],
-            [t("vm.tools"), vm.guest_agent ? t(`vm.tools.${vm.guest_agent}`) : <span className="nx-muted">{t("vm.toolsStopped")}</span>],
-            ["UUID", vm.uuid ? <span className="nx-mono nx-break">{vm.uuid}</span> : na],
+            ["VMID", vm.vmid != null ? String(vm.vmid) : <span className="nx-muted">{t("vmid.pending")}</span>],
+            ["UUID", vm.uuid ? <span className="nx-break">{vm.uuid}</span> : na],
           ]} />
           <PropSection icon={Network} title={t("prop.networking")} action={edit("network")} rows={[
-            [t("vmlist.ip"), vm.ip || <span className="nx-muted">{t("vm.ipNone")}</span>],
             ...(net == null ? [[t("prop.interfaces"), wait]] : net === false ? [[t("prop.interfaces"), na]] : net.map((i, n) => [
               `${t("prop.interface")} ${n + 1}`, <>{i.network || i.type_source || "—"}{i.vlan != null ? ` / VLAN ${i.vlan}` : ""} · {i.model || "—"} · <span className="nx-mono">{i.mac}</span></>,
             ])),
             [t("vm.ssh"), vm.ssh_user ? <span className="nx-mono">{`${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}`}</span> : na],
           ]} />
           <PropSection icon={HeartPulse} title={t("prop.availability")} rows={[
-            [t("ns.node"), lnk(nodeName, () => navigateTo("node", vm.node, "summary"))],
             [t("tab.ha"), remote ? <span className="nx-muted">{t("vm.remoteLocalOnly")}</span> : ha == null ? wait : ha ? lnk(t("vm.haOn"), () => navigateTo("datacenter", null, "ha")) : <>{t("vm.haOff")} ({lnk(t("vm.protectHa"), () => navigateTo("datacenter", null, "ha"))})</>],
             [t("vm.ifNodeFails", { node: nodeName }), remote ? "—" : ha == null ? wait : ha ? t("vm.restartsElsewhere") : t("vm.staysDown")],
             [t("vm.cleanup"), remote ? null : cleanup == null ? wait : cleanup.active ? t("vm.cleanupOn", { n: cleanup.inactive_days }) : t("vm.cleanupOff")],
-          ]} />
-          <PropSection icon={Cpu} title={t("prop.size")} action={edit("hardware")} rows={[
-            [t("prop.size"), t("vmlist.size", { vcpu: vm.vcpu, mem: formatSizeMb(vm.memory_mb, lang) })],
-            [t("vh.processor"), `${vm.vcpu} vCPU`],
-            [t("ct.memory"), formatSizeMb(vm.memory_mb, lang)],
           ]} />
           <PropSection icon={HardDrive} title={t("prop.disks")} action={edit("hardware")} rows={
             disks == null ? [[t("prop.disks"), wait]] : disks === false ? [[t("prop.disks"), na]] : [
