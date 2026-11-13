@@ -28,6 +28,9 @@ ALL_PRIVILEGES = {
     # client relays SSH or remote desktop): distinct from vm.console because it opens
     # the guest's own services to the workstation, not a console inside the browser.
     "vm.tunnel": "Tunnel from your workstation (SSH, remote desktop)",
+    # Commands run inside the guest through its agent, as the agent's user (root, SYSTEM): as strong as a console
+    # signed in as an administrator, so in no predefined role.
+    "vm.exec": "Run commands inside the VM through the guest agent",
     "vm.snapshot": "Snapshots (create / restore / delete)",
     "vm.resize": "Resize (CPU / RAM / disk)",
     "vm.hardware": "Hardware (disks, network interfaces, CD drive)",

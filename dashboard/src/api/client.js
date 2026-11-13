@@ -1212,6 +1212,15 @@ export function attachVMHostDevice(name, device, confirm = false) {
 export function detachVMHostDevice(name, device) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
 }
+// Inside a VM through its guest agent: what its OS says about itself, and a script run there (vm.exec).
+export async function fetchVmGuest(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/guest${q}`);
+}
+export async function runInVmGuest(name, node, { shell, script, timeoutS }) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/guest/run${q}`, { method: "POST", ...jsonBody({ shell, script, timeout_s: timeoutS }) });
+}
 export async function fetchVMMetricsHistory(name, range = "1h", node = null) {
   const params = new URLSearchParams({ range });
   if (node && node !== "local") params.set("node", node);

@@ -1885,6 +1885,39 @@
     "title": "GroupRename",
     "type": "object"
    },
+   "GuestRun": {
+    "properties": {
+     "script": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "title": "Script",
+      "type": "string"
+     },
+     "shell": {
+      "default": "sh",
+      "enum": [
+       "sh",
+       "bash",
+       "powershell",
+       "cmd"
+      ],
+      "title": "Shell",
+      "type": "string"
+     },
+     "timeout_s": {
+      "default": 30,
+      "maximum": 120.0,
+      "minimum": 1.0,
+      "title": "Timeout S",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "script"
+    ],
+    "title": "GuestRun",
+    "type": "object"
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -24412,6 +24445,144 @@
      }
     ],
     "summary": "Set Vm Firewall",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/guest": {
+   "get": {
+    "description": "OS, kernel, host name, time zone, signed-in users and file systems, as the guest agent reports them. 422 when\nthe VM is stopped or has no running agent.",
+    "operationId": "get_guest_info_api_v1_vms__name__guest_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Guest Info",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/guest/run": {
+   "post": {
+    "description": "Runs a script in the guest's shell and waits for it (at most timeout_s): its exit code, output and errors (64 KiB\nof each at most). A script still running at the deadline keeps running in the guest and is reported as timed out.",
+    "operationId": "run_in_guest_api_v1_vms__name__guest_run_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GuestRun"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Run In Guest",
     "tags": [
      "vms"
     ]

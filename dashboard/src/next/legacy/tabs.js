@@ -53,6 +53,8 @@ const ContainerBackupsPage = onDemand(() => import("../pages/ContainerPages"), "
 const ContainerSnapshotsPage = onDemand(() => import("../pages/ContainerPages"), "ContainerSnapshotsPage");
 const VmCloudInitPage = onDemand(() => import("../pages/VmCloudInit"));
 const VmAdvancedPage = onDemand(() => import("../pages/VmAdvanced"));
+const VmGuestInfoPage = onDemand(() => import("../pages/VmGuest"), "VmGuestInfoPage");
+const VmRunCommandPage = onDemand(() => import("../pages/VmGuest"), "VmRunCommandPage");
 const MetricsPage = onDemand(() => import("../pages/MetricsPage"));
 const MetricsExplorer = onDemand(() => import("../pages/MetricsExplorer"));
 const ApiPage = onDemand(() => import("../pages/ApiPage"));
@@ -80,7 +82,7 @@ export const NODE_TABS = {
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, advisor: VmAdvisorPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, advisor: VmAdvisorPage, guest: VmGuestInfoPage, run: VmRunCommandPage,
 };
 export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, snapshots: ContainerSnapshotsPage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
@@ -116,6 +118,8 @@ export const OBJECT_TABS = {
     { id: "console", label: "tab.console", pages: [page("console")] },
     { id: "tasks", label: "tab.tasks", pages: [page("tasks")] },
     { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
+    { id: "guest", label: "tab.guest", pages: [page("guest")] },
+    { id: "run", label: "tab.run", pages: [page("run")] },
     { id: "advisor", label: "tab.advisor", pages: [page("advisor")] },
   ],
   container: [

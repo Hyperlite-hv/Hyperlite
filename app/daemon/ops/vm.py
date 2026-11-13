@@ -177,6 +177,45 @@ def agent_ipv4(args, ctx):
     return guest_agent.ipv4_many(_agent_domains(args.vms), wait=args.wait_s)
 
 
+class AgentInfoArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    node: str | None = NODE
+
+
+@operation("vm.agent_info", AgentInfoArgs, needs=on_vm("vm.view"))
+@_libvirt
+def agent_info(args, ctx):
+    """What the guest says about itself (guest_agent.os_info): asking the agent needs a connection that may write."""
+    from app.core import guest_agent, libvirt_utils
+
+    with libvirt_utils.node_conn(args.node) as conn:
+        try:
+            return guest_agent.os_info(_domain(conn, args.vm))
+        except guest_agent.AgentUnavailable as e:
+            raise DaemonError("refused", str(e)) from None
+
+
+class AgentExecArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+    shell: Literal["sh", "bash", "powershell", "cmd"]
+    script: str = Field(min_length=1, max_length=16384)
+    timeout_s: int = Field(30, ge=1, le=120)
+    node: str | None = NODE
+
+
+@operation("vm.agent_exec", AgentExecArgs, needs=on_vm("vm.exec"))
+@_libvirt
+def agent_exec(args, ctx):
+    """A script run in the guest through its agent (guest_agent.run), its output and exit code."""
+    from app.core import guest_agent, libvirt_utils
+
+    with libvirt_utils.node_conn(args.node) as conn:
+        try:
+            return guest_agent.run(_domain(conn, args.vm), args.shell, args.script, args.timeout_s)
+        except guest_agent.AgentUnavailable as e:
+            raise DaemonError("refused", str(e)) from None
+
+
 # --- Part 2a: a VM's processors, memory, limits, CPU pinning and advanced hardware ---
 
 MAX_VCPU = 1024
