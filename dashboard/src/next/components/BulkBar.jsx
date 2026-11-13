@@ -45,7 +45,7 @@ function BulkMigrateDialog({ vms, nodes, onPick, onClose }) {
 
 // Actions on several VMs at once: each button says how many of the selected VMs it applies to; the confirmation
 // names them and the ones skipped; the calls run a few at a time and every failure is reported by name.
-export default function BulkBar({ selected, caps, nodes, onClear }) {
+export default function BulkBar({ selected, caps, nodes, onClear, bare = false }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const runVMAction = useInfraStore((s) => s.runVMAction);
@@ -92,13 +92,33 @@ export default function BulkBar({ selected, caps, nodes, onClear }) {
       else execute(action, apply, skip);
     };
     return (
-      <button key={action} type="button" className={`nx-btn nx-btn--sm${action === "delete" ? " nx-btn--danger" : ""}`} aria-disabled={disabled || undefined} onClick={onClick}
-        title={apply.length === 0 ? t("bulk.noneApplies") : undefined}>
-        <Icon size={14} aria-hidden="true" />{t(`bulk.${action}.label`)} <span className="nx-n">{apply.length}</span>
+      <button key={action} type="button" className={`nx-btn${bare ? "" : " nx-btn--sm"}${action === "delete" ? " nx-btn--danger" : ""}`} aria-disabled={disabled || undefined} onClick={onClick}
+        title={selected.length === 0 ? t("bulk.pickFirst") : apply.length === 0 ? t("bulk.noneApplies") : undefined}>
+        <Icon size={bare ? 16 : 14} aria-hidden="true" />{t(`bulk.${action}.label`)}{(!bare || apply.length > 0) && <> <span className="nx-n">{apply.length}</span></>}
       </button>
     );
   };
 
+  const migrateDialog = migrating && (
+        <BulkMigrateDialog vms={splitSelection("migrate", selected, caps).apply} nodes={nodes} onClose={() => setMigrating(false)}
+          onPick={(target) => {
+            setMigrating(false);
+            const { apply, skip } = splitSelection("migrate", selected, caps, target);
+            execute("migrate", apply, skip, target);
+          }} />
+      );
+  // In a command bar: the buttons only, waiting for a selection.
+  if (bare) {
+    return (
+      <>
+        {["start", "restart", "stop", "force-stop"].map(button)}
+        {caps.delete && button("delete")}
+        {caps.admin && nodes.length > 1 && button("migrate")}
+        {busy && <span className="nx-muted" role="status">{t("bulk.running", { action: t(`bulk.${busy}.label`) })}</span>}
+        {migrateDialog}
+      </>
+    );
+  }
   return (
     <div className="nx-bulkbar" role="region" aria-label={t("bulk.region")}>
       <span className="nx-bulkbar-n" role="status">{busy ? t("bulk.running", { action: t(`bulk.${busy}.label`) }) : t("bulk.selected", { n: selected.length })}</span>
@@ -109,14 +129,7 @@ export default function BulkBar({ selected, caps, nodes, onClear }) {
       </div>
       <span className="nx-sp" />
       <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={onClear} disabled={busy != null}><X size={14} aria-hidden="true" />{t("bulk.clear")}</button>
-      {migrating && (
-        <BulkMigrateDialog vms={splitSelection("migrate", selected, caps).apply} nodes={nodes} onClose={() => setMigrating(false)}
-          onPick={(target) => {
-            setMigrating(false);
-            const { apply, skip } = splitSelection("migrate", selected, caps, target);
-            execute("migrate", apply, skip, target);
-          }} />
-      )}
+      {migrateDialog}
     </div>
   );
 }

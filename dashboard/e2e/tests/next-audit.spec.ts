@@ -85,7 +85,7 @@ for (const [theme, lang] of [["dark", "en"], ["light", "fr"]] as const) {
       for (const k of new Set(text.match(KEY_TOKEN) || [])) if (seenKeys.has(k)) expect.soft(k, `${label}: raw translation key shown "${k}"`).toBe("");
       // wrong-language text in the rebuilt chrome (sidebar + top bar + page heading)
       if (lang === "en") {
-        const chrome = await page.locator(".nx-rail, .nx-navi, .nx-top, .nx-main h1").allInnerTexts();
+        const chrome = await page.locator(".hc-side, .hc-top, .nx-main h1").allInnerTexts();
         expect.soft(chrome.join(" ").match(FRENCH)?.[0] ?? "", `${label}: French text in the English interface`).toBe("");
       }
       // accessibility (WCAG 2 A/AA): serious and critical only
@@ -195,7 +195,7 @@ test("keyboard: tab order reaches the skip link, sidebar, inventory, search and 
       if (!el || el === document.body) return null;
       const cs = getComputedStyle(el);
       const ring = (parseFloat(cs.outlineWidth) > 0 && cs.outlineStyle !== "none") || cs.boxShadow !== "none";
-      return { tag: el.tagName, name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 40), ring, zone: el.closest(".nx-rail, .nx-navi") ? "sidebar" : el.closest(".nx-top") ? "top" : el.closest("main") ? "main" : "other", role: el.getAttribute("role") };
+      return { tag: el.tagName, name: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 40), ring, zone: el.closest(".hc-side") ? "sidebar" : el.closest(".hc-top") ? "top" : el.closest("main") ? "main" : "other", role: el.getAttribute("role") };
     });
     if (info) { seen.push(`${info.zone}:${info.name}`); if (!info.ring) invisible++; }
   }

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { ADMIN, apiLogin, expect, PREFIX, test, listing } from "../support/fixtures";
+import { ADMIN, apiLogin, expect, PREFIX, test, listing, resourcePage } from "../support/fixtures";
 
 // VM Configure / Snapshots / Backup pages against a real (stopped) VM on the real backend.
 const stamp = Date.now().toString().slice(-6);
@@ -48,7 +48,7 @@ test("hardware and options: values are validated, resources saved on a stopped V
   await expect.poll(async () => ((await (await request.get(`/vms/${NAME}`, { headers: auth() })).json()) as { vcpu: number }).vcpu, { timeout: 30_000 }).toBe(2);
 
   // "Options and limits" keeps only the live cgroups limits, with one "Apply live" button.
-  await main.getByRole("navigation", { name: "Hardware" }).getByRole("button", { name: "Options and limits" }).click();
+  await resourcePage(page, "Options and limits").click();
   await expect(page).toHaveURL(/tab=options/);
   await expect(main.getByLabel("vCPU count")).toHaveCount(0);
   const apply = main.getByRole("button", { name: "Apply live" });
@@ -180,11 +180,11 @@ test("hardware and network: attach and detach a disk with confirmation, VLAN onl
   await expect.poll(disks, { timeout: 30_000 }).toBe(before);
   // interfaces and firewall moved to their own Network tab
   await expect(main.getByRole("heading", { level: 2, name: /^Network interfaces/ })).toHaveCount(0);
-  await main.getByRole("navigation", { name: "Hardware" }).getByRole("button", { name: "Options and limits" }).click();
+  await resourcePage(page, "Options and limits").click();
   await expect(page).toHaveURL(/tab=options/);
 
   await page.goto(`/vm/${NAME}?tab=network`);
-  await expect(main.getByRole("tab", { name: "Network", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(resourcePage(page, "Network")).toHaveAttribute("aria-current", "page");
   await main.getByRole("button", { name: "Add an interface" }).click();
   const ifDrawer = page.getByRole("dialog", { name: "Add an interface" });
   await ifDrawer.getByLabel("Network to attach").selectOption("hyperlite-isolated");
@@ -325,17 +325,17 @@ test("snapshots: name is validated, create, restore and delete are confirmed and
   await expect.poll(snaps, { timeout: 30_000 }).not.toContain("before-upgrade");
 });
 
-test("header actions and performance: Snapshot and Migrate are in the Actions menu, charts only in Performance", async ({ page }) => {
+test("resource page: Essentials and properties on the overview, every page in the menu, commands then More, charts in Monitoring", async ({ page }) => {
   await open(page, "summary");
   const main = page.getByRole("main");
-  await expect(main.getByRole("heading", { level: 2, name: "Configuration" })).toBeVisible({ timeout: 20_000 });
-  // R8: KPI tiles on the summary, the full charts only in the Performance tab.
-  await expect(main.getByRole("heading", { level: 2, name: /^Performance · last hour/ })).toHaveCount(0);
-  for (const tab of ["Summary", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console", "Tasks", "Permissions"]) await expect(main.getByRole("tab", { name: tab, exact: true })).toBeVisible();
+  await expect(main.getByRole("region", { name: "Essentials" })).toBeVisible({ timeout: 20_000 });
+  await expect(main.getByRole("heading", { level: 2, name: "Networking" })).toBeVisible();
+  for (const p of ["Overview", "Performance", "Snapshots", "Backups", "Hardware", "Network", "Console", "Tasks", "Permissions"]) await expect(resourcePage(page, p)).toBeVisible();
   const head = page.locator(".nx-oh-acts");
-  // stopped VM on a single-node install: Start is the primary action, Migrate says why it is unavailable
-  await expect(head.getByRole("button", { name: "Start", exact: true })).toBeVisible();
-  await head.getByRole("button", { name: /^Actions/ }).click();
+  // stopped VM on a single-node install: Start is available, Stop says why it is not, Migrate is not offered
+  await expect(head.getByRole("button", { name: /^Start/ })).not.toHaveAttribute("aria-disabled", "true");
+  await expect(head.getByRole("button", { name: /^Stop/ })).toHaveAttribute("aria-disabled", "true");
+  await head.getByRole("button", { name: /^(More|Plus)\b/ }).click();
   const migrate = page.getByRole("menuitem", { name: /^Migrate…/ });
   await expect(migrate).toHaveAttribute("aria-disabled", "true");
   await expect(migrate).toHaveAttribute("title", /Not running|No other online node/);
@@ -345,7 +345,7 @@ test("header actions and performance: Snapshot and Migrate are in the Actions me
   await expect(dlg.getByRole("textbox")).toBeVisible({ timeout: 20_000 });
   await dlg.getByRole("button", { name: "Cancel" }).click();
 
-  await main.getByRole("tab", { name: "Performance" }).click();
+  await resourcePage(page, "Performance").click();
   await expect(main.getByRole("group", { name: "History range" })).toBeVisible();
   for (const h of ["CPU", "Memory", "Disk I/O", "Network"]) await expect(main.getByRole("heading", { level: 3, name: h, exact: true })).toBeVisible();
   await main.getByRole("group", { name: "History range" }).getByRole("button", { name: "7j" }).click();

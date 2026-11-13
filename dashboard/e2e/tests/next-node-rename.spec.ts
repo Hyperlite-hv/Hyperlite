@@ -10,7 +10,7 @@ test("the local node is renamed from its Actions menu, with the host name checke
   });
   await uiLogin(page);
   await page.goto("/node/local?tab=summary");
-  await page.getByRole("main").getByRole("button", { name: "Actions" }).click();
+  await page.getByRole("main").getByRole("button", { name: /^(More|Plus)\b/ }).click();
   const item = page.getByRole("menuitem", { name: /Rename/ });
   await expect(item).not.toHaveAttribute("aria-disabled", "true");
   await item.click();

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Globe, Heart, LayoutTemplate, Link, MoveHorizontal, PencilLine, Play, Plus, Power, RefreshCw,
-  RotateCcw, RotateCw, Share, Square, SquareTerminal, Trash2, Wrench,
+  RotateCcw, RotateCw, Share, Square, SquareTerminal, Trash2, Wrench, DatabaseBackup, Ellipsis,
 } from "lucide-react";
 import {
   cloneVM, createTemplateFromVM, createBackup, exportVM, fetchHaProtected, enableHa, disableHa,
@@ -18,6 +18,7 @@ import { useVmActions } from "../lib/vmActions";
 import { errorMessage } from "../lib/errors";
 import { vmKey, isRemoteVm } from "../lib/vmId";
 import { requestIntent } from "../lib/intents";
+import { refreshInventory } from "../lib/inventory";
 import Menu, { MenuItem } from "./Menu";
 import ContextMenu from "./ContextMenu";
 import { selectionToPath } from "../lib/urls";
@@ -243,18 +244,25 @@ export function VmHeaderActions({ vm, currentTab, setTab }) {
     onDeleted: () => navigateTo("datacenter", null, "vms"),
     onRenamed: (key) => navigateTo("vm", key, currentTab || "summary"),
   });
-  const running = vm.state === "active";
   const act = (a) => vmActionState(a, vm, caps);
   const c = act("console"); const st = act("start"); const sp = act("stop");
+  const remote = isRemoteVm(vm);
+  // The commands of a resource page, as in a portal: connect, power, protection, migration, refresh, then the rest
+  // of the actions under "More". Each command says why it is unavailable instead of disappearing.
   return (
     <div className="nx-oh-acts">
-      {running
-        ? <HeadBtn primary state={c} icon={SquareTerminal} label={t("actions.primary.console")} onClick={() => vmActions.openConsole(vm)} />
-        : <HeadBtn primary state={st} icon={Play} label={t("menu.start")} onClick={() => vmActions.run(vm, "start")} />}
-      {menu.migrate.show && <HeadBtn state={menu.migrate.state} icon={MoveHorizontal} label={t("head.migrate")} onClick={menu.migrate.open} />}
-      {(running || sp.enabled) && <HeadBtn state={sp} icon={Square} label={t("menu.stop")} onClick={() => vmActions.run(vm, "stop")} />}
+      <HeadBtn state={c} icon={SquareTerminal} label={t("res.connect")} onClick={() => vmActions.openConsole(vm)} />
+      <HeadBtn state={st} icon={Play} label={t("menu.start")} onClick={() => vmActions.run(vm, "start")} />
+      <HeadBtn state={act("restart")} icon={RotateCw} label={t("menu.restart")} onClick={() => vmActions.run(vm, "restart")} />
+      <HeadBtn state={sp} icon={Square} label={t("menu.stop")} onClick={() => vmActions.run(vm, "stop")} />
+      <span className="hc-cmd-sep" aria-hidden="true" />
+      {!remote && <HeadBtn state={{ enabled: true }} icon={Camera} label={t("res.snapshot")} onClick={() => setTab("snapshots")} />}
+      {(!remote || vm.node) && <HeadBtn state={{ enabled: true }} icon={DatabaseBackup} label={t("res.backup")} onClick={() => setTab("backup")} />}
+      {menu.migrate.show && <HeadBtn state={menu.migrate.state} icon={MoveHorizontal} label={t("prop.migrateCmd")} onClick={menu.migrate.open} />}
+      <span className="hc-cmd-sep" aria-hidden="true" />
+      <HeadBtn state={{ enabled: true }} icon={RefreshCw} label={t("action.refresh")} onClick={() => refreshInventory().catch(() => {})} />
       <span className="nx-relative">
-        <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{t("actions")}<ChevronDown size={14} aria-hidden="true" /></button>
+        <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Ellipsis size={16} aria-hidden="true" />{t("res.more")}<ChevronDown size={14} aria-hidden="true" className="hc-cmd-chev" /></button>
         <Menu open={open} onClose={close} label={t("actions")} returnFocusRef={btn} style={{ top: "calc(100% + 4px)", right: 0 }}>
           {menu.items}
         </Menu>
@@ -345,10 +353,23 @@ export function NodeHeaderActions({ node, setTab }) {
   const close = () => setOpen(false);
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const items = useNodeMenu(node, { close, openTab: setTab, onRenamed: (name) => navigateTo("node", name, "summary") });
+  const caps = capabilities(useAuthStore((s) => s.role));
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const refreshAll = useInfraStore((s) => s.refreshAll);
+  const admin = caps.admin ? { enabled: true } : { enabled: false, reason: "menu.reason.admin" };
+  const online = node.state === "online";
+  // The common commands of a node in the bar; the menu "More" keeps every action with its exact rules.
   return (
     <div className="nx-oh-acts">
+      <HeadBtn state={caps.create && online ? { enabled: true } : { enabled: false, reason: caps.create ? "menu.reason.notRunning" : "menu.reason.admin" }} icon={Plus} label={t("res.createVm")} onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))} />
+      <HeadBtn state={admin} icon={SquareTerminal} label={t("res.shell")} onClick={() => setTab("shell")} />
+      {node.maintenance
+        ? <HeadBtn state={admin} icon={Wrench} label={t("mt.leave")} onClick={() => leaveMaintenance(node, t, pushToast, refreshAll)} />
+        : <HeadBtn state={admin} icon={Wrench} label={t("res.maintenance")} onClick={() => window.dispatchEvent(new CustomEvent("nx:node-maintenance", { detail: node.id }))} />}
+      <span className="hc-cmd-sep" aria-hidden="true" />
+      <HeadBtn state={{ enabled: true }} icon={RefreshCw} label={t("action.refresh")} onClick={() => refreshInventory().catch(() => {})} />
       <span className="nx-relative">
-        <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{t("actions")}<ChevronDown size={14} aria-hidden="true" /></button>
+        <button ref={btn} type="button" className="nx-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}><Ellipsis size={16} aria-hidden="true" />{t("res.more")}<ChevronDown size={14} aria-hidden="true" className="hc-cmd-chev" /></button>
         <Menu open={open} onClose={close} label={t("actions")} returnFocusRef={btn} style={{ top: "calc(100% + 4px)", right: 0 }}>
           {items}
         </Menu>
@@ -369,7 +390,7 @@ function HeadBtn({ state, label, onClick, primary, icon: Icon }) {
   const t = useT();
   return (
     <button type="button" className={`nx-btn${primary ? " nx-btn--primary" : ""}`} aria-disabled={!state.enabled || undefined} title={!state.enabled && state.reason ? t(state.reason) : undefined} onClick={() => state.enabled && onClick()}>
-      {Icon && <Icon size={15} aria-hidden="true" />}{label}{!state.enabled && state.reason && <span className="nx-sr"> — {t(state.reason)}</span>}
+      {Icon && <Icon size={16} aria-hidden="true" />}{label}{!state.enabled && state.reason && <span className="nx-sr"> — {t(state.reason)}</span>}
     </button>
   );
 }

@@ -1,35 +1,39 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Archive, Camera, Eraser, Heart, MoveHorizontal, TriangleAlert } from "lucide-react";
+import { Activity, Cpu, DatabaseBackup, HardDrive, HeartPulse, Monitor, Network, TriangleAlert } from "lucide-react";
 import { fetchSnapshots, fetchVMBackups, fetchHaProtected, fetchTasks, fetchVMDisks, fetchVMNetwork, fetchBackupSchedule, fetchVMAutoCleanup } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT, useLangStore } from "../i18n";
 import { isRemoteVm, vmKey } from "../lib/vmId";
 import { usePolling } from "../lib/polling";
 import { taskLabel } from "../lib/enums";
-import { formatSizeMb, formatRate, clockTime, formatDateTime } from "../lib/format";
+import { formatSizeMb, formatUptimeLong, clockTime, formatDateTime } from "../lib/format";
+import { useFreshness } from "../lib/inventory";
 import StatusIndicator from "../components/StatusIndicator";
-import { KpiStrip, Card, Loading } from "../components/ui";
-import { useVmHistory } from "./VmPerformance";
-import NotesCard from "../components/NotesCard";
+import NotesCard, { TagChips } from "../components/NotesCard";
 import { useAuthStore } from "../../store/useAuthStore";
 import { capabilities } from "../lib/capabilities";
+import { metaOf, useMetaStore } from "../lib/meta";
 import MigrateDialog from "../components/MigrateDialog";
+import { Essentials, PageTabs, PropGrid, PropSection } from "../components/portal";
+import VmPerformancePage from "./VmPerformance";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
 const base = (p) => (p ? String(p).split("/").pop() : "");
-const pct = (u, tot) => (u != null && tot ? (u / tot) * 100 : null);
 
-// VM summary: four KPI tiles (last hour, opening Performance), the real configuration, the protection state
-// with direct links, and the VM's recent activity.
-// Every operation lives in the header (primary, Stop, Actions menu): nothing is repeated here.
+// Overview of a VM, as a resource page of a portal: the essentials on two columns, then two tabs. Properties lists
+// the configuration by subject (machine, network, availability, size, disks, protection, activity), each with a
+// link to the page that changes it; Monitoring shows the charts of the Performance page.
+// Every operation lives in the command bar above: nothing is repeated here.
 export default function VmSummary({ resource: vm }) {
   const t = useT();
   const caps = capabilities(useAuthStore((s) => s.role));
   const lang = useLangStore((s) => s.lang);
   const { nodes, navigateTo } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, navigateTo: s.navigateTo })));
-  const hist = useVmHistory(vm, "1h");
-  const running = vm?.state === "active";
+  const cluster = useFreshness((s) => s.cluster);
+  const { byKey: metaByKey, load: loadMeta } = useMetaStore(useShallow((s) => ({ byKey: s.byKey, load: s.load })));
+  useEffect(() => { loadMeta(); }, [loadMeta]);
+  const [tab, setTab] = useState("props");
   const [snaps, setSnaps] = useState(null);
   const [backups, setBackups] = useState(null);
   const [schedule, setSchedule] = useState(undefined);
@@ -56,29 +60,26 @@ export default function VmSummary({ resource: vm }) {
     fetchHaProtected().then((r) => setHa(asList(r).some((x) => x.vm_name === name))).catch(() => setHa(false));
     fetchVMAutoCleanup(name).then(setCleanup).catch(() => setCleanup(null));
   }, [name, node]); // eslint-disable-line react-hooks/exhaustive-deps
-  const loadRecent = async () => { if (name) setRecent(asList(await fetchTasks({ target: name, limit: 6, sort: "created_at", position: "desc" }))); };
+  const loadRecent = async () => { if (name) setRecent(asList(await fetchTasks({ target: name, limit: 5, sort: "created_at", position: "desc" }))); };
   usePolling(loadRecent, 10000, { enabled: !!name });
   useEffect(() => { loadRecent().catch(() => setRecent([])); }, [name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!vm) return null;
+  const running = vm.state === "active";
   const nodeObj = nodes.find((n) => n.id === vm.node);
   const nodeName = nodeObj?.name || vm.node;
   const canMigrate = caps.admin && running && nodes.length > 1;
-  const moves = (recent || []).filter((r) => /migrat|drain|evacuat|recover/.test(r.type || "")).slice(0, 3);
   const na = <span className="nx-muted">{t("ns.notReported")}</span>;
-  const rows = (hist.rows || []).slice(-60);
-  const last = rows[rows.length - 1];
-  const lastMem = [...rows].reverse().find((r) => r.mem_total_mb && r.mem_used_mb != null);
-  const memP = lastMem ? pct(lastMem.mem_used_mb, lastMem.mem_total_mb) : null;
-  const rd = last?.disk_read_bps ?? null; const wr = last?.disk_write_bps ?? null;
-  const rx = last?.net_rx_bps ?? null; const tx = last?.net_tx_bps ?? null;
-  const live = running && last;
-  const rate = (v) => formatRate(v, lang) || "—";
-  const split = (s) => { const m = String(s).match(/^([\d.,\s\u202f]+)\s(.+)$/); return m ? [m[1].trim(), m[2]] : [s, null]; };
-  const [diskV, diskU] = live && rd != null ? split(rate(rd + (wr || 0))) : ["—", null];
-  const [netV, netU] = live && rx != null ? split(rate(rx + (tx || 0))) : ["—", null];
+  const wait = <span className="nx-muted">…</span>;
+  const go = (page) => navigateTo("vm", vmKey(vm), page);
+  const edit = (page, label = t("prop.edit")) => (caps.admin && !remote ? <button type="button" className="nx-lnk" onClick={() => go(page)}>{label}</button> : null);
+  const lnk = (label, onClick) => <button type="button" className="nx-lnk" onClick={onClick}>{label}</button>;
+  const tags = metaOf(metaByKey, "vm", vm.node, vm.name)?.tags || [];
   const lastBackup = backups && backups.length ? [...backups].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] : null;
-  const goPerf = () => navigateTo("vm", vmKey(vm), "perf");
+  const firstNic = Array.isArray(net) ? net[0] : null;
+  const realDisks = Array.isArray(disks) ? disks.filter((d) => d.type !== "cdrom") : [];
+  const cdroms = Array.isArray(disks) ? disks.filter((d) => d.type === "cdrom") : [];
+  const gb = (v) => `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(v)} ${lang === "fr" ? "Go" : "GB"}`;
   const problem = vm.state === "crashed" || vm.state === "blocked";
   const today = new Date().toDateString();
 
@@ -89,109 +90,80 @@ export default function VmSummary({ resource: vm }) {
           <span className="nx-bn-t">{t(vm.state === "crashed" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>
       )}
 
-      <KpiStrip label={t("ns.resources")} items={[
-        { id: "cpu", label: t("ns.cpu"), value: live && last.cpu_pct != null ? Math.round(last.cpu_pct) : "—", unit: live && last.cpu_pct != null ? `% · ${vm.vcpu} vCPU` : `${vm.vcpu} vCPU`, sub: running ? null : t("vm.stoppedShort"), spark: rows.map((r) => r.cpu_pct), onClick: goPerf },
-        { id: "mem", label: t("ns.memory"), value: live && lastMem ? formatSizeMb(lastMem.mem_used_mb, lang) : "—", unit: `/ ${formatSizeMb(vm.memory_mb, lang)}`, sub: live && memP != null ? `${Math.round(memP)} %` : running ? t("vm.memNeedsAgent") : t("vm.stoppedShort"), spark: rows.map((r) => pct(r.mem_used_mb, r.mem_total_mb)), onClick: goPerf },
-        { id: "disk", label: t("vm.disk"), value: diskV, unit: diskU, sub: live && rd != null ? t("vm.rw", { r: rate(rd), w: rate(wr) }) : running ? t("ns.collecting") : t("vm.stoppedShort"), onClick: goPerf },
-        { id: "net", label: t("ns.network"), value: netV, unit: netU, sub: live && rx != null ? t("vm.rxtx", { r: rate(rx), t: rate(tx) }) : running ? t("ns.collecting") : t("vm.stoppedShort"), onClick: goPerf },
-      ]} />
+      <Essentials json={vm}
+        left={[
+          [t("ns.node"), <>{lnk(nodeName, () => navigateTo("node", vm.node, "summary"))}{canMigrate && <> ({lnk(t("prop.migrate"), () => setMigrating(true))})</>}</>],
+          [t("ns.col.state"), <StatusIndicator key="state" kind="vm" wire={vm.state} />],
+          [t("prop.cluster"), cluster?.in_cluster ? cluster.name : t("crumb.datacenter")],
+          ["VMID", vm.vmid != null ? String(vm.vmid) : <span className="nx-muted">{t("vmid.pending")}</span>],
+          [t("prop.uptime"), running && vm.uptime_s ? formatUptimeLong(vm.uptime_s, lang) : "—"],
+        ]}
+        right={[
+          [t("vm.os"), vm.os || na],
+          [t("prop.size"), t("vmlist.size", { vcpu: vm.vcpu, mem: formatSizeMb(vm.memory_mb, lang) })],
+          [t("vmlist.ip"), vm.ip || <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>],
+          [t("prop.network"), net == null ? wait : firstNic ? `${firstNic.network || firstNic.type_source || "—"}${firstNic.vlan != null ? ` / VLAN ${firstNic.vlan}` : ""}` : na],
+          [t("vm.tools"), vm.guest_agent ? t(`vm.tools.${vm.guest_agent}`) : <span className="nx-muted">{t("vm.toolsStopped")}</span>],
+        ]}
+        footer={<div className="hc-kv"><div><dt>{t("vmlist.tags")}</dt><dd>{tags.length ? <TagChips tags={tags} /> : <span className="nx-muted">{t("prop.noTags")}</span>}</dd></div></div>}
+      />
 
-      <div className="nx-vmgrid">
-        <Card title={t("vm.placement")} actions={canMigrate ? <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setMigrating(true)}><MoveHorizontal size={14} aria-hidden="true" />{t("vm.changeNode")}</button> : null}>
-          <div className="nx-place">
-            <div className="nx-place-c">
-              <small>{t("vm.currentNode")}</small>
-              <button type="button" className="nx-lnk" onClick={() => navigateTo("node", vm.node, "summary")}>{nodeName}</button>
-              <span className="nx-muted">{nodeObj?.cpu_utilisation != null ? t("vm.nodeLoad", { cpu: Math.round(nodeObj.cpu_utilisation), mem: Math.round(pct(nodeObj.used_memory_mb, nodeObj.memoire_totale_mo) ?? 0) }) : t("ns.collecting")}</span>
-            </div>
-            <div className="nx-place-c">
-              <small>{t("vm.ifNodeFails", { node: nodeName })}</small>
-              <strong>{remote ? "—" : ha == null ? "…" : ha ? t("vm.restartsElsewhere") : t("vm.staysDown")}</strong>
-              <span className="nx-muted">{remote ? null : ha ? t("vm.haHow") : <button type="button" className="nx-lnk nx-lnk--accent" onClick={() => navigateTo("datacenter", null, "ha")}>{t("vm.protectHa")}</button>}</span>
-            </div>
-          </div>
-          {moves.length > 0 && (
-            <div className="nx-place-h">
-              <small>{t("vm.moves")}</small>
-              <ul>{moves.map((r) => <li key={r.id}><span className="nx-mono nx-muted">{formatDateTime(r.started_at || r.created_at, lang)}</span><span>{taskLabel(r.type)}{r.node ? ` · ${r.node}` : ""}</span><span className="nx-muted">{r.username || t("ov.system")}</span></li>)}</ul>
-            </div>
-          )}
-        </Card>
-        <Card title={t("vm.protection")}>
-          {remote ? <p className="nx-muted" style={{ margin: 0 }}>{t("vm.remoteLocalOnly")}</p> : (
-          <ul className="nx-list2">
-            <li><Archive size={16} aria-hidden="true" />
-              <div className="nx-list2-main">{t("vm.lastBackup")}<div className="nx-list2-sub">{backups == null ? "…" : lastBackup ? `${formatDateTime(lastBackup.created_at, lang)} · ${t(lastBackup.status === "failed" ? "state.failed" : lastBackup.status === "succeeded" || lastBackup.status === "success" ? "state.done" : "state.inprogress")}` : t("vm.noBackup")}{schedule ? ` · ${t(`vb.f.${schedule.frequency}`)} ${schedule.time} UTC` : schedule === null ? ` · ${t("vm.noSchedule")}` : ""}</div></div>
-              <button type="button" className={`nx-btn nx-btn--sm${schedule ? " nx-btn--ghost" : ""}`} onClick={() => navigateTo("vm", vmKey(vm), "backup")}>{schedule ? t("vm.manage") : t("ov.plan")}</button></li>
-            <li><Camera size={16} aria-hidden="true" />
-              <div className="nx-list2-main">{t("tab.snapshots")}<div className="nx-list2-sub">{snaps == null ? "…" : snaps === false ? t("ns.notReported") : snaps.length ? t("vm.snapsN", { n: snaps.length }) : t("vm.snapsNone")}</div></div>
-              <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "snapshots")}>{t("dock.view")}</button></li>
-            <li><Heart size={16} aria-hidden="true" />
-              <div className="nx-list2-main">{t("tab.ha")}<div className="nx-list2-sub">{ha == null ? "…" : ha ? t("vm.haOn") : t("vm.haOff")}</div></div></li>
-            <li><Eraser size={16} aria-hidden="true" />
-              <div className="nx-list2-main">{t("vm.cleanup")}<div className="nx-list2-sub">{cleanup == null ? "…" : cleanup.active ? t("vm.cleanupOn", { n: cleanup.inactive_days }) : t("vm.cleanupOff")}</div></div></li>
-          </ul>
-          )}
-        </Card>
-      </div>
+      <PageTabs label={vm.name} value={tab} onChange={setTab} tabs={[["props", t("prop.tab.props")], ["monitor", t("prop.tab.monitor")]]} />
 
-      <div className="nx-vmgrid">
-        <Card title={t("vm.hwTitle")} flush actions={caps.admin && !remote ? <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => navigateTo("vm", vmKey(vm), "hardware")}>{t("vm.editHw")}</button> : null}>
-          <table className="nx-table nx-table--fit">
-            <thead><tr><th scope="col">{t("vm.hwItem")}</th><th scope="col">{t("vm.hwDetail")}</th><th scope="col">{t("vm.hwWhere")}</th><th scope="col" className="nx-num">{t("vm.hwSize")}</th></tr></thead>
-            <tbody>
-              {disks == null ? <tr><td colSpan={4}>…</td></tr> : disks === false ? <tr><td colSpan={4}>{na}</td></tr> : disks.map((d) => (
-                <tr key={d.target}>
-                  <td>{d.type === "cdrom" ? t("vh.cdDrive") : t("vm.hwDisk")} <span className="nx-mono nx-muted">{d.target}</span></td>
-                  <td className="nx-mono">{d.type === "cdrom" ? (d.source ? base(d.source) : t("vh.emptyDrive")) : [d.bus?.toUpperCase(), d.source ? base(d.source) : null].filter(Boolean).join(" · ")}</td>
-                  <td>{d.pool || "—"}</td>
-                  <td className="nx-num nx-mono">{d.size_gb ? `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(d.size_gb)} ${lang === "fr" ? "Go" : "GB"}` : "—"}</td>
-                </tr>
-              ))}
-              {Array.isArray(net) && net.map((i) => (
-                <tr key={i.mac}>
-                  <td>{t("vm.hwNic")} <span className="nx-mono nx-muted">{i.model || ""}</span></td>
-                  <td className="nx-mono">{i.mac}</td>
-                  <td>{i.network || i.type_source || "—"}{i.vlan != null ? ` · VLAN ${i.vlan}` : ""}</td>
-                  <td className="nx-num nx-muted">—</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-        <Card title={t("vm.config")}>
-          <dl className="nx-dl2">
-            <dt>{t("vm.os")}</dt><dd>{vm.os || na}</dd>
-            <dt>{t("vh.processor")}</dt><dd className="nx-mono">{vm.vcpu} vCPU</dd>
-            <dt>{t("ct.memory")}</dt><dd className="nx-mono">{formatSizeMb(vm.memory_mb, lang)}</dd>
-            <dt>{t("vmlist.ip")}</dt><dd>{vm.ip ? <span className="nx-mono">{vm.ip}</span> : <span className="nx-muted" title={t("ns.ipHelp")}>{t("vm.ipNone")}</span>}</dd>
-            <dt>{t("vm.ssh")}</dt><dd>{vm.ssh_user ? <span className="nx-mono">{`${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}`}</span> : na}</dd>
-            <dt>{t("vm.tools")}</dt><dd>{vm.guest_agent ? <span title={t("vm.toolsHelp")}>{t(`vm.tools.${vm.guest_agent}`)}</span> : <span className="nx-muted">{t("vm.toolsStopped")}</span>}</dd>
-            <dt>{t("wz.firmware")}</dt><dd>{vm.firmware ? t(`fw.${vm.firmware}`) : na}</dd>
-            <dt>{t("vm.storageType")}</dt><dd>{vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"}</dd>
-            <dt>VMID</dt><dd title={t("vmid.title")}>{vm.vmid != null ? <span className="nx-mono">{vm.vmid}</span> : <span className="nx-muted">{t("vmid.pending")}</span>}</dd>
-            <dt>UUID</dt><dd className="nx-break">{vm.uuid ? <span className="nx-mono nx-muted">{vm.uuid}</span> : na}</dd>
-          </dl>
-        </Card>
-      </div>
-
-      <div className="nx-cols2">
-        <NotesCard kind="vm" name={vm.name} node={vm.node} canEdit={caps.admin} />
-      <Card title={t("ns.activity")}>
-        {recent == null ? <Loading style={{ margin: 0 }} /> : recent.length === 0 ? <p className="nx-muted" role="status" style={{ margin: 0 }}>{t("dock.none")}</p> : (
-          <ul className="nx-list2">
-            {recent.map((r) => {
-              const at = r.started_at || r.created_at;
-              return (
-                <li key={r.id}><StatusIndicator kind="task" wire={r.status} compact />
-                  <div className="nx-list2-main">{taskLabel(r.type)}{r.error ? <span className="nx-muted"> — {r.error}</span> : null}<div className="nx-list2-sub">{r.username || t("ov.system")}</div></div>
-                  <span className="nx-list2-t">{new Date(at).toDateString() === today ? clockTime(at, lang) : formatDateTime(at, lang)}</span></li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
-      </div>
+      {tab === "monitor" ? <div className="hc-tabpanel"><VmPerformancePage resource={vm} /></div> : (
+        <PropGrid>
+          <PropSection icon={Monitor} title={t("prop.vm")} rows={[
+            [t("ns.col.name"), vm.name],
+            [t("vm.os"), vm.os || na],
+            [t("wz.firmware"), vm.firmware ? t(`fw.${vm.firmware}`) : na],
+            [t("vm.storageType"), vm.iscsi_storage ? "iSCSI" : vm.zfs_storage ? "ZFS" : vm.lvm_storage ? "LVM" : "qcow2"],
+            [t("vm.tools"), vm.guest_agent ? t(`vm.tools.${vm.guest_agent}`) : <span className="nx-muted">{t("vm.toolsStopped")}</span>],
+            ["UUID", vm.uuid ? <span className="nx-mono nx-break">{vm.uuid}</span> : na],
+          ]} />
+          <PropSection icon={Network} title={t("prop.networking")} action={edit("network")} rows={[
+            [t("vmlist.ip"), vm.ip || <span className="nx-muted">{t("vm.ipNone")}</span>],
+            ...(net == null ? [[t("prop.interfaces"), wait]] : net === false ? [[t("prop.interfaces"), na]] : net.map((i, n) => [
+              `${t("prop.interface")} ${n + 1}`, <>{i.network || i.type_source || "—"}{i.vlan != null ? ` / VLAN ${i.vlan}` : ""} · {i.model || "—"} · <span className="nx-mono">{i.mac}</span></>,
+            ])),
+            [t("vm.ssh"), vm.ssh_user ? <span className="nx-mono">{`${vm.ssh_user}${vm.ip ? `@${vm.ip}` : ""}`}</span> : na],
+          ]} />
+          <PropSection icon={HeartPulse} title={t("prop.availability")} rows={[
+            [t("ns.node"), lnk(nodeName, () => navigateTo("node", vm.node, "summary"))],
+            [t("tab.ha"), remote ? <span className="nx-muted">{t("vm.remoteLocalOnly")}</span> : ha == null ? wait : ha ? lnk(t("vm.haOn"), () => navigateTo("datacenter", null, "ha")) : <>{t("vm.haOff")} ({lnk(t("vm.protectHa"), () => navigateTo("datacenter", null, "ha"))})</>],
+            [t("vm.ifNodeFails", { node: nodeName }), remote ? "—" : ha == null ? wait : ha ? t("vm.restartsElsewhere") : t("vm.staysDown")],
+            [t("vm.cleanup"), remote ? null : cleanup == null ? wait : cleanup.active ? t("vm.cleanupOn", { n: cleanup.inactive_days }) : t("vm.cleanupOff")],
+          ]} />
+          <PropSection icon={Cpu} title={t("prop.size")} action={edit("hardware")} rows={[
+            [t("prop.size"), t("vmlist.size", { vcpu: vm.vcpu, mem: formatSizeMb(vm.memory_mb, lang) })],
+            [t("vh.processor"), `${vm.vcpu} vCPU`],
+            [t("ct.memory"), formatSizeMb(vm.memory_mb, lang)],
+          ]} />
+          <PropSection icon={HardDrive} title={t("prop.disks")} action={edit("hardware")} rows={
+            disks == null ? [[t("prop.disks"), wait]] : disks === false ? [[t("prop.disks"), na]] : [
+              ...realDisks.map((d) => [d.target, <>{d.size_gb ? gb(d.size_gb) : "—"}{d.pool ? <> · {lnk(d.pool, () => navigateTo("datacenter", null, "storage"))}</> : null} · {(d.bus || "").toUpperCase() || base(d.source)}</>]),
+              ...cdroms.map((d) => [`${t("vh.cdDrive")} ${d.target}`, d.source ? base(d.source) : t("vh.emptyDrive")]),
+            ]} />
+          <PropSection icon={DatabaseBackup} title={t("prop.protection")} action={remote ? null : <button type="button" className="nx-lnk" onClick={() => go("backup")}>{t("vm.manage")}</button>} rows={remote ? [[t("vm.protection"), <span key="remote" className="nx-muted">{t("vm.remoteLocalOnly")}</span>]] : [
+            [t("prop.schedule"), schedule === undefined ? wait : schedule ? t("prop.scheduled") : <>{t("prop.notScheduled")} ({lnk(t("ov.plan"), () => go("backup"))})</>],
+            [t("vm.lastBackup"), backups == null ? wait : lastBackup ? `${formatDateTime(lastBackup.created_at, lang)} · ${t(lastBackup.status === "failed" ? "state.failed" : "state.done")}` : t("bk.none")],
+            [t("tab.snapshots"), snaps == null ? wait : snaps === false ? na : lnk(snaps.length ? t("vm.snapsN", { n: snaps.length }) : t("vm.snapsNone"), () => go("snapshots"))],
+          ]} />
+          <PropSection icon={Activity} title={t("ns.activity")} action={<button type="button" className="nx-lnk" onClick={() => go("tasks")}>{t("prop.seeAll")}</button>}>
+            {recent == null ? <p className="nx-muted">…</p> : recent.length === 0 ? <p className="nx-muted" role="status">{t("dock.none")}</p> : (
+              <dl className="hc-kv">
+                {recent.map((r) => {
+                  const at = r.started_at || r.created_at;
+                  return (
+                    <div key={r.id}><dt>{new Date(at).toDateString() === today ? clockTime(at, lang) : formatDateTime(at, lang)}</dt>
+                      <dd><StatusIndicator kind="task" wire={r.status} compact /> {taskLabel(r.type)}<span className="nx-muted"> · {r.username || t("ov.system")}</span></dd></div>
+                  );
+                })}
+              </dl>
+            )}
+          </PropSection>
+        </PropGrid>
+      )}
+      {tab === "props" && <div className="hc-notes"><NotesCard kind="vm" name={vm.name} node={vm.node} canEdit={caps.admin} /></div>}
       {migrating && <MigrateDialog vm={vm} nodes={nodes} onClose={() => setMigrating(false)} />}
     </>
   );

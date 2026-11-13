@@ -13,7 +13,8 @@ import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { ErrorState, InlineError } from "../components/States";
 import { PageHeader, Empty, Loading, TableWrap } from "../components/ui";
-import { Archive, Info, Trash2 } from "lucide-react";
+import { Cmd, FilterPill, downloadCsv } from "../components/portal";
+import { Archive, DatabaseBackup, Download, Ellipsis, Info, RefreshCw, Search, Trash2 } from "lucide-react";
 import BackupGroupJobs from "../components/BackupGroupJobs";
 import BackupStores from "../components/BackupStores";
 import BackupStoreSyncs from "../components/BackupStoreSyncs";
@@ -34,6 +35,9 @@ export default function BackupsPage() {
   const [rows, setRows] = useState(null);
   const [unreachable, setUnreachable] = useState([]);
   const ctx = useContextTarget(); // right click on a backup: its actions
+  const [q, setQ] = useState("");
+  const [stateF, setStateF] = useState("");
+  const [nodeF, setNodeF] = useState("");
   const [error, setError] = useState(null);
   const [scheduled, setScheduled] = useState(null);
   const [scheduleError, setScheduleError] = useState(null);
@@ -71,34 +75,60 @@ export default function BackupsPage() {
   const several = unreachable.length > 0 || new Set((rows || []).map((b) => b.on)).size > 1;
   // The VM a backup belongs to: the one of the node that holds it when that node is another member, else this host's.
   const vmOf = (b) => (vms.some((v) => v.name === b.vm_name && v.node === b.on) ? `${b.vm_name}@${b.on}` : b.vm_name);
+  const statusOf = (b) => (b.status === "succeeded" ? "succeeded" : b.status === "failed" ? "failed" : "running");
+  const list = rows || [];
+  const needle = q.trim().toLowerCase();
+  const shown = list.filter((b) => (!stateF || statusOf(b) === stateF) && (!nodeF || b.on === nodeF)
+    && (!needle || `${b.vm_name} ${b.store || ""} ${b.path || ""} ${b.error || ""} ${b.on || ""}`.toLowerCase().includes(needle)));
+  const holders = [...new Set(list.map((b) => b.on).filter(Boolean))];
+  const exportCsv = () => downloadCsv("backups.csv", [
+    ["VM", t("ns.col.state"), t("jr.time"), t("ns.node"), t("bk.mode"), t("bk.size"), t("bk.location")],
+    ...shown.map((b) => [b.vm_name, b.status, b.created_at, b.on || "", b.mode === "live" ? t("bk.hot") : t("bk.cold"), b.size_bytes ? formatSizeMb(b.size_bytes / 1048576, lang) : "", b.error || b.store || b.path || ""]),
+  ]);
 
   return (
     <>
-      <PageHeader title={t("tab.backups")} count={rows ? rows.length : null} desc={t("bk.desc")} />
+      <PageHeader title={t("tab.backups")} desc={t("bk.desc")} actions={(
+        <>
+          <Cmd icon={RefreshCw} label={t("action.refresh")} onClick={() => load()} />
+          <Cmd icon={Download} label={t("list.exportCsv")} onClick={exportCsv} disabled={shown.length === 0} />
+        </>
+      )} />
       {unprotected > 0 && (
         <div className="nx-bn" data-tone="info" role="status"><Info size={16} aria-hidden="true" /><span className="nx-bn-t">{t(unprotected === 1 ? "bk.unscheduledOne" : "bk.unscheduled", { n: unprotected })}</span>
           <button type="button" className="nx-btn nx-btn--sm" onClick={() => navigateTo("datacenter", null, "vms")}>{t("bk.seeVms")}</button></div>
       )}
       {scheduleError && <InlineError message={scheduleError} onRetry={load} />}
       {unreachable.length > 0 && <p className="nx-notice nx-notice--warning" role="status" style={{ margin: "0 0 var(--space-2)" }}>{t("bk.unreachable", { nodes: unreachable.join(", ") })}</p>}
+      {list.length > 0 && (
+        <>
+          <div className="hc-fbar">
+            <label className="hc-filter hc-filter--wide"><Search size={16} aria-hidden="true" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("list.filterAny")} aria-label={t("list.filterAny")} /></label>
+            <FilterPill label={t("list.stateIs")} value={stateF} onChange={setStateF} options={[{ value: "", label: t("list.all") }, { value: "succeeded", label: t("state.done") }, { value: "failed", label: t("state.failed") }, { value: "running", label: t("state.inprogress") }]} />
+            {holders.length > 1 && <FilterPill label={t("list.nodeIs")} value={nodeF} onChange={setNodeF} options={[{ value: "", label: t("list.all") }, ...holders.map((h) => ({ value: h, label: h }))]} />}
+          </div>
+          <p className="hc-count" role="status">{t("list.showing", { n: shown.length, total: list.length })}</p>
+        </>
+      )}
       <div className="nx-card2 nx-card2--flush">
         {error ? <ErrorState message={error} onRetry={load} />
           : rows == null ? <Loading style={{ padding: "var(--space-4)" }} />
           : rows.length === 0 ? <Empty icon={Archive} title={t("bk.none")} text={t("bk.noneHelp")} /> : (
             <TableWrap>
-              <table className="nx-table">
-                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("jr.time")}</th><th scope="col">VM</th>{several && <th scope="col">{t("ns.node")}</th>}<th scope="col">{t("bk.mode")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("bk.location")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+              <table className="nx-table hc-grid--list">
+                <thead><tr><th scope="col">VM</th><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("jr.time")}</th>{several && <th scope="col">{t("ns.node")}</th>}<th scope="col">{t("bk.mode")}</th><th scope="col" className="nx-num">{t("bk.size")}</th><th scope="col">{t("bk.location")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
-                  {rows.map((b) => (
+                  {shown.length === 0 && <tr><td colSpan={8} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
+                  {shown.map((b) => (
                     <tr key={rowKey(b)} className={ctx.is("bk", rowKey(b)) ? "is-ctx" : undefined} onContextMenu={ctx.open("bk", b, rowKey(b))}>
-                      <td><StatusIndicator kind="task" wire={b.status === "succeeded" ? "succeeded" : b.status === "failed" ? "failed" : "running"} /></td>
-                      <td className="nx-mono">{fmt(b.created_at)}</td>
-                      <th scope="row"><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmOf(b), "backup")}>{b.vm_name}</button></th>
+                      <th scope="row" className="hc-namecell"><div><DatabaseBackup size={16} aria-hidden="true" /><span><button type="button" className="nx-lnk" onClick={() => navigateTo("vm", vmOf(b), "backup")}>{b.vm_name}</button></span></div></th>
+                      <td><StatusIndicator kind="task" wire={statusOf(b)} /></td>
+                      <td>{fmt(b.created_at)}</td>
                       {several && <td>{b.on}</td>}
                       <td>{b.mode === "live" ? t("bk.hot") : t("bk.cold")}</td>
                       <td className="nx-num nx-mono">{b.size_bytes ? formatSizeMb(b.size_bytes / 1048576, lang) : "—"}</td>
                       <td className="nx-mono nx-wrapcell">{b.error ? <span className="nx-tone-danger">{b.error}</span> : b.store ? <span title={b.path}>{t("bst.inStore", { name: b.store })}</span> : b.path}</td>
-                      <td><div className="nx-ra">{caps.admin && b.status === "failed" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("vx.delete")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}</div></td>
+                      <td><div className="nx-ra">{caps.admin && b.status === "failed" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_backup_x", { v: b.id })} title={t("vx.delete")} onClick={() => remove(b)}><Trash2 size={15} aria-hidden="true" /></button>}<button type="button" className="hc-ibtn" aria-label={t("ctx.menuOf", { name: `${b.vm_name} #${b.id}` })} onClick={ctx.open("bk", b, rowKey(b))}><Ellipsis size={16} aria-hidden="true" /></button></div></td>
                     </tr>
                   ))}
                 </tbody>

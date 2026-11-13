@@ -11,7 +11,8 @@ import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { PageHeader, Chip, Empty, SideDrawer, Field, Loading, TableWrap } from "../components/ui";
-import { Network, Plus, Trash2 } from "lucide-react";
+import { Cmd, FilterPill, downloadCsv } from "../components/portal";
+import { Download, Ellipsis, Network, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import FirewallCard from "../components/FirewallCard";
 import NetworkIpam from "../components/NetworkIpam";
 
@@ -136,6 +137,8 @@ export default function NetworkPage() {
     finally { setBusy(false); }
   }
 
+  const [q, setQ] = useState("");
+  const [modeF, setModeF] = useState("");
   useIntent("network", () => caps.admin && setFormOpen(true));
   const ctx = useContextTarget(); // right click on a network: its actions
 
@@ -172,21 +175,44 @@ export default function NetworkPage() {
   );
   const close = () => { setFormOpen(false); setTouched(false); };
 
+  const list = nets || [];
+  const needle = q.trim().toLowerCase();
+  const shown = list.filter((n) => (!modeF || n.type === modeF) && (!needle || `${n.name} ${n.bridge || ""} ${cidr(n.network)}`.toLowerCase().includes(needle)));
+  const modes = [...new Set(list.map((n) => n.type).filter(Boolean))];
+
   return (
     <>
-      <PageHeader title={t("tab.network")} count={nets ? nets.length : null} desc={t("net.desc")}
-        actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setFormOpen(true)}><Plus size={15} aria-hidden="true" />{t("net.create")}</button>} />
+      <PageHeader title={t("tab.network")} desc={t("net.desc")} actions={(
+        <>
+          {caps.admin && <Cmd icon={Plus} label={t("net.create")} onClick={() => setFormOpen(true)} />}
+          <Cmd icon={RefreshCw} label={t("action.refresh")} onClick={() => reload()} />
+          <Cmd icon={Download} label={t("list.exportCsv")} disabled={shown.length === 0} onClick={() => downloadCsv("networks.csv", [
+            [t("net.network"), t("ns.col.state"), t("net.mode"), t("net.bridge"), t("net.subnet"), "DHCP", t("nd.vms")],
+            ...shown.map((n) => [n.name, n.active ? t("state.active") : t("state.inactive"), t(`net.mode.${n.type}`), n.bridge || "", cidr(n.network), n.dhcp ? t("net.on") : t("net.off"), n.vms ?? ""]),
+          ])} />
+        </>
+      )} />
+      {list.length > 0 && (
+        <>
+          <div className="hc-fbar">
+            <label className="hc-filter hc-filter--wide"><Search size={16} aria-hidden="true" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("list.filterAny")} aria-label={t("list.filterAny")} /></label>
+            {modes.length > 1 && <FilterPill label={t("list.modeIs")} value={modeF} onChange={setModeF} options={[{ value: "", label: t("list.all") }, ...modes.map((m) => ({ value: m, label: t(`net.mode.${m}`) }))]} />}
+          </div>
+          <p className="hc-count" role="status">{t("list.showing", { n: shown.length, total: list.length })}</p>
+        </>
+      )}
       <div className="nx-card2 nx-card2--flush">
         {nets == null ? <Loading style={{ padding: "var(--space-4)" }} /> : nets.length === 0 ? <Empty icon={Network} title={t("net.none")} text={t("net.noneHelp")} /> : (
           <TableWrap>
-            <table className="nx-table">
-              <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("net.network")}</th><th scope="col">{t("net.mode")}</th><th scope="col">{t("net.bridge")}</th><th scope="col">{t("net.subnet")}</th><th scope="col">DHCP</th><th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+            <table className="nx-table hc-grid--list">
+              <thead><tr><th scope="col">{t("net.network")}</th><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("net.mode")}</th><th scope="col">{t("net.bridge")}</th><th scope="col">{t("net.subnet")}</th><th scope="col">DHCP</th><th scope="col" className="nx-num">{t("nd.vms")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
-                {nets.map((n) => (
+                {shown.length === 0 && <tr><td colSpan={8} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
+                {shown.map((n) => (
                   <Fragment key={n.name}>
                     <tr className={ctx.is("net", n.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("net", n)}>
+                      <th scope="row" className="hc-namecell"><div><Network size={16} aria-hidden="true" /><span>{n.name}<small className="nx-muted">{n.autostart ? t("net.autostart") : t("net.manualStart")}</small></span></div></th>
                       <td><StatusIndicator override={{ key: n.active ? "state.active" : "state.inactive", shape: n.active ? "dot" : "square", tone: n.active ? "success" : "offline" }} /></td>
-                      <th scope="row" className="nx-nm">{n.name}<small>{n.autostart ? t("net.autostart") : t("net.manualStart")}</small></th>
                       <td><Chip>{t(`net.mode.${n.type}`)}</Chip></td>
                       <td className="nx-mono">{n.bridge || "—"}{n.vlanAware && <> <Chip>{t("net.vlanAwareChip")}</Chip></>}</td>
                       <td className="nx-mono">{cidr(n.network)}</td>
@@ -196,6 +222,7 @@ export default function NetworkPage() {
                         {caps.admin && !n.active && <button type="button" className="nx-btn nx-btn--sm" aria-label={t("net.startX", { name: n.name })} onClick={() => power(n, true)}>{t("net.start")}</button>}
                         <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === n.name} aria-label={t("net.detailsOf", { name: n.name })} onClick={() => toggle(n.name)}>{t("net.details")}</button>
                         {caps.admin && !PROTECTED.includes(n.name) && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_network_x", { v: n.name })} title={t("vx.delete")} onClick={() => remove(n.name)}><Trash2 size={15} aria-hidden="true" /></button>}
+                        <button type="button" className="hc-ibtn" aria-label={t("ctx.menuOf", { name: n.name })} onClick={ctx.open("net", n)}><Ellipsis size={16} aria-hidden="true" /></button>
                       </div></td>
                     </tr>
                     {open === n.name && (
