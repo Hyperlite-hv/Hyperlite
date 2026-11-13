@@ -787,6 +787,28 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # Alert rules (#348): a metric of a node or a VM above or below a threshold for a few minutes, evaluated by the
+        # leader (app/core/alert_rules.py). Replicated, their state too: every node shows which rules fire.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alert_rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                scope TEXT NOT NULL CHECK(scope IN ('node', 'vm', 'all_nodes', 'all_vms')),
+                node TEXT,
+                vm TEXT,
+                metric TEXT NOT NULL,
+                operator TEXT NOT NULL CHECK(operator IN ('gt', 'lt')),
+                threshold REAL NOT NULL,
+                window_min INTEGER NOT NULL DEFAULT 5,
+                severity TEXT NOT NULL DEFAULT 'warning' CHECK(severity IN ('critical', 'warning', 'info')),
+                channels TEXT NOT NULL DEFAULT '[]',
+                firing TEXT NOT NULL DEFAULT '[]',
+                changed_at TEXT,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS drs_vms (
                 vm_name TEXT PRIMARY KEY,

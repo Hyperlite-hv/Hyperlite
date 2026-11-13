@@ -81,6 +81,16 @@ class SqliteMetricsStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def recent_raw(self, since):
+        """Every raw sample since `since`, for the alert rules (app/core/alert_rules.py)."""
+        with get_conn() as db:
+            rows = db.execute(
+                "SELECT target, scope, ts, cpu_pct, mem_used_mb, mem_total_mb, disk_read_bps, disk_write_bps, "
+                "net_rx_bps, net_tx_bps FROM metrics_samples WHERE tier = 'raw' AND ts >= ? ORDER BY ts ASC",
+                (since,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def storage_history(self, tier, since, node=None):
         clauses, params = ["tier = ?", "ts >= ?"], [tier, since]
         if node:
