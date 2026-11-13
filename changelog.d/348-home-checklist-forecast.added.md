@@ -1,0 +1,1 @@
+Home shows a setup checklist to administrators (storage pool, network, first VM, backup schedule, notification channel, optional second node), each step checked from what exists, and a 90-day capacity forecast: storage pools and node memory filling up at the pace of the last 30 days. The Storage page gains a "Full in" column.

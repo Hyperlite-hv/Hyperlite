@@ -18,6 +18,8 @@ import { Cmd, FilterPill, downloadCsv } from "../components/portal";
 import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
 import { askNewName } from "../lib/rename";
+import { useCapacityForecast } from "../lib/useForecast";
+import { formatDays } from "../lib/forecast";
 
 const EMPTY = { name: "", type: "dir", node: "local", scope: "all", chosen: [], path: "", nfs_host: "", nfs_export_path: "", nfs_version: "4.2", size_gb: "20", iscsi_host: "", iscsi_port: "3260", iscsi_target: "", chap_user: "", chap_password: "", smb_host: "", smb_share: "", smb_user: "", smb_password: "", smb_domain: "", smb_version: "default", lvm_vg: "", lvm_device: "", lvm_thin_pool: "", zfs_mode: "disks", zfs_layout: "mirror", zfs_disks: [] };
 const IQN_RE = /^(iqn\.\d{4}-\d{2}\.[a-z0-9][a-z0-9.-]*(:[A-Za-z0-9._:-]{1,200})?|eui\.[0-9A-Fa-f]{16})$/;
@@ -275,6 +277,8 @@ export default function StoragePage() {
   const [volumes, setVolumes] = useState({});
   const [volumeErrors, setVolumeErrors] = useState({});
   useIntent("pool", () => caps.admin && setCreating(true));
+  const forecast = useCapacityForecast([]);
+  const fullIn = (p) => forecast?.pools.find((f) => f.node === p.node && f.pool === p.name)?.days;
   const ctx = useContextTarget(); // right click on a pool: its actions
   // Pools declared for several nodes: marked in the list, and removed from every node together.
   const [shared, setShared] = useState({});
@@ -377,9 +381,9 @@ export default function StoragePage() {
         {pools.length === 0 ? <Empty icon={Layers} title={t("ov.noPools")} text={t("stor.noneHelp")} /> : (
           <TableWrap>
             <table className="nx-table hc-grid--list">
-              <thead><tr><th scope="col">{t("stor.pool")}</th><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("stor.usage")}</th><th scope="col" className="nx-num">{t("stor.capacity")}</th><th scope="col" className="nx-num">{t("stor.free")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+              <thead><tr><th scope="col">{t("stor.pool")}</th><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("stor.usage")}</th><th scope="col" className="nx-num">{t("stor.capacity")}</th><th scope="col" className="nx-num">{t("stor.free")}</th><th scope="col" className="nx-num" title={t("stor.fullInHelp")}>{t("stor.fullIn")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
-                {shown.length === 0 && <tr><td colSpan={8} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
+                {shown.length === 0 && <tr><td colSpan={9} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
                 {shown.map((p) => {
                   const key = `${p.node}:${p.name}`;
                   const r = p.capacity_gb ? ((p.capacity_gb - (p.available_gb ?? p.capacity_gb)) / p.capacity_gb) * 100 : null;
@@ -395,6 +399,7 @@ export default function StoragePage() {
                         <td><Meter value={r} label={`${p.name} ${t("stor.usage")}`} /></td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.capacity_gb, lang) ?? "—"}</td>
                         <td className="nx-num nx-mono">{formatSizeGb(p.available_gb, lang) ?? "—"}</td>
+                        <td className="nx-num">{(() => { const d = fullIn(p); return d == null ? <span className="nx-muted">—</span> : <span className="hc-due" data-tone={d <= 14 ? "danger" : "warning"}>{formatDays(d, t, "short")}</span>; })()}</td>
                         <td><div className="nx-ra">
                           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === key} aria-label={t("stor.volumesOf", { name: p.name })} onClick={() => toggleVolumes(p)}>{t("stor.volumes")}</button>
                           {caps.admin && p.name !== "default" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_pool_x", { v: p.name })} title={t("menu.delete").replace("…", "")} onClick={() => removePool(p)}><Trash2 size={15} aria-hidden="true" /></button>}
@@ -402,7 +407,7 @@ export default function StoragePage() {
                         </div></td>
                       </tr>
                       {open === key && (
-                        <tr><td colSpan={8} className="nx-detailcell">
+                        <tr><td colSpan={9} className="nx-detailcell">
                           {p.node !== "local" ? <span className="nx-muted">{t("stor.volLocalOnly")}</span> : volumeErrors[key] ? <InlineError message={volumeErrors[key]} onRetry={() => loadVolumes(p)} /> : vols == null ? <span className="nx-muted">{t("loading")}</span> : (
                             <>
                               {vols.length === 0 ? <span className="nx-muted">{t("stor.noVolumes")}</span> : (
