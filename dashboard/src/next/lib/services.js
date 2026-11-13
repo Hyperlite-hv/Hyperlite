@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
   Activity, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound,
-  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, ShipWheel, Users, Waypoints, Workflow,
+  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, ShipWheel, Siren, Users, Waypoints, Workflow,
 } from "lucide-react";
 
 // The services of the console: one per datacenter page, under its historical `?tab=` id so every existing link
@@ -29,6 +29,7 @@ export const SERVICES = [
   { id: "activity", icon: Activity, cat: "monitor", label: "nav.activity" },
   { id: "journal", icon: ScrollText, cat: "monitor", admin: true },
   { id: "metrics", icon: ChartColumn, cat: "monitor", admin: true },
+  { id: "alerts", icon: Siren, cat: "monitor" },
   { id: "notifications", icon: BellRing, cat: "monitor", admin: true },
   { id: "automation", icon: Workflow, cat: "auto" },
   { id: "api", icon: Braces, cat: "auto", apiDocs: true },

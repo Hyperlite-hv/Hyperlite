@@ -106,6 +106,98 @@
     "title": "AdmissionPolicy",
     "type": "object"
    },
+   "AlertRule": {
+    "properties": {
+     "channels": {
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 20,
+      "title": "Channels",
+      "type": "array"
+     },
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "metric": {
+      "title": "Metric",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 80,
+      "title": "Name",
+      "type": "string"
+     },
+     "node": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Node"
+     },
+     "operator": {
+      "title": "Operator",
+      "type": "string"
+     },
+     "scope": {
+      "title": "Scope",
+      "type": "string"
+     },
+     "severity": {
+      "default": "warning",
+      "title": "Severity",
+      "type": "string"
+     },
+     "threshold": {
+      "title": "Threshold",
+      "type": "number"
+     },
+     "vm": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vm"
+     },
+     "window_min": {
+      "default": 5,
+      "title": "Window Min",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "name",
+     "scope",
+     "metric",
+     "operator",
+     "threshold"
+    ],
+    "title": "AlertRule",
+    "type": "object"
+   },
+   "AlertRuleEnabled": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "enabled"
+    ],
+    "title": "AlertRuleEnabled",
+    "type": "object"
+   },
    "ApiTokenRename": {
     "properties": {
      "name": {
@@ -5575,6 +5667,245 @@
     "summary": "Put Admin Cli",
     "tags": [
      "admin-cli"
+    ]
+   }
+  },
+  "/api/v1/alert-rules": {
+   "get": {
+    "operationId": "list_rules_api_v1_alert_rules_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Rules",
+    "tags": [
+     "alerts"
+    ]
+   },
+   "post": {
+    "operationId": "create_rule_api_v1_alert_rules_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AlertRule"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Rule",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
+  "/api/v1/alert-rules/options": {
+   "get": {
+    "description": "What a rule may say: the forms list these.",
+    "operationId": "options_api_v1_alert_rules_options_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Options",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
+  "/api/v1/alert-rules/{rule_id}": {
+   "delete": {
+    "operationId": "delete_rule_api_v1_alert_rules__rule_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Rule",
+    "tags": [
+     "alerts"
+    ]
+   },
+   "put": {
+    "operationId": "update_rule_api_v1_alert_rules__rule_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AlertRule"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Rule",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
+  "/api/v1/alert-rules/{rule_id}/enabled": {
+   "put": {
+    "operationId": "enable_rule_api_v1_alert_rules__rule_id__enabled_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AlertRuleEnabled"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Enable Rule",
+    "tags": [
+     "alerts"
     ]
    }
   },
