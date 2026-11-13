@@ -1,3 +1,4 @@
+import WeeklyReportCard from "../components/WeeklyReportCard";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchNotifyEvents, fetchNotificationChannels, createNotificationChannel, updateNotificationChannel,
@@ -151,6 +152,7 @@ export default function NotificationsPage() {
           )}
         </div>
       )}
+      <WeeklyReportCard />
       <SideDrawer open={open} title={editing ? t("nt.editTitle", { name: editing.name }) : t("nt.add")} onClose={close} busy={busy} footer={<>
         <button type="button" className="nx-btn nx-btn--ghost" onClick={close} disabled={busy}>{t("action.cancel")}</button>
         <button type="button" className="nx-btn nx-btn--primary" disabled={busy} onClick={submit}>{editing ? (busy ? t("nt.saving") : t("nt.save")) : (busy ? t("stor.creating") : t("nt.addBtn"))}</button>

@@ -54,8 +54,11 @@ const ContainerSnapshotsPage = onDemand(() => import("../pages/ContainerPages"),
 const VmCloudInitPage = onDemand(() => import("../pages/VmCloudInit"));
 const VmAdvancedPage = onDemand(() => import("../pages/VmAdvanced"));
 const VmGuestInfoPage = onDemand(() => import("../pages/VmGuest"), "VmGuestInfoPage");
+const VmConfigHistoryPage = onDemand(() => import("../pages/VmConfigHistory"));
+const VmSchedulesPage = onDemand(() => import("../pages/VmSchedules"));
 const VmRunCommandPage = onDemand(() => import("../pages/VmGuest"), "VmRunCommandPage");
 const MetricsPage = onDemand(() => import("../pages/MetricsPage"));
+const TopologyPage = onDemand(() => import("../pages/TopologyPage"));
 const MetricsExplorer = onDemand(() => import("../pages/MetricsExplorer"));
 const ApiPage = onDemand(() => import("../pages/ApiPage"));
 const CfsPage = onDemand(() => import("../pages/CfsPage"));
@@ -69,20 +72,20 @@ const NodeAdvisorPage = onDemand(() => import("../pages/AdvisorPage"), "NodeAdvi
 
 // The datacenter pages that draw their own header (the others get one from the workspace). Kept here because a page
 // that is not loaded yet cannot say so itself; src/__tests__/ownHeader.test.js checks it against the pages.
-export const OWN_HEADER = new Set(["activity", "advisor", "alerts", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "explorer", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "vms"]);
+export const OWN_HEADER = new Set(["activity", "advisor", "alerts", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "explorer", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "topology", "vms"]);
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Home, services: ServicesPage, all: AllResourcesPage, create: CreatePage, perf: ClusterPerf, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, firewall: FirewallPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, explorer: MetricsExplorer, api: ApiPage, cfs: CfsPage, sites: SitesPage, advisor: AdvisorPage, alerts: AlertRulesPage,
+  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, topology: TopologyPage, explorer: MetricsExplorer, api: ApiPage, cfs: CfsPage, sites: SitesPage, advisor: AdvisorPage, alerts: AlertRulesPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage, advisor: NodeAdvisorPage,
 };
 export const VM_TABS = {
   summary: VmSummary, perf: VmPerformancePage, console: VmConsole, hardware: VmHardwarePage, options: VmOptionsPage, network: VmNetworkPage,
-  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, advisor: VmAdvisorPage, guest: VmGuestInfoPage, run: VmRunCommandPage,
+  backup: VmBackupPage, snapshots: VmSnapshotsPage, tasks: ActivityPage, cloudinit: VmCloudInitPage, advanced: VmAdvancedPage, permissions: VmPermissionsPage, advisor: VmAdvisorPage, guest: VmGuestInfoPage, run: VmRunCommandPage, schedules: VmSchedulesPage, history: VmConfigHistoryPage,
 };
 export const CONTAINER_TABS = { summary: ContainerSummary, console: ContainerConsolePage, snapshots: ContainerSnapshotsPage, backup: ContainerBackupsPage, tasks: ActivityPage, permissions: ContainerPermissionsPage };
 
@@ -120,6 +123,8 @@ export const OBJECT_TABS = {
     { id: "permissions", label: "tab.objPermissions", pages: [page("permissions")], admin: true },
     { id: "guest", label: "tab.guest", pages: [page("guest")] },
     { id: "run", label: "tab.run", pages: [page("run")] },
+    { id: "history", label: "tab.history", pages: [page("history")] },
+    { id: "schedules", label: "tab.schedules", pages: [page("schedules")] },
     { id: "advisor", label: "tab.advisor", pages: [page("advisor")] },
   ],
   container: [

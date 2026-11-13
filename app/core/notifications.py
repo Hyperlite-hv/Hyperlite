@@ -55,6 +55,8 @@ NOTIFY_EVENTS = {
     # The node's own database found damaged, and sound again (app/core/db_health.py).
     "database_check": "Database check",
     "zfs_pool": "ZFS pool health (a disk failed or is missing)",
+    # A summary of the week (app/core/weekly_report.py), on the day an administrator chose.
+    "weekly_report": "Weekly report",
     # An administrator's alert rule fired or stopped (app/core/alert_rules.py); a rule may name its own channels.
     "alert_rule": "Alert rule (fired or resolved)",
 }

@@ -1023,6 +1023,16 @@ export async function disableVMAutoCleanup(name) {
 export async function fetchNotifyEvents() {
   return realFetch("/notifications/events");
 }
+// The weekly report: its settings, a preview of what would be sent now, and a sending now.
+export async function fetchWeeklyReport() {
+  return realFetch("/reports/weekly");
+}
+export async function saveWeeklyReportSettings(settings) {
+  return realFetch("/reports/weekly/settings", { method: "PUT", ...jsonBody(settings) });
+}
+export async function sendWeeklyReport() {
+  return realFetch("/reports/weekly/send", { method: "POST" });
+}
 export async function fetchNotificationChannels() {
   return realList("/notifications/channels");
 }
@@ -1226,6 +1236,28 @@ export async function fetchVmScreenshot(name, node = null, width = 480) {
   const res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/screenshot?${params}`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) return null;
   return res.blob();
+}
+// A VM's configuration history: its definition after every change, and each version's diff against the one before.
+export async function fetchVmConfigHistory(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realList(`/vms/${encodeURIComponent(name)}/config-history${q}`);
+}
+export async function fetchVmConfigVersion(name, id, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/config-history/${encodeURIComponent(id)}${q}`);
+}
+// A VM's schedules: started, shut down, stopped or snapshotted at set times of chosen weekdays (the node's time).
+export async function fetchVmSchedules(name) {
+  return realList(`/vms/${encodeURIComponent(name)}/schedules`);
+}
+export async function createVmSchedule(name, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules`, { method: "POST", ...jsonBody(schedule) });
+}
+export async function updateVmSchedule(name, id, schedule) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "PUT", ...jsonBody(schedule) });
+}
+export async function deleteVmSchedule(name, id) {
+  return realFetch(`/vms/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 // Inside a VM through its guest agent: what its OS says about itself, and a script run there (vm.exec).
 export async function fetchVmGuest(name, node = null) {
