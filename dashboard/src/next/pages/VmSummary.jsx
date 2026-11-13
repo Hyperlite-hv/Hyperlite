@@ -17,6 +17,7 @@ import { metaOf, useMetaStore } from "../lib/meta";
 import MigrateDialog from "../components/MigrateDialog";
 import { Essentials, PageTabs, PropGrid, PropSection } from "../components/portal";
 import VmPerformancePage from "./VmPerformance";
+import ConsoleThumbnail from "../components/ConsoleThumbnail";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
 const base = (p) => (p ? String(p).split("/").pop() : "");
@@ -90,6 +91,7 @@ export default function VmSummary({ resource: vm }) {
           <span className="nx-bn-t">{t(vm.state === "crashed" ? "vm.crashedHelp" : "vm.blockedHelp")}</span></div>
       )}
 
+      <div className="hc-sum-top">
       <Essentials json={vm}
         left={[
           [t("ns.node"), <>{lnk(nodeName, () => navigateTo("node", vm.node, "summary"))}{canMigrate && <> ({lnk(t("prop.migrate"), () => setMigrating(true))})</>}</>],
@@ -106,6 +108,8 @@ export default function VmSummary({ resource: vm }) {
         ]}
         footer={<dl className="hc-kv"><div><dt>{t("vmlist.tags")}</dt><dd>{tags.length ? <TagChips tags={tags} /> : <span className="nx-muted">{t("prop.noTags")}</span>}</dd></div></dl>}
       />
+      <ConsoleThumbnail vm={vm} onOpen={() => go("console")} />
+      </div>
 
       <PageTabs label={vm.name} value={tab} onChange={setTab} tabs={[["props", t("prop.tab.props")], ["monitor", t("prop.tab.monitor")]]} />
 
