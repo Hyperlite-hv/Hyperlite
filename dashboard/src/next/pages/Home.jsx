@@ -15,9 +15,41 @@ import StatusIndicator from "../components/StatusIndicator";
 import { useAlerts, useRunningOps } from "../layout/TopBar";
 import { useApiDocsAccess } from "../layout/SideMenu";
 import HomePins from "../components/HomePins";
+import SetupChecklist from "../components/SetupChecklist";
+import { useCapacityForecast } from "../lib/useForecast";
+import { formatDays } from "../lib/forecast";
 
 const HOME_SERVICES = ["vms", "containers", "nodes", "storage", "network", "backups", "perf", "permissions"];
 const pct = (used, total) => (total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0);
+
+// What fills up within 90 days at the pace of the last month: storage pools reaching their capacity, node memory
+// reaching 90 %. Says nothing until there are a few days of history.
+function Forecast({ nodes }) {
+  const t = useT();
+  const navigateTo = useInfraStore((s) => s.navigateTo);
+  const f = useCapacityForecast(nodes.map((n) => n.id));
+  const nodeName = (id) => nodes.find((n) => n.id === id)?.name || id;
+  if (!f) return null;
+  const items = [
+    ...f.pools.map((p) => ({ key: `p:${p.node}:${p.pool}`, days: p.days, kind: "full", text: t("fc.pool", { pool: p.pool, node: nodeName(p.node) }), go: () => navigateTo("datacenter", null, "storage") })),
+    ...f.memory.map((m) => ({ key: `m:${m.node}`, days: m.days, kind: "at", text: t("fc.memory", { node: nodeName(m.node) }), go: () => navigateTo("node", m.node, "summary") })),
+  ].sort((a, b) => a.days - b.days);
+  return (
+    <div className="hc-fc">
+      <h3>{t("fc.title")}</h3>
+      {items.length === 0 ? <p className="nx-muted">{f.enough ? t("fc.none") : t("fc.notEnough")}</p> : (
+        <ul className="hc-nlist">
+          {items.slice(0, 4).map((x) => (
+            <li key={x.key} data-tone={x.days <= 14 ? "danger" : "warning"}>
+              <div><b>{x.text}</b><small>{formatDays(x.days, t, x.kind)}</small></div>
+              <button type="button" className="nx-lnk" onClick={x.go}>{t("dock.view")}</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function Capacity({ label, text, value }) {
   return (
@@ -68,7 +100,8 @@ export default function Home() {
   return (
     <div className="hc-home">
       <div className="hc-home-main">
-        {vms.length === 0 && caps.create && (
+        {caps.admin && <SetupChecklist />}
+        {vms.length === 0 && caps.create && !caps.admin && (
           <div className="nx-bn" data-tone="info" role="status">
             <span className="nx-bn-t"><b>{t("home.emptyTitle")}</b> {t("home.emptyHelp")}</span>
             <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}>{t("vmlist.create")}</button>
@@ -133,6 +166,7 @@ export default function Home() {
           <Capacity label={t("ns.memory")} text={t("home.usedOf", { used: formatSizeMb(memUsed, lang), total: formatSizeMb(memTotal, lang) })} value={pct(memUsed, memTotal)} />
           {capGb > 0 ? <Capacity label={t("tab.storage")} text={t("home.usedOf", { used: formatSizeGb(usedGb, lang), total: formatSizeGb(capGb, lang) })} value={pct(usedGb, capGb)} />
             : <div className="hc-cap"><div className="hc-cap-row"><b>{t("tab.storage")}</b><span>{t("home.noPool")}</span></div></div>}
+          {online.length > 0 && <Forecast nodes={online} />}
         </section>
         <section className="hc-card">
           <h2>{t("home.watch")}</h2>

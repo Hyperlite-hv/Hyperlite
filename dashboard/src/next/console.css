@@ -217,6 +217,33 @@
 .hc-card h2 { margin: 0 0 0.8rem; font-size: 0.9333rem; font-weight: 600; display: flex; align-items: center; gap: 0.5333rem; }
 .hc-card h2 .nx-lnk { margin-left: auto; font-size: var(--font-size-xs); font-weight: 400; }
 .hc-card p { margin: 0; }
+/* Recommendations (Advisor): category tiles, then the table; a row opens on why, what to do and the resources. */
+.hc-advcats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr)); gap: 0.8rem; margin: 0 0 1.0667rem; }
+.hc-advcat { display: flex; flex-direction: column; align-items: flex-start; gap: 0.2667rem; text-align: left; padding: 0.8rem 1.0667rem; border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); background: var(--color-bg-surface, transparent); color: var(--color-text-primary); font: inherit; cursor: pointer; }
+.hc-advcat:hover { background: var(--color-bg-hover); }
+.hc-advcat[aria-pressed="true"] { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.hc-advcat-h { display: inline-flex; align-items: center; gap: 0.5333rem; }
+.hc-advcat-h svg { color: var(--color-text-secondary); }
+.hc-advcat-n { font-size: 1.6rem; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.hc-advcat small { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.hc-impact { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+.hc-impact::before { content: ""; width: 0.5333rem; height: 0.5333rem; border-radius: 50%; background: var(--color-info); flex: none; }
+.hc-impact[data-level="high"]::before { background: var(--color-danger); }
+.hc-impact[data-level="medium"]::before { background: var(--color-warning); }
+.hc-adv-t { font-weight: 400; }
+.hc-adv-t small { display: block; margin-left: 1.3333rem; font-size: var(--font-size-xs); }
+.hc-adv-open { display: inline-flex; align-items: center; gap: 0.4rem; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--color-text-primary); cursor: pointer; text-align: left; min-height: 1.6rem; }
+.hc-adv-open:hover span { text-decoration: underline; }
+.hc-adv-cat { display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+.hc-adv-cat svg { color: var(--color-text-secondary); }
+.hc-adv tr[data-off] .hc-adv-open, .hc-adv tr[data-off] .hc-impact { opacity: 0.7; }
+.hc-adv-d { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.6rem; padding: 0.5333rem 0.2667rem; }
+.hc-adv-d h3 { margin: 0 0 0.2667rem; font-size: var(--font-size-xs); font-weight: 600; }
+.hc-adv-d p { margin: 0; }
+.hc-adv-res { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2667rem; }
+.hc-adv-res li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5333rem; }
+.hc-adv-res li > span:first-child { min-width: 3.4667rem; font-size: var(--font-size-xs); }
+@media (max-width: 760px) { .hc-adv-d { grid-template-columns: minmax(0, 1fr); gap: 0.8rem; } }
 .hc-hstate { display: flex; align-items: center; gap: 0.5333rem; font-size: 1.0667rem; font-weight: 600; margin-bottom: 0.2667rem !important; }
 .hc-hstate::before { content: ""; width: 0.6667rem; height: 0.6667rem; border-radius: 50%; background: var(--color-success); flex: none; }
 .hc-hstate[data-tone="warning"]::before { background: var(--color-warning); } .hc-hstate[data-tone="danger"]::before { background: var(--color-danger); }
@@ -258,6 +285,25 @@
 .hc-nlist small { display: block; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .hc-nlist-p { float: right; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
 .hc-nlist .nx-tray-bar { display: block; width: 100%; margin-top: 0.4rem; }
+/* Capacity forecast (Home ▸ cluster card) and the "full in" column of the Storage page. */
+.hc-fc { margin-top: 1.0667rem; padding-top: 0.8rem; border-top: 1px solid var(--color-border-card); }
+.hc-fc h3 { margin: 0 0 0.4rem; font-size: var(--font-size-xs); font-weight: 600; }
+.hc-due { font-variant-numeric: tabular-nums; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.4rem; }
+.hc-due::before { content: ""; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--color-warning); flex: none; }
+.hc-due[data-tone="danger"]::before { background: var(--color-danger); }
+/* Setup checklist (Home): the steps of a new installation. */
+.hc-setup h2 .hc-ibtn { margin-left: auto; }
+.hc-setup > .hc-cap-bar { margin: 0.5333rem 0 0.8rem; }
+.hc-steps { list-style: none; margin: 0; padding: 0; }
+.hc-steps li { display: flex; align-items: center; gap: 0.8rem; padding: 0.5333rem 0; border-top: 1px solid var(--color-border-card); }
+.hc-steps li:first-child { border-top: 0; }
+.hc-step-mark { width: 1.2rem; height: 1.2rem; border-radius: 50%; border: 1px solid var(--color-border-strong); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.hc-steps li[data-done] .hc-step-mark { background: var(--color-success); border-color: var(--color-success); color: var(--color-text-on-accent); }
+.hc-step-t { flex: 1; min-width: 0; }
+.hc-step-t b { font-weight: 600; }
+.hc-step-t b small { font-weight: 400; color: var(--color-text-muted); }
+.hc-step-t > small { display: block; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.hc-steps li[data-done] .hc-step-t b { color: var(--color-text-muted); font-weight: 400; }
 
 /* ---------- plain grid (home, all resources) ---------- */
 .hc-gridwrap { overflow-x: auto; position: relative; }
