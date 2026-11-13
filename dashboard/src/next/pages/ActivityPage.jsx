@@ -16,6 +16,7 @@ import {
 } from "../lib/activity";
 import { ErrorState } from "../components/States";
 import { PageHeader, Empty, Loading, StatePill } from "../components/ui";
+import { FilterPill } from "../components/portal";
 import { ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, ListChecks, Search, TriangleAlert } from "lucide-react";
 
 const SINCE = { all: null, "1h": 3600, "24h": 86400, "7d": 604800 };
@@ -292,12 +293,12 @@ export default function ActivityPage({ selection, embedded = false }) {
       {header}
       {runningSection}
       {attentionSection}
-      <div className="nx-bar" role="group" aria-label={t("act.filters")}>
+      <div className="nx-bar hc-fbar" role="group" aria-label={t("act.filters")}>
         {statusTabs}
-        <label className="nx-search2"><Search size={15} aria-hidden="true" /><input type="search" aria-label={t("act.target")} value={f.target} onChange={upd("target")} placeholder={t("act.searchPh")} /></label>
-        <select className="nx-sel" aria-label={t("act.type")} value={f.type} onChange={upd("type")}><option value="">{t("act.allTypes")}</option>{Object.keys(TASK_LABEL_KEYS).map((k) => <option key={k} value={k}>{taskLabel(k)}</option>)}</select>
-        {!nodeId && nodes.length > 1 && <select className="nx-sel" aria-label={t("ns.node")} value={f.node} onChange={upd("node")}><option value="">{t("act.allNodes")}</option>{nodes.map((n) => <option key={n.id} value={n.id === "local" ? n.name : n.id}>{n.name}</option>)}</select>}
-        <select className="nx-sel" aria-label={t("act.period")} value={f.since} onChange={upd("since")}>{Object.keys(SINCE).map((k) => <option key={k} value={k}>{t(`act.since.${k}`)}</option>)}</select>
+        <label className="hc-filter hc-filter--wide"><Search size={16} aria-hidden="true" /><input type="search" aria-label={t("act.target")} value={f.target} onChange={upd("target")} placeholder={t("act.searchPh")} /></label>
+        <FilterPill label={t("act.type")} value={f.type} onChange={(v) => upd("type")({ target: { value: v } })} options={[{ value: "", label: t("act.allTypes") }, ...Object.keys(TASK_LABEL_KEYS).map((k) => ({ value: k, label: taskLabel(k) }))]} />
+        {!nodeId && nodes.length > 1 && <FilterPill label={t("ns.node")} value={f.node} onChange={(v) => upd("node")({ target: { value: v } })} options={[{ value: "", label: t("act.allNodes") }, ...nodes.map((n) => ({ value: n.id === "local" ? n.name : n.id, label: n.name }))]} />}
+        <FilterPill label={t("act.period")} value={f.since} onChange={(v) => upd("since")({ target: { value: v } })} options={Object.keys(SINCE).map((k) => ({ value: k, label: t(`act.since.${k}`) }))} />
         {dirty && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => { setF(EMPTY_F); setView("all"); }}>{t("act.clear")}</button>}
         <span className="nx-sp" />
         <button type="button" className="nx-btn" disabled={!rows?.length || exporting} onClick={download}><Download size={15} aria-hidden="true" />{t("act.export")}</button>

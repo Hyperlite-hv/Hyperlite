@@ -1,4 +1,4 @@
-import { expect, test, uiLogin } from "../support/fixtures";
+import { expect, test, uiLogin, resourcePage } from "../support/fixtures";
 import type { Route } from "@playwright/test";
 
 // A VM's Permissions tab: the assignments on the VM and those inherited from its pools, one added and one removed.
@@ -40,7 +40,7 @@ test("VM permissions tab: own and inherited assignments, add and remove", async 
   });
 
   await page.goto(`/vm/${NAME}?tab=summary`);
-  await page.getByRole("tab", { name: "Permissions", exact: true }).click();
+  await resourcePage(page, "Permissions").click();
   const main = page.getByRole("main");
   const table = main.getByRole("region", { name: "Who has rights here" });
   await expect(table.getByRole("row", { name: /bob.*Operator.*This object/ })).toBeVisible();

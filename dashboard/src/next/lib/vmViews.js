@@ -6,7 +6,7 @@ const VIEWS_KEY = "hyperlite-next-vmviews";
 
 export const GROUP_MODES = ["node", "tag", "pool", "none"];
 export const OPTIONAL_COLUMNS = ["node", "ip", "os", "res", "uptime"];
-export const DEFAULT_COLUMNS = ["node", "ip", "res", "uptime"];
+export const DEFAULT_COLUMNS = ["node", "os", "res", "ip"];
 
 function read(key) { try { return localStorage.getItem(key); } catch { return null; } }
 function write(key, value) { try { localStorage.setItem(key, value); } catch { /* preference only */ } }

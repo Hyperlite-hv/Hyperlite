@@ -279,10 +279,7 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 .nx-menu-group { font-size: var(--fs-11); font-weight: 500; color: var(--color-text-muted); padding: 0.5333rem 0.6667rem 0.2667rem; }
 
 /* ---------- Object header (node, VM) and flat tabs ---------- */
-.nx-oh { display: flex; gap: 0.9333rem; align-items: center; flex-wrap: wrap; padding: 1.3333rem 1.6rem 0; }
-.nx-otile { width: 2.6667rem; height: 2.6667rem; border-radius: 10px; background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); display: grid; place-items: center; color: var(--color-text-secondary); flex: none; }
-.nx-oh-main { min-width: 0; }
-.nx-oh h1 { margin: 0; font-size: var(--fs-20); font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+
 .nx-ometa { display: flex; gap: 0.5333rem; align-items: center; flex-wrap: wrap; font-size: var(--fs-125); color: var(--color-text-muted); margin-top: 0.2rem; }
 .nx-ometa .nx-sep { color: var(--color-text-disabled); }
 .nx-ometa .nx-lnk { font-weight: 500; color: var(--color-text-secondary); }
@@ -309,37 +306,15 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 .nx-sidebar-brand { padding: 0.9333rem 1.0667rem 0.8rem; height: auto; }
 .nx-brand-text strong { font-size: var(--fs-15); }
 .nx-brand-text small { font-size: var(--fs-11); }
-.nx-nav-scroll { padding: 0.2667rem 0.5333rem 0.8rem; }
-.nx-nav-group + .nx-nav-group { margin-top: 0; }
-.nx-nav-group-label { padding: 0.9333rem 0.6667rem 0.2667rem; font-size: var(--fs-11); font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: var(--color-text-muted); }
-.nx-nav-item { height: 2.1333rem; padding: 0 0.6667rem; gap: 0.6667rem; border-radius: var(--radius-md); font-size: var(--fs-135); font-weight: 400; position: relative; }
-.nx-nav-item.active { font-weight: 500; }
-.nx-nav-item.active::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--color-accent); }
-.nx-nav-item:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.nx-nav-count { background: none; min-width: 0; padding: 0; font-family: var(--font-mono); font-weight: 500; font-size: var(--fs-11); color: var(--color-text-muted); }
-.nx-nav-count--warning { background: none; color: var(--color-warning); }
-.nx-nav-count--danger { background: none; color: var(--color-danger); }
+
 .nx-sidebar-user { padding: 0.6667rem 0.8rem; gap: 0.6667rem; }
 .nx-sidebar-user .nx-avatar { width: 1.8667rem; height: 1.8667rem; color: var(--color-text-primary); font-size: var(--fs-11); }
 .nx-user-more { flex: none; color: var(--color-text-secondary); }
-.nx-root[data-sidebar="collapsed"] .nx-user-more, .nx-root[data-sidebar="collapsed"] .nx-nav-group-label { display: none; }
-.nx-top { background: var(--color-bg-workspace); padding: 0 1.3333rem 0 0.8rem; gap: 0.6667rem; }
-.nx-crumbs { gap: 0.4rem; font-size: var(--fs-13); }
-.nx-crumbs button { color: var(--color-text-secondary); padding: 2px 0.2667rem; }
-.nx-crumb-seg { display: inline-flex; align-items: center; gap: 0.4rem; min-width: 0; }
-.nx-crumb-seg svg { color: var(--color-text-muted); flex: none; }
-.nx-crumbs .nx-crumb-current { color: var(--color-text-primary); font-weight: 500; }
-.nx-find { margin-left: auto; flex: 0 1 22.6667rem; max-width: 22.6667rem; height: 2.1333rem; border-color: var(--color-border-default); color: var(--color-text-muted); }
+.nx-root[data-sidebar="collapsed"] .nx-user-more { display: none; }
+
 .nx-tabs + .nx-page { padding-top: 1.2rem; }
-.nx-oh + .nx-tabs { margin-top: 0.9333rem; }
-.nx-subnav2-layout { display: grid; grid-template-columns: 12rem minmax(0, 1fr); gap: 1.3333rem; align-items: start; }
-.nx-subnav2 { display: grid; gap: 2px; position: sticky; top: 0; }
-.nx-subnav2 button { all: unset; cursor: pointer; height: 2.1333rem; padding: 0 0.6667rem; border-radius: var(--radius-md); font-size: var(--fs-13); color: var(--color-text-secondary); display: flex; align-items: center; }
-.nx-subnav2 button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.nx-subnav2 button[aria-current="page"] { background: var(--color-bg-selected); color: var(--color-text-primary); font-weight: 500; }
-.nx-subnav2 button:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
-@media (max-width: 860px) { .nx-subnav2-layout { grid-template-columns: minmax(0, 1fr); } .nx-subnav2 { grid-auto-flow: column; justify-content: start; position: static; } }
-@media (max-width: 767px) { .nx-oh, .nx-tabs { padding-left: 1rem; padding-right: 1rem; } .nx-page { padding: 1rem 1rem 2rem; } .nx-find { flex: 1; } }
+
+@media (max-width: 767px) { .nx-tabs { padding-left: 1rem; padding-right: 1rem; } .nx-page { padding: 1rem 1rem 2rem; }  }
 .nx-steps-list { margin: 0; padding-left: 1.2rem; font-size: var(--fs-13); color: var(--color-text-secondary); display: grid; gap: 0.4rem; }
 .nx-f-label { font-size: var(--fs-13); font-weight: 500; }
 .nx-keybox2 { display: flex; gap: 0.5333rem; align-items: flex-start; background: var(--color-bg-sidebar); color: var(--color-text-primary); border: 1px solid var(--color-border-default); border-radius: 10px; padding: 0.6667rem 0.8rem; }
@@ -359,14 +334,12 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 .nx-stepbox legend { padding: 0 0.2667rem; margin: 0; font-size: var(--fs-13); }
 .nx-btn--ghost:disabled, .nx-btn--ghost[aria-disabled="true"] { border-color: transparent; background: none; }
 /* VM list: table plus detail panel of the selected row */
-.nx-vmgrid { display: grid; gap: 1.0667rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
-.nx-vmgrid.has-detail { grid-template-columns: minmax(0, 1fr) 25.3333rem; }
-@media (max-width: 1200px) { .nx-vmgrid.has-detail { grid-template-columns: minmax(0, 1fr); } }
+
 .nx-table tbody tr[tabindex]:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
 .nx-vmdetail { position: sticky; top: 0; overflow: hidden; }
 .nx-vmdetail-h { padding: 1.0667rem; border-bottom: 1px solid var(--color-border-subtle); display: grid; gap: 0.8rem; }
 .nx-vmdetail-h h2 { margin: 0; font-size: var(--fs-16); font-weight: 600; overflow-wrap: anywhere; }
-.nx-vmdetail-h .nx-otile { width: 2.4rem; height: 2.4rem; }
+
 .nx-vmdetail-s { padding: 0.9333rem 1.0667rem; border-bottom: 1px solid var(--color-border-subtle); }
 .nx-vmdetail-spark { display: grid; grid-template-columns: 5.3333rem minmax(0, 1fr) 3rem; gap: 0.5333rem 0.6667rem; align-items: center; font-size: var(--fs-125); color: var(--color-text-secondary); }
 .nx-vmdetail-spark .nx-spark { width: 100%; height: 1.6rem; }
@@ -496,11 +469,7 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 .nx-ws-more[open] > summary { margin-bottom: 0.6667rem; }
 .nx-loading { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6667rem; }
 /* VM list grouped by node */
-.nx-grouprow th { background: var(--color-bg-surface-raised); text-align: left; font-weight: 600; padding-top: 0.6667rem; padding-bottom: 0.6667rem; border-top: 1px solid var(--color-border-default); }
-.nx-group:first-of-type .nx-grouprow th { border-top: 0; }
-.nx-grouphead { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.5333rem; font-size: var(--fs-13); }
-.nx-grouphead--cards { margin: 0 0 0.6667rem; font-size: var(--fs-135); }
-.nx-grouphead .nx-muted { font-weight: 400; }
+
 /* Node band (VM list grouped by node). The card clips instead of hiding overflow and the table wrapper only
    scrolls when the table overflows: neither then creates a scroll container, so the column headers and the band
    of the node being read stay stuck at the top of the page while its VMs scroll by. Later bands paint over
@@ -508,44 +477,32 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 .nx-card2--sticky { overflow: clip; container-type: inline-size; }
 .nx-tablewrap--sticky:not([data-scrolls]) { overflow: visible; }
 .nx-card2--sticky .nx-table thead th { z-index: 2; }
-.nx-grouprow--band th { position: sticky; top: 2.2667rem; z-index: 1; padding-top: 0.5333rem; padding-bottom: 0.5333rem; }
+
 /* Every band has the same height at a given card width (never content-driven wrapping): stuck bands pile up at
    the same spot and the current one must cover the previous ones exactly. Wide card: one line. Narrow card: the
    figures move to a second line, left-aligned under the name so they stay in view when the table scrolls. */
-.nx-nodeband { display: flex; align-items: center; flex-wrap: nowrap; gap: 0.4rem 1.3333rem; font-size: var(--fs-13); font-weight: 400; white-space: nowrap; }
+
 /* In the table the band takes the table's width instead of imposing its own (width 0, min-width 100%): a long band
    must never make the table overflow, or its wrapper becomes a scroll container and nothing sticks any more. */
-.nx-grouprow--band .nx-nodeband { width: 0; min-width: 100%; overflow: clip; }
-.nx-nodeband-id, .nx-nodeband-stats { height: 1.6rem; }
-.nx-nodeband-id { display: flex; align-items: center; gap: 0.6667rem; min-width: 0; overflow: hidden; }
-.nx-nodeband-id > * { flex: none; }
-.nx-nodeband-id > .nx-nodeband-addr { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.nx-nodeband .nx-lnk { font-size: var(--fs-135); }
-.nx-nodeband-stats { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 1.3333rem; }
-@container (max-width: 60rem) {
-  .nx-nodeband { flex-wrap: wrap; }
-  .nx-nodeband-stats { flex-basis: calc(100% - 1.6rem); margin-left: 1.6rem; gap: 1rem; }
-  .nx-nodeband-stats .nx-track { width: 3.2rem; }
-}
+
 @container (max-width: 32rem) {
-  .nx-nodeband-stats { gap: 0.8rem; } .nx-nodeband-stats .nx-track { display: none; }
-  .nx-nodeband .nx-nodeband-count { display: none; } .nx-nodeband .nx-nodeband-count--short { display: inline; }
+   
+   
   /* phone: the last two columns (vCPU·memory, uptime; both in the detail panel) give way so the table fits the
      screen, with no sideways scrolling, and the headers and bands can stick */
-  .nx-card2--sticky .nx-table :is(thead, tbody) tr:not(.nx-grouprow) > :nth-last-child(-n+2) { display: none; }
+  
 }
 .nx-seg2--scroll { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .nx-seg2--scroll button { flex: none; white-space: nowrap; }
 /* Too many choices for one line in a drawer: whole buttons go to the next line, never a label cut in two. */
 .nx-seg2--wrap { flex-wrap: wrap; }
 .nx-seg2--wrap button { white-space: nowrap; }
-.nx-nodeband-count--short { display: none; }
+
 @supports (animation-timeline: scroll()) { .nx-seg2--scroll { animation: nx-edge-fade linear both; animation-timeline: scroll(self inline); } }
-.nx-nodeband-m { display: inline-flex; align-items: center; gap: 0.5333rem; font-size: var(--fs-12); }
+
 .nx-chev { width: 1.6rem; height: 1.6rem; margin-left: -0.4rem; }
 .nx-chev svg { transition: transform var(--duration-fast); }
 .nx-chev[aria-expanded="false"] svg { transform: rotate(-90deg); }
-.nx-grouphead--cards .nx-nodeband { width: 100%; flex-wrap: wrap; }
 
 /* Two columns that follow the room actually left by the sidebar, not the viewport: the side column drops under
    the main one as soon as the main one could no longer show its table without scrolling sideways. */
@@ -565,12 +522,12 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 }
 @media (max-width: 767px) {
   /* The search box keeps its words (an empty field reads as broken); only the shortcut hint goes. */
-  .nx-top .nx-find span.nx-find-label { display: inline; }
-  .nx-top .nx-find { padding: 0 var(--space-3); }
+  
+  
   /* Object header: name and metadata take the full width (the decorative icon goes), actions below; wrapped
      metadata never starts or ends a line with a dot. */
-  .nx-oh > .nx-otile { display: none; }
-  .nx-oh-main { flex: 1 1 100%; }
+  
+  
   .nx-oh-acts { margin-left: 0; }
   .nx-ometa { column-gap: 0.8rem; row-gap: 0.2rem; }
   .nx-ometa .nx-sep { display: none; }
@@ -598,7 +555,7 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 /* Non-production installation (HYPERLITE_ENV_LABEL): an amber badge in the top bar and on the sign-in page, and an
    amber line along the top of the window, so a development instance is never mistaken for production. */
 .nx-envbadge { display: inline-flex; align-items: center; align-self: center; width: max-content; height: 1.4667rem; padding: 0 0.6rem; border-radius: var(--radius-sm); background: var(--color-warning); color: var(--color-bg-surface); font-size: var(--fs-12); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
-.nx-top.nx-top--env { box-shadow: inset 0 3px 0 var(--color-warning); }
+
 .nx-login-l .nx-envbadge { align-self: flex-start; justify-self: start; }
 
 /* Tasks page: the task list, then the log of the selected task in a terminal-like panel under it. */
@@ -630,15 +587,6 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 
 /* Short windows (a 1080p screen at 150 % display scaling leaves about 630 CSS pixels): a denser navigation, so most
    of it shows without scrolling; the list still scrolls, with a thin visible bar, when it does not fit. */
-.nx-nav-scroll { scrollbar-width: thin; }
-@media (max-height: 860px) {
-  .nx-nav-item { height: 1.8667rem; }
-  .nx-nav-group-label { padding: 0.6rem 0.6667rem 0.2rem; }
-}
-@media (max-height: 700px) {
-  .nx-nav-item { height: 1.7333rem; }
-  .nx-nav-group-label { padding: 0.4rem 0.6667rem 0.1333rem; }
-}
 
 /* ---------- Activity (pages/ActivityPage.jsx): what runs, what needs attention, the history, the task's log ---------- */
 .nx-act-sec { margin-bottom: 1.0667rem; }

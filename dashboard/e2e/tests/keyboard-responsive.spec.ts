@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { apiLogin, expect, test, uiLogin } from "../support/fixtures";
+import { apiLogin, expect, test, uiLogin, resourcePage } from "../support/fixtures";
 
 // The top bar "Create" menu, then its "Virtual machine" entry: the VM wizard.
 async function openVmWizard(page: Page) {
@@ -74,11 +74,11 @@ test.describe("Keyboard-only use", () => {
   });
 
   test("tabs can be changed with the keyboard", async ({ page }) => {
-    await uiLogin(page);
-    const perf = page.getByRole("main").getByRole("tab", { name: "Performance", exact: true });
+    await uiLogin(page, undefined, undefined, "/node/local");
+    const perf = resourcePage(page, "Performance");
     await perf.focus();
     await page.keyboard.press("Enter");
-    await expect(perf).toHaveAttribute("aria-selected", "true");
+    await expect(perf).toHaveAttribute("aria-current", "page");
   });
 });
 
