@@ -13,7 +13,7 @@ import { formatSizeGb, formatSizeMb, formatUptimeLong, clockTime, formatDateTime
 import StatusIndicator from "../components/StatusIndicator";
 import { useContextTarget } from "../components/ContextMenu";
 import { NodeContextMenu } from "../components/ObjectActions";
-import { Card, Loading } from "../components/ui";
+import { Card, Loading, PageHeader } from "../components/ui";
 import { PerformanceView, useHostHistory } from "./VmPerformance";
 
 const asList = (v) => (Array.isArray(v) ? v : []);
@@ -224,6 +224,8 @@ export function ClusterPerf() {
   const hist = useHostHistory(node, range);
   if (!node) return null;
   return (
+    <>
+    <PageHeader title={t("tab.perf")} />
     <div className="nx-stack">
       {nodes.length > 1 && (
         <div className="nx-bar">
@@ -232,6 +234,7 @@ export function ClusterPerf() {
       )}
       <PerformanceView hist={hist} range={range} setRange={setRange} running={node.state === "online"} title={t("ov.hostPerf", { name: node.name })} />
     </div>
+    </>
   );
 }
 ClusterPerf.ownHeader = true;
