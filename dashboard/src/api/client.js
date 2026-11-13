@@ -1039,6 +1039,22 @@ export async function setNotificationChannelEnabled(id, enabled) {
 export async function deleteNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}`, { method: "DELETE" });
 }
+// Alert rules (app/core/alert_rules.py): a metric of a node or a VM over or under a threshold for a few minutes.
+export async function fetchAlertRules() {
+  return realList("/alert-rules");
+}
+export async function createAlertRule(rule) {
+  return realFetch("/alert-rules", { method: "POST", ...jsonBody(rule) });
+}
+export async function updateAlertRule(id, rule) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function setAlertRuleEnabled(id, enabled) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}/enabled`, { method: "PUT", ...jsonBody({ enabled }) });
+}
+export async function deleteAlertRule(id) {
+  return realFetch(`/alert-rules/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
 export async function testNotificationChannel(id) {
   return realFetch(`/notifications/channels/${id}/test`, { method: "POST" });
 }
@@ -1202,6 +1218,15 @@ export function attachVMHostDevice(name, device, confirm = false) {
 }
 export function detachVMHostDevice(name, device) {
   return realFetch(`/vms/${encodeURIComponent(name)}/hostdevs/${encodeURIComponent(device)}`, { method: "DELETE" });
+}
+// Inside a VM through its guest agent: what its OS says about itself, and a script run there (vm.exec).
+export async function fetchVmGuest(name, node = null) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/guest${q}`);
+}
+export async function runInVmGuest(name, node, { shell, script, timeoutS }) {
+  const q = node && node !== "local" ? `?node=${encodeURIComponent(node)}` : "";
+  return realFetch(`/vms/${encodeURIComponent(name)}/guest/run${q}`, { method: "POST", ...jsonBody({ shell, script, timeout_s: timeoutS }) });
 }
 export async function fetchVMMetricsHistory(name, range = "1h", node = null) {
   const params = new URLSearchParams({ range });

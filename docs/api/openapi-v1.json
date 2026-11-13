@@ -106,6 +106,98 @@
     "title": "AdmissionPolicy",
     "type": "object"
    },
+   "AlertRule": {
+    "properties": {
+     "channels": {
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 20,
+      "title": "Channels",
+      "type": "array"
+     },
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "metric": {
+      "title": "Metric",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 80,
+      "title": "Name",
+      "type": "string"
+     },
+     "node": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Node"
+     },
+     "operator": {
+      "title": "Operator",
+      "type": "string"
+     },
+     "scope": {
+      "title": "Scope",
+      "type": "string"
+     },
+     "severity": {
+      "default": "warning",
+      "title": "Severity",
+      "type": "string"
+     },
+     "threshold": {
+      "title": "Threshold",
+      "type": "number"
+     },
+     "vm": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Vm"
+     },
+     "window_min": {
+      "default": 5,
+      "title": "Window Min",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "name",
+     "scope",
+     "metric",
+     "operator",
+     "threshold"
+    ],
+    "title": "AlertRule",
+    "type": "object"
+   },
+   "AlertRuleEnabled": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "enabled"
+    ],
+    "title": "AlertRuleEnabled",
+    "type": "object"
+   },
    "ApiTokenRename": {
     "properties": {
      "name": {
@@ -1791,6 +1883,39 @@
      "name"
     ],
     "title": "GroupRename",
+    "type": "object"
+   },
+   "GuestRun": {
+    "properties": {
+     "script": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "title": "Script",
+      "type": "string"
+     },
+     "shell": {
+      "default": "sh",
+      "enum": [
+       "sh",
+       "bash",
+       "powershell",
+       "cmd"
+      ],
+      "title": "Shell",
+      "type": "string"
+     },
+     "timeout_s": {
+      "default": 30,
+      "maximum": 120.0,
+      "minimum": 1.0,
+      "title": "Timeout S",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "script"
+    ],
+    "title": "GuestRun",
     "type": "object"
    },
    "HTTPValidationError": {
@@ -5575,6 +5700,245 @@
     "summary": "Put Admin Cli",
     "tags": [
      "admin-cli"
+    ]
+   }
+  },
+  "/api/v1/alert-rules": {
+   "get": {
+    "operationId": "list_rules_api_v1_alert_rules_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Rules",
+    "tags": [
+     "alerts"
+    ]
+   },
+   "post": {
+    "operationId": "create_rule_api_v1_alert_rules_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AlertRule"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Rule",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
+  "/api/v1/alert-rules/options": {
+   "get": {
+    "description": "What a rule may say: the forms list these.",
+    "operationId": "options_api_v1_alert_rules_options_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Options",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
+  "/api/v1/alert-rules/{rule_id}": {
+   "delete": {
+    "operationId": "delete_rule_api_v1_alert_rules__rule_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Rule",
+    "tags": [
+     "alerts"
+    ]
+   },
+   "put": {
+    "operationId": "update_rule_api_v1_alert_rules__rule_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AlertRule"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Rule",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
+  "/api/v1/alert-rules/{rule_id}/enabled": {
+   "put": {
+    "operationId": "enable_rule_api_v1_alert_rules__rule_id__enabled_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AlertRuleEnabled"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Enable Rule",
+    "tags": [
+     "alerts"
     ]
    }
   },
@@ -24151,6 +24515,144 @@
      }
     ],
     "summary": "Set Vm Firewall",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/guest": {
+   "get": {
+    "description": "OS, kernel, host name, time zone, signed-in users and file systems, as the guest agent reports them. 422 when\nthe VM is stopped or has no running agent.",
+    "operationId": "get_guest_info_api_v1_vms__name__guest_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Guest Info",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/guest/run": {
+   "post": {
+    "description": "Runs a script in the guest's shell and waits for it (at most timeout_s): its exit code, output and errors (64 KiB\nof each at most). A script still running at the deadline keeps running in the guest and is reported as timed out.",
+    "operationId": "run_in_guest_api_v1_vms__name__guest_run_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GuestRun"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Run In Guest",
     "tags": [
      "vms"
     ]

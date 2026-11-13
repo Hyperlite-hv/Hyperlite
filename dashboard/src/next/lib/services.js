@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
-  Activity, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, ChartLine, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound,
-  Layers, LayoutGrid, Lightbulb, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, ShipWheel, Users, Waypoints, Workflow,
+  Activity, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
+  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, ShipWheel, Siren, Users, Waypoints, Workflow, Lightbulb,
 } from "lucide-react";
 
 // The services of the console: one per datacenter page, under its historical `?tab=` id so every existing link
@@ -31,6 +31,7 @@ export const SERVICES = [
   { id: "activity", icon: Activity, cat: "monitor", label: "nav.activity" },
   { id: "journal", icon: ScrollText, cat: "monitor", admin: true },
   { id: "metrics", icon: ChartColumn, cat: "monitor", admin: true },
+  { id: "alerts", icon: Siren, cat: "monitor" },
   { id: "notifications", icon: BellRing, cat: "monitor", admin: true },
   { id: "automation", icon: Workflow, cat: "auto" },
   { id: "api", icon: Braces, cat: "auto", apiDocs: true },
@@ -68,9 +69,10 @@ export const RESOURCE_MENUS = {
   vm: [
     { pages: ["summary", "tasks", { id: "permissions", admin: true }] },
     { group: "res.g.connect", pages: ["console"] },
+    { group: "res.g.operations", pages: ["run"] },
     { group: "res.g.settings", pages: ["hardware", "advanced", "options", "network", "cloudinit"] },
     { group: "res.g.protection", pages: ["snapshots", "backup"] },
-    { group: "res.g.monitoring", pages: ["perf", "advisor"] },
+    { group: "res.g.monitoring", pages: ["perf", "guest", "advisor"] },
   ],
   node: [
     { pages: ["summary", "tasks"] },
