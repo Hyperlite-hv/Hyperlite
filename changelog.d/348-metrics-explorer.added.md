@@ -1,0 +1,1 @@
+A Metrics explorer puts several metrics of nodes and VMs (processor, memory, disk and network throughput) on one chart over the last hour, day, week or month, with an average, maximum or minimum aggregation, a statistics table and a CSV export. Charts can be pinned to a Dashboard section on Home, reordered and opened back in the explorer.
