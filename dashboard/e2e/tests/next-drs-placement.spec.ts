@@ -86,7 +86,7 @@ test("a drain spreads the VMs by default when two members can take them, each sh
   });
   await open(page);
   await page.goto("/node/local?tab=summary");
-  await page.getByRole("main").getByRole("button", { name: "Actions", exact: true }).click();
+  await page.getByRole("main").getByRole("button", { name: /^(More|Plus)\b/ }).click();
   await page.getByRole("menuitem", { name: /^Enter maintenance/ }).click();
   const dlg = page.getByRole("dialog", { name: /in maintenance$/ });
   await expect(dlg.getByLabel("Move the running VMs to")).toHaveValue("__spread__");

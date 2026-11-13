@@ -108,9 +108,10 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await head(page).getByRole("button", { name: "Start", exact: true }).click();
     await expect.poll(() => state(request), { timeout: 60_000 }).toBe("active");
     await expect(page.getByText("Running").first()).toBeVisible({ timeout: 30_000 });
-    await expect(head(page).getByRole("button", { name: "Start", exact: true })).toHaveCount(0);
+    // Start stays in the command bar, unavailable while the VM runs.
+    await expect(head(page).getByRole("button", { name: /^Start/ })).toHaveAttribute("aria-disabled", "true");
     await page.reload();
-    await expect(head(page).getByRole("button", { name: "Start", exact: true })).toHaveCount(0);
+    await expect(head(page).getByRole("button", { name: /^Start/ })).toHaveAttribute("aria-disabled", "true");
     // A second start through the API is refused (conflicting operation).
     const again = await request.post(`/vms/${NAME}/start`, { headers: auth() });
     expect(again.ok()).toBe(false);
@@ -137,7 +138,7 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await uiLogin(page);
     await openVm(page);
     const forceStop = async () => {
-      await head(page).getByRole("button", { name: /^Actions/ }).click();
+      await head(page).getByRole("button", { name: /^(More|Plus)\b/ }).click();
       await page.getByRole("menuitem", { name: /Force stop/ }).click();
     };
     await forceStop();
@@ -186,7 +187,7 @@ test.describe("Virtual machine lifecycle (real libvirt/QEMU backend)", () => {
     await uiLogin(page);
     await openVm(page);
     const remove = async () => {
-      await head(page).getByRole("button", { name: /^Actions/ }).click();
+      await head(page).getByRole("button", { name: /^(More|Plus)\b/ }).click();
       await page.getByRole("menuitem", { name: /^Delete the VM/ }).click();
     };
     await remove();

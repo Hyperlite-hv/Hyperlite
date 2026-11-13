@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Layers, Plus, Trash2 } from "lucide-react";
+import { Database, Download, Ellipsis, Layers, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { createStoragePool, fetchStorageSupport, deleteStoragePool, fetchSharedPools, renameStoragePool, fetchVolumes, createVolume, deleteVolume, checkPoolPermissions, fetchZfsDisks } from "../../api/client";
 import ZfsHealthDrawer, { ZfsDiskPicker, ZFS_LAYOUTS } from "../components/ZfsHealthDrawer";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -14,6 +14,7 @@ import { useIntent } from "../lib/intents";
 import StatusIndicator from "../components/StatusIndicator";
 import { ActionsContextMenu, useContextTarget } from "../components/ContextMenu";
 import { PageHeader, Meter, Chip, SideDrawer, Field, Empty, TableWrap } from "../components/ui";
+import { Cmd, FilterPill, downloadCsv } from "../components/portal";
 import { InlineError } from "../components/States";
 import { promptText } from "../../store/usePromptStore";
 import { askNewName } from "../lib/rename";
@@ -268,6 +269,9 @@ export default function StoragePage() {
   const [creating, setCreating] = useState(false);
   const [zfsPool, setZfsPool] = useState(null);
   const [open, setOpen] = useState(null);
+  const [q, setQ] = useState("");
+  const [nodeF, setNodeF] = useState("");
+  const [typeF, setTypeF] = useState("");
   const [volumes, setVolumes] = useState({});
   const [volumeErrors, setVolumeErrors] = useState({});
   useIntent("pool", () => caps.admin && setCreating(true));
@@ -340,26 +344,52 @@ export default function StoragePage() {
     } catch (err) { pushToast({ kind: "error", title: t("stor.deleteFailed"), message: errorMessage(err) }); }
   }
 
+  const nodeName = (id) => nodes.find((n) => n.id === id)?.name || id;
+  const types = [...new Set(pools.map((p) => p.type).filter(Boolean))];
+  const needle = q.trim().toLowerCase();
+  const shown = pools.filter((p) => (!nodeF || p.node === nodeF) && (!typeF || p.type === typeF)
+    && (!needle || `${p.name} ${p.path || ""} ${nodeName(p.node)} ${typeLabel(p.type, p.protocol)}`.toLowerCase().includes(needle)));
+  const exportCsv = () => downloadCsv("storage-pools.csv", [
+    [t("stor.pool"), t("ns.col.state"), t("ns.node"), t("stor.type"), t("stor.capacity"), t("stor.free"), t("ctx.copyPath")],
+    ...shown.map((p) => [p.name, p.state, nodeName(p.node), typeLabel(p.type, p.protocol), formatSizeGb(p.capacity_gb, lang) ?? "", formatSizeGb(p.available_gb, lang) ?? "", p.path || ""]),
+  ]);
+
   return (
     <>
-      <PageHeader title={t("tab.storage")} count={pools.length} desc={t("stor.desc")}
-        actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setCreating(true)}><Plus size={15} aria-hidden="true" />{t("stor.createPool")}</button>} />
+      <PageHeader title={t("tab.storage")} desc={t("stor.desc")} actions={(
+        <>
+          {caps.admin && <Cmd icon={Plus} label={t("stor.createPool")} onClick={() => setCreating(true)} />}
+          <Cmd icon={RefreshCw} label={t("action.refresh")} onClick={() => refreshAll?.()} />
+          <Cmd icon={Download} label={t("list.exportCsv")} onClick={exportCsv} disabled={shown.length === 0} />
+        </>
+      )} />
+      {pools.length > 0 && (
+        <>
+          <div className="hc-fbar">
+            <label className="hc-filter hc-filter--wide"><Search size={16} aria-hidden="true" /><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("list.filterAny")} aria-label={t("list.filterAny")} /></label>
+            {nodes.length > 1 && <FilterPill label={t("list.nodeIs")} value={nodeF} onChange={setNodeF} options={[{ value: "", label: t("list.all") }, ...nodes.map((n) => ({ value: n.id, label: n.name }))]} />}
+            {types.length > 1 && <FilterPill label={t("list.typeIs")} value={typeF} onChange={setTypeF} options={[{ value: "", label: t("list.all") }, ...types.map((x) => ({ value: x, label: typeLabel(x) }))]} />}
+          </div>
+          <p className="hc-count" role="status">{t("list.showing", { n: shown.length, total: pools.length })}</p>
+        </>
+      )}
       <div className="nx-card2 nx-card2--flush">
         {pools.length === 0 ? <Empty icon={Layers} title={t("ov.noPools")} text={t("stor.noneHelp")} /> : (
           <TableWrap>
-            <table className="nx-table">
-              <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("stor.pool")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("stor.usage")}</th><th scope="col" className="nx-num">{t("stor.capacity")}</th><th scope="col" className="nx-num">{t("stor.free")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+            <table className="nx-table hc-grid--list">
+              <thead><tr><th scope="col">{t("stor.pool")}</th><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ns.node")}</th><th scope="col">{t("stor.type")}</th><th scope="col">{t("stor.usage")}</th><th scope="col" className="nx-num">{t("stor.capacity")}</th><th scope="col" className="nx-num">{t("stor.free")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
               <tbody>
-                {pools.map((p) => {
+                {shown.length === 0 && <tr><td colSpan={8} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
+                {shown.map((p) => {
                   const key = `${p.node}:${p.name}`;
                   const r = p.capacity_gb ? ((p.capacity_gb - (p.available_gb ?? p.capacity_gb)) / p.capacity_gb) * 100 : null;
                   const vols = volumes[key];
                   return (
                     <Fragment key={key}>
                       <tr className={ctx.is("pool", key) ? "is-ctx" : undefined} onContextMenu={ctx.open("pool", p, key)}>
+                        <th scope="row" className="hc-namecell"><div><Database size={16} aria-hidden="true" /><span>{p.name}{p.path && <small className="nx-muted">{p.path}</small>}</span></div></th>
                         <td><StatusIndicator kind="pool" wire={p.state} /></td>
-                        <th scope="row" className="nx-nm">{p.name}{p.path && <small className="nx-mono">{p.path}</small>}</th>
-                        <td className="nx-mono">{nodes.find((n) => n.id === p.node)?.name || p.node}</td>
+                        <td>{nodeName(p.node)}</td>
                         <td><Chip title={p.type === "zfs" ? t("stor.zfsLocal") : undefined}>{typeLabel(p.type, p.protocol)}{p.lvm_thin_pool ? "-thin" : ""}{p.protocol === "smb" && p.smb_version && p.smb_version !== "default" ? ` ${p.smb_version}` : ""}{p.type === "netfs" && p.nfs_version ? ` v${p.nfs_version}` : ""}</Chip>
                           {shared[p.name] && <> <Chip tone="info" title={shared[p.name].all_nodes ? t("stor.sharedAllHelp") : t("stor.sharedSomeHelp", { nodes: shared[p.name].nodes.map((id) => nodes.find((n) => n.id === id)?.name || id).join(", ") })}>{shared[p.name].all_nodes ? t("stor.sharedAll") : t("stor.shared")}</Chip></>}</td>
                         <td><Meter value={r} label={`${p.name} ${t("stor.usage")}`} /></td>
@@ -368,6 +398,7 @@ export default function StoragePage() {
                         <td><div className="nx-ra">
                           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" aria-expanded={open === key} aria-label={t("stor.volumesOf", { name: p.name })} onClick={() => toggleVolumes(p)}>{t("stor.volumes")}</button>
                           {caps.admin && p.name !== "default" && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={t("a11y.delete_pool_x", { v: p.name })} title={t("menu.delete").replace("…", "")} onClick={() => removePool(p)}><Trash2 size={15} aria-hidden="true" /></button>}
+                          <button type="button" className="hc-ibtn" aria-label={t("ctx.menuOf", { name: p.name })} onClick={ctx.open("pool", p, key)}><Ellipsis size={16} aria-hidden="true" /></button>
                         </div></td>
                       </tr>
                       {open === key && (

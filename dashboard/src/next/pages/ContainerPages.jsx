@@ -22,6 +22,7 @@ import { ErrorState } from "../components/States";
 import { Card, Field, Loading, TableWrap } from "../components/ui";
 import { ContainerLogs } from "./ContainersPage";
 import { openShell, renameContainerFlow } from "../lib/containerActions";
+import { Essentials } from "../components/portal";
 
 const intIn = (v, min, max) => v !== "" && Number.isInteger(Number(v)) && Number(v) >= min && (max == null || Number(v) <= max);
 const openTerminal = (name) => window.open(`/container-terminal/${encodeURIComponent(name)}`, `hyperlite-ct-terminal-${name}`, "width=1000,height=700,noopener");
@@ -114,6 +115,19 @@ export function ContainerSummary({ resource: ct }) {
 
   return (
     <>
+      <Essentials json={detail} storageKey="hyperlite-console-essentials-ct"
+        left={[
+          [t("ns.col.state"), <StatusIndicator key="state" kind="vm" wire={ct.state === "active" ? "active" : "stopped"} />],
+          [t("ns.node"), ct.node || "—"],
+          [t("home.type"), ct.mode === "application" ? "Docker" : "LXC"],
+          [t("prop.image"), ct.image || "—"],
+        ]}
+        right={[
+          [t("vmlist.ip"), detail.ip || <span key="ip" className="nx-muted">{t("ct.noIp")}</span>],
+          [t("prop.size"), t("vmlist.size", { vcpu: detail.vcpu, mem: formatSizeMb(detail.memory_mb, lang) })],
+          [t("cd.boot"), detail.autostart ? t("cp.yes") : t("cp.no")],
+        ]}
+      />
       <div className="nx-cols2">
         <Card title={t("cd.resources")}>
           <p className="nx-muted" style={{ margin: "0 0 var(--space-3)", fontSize: "var(--fs-13)" }}>{t("cd.resourcesHelp")}</p>

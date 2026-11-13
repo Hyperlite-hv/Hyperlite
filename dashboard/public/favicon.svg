@@ -1,12 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" shape-rendering="crispEdges">
-  <style>
-    .rails { fill: #1F1A1D; }
-    .core { fill: #6E3550; }
-    @media (prefers-color-scheme: dark) {
-      .rails { fill: #F1ECEE; }
-      .core { fill: #CE9DB2; }
-    }
-  </style>
-  <path class="rails" d="M4 4H14V8H10V24H14V28H4Z M28 4H18V8H22V24H18V28H28Z"/>
-  <path class="core" d="M12 10H20V14H12Z M12 18H20V22H12Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <rect width="48" height="48" rx="11" fill="#2148D4"/>
+  <path d="M24 9l13 7.5L24 24l-13-7.500z" fill="#9DB4FF"/>
+  <path d="M24 9l13 7.5v15L24 39l-13-7.500v-15zM11 16.500L24 24l13-7.500M24 24v15" fill="none" stroke="#fff" stroke-width="3.200" stroke-linejoin="round" stroke-linecap="round"/>
 </svg>

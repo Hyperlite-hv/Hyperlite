@@ -24,7 +24,7 @@ async function selectVm(page: Page, name: string, tab = "") {
 }
 // Every VM operation outside the power buttons lives in the header Actions menu.
 async function vmAction(page: Page, item: RegExp) {
-  await page.locator(".nx-oh-acts").getByRole("button", { name: /^Actions/ }).click();
+  await page.locator(".nx-oh-acts").getByRole("button", { name: /^(More|Plus)\b/ }).click();
   await page.getByRole("menuitem", { name: item }).click();
 }
 

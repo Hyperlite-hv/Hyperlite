@@ -2,6 +2,7 @@
    Scoped under :root[data-ui="next"] so the legacy interface is never affected.
    Values are validated by src/__tests__/tokens-contrast.test.js (WCAG AA). */
 
+@font-face { font-family: "Inter"; font-weight: 400 700; font-style: normal; font-display: swap; src: url("./fonts/inter-latin-wght-normal.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Sans"; font-weight: 600 700; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); }
@@ -9,7 +10,7 @@
 @font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2"); }
 @font-face { font-family: "IBM Plex Mono"; font-weight: 600; font-style: normal; font-display: swap; src: url("./fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2"); }
 
-/* Dark theme: graphite with a faint plum cast. The brand plum is used in its light tone so it reads
+/* Dark theme: blue-black. The brand cobalt is used in its light tone so it reads
    as text and as a button fill with dark text; borders and separators stay neutral, and the brand
    stays rare (active navigation, primary action, focus, running operations). Values are checked by
    src/__tests__/next-tokens.test.js. */
@@ -20,37 +21,40 @@
      Written in rem (= the browser's default size, 16px unless the user changed it) so the user's own
      font-size preference still scales everything. */
   font-size: clamp(0.9375rem, calc(0.5625rem + 0.3125vw), 1.125rem);
-  /* Surfaces: near-black graphite with a cool cast; the plum stays for the brand only */
-  --color-bg-app: #0B0D10;
-  --color-bg-sidebar: #0F1216;
-  --color-bg-rail: #07090C;
-  --color-bg-workspace: #0B0D10;
-  --color-bg-surface: #12161B;
-  --color-bg-surface-raised: #171C22;
-  --color-bg-hover: #1D232B;
-  --color-bg-selected: #2A1D25;
+  /* Surfaces: blue-black; the cobalt stays for the brand and for links */
+  /* Header band: the brand colour in light, near-black in dark */
+  --color-head-bg: #0B0E14;
+  --color-head-line: #262C3A;
+  --color-bg-app: #12151C;
+  --color-bg-sidebar: #171B24;
+  --color-bg-rail: #0B0E14;
+  --color-bg-workspace: #12151C;
+  --color-bg-surface: #181C25;
+  --color-bg-surface-raised: #1F2430;
+  --color-bg-hover: #232938;
+  --color-bg-selected: #1A2444;
   /* Borders. Card: the edge of the sections on a page. Subtle: separators inside them (rows). Default: tables and
      panels, clearly visible. Strong: controls, 3:1. */
-  --color-border-card: #222932;
-  --color-border-subtle: #2B323C;
-  --color-border-default: #4A5361;
-  --color-border-strong: #6E7787;
-  --color-border-focus: #E2A9C3;
+  --color-border-card: #262C3A;
+  --color-border-subtle: #2B3242;
+  --color-border-default: #4A5368;
+  --color-border-strong: #6F7A92;
+  --color-border-focus: #8FABFF;
   /* Text: three distinct levels, all at 4.5:1 or more */
-  --color-text-primary: #E7EAEE;
-  --color-text-secondary: #B3BCC8;
-  --color-text-muted: #8D97A5;
-  --color-text-disabled: #5A6370;
-  --color-text-on-accent: #0B0D10;
-  /* Functional: brand plum, status colours */
-  --color-accent: #E2A9C3;
-  --color-accent-2: #8DB3BD;
+  --color-text-primary: #E9ECF3;
+  --color-text-secondary: #BAC1D0;
+  --color-text-muted: #939BAE;
+  --color-text-disabled: #5A6276;
+  --color-text-on-accent: #0B0E14;
+  /* Functional: brand cobalt, status colours */
+  --color-accent: #8FABFF;
+  --color-accent-2: #35C2CB;
   --color-info: #7FA7E8;
-  --color-success: #3DBE8B;
-  --color-warning: #F0A54A;
-  --color-danger: #F2716A;
-  --color-offline: #8D97A5;
-  --color-unknown: #8D97A5;
+  --color-success: #4CC38A;
+  --color-warning: #F0B429;
+  --color-danger: #FF8076;
+  --color-offline: #939BAE;
+  --color-unknown: #939BAE;
   --color-success-subtle: color-mix(in oklab, var(--color-success) 14%, var(--color-bg-surface));
   --color-warning-subtle: color-mix(in oklab, var(--color-warning) 14%, var(--color-bg-surface));
   --color-danger-subtle: color-mix(in oklab, var(--color-danger) 14%, var(--color-bg-surface));
@@ -62,9 +66,9 @@
   --color-on-accent: var(--color-text-on-accent);
   /* Flat surfaces: cards rely on borders; only floating layers (menus, palette) get a shadow */
   --shadow-card: none;
-  --shadow-float: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 12px 34px rgba(0, 0, 0, 0.55);
   /* Typography */
-  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.8125rem;
@@ -80,7 +84,7 @@
   /* Structure */
   /* "Soft" shapes: 4 counters and checkboxes, 6 badges and small controls, 8 buttons, inputs and menus,
      12 panels and cards; 16 is reserved for dialogs */
-  --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --radius-xs: 2px; --radius-sm: 4px; --radius-md: 4px; --radius-lg: 6px; --radius-xl: 8px;
   --border-width: 1px;
   --sidebar-width: 15.5rem;
   --topbar-height: 3rem;
@@ -94,21 +98,21 @@
    dark enough to be link text and to carry white button text. */
 :root[data-ui="next"][data-theme="light"] {
   color-scheme: light;
-  --color-bg-app: #F3F4F6; --color-bg-sidebar: #FAFBFC; --color-bg-rail: #12161C; --color-bg-workspace: #F3F4F6;
-  --color-bg-surface: #FFFFFF; --color-bg-surface-raised: #F8F9FB;
-  --color-bg-hover: #EEF0F3; --color-bg-selected: #F4E9EE;
-  --color-border-card: #E2E5EA; --color-border-subtle: #E2E5EA; --color-border-default: #B4BBC6;
-  --color-border-strong: #7A8494; --color-border-focus: #6E3550;
-  --color-text-primary: #0E131A; --color-text-secondary: #3F4957;
-  --color-text-muted: #5D6776; --color-text-disabled: #98A2B3; --color-text-on-accent: #FFFFFF;
-  --color-accent: #6E3550; --color-accent-2: #365F69; --color-info: #2F5DB0; --color-success: #0F6E4F;
-  --color-warning: #A14A04; --color-danger: #B42318; --color-offline: #5D6776; --color-unknown: #5D6776;
+  --color-head-bg: #1B3CA8; --color-head-line: #1B3CA8;
+  --color-bg-app: #FFFFFF; --color-bg-sidebar: #F6F7FA; --color-bg-rail: #1B3CA8; --color-bg-workspace: #FFFFFF;
+  --color-bg-surface: #FFFFFF; --color-bg-surface-raised: #F6F7FA;
+  --color-bg-hover: #EDEFF4; --color-bg-selected: #EAEFFF;
+  --color-border-card: #E3E6EC; --color-border-subtle: #E3E6EC; --color-border-default: #B7BEC9;
+  --color-border-strong: #7B8496; --color-border-focus: #2148D4;
+  --color-text-primary: #161A24; --color-text-secondary: #454C5E;
+  --color-text-muted: #5E6779; --color-text-disabled: #98A2B3; --color-text-on-accent: #FFFFFF;
+  --color-accent: #2148D4; --color-accent-2: #0B7C86; --color-info: #1C5BC4; --color-success: #157A46;
+  --color-warning: #8A5700; --color-danger: #BD2A20; --color-offline: #5E6779; --color-unknown: #5E6779;
   --color-accent-2-subtle: color-mix(in oklab, var(--color-accent-2) 12%, var(--color-bg-surface));
-  --shadow-float: 0 4px 16px rgba(14, 19, 26, 0.12);
+  --shadow-float: 0 10px 30px rgba(16, 24, 48, 0.16);
 }
 
 /* The section rail stays dark graphite in both themes: it frames the workspace. */
-:root[data-ui="next"][data-theme="light"] .nx-rail,
 :root[data-ui="next"][data-theme="light"] .nx-login-l {
   color-scheme: dark;
   --color-bg-sidebar: #12161C; --color-bg-rail: #12161C; --color-bg-surface: #1A1F26; --color-bg-surface-raised: #20262E;
@@ -163,23 +167,13 @@
 .nx-btn[aria-pressed="true"] { background: var(--color-bg-selected); }
 
 /* ---------- Top bar ---------- */
-.nx-top { grid-area: top; display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-3); background: var(--color-bg-sidebar); border-bottom: 1px solid var(--color-border-subtle); min-width: 0; }
+
 .nx-brand { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; letter-spacing: 0.01em; white-space: nowrap; }
-.nx-crumbs { display: flex; flex: 0 1 auto; align-items: center; gap: var(--space-1); min-width: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
-.nx-crumbs span[aria-hidden] { color: var(--color-text-muted); }
-.nx-crumbs button { background: none; border: 0; cursor: pointer; padding: 2px var(--space-1); color: inherit; border-radius: var(--radius-sm); white-space: nowrap; }
+
 /* A narrow window (a laptop at 125 or 150 % display scaling): the path stays on one line, the current page shortened. */
-.nx-crumb-seg { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; white-space: nowrap; }
-.nx-crumb-seg:last-child { flex: 0 1 auto; overflow: hidden; }
-.nx-crumbs button:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
-.nx-crumbs .nx-crumb-current { color: var(--color-text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-top-spacer { flex: 1; }
-.nx-find { display: inline-flex; align-items: center; flex: 1 1 40rem; max-width: 40rem; min-width: 0; gap: var(--space-2); height: 2rem; padding: 0 var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-bg-surface); color: var(--color-text-secondary); cursor: pointer; font-size: var(--font-size-sm); white-space: nowrap; }
-.nx-find:hover { background: var(--color-bg-hover); }
-.nx-find-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
 .nx-kbd { flex: none; font-family: var(--font-mono); font-size: var(--font-size-xs); border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); padding: 0 var(--space-1); color: var(--color-text-muted); margin-left: auto; }
 .nx-fresh { font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
-.nx-top-group { display: inline-flex; align-items: center; gap: var(--space-2); padding-left: var(--space-3); margin-left: var(--space-1); border-left: 1px solid var(--color-border-subtle); }
 
 /* ---------- Sidebar ---------- */
 .nx-sidebar { grid-area: side; background: var(--color-bg-sidebar); border-right: 1px solid var(--color-border-subtle); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -188,23 +182,9 @@
 .nx-brand-text { display: flex; flex-direction: column; line-height: 1.2; overflow: hidden; white-space: nowrap; }
 .nx-brand-text strong { font-size: var(--font-size-lg); font-weight: 600; letter-spacing: -0.015em; }
 .nx-brand-text small { font-size: 0.6875rem; color: var(--color-text-muted); }
-.nx-root[data-sidebar="collapsed"] .nx-brand-text, .nx-root[data-sidebar="collapsed"] .nx-nav-label,
-.nx-root[data-sidebar="collapsed"] .nx-nav-count, .nx-root[data-sidebar="collapsed"] .nx-nav-group-label,
+.nx-root[data-sidebar="collapsed"] .nx-brand-text,
 .nx-root[data-sidebar="collapsed"] .nx-user-info { display: none; }
-.nx-nav-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) var(--space-3) var(--space-4); }
-.nx-nav-group + .nx-nav-group { margin-top: var(--space-4); }
-.nx-nav-group-label { padding: var(--space-2) var(--space-2) var(--space-1); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--color-text-muted); }
-.nx-nav-item { display: flex; align-items: center; width: 100%; gap: var(--space-3); padding: var(--space-2) var(--space-2); border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-secondary); cursor: pointer; font-size: var(--font-size-sm); font-weight: 500; text-align: left; }
-.nx-nav-item:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.nx-nav-item.active { background: var(--color-bg-selected); color: var(--color-text-primary); font-weight: 600; }
-.nx-nav-item[aria-disabled="true"] { color: var(--color-text-disabled); cursor: not-allowed; }
-.nx-nav-item svg { flex: none; }
-.nx-nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nx-nav-item--sub { padding-left: var(--space-8); font-size: var(--font-size-xs); }
-.nx-nav-item--sub::before { content: ""; }
-.nx-nav-count { flex: none; min-width: 1.4rem; text-align: center; padding: 1px 6px; border-radius: 999px; font-size: 0.6875rem; font-weight: 600; font-variant-numeric: tabular-nums; background: var(--color-bg-hover); color: var(--color-text-muted); }
-.nx-nav-count--warning { background: var(--color-warning-subtle); color: var(--color-warning); }
-.nx-nav-count--danger { background: var(--color-danger-subtle); color: var(--color-danger); }
+
 .nx-sidebar-user { display: flex; align-items: center; width: 100%; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 0; border-top: 1px solid var(--color-border-subtle); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; flex: none; }
 .nx-sidebar-user:hover { background: var(--color-bg-hover); }
 .nx-avatar { flex: none; width: 2rem; height: 2rem; border-radius: 50%; background: var(--color-bg-selected); color: var(--color-accent); display: grid; place-items: center; font-size: var(--font-size-xs); font-weight: 700; }
@@ -213,7 +193,6 @@
 .nx-user-info small { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nx-user-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); }
 .nx-sidebar-foot { display: flex; flex-direction: column; gap: 1px; padding: var(--space-2) var(--space-3) var(--space-3); flex: none; }
-.nx-sidebar-foot .nx-nav-item { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 
 /* ---------- Menus ---------- */
 .nx-menu { position: absolute; z-index: 50; min-width: 12rem; background: var(--color-bg-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); box-shadow: var(--shadow-float); padding: var(--space-1); }
@@ -338,17 +317,16 @@
   .nx-root { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main" "dock"; }
   .nx-sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: min(17rem, 88vw); z-index: 40; transform: translateX(-110%); transition: transform var(--duration-base) var(--ease-standard); box-shadow: var(--shadow-float); }
   .nx-root[data-sidebar="open"] .nx-sidebar { transform: none; }
-  .nx-root[data-sidebar="collapsed"] .nx-sidebar .nx-brand-text, .nx-root[data-sidebar="collapsed"] .nx-sidebar .nx-nav-label,
-  .nx-root[data-sidebar="collapsed"] .nx-sidebar .nx-nav-count, .nx-root[data-sidebar="collapsed"] .nx-sidebar .nx-nav-group-label,
+  .nx-root[data-sidebar="collapsed"] .nx-sidebar .nx-brand-text,
   .nx-root[data-sidebar="collapsed"] .nx-sidebar .nx-user-info { display: revert; }
   .nx-only-narrow { display: inline-flex; }
-  .nx-find { min-width: 0; }
+  
 }
 @media (max-width: 767px) {
   .nx-root { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main" "dock"; grid-template-rows: var(--topbar-height) minmax(0, 1fr) auto; }
   .nx-sidebar { width: min(19rem, 92vw); }
-  .nx-find span.nx-find-label, .nx-find .nx-kbd, .nx-crumbs, .nx-fresh { display: none; }
-  .nx-find { min-width: 2rem; padding: 0 var(--space-2); }
+  .nx-fresh { display: none; }
+  
 }
 
 /* ---------- Legacy bridge ----------
@@ -474,9 +452,7 @@ textarea.nx-input { height: auto; min-height: 4.5rem; padding-block: var(--space
 .nx-crumbrow { padding-left: var(--space-6); }
 .nx-tabs { padding: 0 var(--space-5); }
 .nx-btn { border-radius: var(--radius-md); }
-.nx-nav-item { border-radius: var(--radius-md); padding: 0.45rem 0.65rem; font-size: var(--font-size-md); position: relative; }
-.nx-nav-item.active { box-shadow: inset 2px 0 0 var(--color-accent); }
-.nx-nav-group-label { padding-top: var(--space-4); }
+
 .nx-table th, .nx-table td { padding: 0.65rem var(--space-3); }
 .nx-table thead th { border-bottom: 1px solid var(--color-border-default); background: transparent; text-transform: none; letter-spacing: 0; }
 .nx-table tbody tr:last-child th, .nx-table tbody tr:last-child td { border-bottom: 0; }
@@ -505,9 +481,6 @@ textarea.nx-input { height: auto; min-height: 4.5rem; padding-block: var(--space
 .nx-filters label { display: grid; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nx-rowlink { cursor: pointer; }
 .nx-detailcell { background: var(--color-bg-workspace); padding: var(--space-3) var(--space-4) !important; white-space: normal !important; }
-.nx-nav-group-btn { display: flex; align-items: center; gap: var(--space-2); width: 100%; background: none; border: 0; cursor: pointer; text-align: left; }
-.nx-nav-group-btn:hover { color: var(--color-text-primary); }
-[data-sidebar="collapsed"] .nx-nav-group-btn span[aria-hidden] { display: none; }
 
 /* ---------- Screens not rebuilt yet: same cards, fields and dialogs as the rest ---------- */
 :root[data-ui="next"] [data-slot="card"] { background: var(--color-bg-surface); border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
@@ -518,12 +491,7 @@ textarea.nx-input { height: auto; min-height: 4.5rem; padding-block: var(--space
 :root[data-ui="next"] [data-slot="table-row"] { border-color: var(--color-border-subtle); }
 
 /* Sidebar: one clear active state (tint + accent bar), keyboard focus ring only, tighter groups. */
-.nx-nav-item { outline: none; }
-.nx-nav-item:focus-visible { outline: 2px solid var(--color-border-focus); outline-offset: -2px; }
-.nx-nav-item.active { box-shadow: none; background: var(--color-bg-selected); }
-.nx-nav-item.active::before { content: ""; position: absolute; left: 0; top: 0.4rem; bottom: 0.4rem; width: 3px; border-radius: 2px; background: var(--color-accent); }
-.nx-nav-group-label { padding-top: var(--space-3); padding-bottom: var(--space-1); }
-.nx-nav-group + .nx-nav-group { margin-top: 0; }
+
 /* Light theme: tinted accent badges of screens not yet rebuilt need a darker text to stay AA. */
 :root[data-ui="next"][data-theme="light"] [data-slot="badge"][class*="text-accent-blue"] { color: color-mix(in oklab, var(--color-accent) 75%, black); }
 /* Wide tables scroll inside their card instead of stretching the page (grid items default to min-width:auto). */
@@ -616,8 +584,7 @@ select.nx-input { height: 2rem; }
 .nx-inv-group { flex: 1 1 auto; min-height: 0; }
 .nx-inv-group:has(.nx-inv--embedded) { min-height: 12rem; }
 .nx-inv--embedded { flex: 1 1 auto; height: auto !important; min-height: 0; }
-.nx-nav-scroll { flex: 0 1 auto; max-height: 42%; }
-.nx-nav-group + .nx-nav-group { margin-top: var(--space-2); }
+
 .nx-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 7px; cursor: col-resize; z-index: 5; touch-action: none; }
 .nx-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background var(--duration-fast); }
 .nx-resizer:hover::after, .nx-resizer:focus-visible::after { background: var(--color-accent); width: 2px; left: 2px; }
@@ -625,7 +592,7 @@ select.nx-input { height: 2rem; }
 @media (max-width: 1023px) { .nx-resizer { display: none; } }
 /* tree: long names get the room, the count/status stays visible */
 .nx-row .nx-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.nx-nav-scroll { max-height: 36%; }
+
 .nx-splitter { flex: none; height: 7px; margin: -3px 0; cursor: row-resize; position: relative; z-index: 4; touch-action: none; }
 .nx-splitter::after { content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 1px; background: var(--color-border-subtle); }
 .nx-splitter:hover::after, .nx-splitter:focus-visible::after { background: var(--color-accent); height: 2px; top: 2px; }
@@ -675,7 +642,7 @@ select.nx-input { height: 2rem; }
 }
 
 /* Sidebar as in the reference: three navigation sections, running operation, account */
-.nx-nav-scroll { flex: 1 1 auto; max-height: none; }
+
 .nx-sidebar-op { flex: none; margin: 0 var(--space-3) var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-bg-surface); display: grid; gap: var(--space-2); font-size: var(--font-size-xs); }
 .nx-sidebar-op-head { display: flex; justify-content: space-between; gap: var(--space-2); min-width: 0; }
 .nx-sidebar-op-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -683,7 +650,6 @@ select.nx-input { height: 2rem; }
 .nx-progress--indeterminate > span { position: absolute; inset: 0 auto 0 0; width: 35%; border-radius: 999px; background: var(--color-accent); animation: nx-indet 1.4s var(--ease-standard) infinite; }
 @keyframes nx-indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 @media (prefers-reduced-motion: reduce) { .nx-progress--indeterminate > span { animation: none; width: 100%; opacity: .5; } }
-
 
 /* Overview as an operations summary */
 .nx-ov-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
