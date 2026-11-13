@@ -787,6 +787,18 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # Each VM's definition as it was after every change the collector saw (app/core/config_history.py). History of
+        # this node's own sampling: not replicated, like the metrics.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_config_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT NOT NULL,
+                ts TEXT NOT NULL,
+                hash TEXT NOT NULL,
+                xml TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_vm_config_versions ON vm_config_versions(target, id)")
         # Alert rules (#348): a metric of a node or a VM above or below a threshold for a few minutes, evaluated by the
         # leader (app/core/alert_rules.py). Replicated, their state too: every node shows which rules fire.
         conn.execute("""
