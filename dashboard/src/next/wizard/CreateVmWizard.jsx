@@ -1,3 +1,4 @@
+import { consumeIntent } from "../lib/intents";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createVM, fetchPlacement, fetchClusterIsos, fetchHostFirmware, fetchIsoTemplates, fetchVmDisks, fetchVolumes } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -114,6 +115,11 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
       return next;
     });
   }
+  useEffect(() => { // opened from the image gallery: start from that image
+    if (!open) return;
+    const file = consumeIntent("vm-from-image");
+    if (file) patch({ importDisk: file });
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { // import mode: preselect the first free disk
     if (form.importDisk != null && (!form.importDisk || form.importDisk === "__pending__") && disks.length > 0) patch({ importDisk: disks[0].name });
   }, [form.importDisk, disks]);
