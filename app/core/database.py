@@ -966,6 +966,54 @@ def _init_db():
         # (id=1) that remembers the last remote version already notified, so that only
         # ONE notification is sent per available version instead of one per hourly cycle
         # while nobody applies the update.
+        # Each update of this node and its steps (app/core/update_runs.py): the history of the Updates page, and what
+        # a reload or another browser reads of an update in progress. This node's own, like its tasks.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS update_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT,
+                kind TEXT NOT NULL CHECK(kind IN ('online', 'file', 'rollback')),
+                from_version TEXT,
+                to_version TEXT,
+                system INTEGER NOT NULL DEFAULT 1,
+                started_by TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                status TEXT NOT NULL CHECK(status IN ('running', 'verifying', 'succeeded', 'rolled_back', 'failed')),
+                steps TEXT NOT NULL DEFAULT '[]',
+                error TEXT,
+                reboot_required INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        # The notification centre (app/core/notification_feed.py): what happened that someone should see, kept on
+        # this node; each account's read and archived marks apart.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_feed (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                level TEXT NOT NULL CHECK(level IN ('info', 'update', 'warning', 'error')),
+                kind TEXT NOT NULL,
+                subject TEXT,
+                title TEXT NOT NULL,
+                detail TEXT,
+                link TEXT,
+                audience TEXT NOT NULL DEFAULT 'all' CHECK(audience IN ('all', 'admin')),
+                resolve_key TEXT,
+                resolved_at TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notification_feed_open ON notification_feed(resolve_key, resolved_at)"
+        )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_marks (
+                username TEXT NOT NULL,
+                notification_id INTEGER NOT NULL,
+                read_at TEXT,
+                archived_at TEXT,
+                PRIMARY KEY (username, notification_id)
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS update_check_state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),

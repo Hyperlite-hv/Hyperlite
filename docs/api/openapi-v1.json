@@ -1593,6 +1593,27 @@
     "title": "EnableRequest",
     "type": "object"
    },
+   "FeedMarks": {
+    "properties": {
+     "ids": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "integer"
+        },
+        "maxItems": 500,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ids"
+     }
+    },
+    "title": "FeedMarks",
+    "type": "object"
+   },
    "FencingSettings": {
     "properties": {
      "address": {
@@ -4296,6 +4317,19 @@
      "password"
     ],
     "title": "TwoFADisable",
+    "type": "object"
+   },
+   "UpdateSettings": {
+    "properties": {
+     "check_interval_h": {
+      "title": "Check Interval H",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "check_interval_h"
+    ],
+    "title": "UpdateSettings",
     "type": "object"
    },
    "UpgradeRequest": {
@@ -17760,6 +17794,151 @@
     ]
    }
   },
+  "/api/v1/notifications/feed": {
+   "get": {
+    "description": "The entries this account may read, pinned ones first, with their read marks, and the unread count.",
+    "operationId": "get_feed_api_v1_notifications_feed_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "archived",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Archived",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Feed",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/v1/notifications/feed/archive": {
+   "post": {
+    "operationId": "archive_feed_api_v1_notifications_feed_archive_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FeedMarks"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Archive Feed",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/v1/notifications/feed/read": {
+   "post": {
+    "operationId": "read_feed_api_v1_notifications_feed_read_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FeedMarks"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Read Feed",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
   "/api/v1/pools": {
    "get": {
     "operationId": "list_pools_api_v1_pools_get",
@@ -21670,6 +21849,52 @@
     ]
    }
   },
+  "/api/v1/update/history": {
+   "get": {
+    "operationId": "update_history_api_v1_update_history_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 30,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update History",
+    "tags": [
+     "update"
+    ]
+   }
+  },
   "/api/v1/update/offline": {
    "delete": {
     "operationId": "delete_offline_update_api_v1_update_offline_delete",
@@ -21846,6 +22071,31 @@
     ]
    }
   },
+  "/api/v1/update/preflight": {
+   "get": {
+    "description": "The checks an update would run now (docs/design/updates-2.md, 2.2): blocking ones stop it, warnings are said.",
+    "operationId": "update_preflight_checks_api_v1_update_preflight_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Preflight Checks",
+    "tags": [
+     "update"
+    ]
+   }
+  },
   "/api/v1/update/rollback": {
    "post": {
     "description": "Back to the version before the last update of Hyperlite (its package kept on the node), under the same\nsafety net as an update. Hyperlite only: the Debian packages stay as they are.",
@@ -21866,6 +22116,143 @@
      }
     ],
     "summary": "Rollback Update",
+    "tags": [
+     "update"
+    ]
+   }
+  },
+  "/api/v1/update/runs/{run_id}": {
+   "get": {
+    "description": "One run, its steps, and the technical log: the job's lines and, for a run that restarted the service, the end of\nthe watchdog's log.",
+    "operationId": "update_run_api_v1_update_runs__run_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Run",
+    "tags": [
+     "update"
+    ]
+   }
+  },
+  "/api/v1/update/settings": {
+   "get": {
+    "operationId": "get_update_settings_api_v1_update_settings_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Update Settings",
+    "tags": [
+     "update"
+    ]
+   },
+   "put": {
+    "operationId": "put_update_settings_api_v1_update_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateSettings"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Update Settings",
+    "tags": [
+     "update"
+    ]
+   }
+  },
+  "/api/v1/update/status": {
+   "get": {
+    "description": "Everything the Updates page shows at a glance: the versions, the last check (kept, the mirror is not contacted\nhere), the run in progress with its steps, the last run, the settings.",
+    "operationId": "update_status_api_v1_update_status_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Status",
     "tags": [
      "update"
     ]
