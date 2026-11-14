@@ -17,6 +17,7 @@ import { useInfraStore } from "../store/useInfraStore";
 import { usePolling } from "./lib/polling";
 import { refreshInventory, refreshExtras } from "./lib/inventory";
 import TopBar from "./layout/TopBar";
+import TerminalDock from "./layout/TerminalDock";
 import Workspace from "./layout/Workspace";
 import Palette from "./layout/Palette";
 import SideMenu from "./layout/SideMenu";
@@ -163,6 +164,7 @@ export default function NextApp() {
           <Route path="/container/:id" element={<Workspace />} />
           <Route path="*" element={<Navigate to="/datacenter" replace />} />
         </Routes>
+        <TerminalDock />
         <Tray />
         <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} setWizards={setWizards} />
         <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />

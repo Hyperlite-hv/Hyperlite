@@ -27,7 +27,15 @@ def ask(op, log_user=None, **args):
     if op not in OPERATIONS:
         raise ValueError(op)
     if os.environ.get(tickets.SIGNING_ENV) == "local":
-        return globals()[op](**args)
+        # As in hyperlite-daemon, which never sees the request's own credential: a password change invalidates the
+        # session it came with, and the writes it makes must not be checked against that session.
+        from app.core import peer_auth
+
+        held = peer_auth.CREDENTIAL.set(None)
+        try:
+            return globals()[op](**args)
+        finally:
+            peer_auth.CREDENTIAL.reset(held)
     from app.core import daemon_client
 
     return daemon_client.call(f"auth.{op}", args, user=log_user or args.get("username"))

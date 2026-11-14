@@ -311,6 +311,12 @@ def _refuse_by_signin_rules(user):
     ip = request_ip.get()
     if ip is None:
         return  # not an HTTP request (hyperlite-daemon checking a proof, a thread): the request itself was checked
+    if user.get("api_token_kind") == "workbench":
+        # A Terminal's requests come through its relay, from 127.0.0.1: the address that counts is the one the session
+        # was opened from (app/core/workbench.py).
+        from app.core import workbench
+
+        ip = workbench.opened_from(user["api_token_id"]) or ip
     refusal = signin_rules.refusal(user, ip)
     if refusal:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refusal)
@@ -370,6 +376,9 @@ def _session_only(token: str, pending_ok: bool):
     # What a person does for their own account (a password, a second factor, an API token): root of a node has none.
     if user.get(LOCAL_ROOT_CLAIM):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not for root of a node: use an account")
+    # hyperlite-daemon checks who asks from this credential: without it, what these routes write (an API token, a
+    # second factor) was refused once the API ran as www-data.
+    peer_auth.remember(token)
     return user
 
 

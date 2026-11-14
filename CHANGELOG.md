@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-11-14
+
+### Added
+
+- The Terminal: a `>_` button in the top bar (Ctrl+`) opens a panel docked at the bottom of every page, kept while you move between pages and re-attached after a reload, with tabs: Terminal sessions (an isolated box with your own rights, the `hyperlite` client and `hl api` ready), the node's root shell for administrators, and a VM's terminal ("Open in the Terminal" in the VM's menu). Drop files onto the panel to put them in your home, get one back from the panel's bar; `hl tofu` installs OpenTofu in your home.
+- Each Terminal session runs in an isolated box: a hardened transient systemd unit with no network but a relay to the API, the node's secrets, databases, disks and logs hidden, its own memory, CPU and process limits, a home kept per account (1 GB by default), and a token of its own revoked when the session ends. Sessions end after 30 minutes detached, after 8 hours, or when a sign-in rule (checked with the browser's address) no longer allows them, and survive a restart of Hyperlite. Opening one takes the new privilege `workbench.use` (in Steward, Builder and Maintainer), or the setting that opens it to everyone.
+- A Terminal settings page for administrators: who may open one, the limits, the sessions open on the node.
+
+### Fixed
+
+- Creating an API token, setting up a second factor and the other actions on one's own account from the console are no longer refused by hyperlite-daemon ("needs the proof of the account that asks") since the API runs as www-data: the session's own proof now goes with them.
+- A fresh installation starts: the directories of VM exports and container backups are made by the package, and the API no longer stops at start when one is missing.
+
 ## [1.22.0] - 2026-11-14
 
 ### Added
