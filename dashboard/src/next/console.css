@@ -601,3 +601,17 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
   .hc-cat-r { padding: 1.0667rem 1.0667rem 2.1333rem; } .hc-cat-r--solo { padding: 0; }
 }
 @media (min-width: 1024px) and (max-width: 1320px) { .hc-home { grid-template-columns: minmax(0, 1fr); } }
+
+/* Keyboard: the shortcuts dialog, keys drawn as keys, and the row the keyboard is on. */
+.hc-keys-dlg { position: fixed; top: 10vh; left: 50%; transform: translateX(-50%); width: min(44rem, calc(100vw - 2rem)); max-height: 80vh; overflow: auto; padding: 1.0667rem 1.3333rem; border: 1px solid var(--color-border-default); border-radius: var(--radius-xl); background: var(--color-bg-surface); color: var(--color-text-primary); box-shadow: var(--shadow-float); z-index: 70; }
+.hc-keys-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5333rem; }
+.hc-keys-h h2 { margin: 0; font-size: 1.0667rem; }
+.hc-keys-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.6rem; }
+.hc-keys-cols h3 { margin: 0.8rem 0 0.4rem; font-size: var(--font-size-xs); font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.hc-keys-cols dl { margin: 0; display: grid; gap: 0.2667rem; }
+.hc-keys-cols dl > div { display: grid; grid-template-columns: 6.4rem minmax(0, 1fr); align-items: center; gap: 0.8rem; font-size: var(--font-size-sm); }
+.hc-keys-cols dd { margin: 0; }
+.hc-keys { display: inline-flex; gap: 0.2667rem; }
+.hc-keys kbd { min-width: 1.4667rem; padding: 0.0667rem 0.4rem; border: 1px solid var(--color-border-strong); border-bottom-width: 2px; border-radius: var(--radius-sm); background: var(--color-bg-surface-raised); font-family: var(--font-mono); font-size: var(--font-size-xs); text-align: center; }
+.nx-root.hc tr.is-kbd { box-shadow: inset 3px 0 0 var(--color-accent); background: var(--color-bg-hover); }
+@media (max-width: 640px) { .hc-keys-cols { grid-template-columns: minmax(0, 1fr); } }

@@ -18,6 +18,9 @@ import Workspace from "./layout/Workspace";
 import Palette from "./layout/Palette";
 import SideMenu from "./layout/SideMenu";
 import Tray from "./layout/Tray";
+import ShortcutsDialog from "./components/ShortcutsDialog";
+import { useInfraStore } from "../store/useInfraStore";
+import { GO, SEQUENCE_MS, isTyping, moveRow, toggleRow } from "./lib/shortcuts";
 
 const SIDEBAR_KEY = "hyperlite-next-sidebar";
 function readSidebarCollapsed() { try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; } }
@@ -35,6 +38,7 @@ export default function NextApp() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [wizards, setWizards] = useState({});
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.ui = "next";
@@ -60,16 +64,36 @@ export default function NextApp() {
   }, []);
 
   useEffect(() => {
+    let pendingG = 0; // when "g" was pressed: the next letter goes to a service
     const onKey = (e) => {
-      const tag = (e.target?.tagName || "").toLowerCase();
-      const typing = tag === "input" || tag === "textarea" || tag === "select" || e.target?.isContentEditable;
+      const typing = isTyping(e.target);
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") { e.preventDefault(); toggleSidebar(); return; }
-      if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setPaletteOpen(true); }
+      if (typing || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+      if (document.querySelector('[aria-modal="true"]')) return; // a dialog has the keyboard
+      const key = e.key;
+      if (pendingG && Date.now() - pendingG < SEQUENCE_MS) {
+        pendingG = 0;
+        const id = GO[key.toLowerCase()];
+        if (id) { e.preventDefault(); useInfraStore.getState().navigateTo("datacenter", null, id); }
+        return;
+      }
+      pendingG = 0;
+      if (key === "/") { e.preventDefault(); setPaletteOpen(true); }
+      else if (key === "?") { e.preventDefault(); setShortcutsOpen(true); }
+      else if (key === "g") { pendingG = Date.now(); }
+      else if (key === "c") { e.preventDefault(); useInfraStore.getState().navigateTo("datacenter", null, "create"); }
+      else if (key === "j" || key === "k") { if (moveRow(key === "j" ? 1 : -1)) e.preventDefault(); }
+      else if (key === "x") { if (toggleRow()) e.preventDefault(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar]);
+  useEffect(() => {
+    const open = () => setShortcutsOpen(true);
+    window.addEventListener("nx:shortcuts", open);
+    return () => window.removeEventListener("nx:shortcuts", open);
+  }, []);
 
   useEffect(() => {
     const open = () => setPaletteOpen(true);
@@ -116,6 +140,7 @@ export default function NextApp() {
         </Routes>
         <Tray />
         <Palette open={paletteOpen} onClose={() => setPaletteOpen(false)} setWizards={setWizards} />
+        <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <MaintenanceHost />
         <NodePowerHost />
       </div>
