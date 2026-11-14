@@ -111,3 +111,42 @@ def as_terraform(d):
         lines += ["", f"  tags = {_hcl(d['tags'])}"]
     lines.append("}")
     return "\n".join(lines) + "\n"
+
+
+def pool_as_terraform(pool, vms, assignments, groups):
+    """A pool, its VMs, the networks and storage pools they use (as data sources) and its assignments, as one
+    Terraform / OpenTofu file (docs/design/governance.md, section 12). `groups`: {id: name} of the account groups."""
+    label = re.sub(r"[^A-Za-z0-9_]", "_", pool["name"]) or "pool"
+    out = [
+        "# Made by Hyperlite from the pool " + json.dumps(pool["name"]) + ".",
+        "",
+        f'resource "hyperlite_resource_pool" "{label}" {{',
+        f"  name        = {_hcl(pool['name'])}",
+        f"  description = {_hcl(pool.get('description') or '')}",
+        "}",
+    ]
+    networks = sorted({n["network"] for v in vms for n in v["interfaces"] if n["network"]})
+    storages = sorted({d["storage_pool"] for v in vms for d in v["disks"] if d["storage_pool"]})
+    for n in networks:
+        out += ["", f'data "hyperlite_network" "{re.sub(r"[^A-Za-z0-9_]", "_", n)}" {{', f"  name = {_hcl(n)}", "}"]
+    for st in storages:
+        out += [
+            "",
+            f'data "hyperlite_storage_pool" "{re.sub(r"[^A-Za-z0-9_]", "_", st)}" {{',
+            f"  name = {_hcl(st)}",
+            "}",
+        ]
+    for v in vms:
+        out += ["", as_terraform({**v, "resource_pool": None}).rstrip().replace(
+            "  vcpu", f"  resource_pool = hyperlite_resource_pool.{label}.name\n  vcpu", 1)]  # fmt: skip
+    for a in assignments:
+        subject = a["subject_id"] if a["subject_type"] == "user" else groups.get(int(a["subject_id"]), a["subject_id"])
+        out += [
+            "",
+            f'resource "hyperlite_acl" "{label}_{a["id"]}" {{',
+            f"  {a['subject_type']} = {_hcl(subject)}",
+            f"  role = {_hcl(a['role'])}",
+            f"  resource_pool = hyperlite_resource_pool.{label}.name",
+            "}",
+        ]
+    return "\n".join(out) + "\n"

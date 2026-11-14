@@ -89,6 +89,17 @@ def list_all(kind=None):
     ]
 
 
+def effective_tags(kind, name, node=None):
+    """An object's tags with those it inherits: a VM carries the tags of the pools it belongs to."""
+    tags = list(get(kind, name, node)["tags"])
+    if kind == "vm":
+        from app.core import permissions
+
+        for pool_id in permissions.get_vm_pools(name):
+            tags += [t for t in get("pool", str(pool_id))["tags"] if t not in tags]
+    return tags
+
+
 def delete(kind, name, node=None):
     _store().delete_meta(*_key(kind, name, node))
 

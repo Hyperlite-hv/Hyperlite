@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryStore } from "../lib/query";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -72,7 +73,9 @@ export default function Palette({ open, onClose, setWizards }) {
       { group: "cmd.group.settings", id: "s:prefs", label: t("prefs.menu"), run: () => window.dispatchEvent(new CustomEvent("nx:prefs")) },
       { group: "cmd.group.settings", id: "s:kbd", label: t("kbd.title"), hint: "?", run: () => window.dispatchEvent(new CustomEvent("nx:shortcuts")) },
     ];
-    return [...res, ...actions.filter((a) => match(a.label)), ...go.filter((g) => match(g.label)), ...settings.filter((g) => match(g.label))];
+    // A query (a term with ":", ">" or "<") opens the Search page with it.
+    const query = /[a-z]+(:|>|<)/i.test(q) ? [{ group: "cmd.group.go", id: "q:search", label: t("qs.searchFor", { q: q.trim() }), run: () => { useQueryStore.getState().setQ(q.trim()); navigateTo("datacenter", null, "search"); } }] : [];
+    return [...query, ...res, ...actions.filter((a) => match(a.label)), ...go.filter((g) => match(g.label)), ...settings.filter((g) => match(g.label))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, nodes, vms, caps.create, caps.admin]);
 

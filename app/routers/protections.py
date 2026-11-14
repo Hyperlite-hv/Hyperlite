@@ -78,6 +78,7 @@ class Rule(BaseModel):
     max_disk_gb: int | None = Field(None, ge=1, le=1024**3)
     storage_pools: list[str] | None = Field(None, max_length=200)
     networks: list[str] | None = Field(None, max_length=200)
+    required_tags: list[str] | None = Field(None, max_length=16)
 
 
 def _pool_or_404(pool_id):

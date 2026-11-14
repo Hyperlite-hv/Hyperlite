@@ -320,14 +320,19 @@ def _kept_sentence(keep):
 
 @router.delete("/{name}")
 def delete_vm(
-    name: str, confirm: bool = False, node: str | None = None, user: dict = Depends(require_vm_privilege("vm.allocate"))
+    name: str,
+    confirm: bool = False,
+    node: str | None = None,
+    purge: bool = False,
+    user: dict = Depends(require_vm_privilege("vm.allocate")),
 ):
-    """An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there)."""
+    """An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there). With
+    the recycle bin on (app/core/recycle_bin.py) the VM is kept there for some days; purge=true deletes it now."""
     with vm_locks.claim_or_409(name, "a deletion", node=node):
-        return _delete_vm(name, confirm, node, user)
+        return _delete_vm(name, confirm, node, user, purge)
 
 
-def _delete_vm(name, confirm, node, user):
+def _delete_vm(name, confirm, node, user, purge=False):
     conn = open_conn(node, readonly=True)
     task_id = create_task("delete_vm", name, node=node, username=user["username"])
     try:
@@ -345,6 +350,19 @@ def _delete_vm(name, confirm, node, user):
                 status_code=400, detail="Irreversible action: add ?confirm=true to confirm the deletion"
             )
 
+        from app.core import recycle_bin
+
+        if not purge and (node in (None, "local")) and recycle_bin.days() > 0:
+            try:
+                kept = recycle_bin.put(domain, user["username"])
+            except DaemonError as e:
+                log_action(user["username"], "delete_vm", name, "failed", e.detail, task_id=task_id)
+                raise privileged.http_error(e) from None
+            log_action(
+                user["username"], "delete_vm", name, "success", f"In the recycle bin until {kept['purge_at'][:10]}",
+                task_id=task_id,
+            )  # fmt: skip
+            return {"message": f"VM '{name}' moved to the recycle bin", "recycle_bin": kept, "kept_disks": {}}
         try:
             keep = _perform_vm_deletion(conn, domain, name, node=node, username=user["username"])
         except libvirt.libvirtError as e:
@@ -359,6 +377,9 @@ def _delete_vm(name, confirm, node, user):
         from app.core import vm_schedules
 
         vm_schedules.forget_vm(name)  # a later VM of the same name starts without them
+        from app.core import vm_identity
+
+        vm_identity.disable(name)  # its token goes with it
         # kept_disks: what stays on the storage's tasks say it.
         return {"message": f"VM '{name}' deleted", "kept_disks": keep}
     finally:
