@@ -376,6 +376,9 @@ def _session_only(token: str, pending_ok: bool):
     # What a person does for their own account (a password, a second factor, an API token): root of a node has none.
     if user.get(LOCAL_ROOT_CLAIM):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not for root of a node: use an account")
+    # hyperlite-daemon checks who asks from this credential: without it, what these routes write (an API token, a
+    # second factor) was refused once the API ran as www-data.
+    peer_auth.remember(token)
     return user
 
 
