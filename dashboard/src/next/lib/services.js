@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import {
-  Activity, ArrowDownToLine, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
+  Activity, ArrowDownToLine, BellRing, Box, Braces, BrickWall, Camera, Clock, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
   Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, Share2, ShieldCheck, ShipWheel, Siren, Users, Waypoints, Workflow, Lightbulb,
 } from "lucide-react";
 
@@ -40,6 +40,7 @@ export const SERVICES = [
   { id: "permissions", icon: Users, cat: "identity", admin: true, label: "nav.usersRoles" },
   { id: "sso", icon: KeyRound, cat: "identity", admin: true, label: "svc.sso" },
   { id: "guardrails", icon: ShieldCheck, cat: "identity" },
+  { id: "access", icon: Clock, cat: "identity" },
 ];
 // The pages of the console itself: they are not services and never appear in the catalogue.
 const BASE = [

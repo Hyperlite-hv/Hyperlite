@@ -165,7 +165,64 @@ class SqliteAccessStore:
 
     @daemon_write("access.acl_delete")
     def delete_acl(self, acl_id):
-        _write("DELETE FROM acl WHERE id = ?", (acl_id,))
+        _write_all(
+            ("DELETE FROM acl WHERE id = ?", (acl_id,)), ("DELETE FROM access_terms WHERE acl_id = ?", (acl_id,))
+        )
+
+    # ---- Terms of an assignment, on-demand rights, delegated tokens (docs/design/access-2.md, 6 to 8) ----
+
+    def terms(self):
+        return {r["acl_id"]: r for r in _rows("SELECT * FROM access_terms")}
+
+    @daemon_write("access.acl_create_terms")
+    def create_acl_with_terms(
+        self, subject_type, subject_id, role, resource_type, resource_id, expires_at, tag, reason, granted_by,
+        granted_at, origin,
+    ):  # fmt: skip
+        """An assignment and its terms, in one transaction: it never exists without its end."""
+        with get_conn() as db:
+            acl_id = db.execute(
+                "INSERT INTO acl (subject_type, subject_id, role, resource_type, resource_id) VALUES (?, ?, ?, ?, ?)",
+                (subject_type, subject_id, role, resource_type, resource_id),
+            ).lastrowid
+            db.execute(
+                "INSERT INTO access_terms (acl_id, expires_at, tag, reason, granted_by, granted_at, origin) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (acl_id, expires_at, tag, reason, granted_by, granted_at, origin),
+            )
+            db.commit()
+        return acl_id
+
+    def eligibility(self):
+        return _rows("SELECT * FROM access_eligibility ORDER BY id")
+
+    @daemon_write("access.eligibility_create")
+    def create_eligibility(
+        self, subject_type, subject_id, role, resource_type, resource_id, max_minutes, approval, created_by,
+        created_at,
+    ):  # fmt: skip
+        return _write(
+            "INSERT INTO access_eligibility (subject_type, subject_id, role, resource_type, resource_id, max_minutes, "
+            "approval, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (subject_type, subject_id, role, resource_type, resource_id, max_minutes, approval, created_by, created_at),
+        ).lastrowid
+
+    @daemon_write("access.eligibility_delete")
+    def delete_eligibility(self, eligibility_id):
+        _write("DELETE FROM access_eligibility WHERE id = ?", (eligibility_id,))
+
+    def token_scope(self, token_id):
+        found = _rows("SELECT role, resource_type, resource_id FROM api_token_scopes WHERE token_id = ?", (token_id,))
+        return found[0] if found else None
+
+    @daemon_write("access.token_scope_set")
+    def set_token_scope(self, token_id, role, resource_type, resource_id):
+        _write(
+            "INSERT INTO api_token_scopes (token_id, role, resource_type, resource_id) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(token_id) DO UPDATE SET role = excluded.role, resource_type = excluded.resource_type, "
+            "resource_id = excluded.resource_id",
+            (token_id, role, resource_type, resource_id),
+        )
 
     @daemon_write("access.acl_vm_forget")
     def delete_acl_for_vm(self, vm_name):
