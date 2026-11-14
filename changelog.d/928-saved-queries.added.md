@@ -1,1 +1,0 @@
-- Saved queries on the search page: a query with a name, shown as a list, a count or bars by state, node, system, pool, tag or kind, private or shared.

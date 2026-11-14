@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-11-15
+
+### Added
+
+- Availability tab on every VM and node: its state now and why, the share of time available over 24 hours, 7 and 30 days (stops made on purpose left out), its states over the period and each interruption with its cause and who stopped it.
+- Dashboards: named, private or shared with everyone or a group, made of tiles (charts, saved queries, availability, alerts firing, resources, notes) drawn with each reader's own rights; pin a chart from the metrics explorer, a query from the search page or a VM's availability, and show one on Home.
+- Saved queries on the search page: a query with a name, shown as a list, a count or bars by state, node, system, pool, tag or kind, private or shared.
+
 ## [1.24.0] - 2026-11-15
 
 ### Added
