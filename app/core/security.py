@@ -379,6 +379,23 @@ def require_role(*roles):
     return checker
 
 
+def require_area(privilege):
+    """Like require_role("admin"), but an account holding the area privilege where this node answers passes too (on
+    the cluster, or on this node for a node-bound area: app/core/permissions.py, has_area_privilege). An
+    administrator always passes."""
+    from app.core.permissions import has_area_privilege  # late import: avoids a cycle with permissions.py
+
+    async def checker(user: dict = Depends(get_current_user)):
+        if not has_area_privilege(user, privilege):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Insufficient rights (required privilege: {privilege})",
+            )
+        return user
+
+    return checker
+
+
 def require_vm_privilege(privilege):
     """Like require_role, but checks a privilege scoped to the target VM (see
     app/core/permissions.py) instead of a global role: an admin always passes,

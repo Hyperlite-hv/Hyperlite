@@ -5262,6 +5262,120 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/api/v1/access/explain": {
+   "get": {
+    "description": "Each privilege `username` holds on that object and the assignments that grant it. An administrator, or\naccess.view on the object or a perimeter above it; any account may ask about itself.",
+    "operationId": "explain_api_v1_access_explain_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "resource_type",
+      "required": true,
+      "schema": {
+       "title": "Resource Type",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "resource_id",
+      "required": true,
+      "schema": {
+       "title": "Resource Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "username",
+      "required": true,
+      "schema": {
+       "title": "Username",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Explain",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/me": {
+   "get": {
+    "description": "The signed-in account's area privileges where this node answers and its privileges per perimeter: the\ndashboard shows the actions it may take from this instead of guessing from the global role.",
+    "operationId": "my_access_api_v1_access_me_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "My Access",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/subjects": {
+   "get": {
+    "description": "The accounts (not administrators: they hold every right already) and the groups an assignment can name, for\nan administrator or a delegate: GET /users stays an administrator's.",
+    "operationId": "subjects_api_v1_access_subjects_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Subjects",
+    "tags": [
+     "access"
+    ]
+   }
+  },
   "/api/v1/acl": {
    "get": {
     "operationId": "list_acl_api_v1_acl_get",
@@ -5330,6 +5444,7 @@
   },
   "/api/v1/acl/custom-roles": {
    "get": {
+    "description": "Every account may read the catalogue (a delegate assigns from it); only an administrator changes it.",
     "operationId": "list_custom_roles_api_v1_acl_custom_roles_get",
     "responses": {
      "200": {
@@ -5539,7 +5654,7 @@
   },
   "/api/v1/acl/object/{resource_type}/{resource_id}": {
    "get": {
-    "description": "Assignments on one VM or container, for the object's Permissions tab: its own ones and, for a VM, the\nones it inherits from its pools.",
+    "description": "Assignments on one object, for its Rights tab: its own ones and the ones it inherits from the perimeters that\ncontain it (a VM's pools, the node, the cluster). An administrator, or access.view on the object or above.",
     "operationId": "object_acl_api_v1_acl_object__resource_type___resource_id__get",
     "parameters": [
      {

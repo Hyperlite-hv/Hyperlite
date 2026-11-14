@@ -224,8 +224,8 @@ def ages():
 
 
 # What this node's database accepts that an older version did not: an assignment on a storage pool or a network, then
-# on a backup store (app/core/permissions.py, RESOURCE_TYPES).
-FEATURES = ("acl_storage_network", "acl_backup_store")
+# on a backup store, then on a node or the whole cluster (app/core/permissions.py, RESOURCE_TYPES).
+FEATURES = ("acl_storage_network", "acl_backup_store", "acl_perimeters")
 
 
 def members_without(feature):

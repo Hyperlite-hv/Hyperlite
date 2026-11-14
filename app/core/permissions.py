@@ -51,7 +51,33 @@ ALL_PRIVILEGES = {
     # Another cluster's copy of a backup store pulls it with this: a
     # dedicated account's API token reads the store's chunks and indexes, nothing else, and deletes nothing.
     "backup_store.read": "Read a backup store, to copy it from another site (assigned on that store)",
+    # Area privileges (docs/design/access-2.md, section 2): held on the cluster or a node, they open a whole area of
+    # the console that was an administrator's. AREA_REACH says which count on a node too.
+    "node.view": "Nodes: read host status, services and settings",
+    "node.manage": "Nodes: host settings, maintenance, services",
+    "storage.view": "Storage: read storage pools and replication",
+    "storage.manage": "Storage: create, change and remove storage pools, replication",
+    "network.view": "Networks: read networks, bridges and firewall",
+    "network.manage": "Networks: create, change and remove networks, bridges and firewall rules",
+    "backup.view": "Backups: read jobs, groups, stores and restores",
+    "backup.manage": "Backups: jobs, groups, stores and restores",
+    "alert.view": "Alerts: read alert rules, notification channels and reports",
+    "alert.manage": "Alerts: alert rules, notification channels, reports and metric servers",
+    "audit.view": "Journal: read the activity journal",
+    "update.view": "Updates: read status, history and preflight",
+    "update.apply": "Updates: check, download and install updates",
+    "cluster.view": "Cluster: read HA, load balancing and cluster settings",
+    "cluster.manage": "Cluster: HA, load balancing and cluster settings",
+    "access.view": "Access: read assignments, groups and roles in the perimeter",
+    "access.manage": "Access: give and remove assignments in the perimeter",
 }
+
+AREAS = ("node", "storage", "network", "backup", "alert", "audit", "update", "cluster", "access")
+# The areas that are the whole cluster's configuration (replicated tables): held on a node they would let that node's
+# delegate change every other node's, so only the cluster perimeter grants them.
+CLUSTER_ONLY_AREAS = {"backup", "alert", "audit", "cluster"}
+_VIEW = {p for p in ALL_PRIVILEGES if p.endswith(".view")}
+_EVERYTHING = set(ALL_PRIVILEGES) - {"vm.exec"}  # vm.exec stays explicit: a root shell in every guest
 
 # Predefined, scoped roles that can be assigned through an ACL (distinct from
 # the global admin/viewer roles): convenient shortcuts over the same
@@ -97,6 +123,42 @@ ROLES = {
         "label": "Backup store reader",
         "description": "Reads the assigned backup store to copy it from another site; nothing else, and deletes nothing.",
         "privileges": {"backup_store.read"},
+    },
+    # Wide roles, meant for a node, a pool or the cluster (docs/design/access-2.md, section 2).
+    "steward": {
+        "label": "Steward",
+        "description": "Everything in the perimeter, including giving access to others.",
+        "privileges": _EVERYTHING,
+    },
+    "builder": {
+        "label": "Builder",
+        "description": "Everything in the perimeter except access: creates, changes and removes, gives no rights.",
+        "privileges": {p for p in _EVERYTHING if not p.startswith("access.")},
+    },
+    "observer": {
+        "label": "Observer",
+        "description": "Reads everything in the perimeter, changes nothing.",
+        "privileges": _VIEW | {"container.view"},
+    },
+    "access_delegate": {
+        "label": "Access delegate",
+        "description": "Gives and removes assignments in the perimeter, without other rights.",
+        "privileges": {"access.view", "access.manage"},
+    },
+    "backup_keeper": {
+        "label": "Backup keeper",
+        "description": "Backup jobs, stores and restores, and snapshots of the VMs in the perimeter.",
+        "privileges": {"backup.view", "backup.manage", "vm.view", "vm.snapshot", "backup_store.read"},
+    },
+    "watcher": {
+        "label": "Watcher",
+        "description": "Alert rules, notification channels and reports, and reading everything to follow it.",
+        "privileges": _VIEW - {"access.view"} | {"alert.manage", "container.view"},
+    },
+    "maintainer": {
+        "label": "Maintainer",
+        "description": "Updates and maintenance of the nodes in the perimeter.",
+        "privileges": {"update.view", "update.apply", "node.view", "node.manage"},
     },
 }
 
@@ -247,7 +309,8 @@ def remove_vm_from_all_pools(vm_name):
 # ---- ACL ----
 
 # What an assignment can be given on: a VM, a pool of VMs, a container, a storage pool, a network, a backup store.
-RESOURCE_TYPES = ("vm", "pool", "container", "storage", "network", "backup_store")
+RESOURCE_TYPES = ("vm", "pool", "container", "storage", "network", "backup_store", "node", "cluster")
+CLUSTER = ("cluster", "*")  # the one cluster perimeter
 
 
 def list_acl():
@@ -261,24 +324,26 @@ def list_acl():
             a["subject_label"] = a["subject_id"]
         if a["resource_type"] == "pool":
             a["resource_label"] = pools.get(int(a["resource_id"]), f"pool#{a['resource_id']}")
+        elif a["resource_type"] == "cluster":
+            a["resource_label"] = "cluster"
         else:
             a["resource_label"] = a["resource_id"]
     return acl
 
 
 def acl_for_object(resource_type, resource_id):
-    """Assignments that give rights on one VM or container: its own, then (VMs only) those of the pools that
-    contain it, each with `inherited_from` naming the pool so the page can say where the right comes from."""
-    entries = [
-        dict(a, inherited_from=None)
-        for a in list_acl()
-        if a["resource_type"] == resource_type and a["resource_id"] == resource_id
-    ]
-    if resource_type == "vm":
-        pools = {p["id"]: p["name"] for p in list_pools() if resource_id in p["vms"]}
-        for a in list_acl():
-            if a["resource_type"] == "pool" and a["resource_id"].isdigit() and int(a["resource_id"]) in pools:
-                entries.append(dict(a, inherited_from=pools[int(a["resource_id"])]))
+    """Assignments that give rights on one object: its own, then those of the perimeters that contain it (a VM's
+    pools, the node, the cluster), each with `inherited_from` naming that perimeter (None for its own) and
+    `inherited_type` its kind, so the page can say where the right comes from."""
+    acl = list_acl()
+    entries = []
+    for kind, ident in perimeters_of(resource_type, resource_id):
+        own = (kind, ident) == (resource_type, str(resource_id))
+        for a in acl:
+            if (a["resource_type"], a["resource_id"]) == (kind, ident):
+                entries.append(
+                    dict(a, inherited_from=None if own else a["resource_label"], inherited_type=None if own else kind)
+                )
     return entries
 
 
@@ -306,49 +371,168 @@ def delete_acl_for_user(username):
 # ---- Effective permission check ----
 
 
+def _local_node():
+    from app.core import self_node
+
+    return self_node.name()
+
+
+def perimeters_of(resource_type, resource_id):
+    """The perimeters whose assignments hold on that object, the object first (docs/design/access-2.md, section 1):
+    a VM's pools, the node that answers (every route about an object runs on the node that hosts it) and the
+    cluster."""
+    resource_id = str(resource_id)
+    if resource_type == "cluster":
+        return [CLUSTER]
+    found = [(resource_type, resource_id)]
+    if resource_type == "vm":
+        found += [("pool", str(p)) for p in get_vm_pools(resource_id)]
+    if resource_type in ("vm", "container", "storage", "network", "backup_store"):
+        found.append(("node", _local_node()))
+    found.append(CLUSTER)
+    return found
+
+
+def _subject_matches(row, username, group_ids):
+    if row["subject_type"] == "user":
+        return row["subject_id"] == username
+    return row["subject_id"].isdigit() and int(row["subject_id"]) in group_ids
+
+
+def granting(user, perimeters, privilege, rows=None):
+    """The assignments that give `user` `privilege` on one of `perimeters` (pairs of resource type and id), directly
+    or through a group."""
+    group_ids = set(get_user_groups(user["username"]))
+    wanted = {(t, str(i)) for t, i in perimeters}
+    return [
+        row
+        for row in (_store().acl() if rows is None else rows)
+        if (row["resource_type"], row["resource_id"]) in wanted
+        and _subject_matches(row, user["username"], group_ids)
+        and privilege in get_role_privileges(row["role"])
+    ]
+
+
 def has_privilege(user, vm_name, privilege):
     """True if `user` has the requested privilege on `vm_name`, through their global
-    role (admin/viewer) OR an ACL (direct or through a group) on this VM
-    OR on a pool that contains it."""
+    role (admin/viewer) OR an assignment (direct or through a group) on this VM, a pool that contains it, its node
+    or the cluster."""
     if user["role"] == "admin":
         return True
     if user["role"] == "viewer" and privilege in {"vm.view", "vm.console"}:
         return True  # unchanged historical behaviour: read + VNC console at the global read level (not the SSH terminal, which was already admin-only before this system)
-
-    group_ids = set(get_user_groups(user["username"]))
-    pool_ids = set(get_vm_pools(vm_name))
-
-    rows = _store().acl()
-
-    for row in rows:
-        subject_ok = (row["subject_type"] == "user" and row["subject_id"] == user["username"]) or (
-            row["subject_type"] == "group" and row["subject_id"].isdigit() and int(row["subject_id"]) in group_ids
-        )
-        if not subject_ok:
-            continue
-        resource_ok = (row["resource_type"] == "vm" and row["resource_id"] == vm_name) or (
-            row["resource_type"] == "pool" and row["resource_id"].isdigit() and int(row["resource_id"]) in pool_ids
-        )
-        if not resource_ok:
-            continue
-        if privilege in get_role_privileges(row["role"]):
-            return True
-    return False
+    return bool(granting(user, perimeters_of("vm", vm_name), privilege))
 
 
 def has_scoped_privilege(user, resource_type, resource_id, privilege):
-    """True if `user` holds `privilege` through an assignment on that one object (a pool by its id, a storage pool or
-    a network by its name), directly or through a group. An administrator holds every privilege."""
+    """True if `user` holds `privilege` through an assignment on that object (a pool by its id, a storage pool or
+    a network by its name, a node, the cluster) or a perimeter that contains it, directly or through a group. An
+    administrator holds every privilege."""
+    if user["role"] == "admin":
+        return True
+    return bool(granting(user, perimeters_of(resource_type, resource_id), privilege))
+
+
+def has_area_privilege(user, privilege):
+    """True if `user` holds an area privilege (node.manage, backup.view...) where this node answers: on the cluster,
+    or on this node for the areas a node may hold (CLUSTER_ONLY_AREAS)."""
+    if user["role"] == "admin":
+        return True
+    area = privilege.split(".", 1)[0]
+    perimeters = [CLUSTER] if area in CLUSTER_ONLY_AREAS else [("node", _local_node()), CLUSTER]
+    return bool(granting(user, perimeters, privilege))
+
+
+def effective(user):
+    """What `user` holds where this node answers: its area privileges, and per perimeter the privileges of its
+    assignments there, for the dashboard (GET /access/me)."""
+    if user["role"] == "admin":
+        return {"admin": True, "areas": sorted(p for p in ALL_PRIVILEGES if p.split(".")[0] in AREAS), "perimeters": []}
+    group_ids = set(get_user_groups(user["username"]))
+    held = {}
+    for row in _store().acl():
+        if _subject_matches(row, user["username"], group_ids):
+            key = (row["resource_type"], row["resource_id"])
+            held.setdefault(key, set()).update(get_role_privileges(row["role"]))
+    areas = sorted(p for p in ALL_PRIVILEGES if p.split(".")[0] in AREAS and has_area_privilege(user, p))
+    return {
+        "admin": False,
+        "areas": areas,
+        "perimeters": [
+            {"resource_type": t, "resource_id": i, "privileges": sorted(privs)}
+            for (t, i), privs in sorted(held.items())
+        ],
+    }
+
+
+def explain(user, resource_type, resource_id):
+    """Each privilege `user` holds on that object, with the assignments that grant it (GET /access/explain): the
+    answer of "who can do what" for one account."""
+    perimeters = perimeters_of(resource_type, resource_id)
+    rows = _store().acl()
+    out = []
+    for privilege in ALL_PRIVILEGES:
+        if user["role"] == "admin":
+            out.append({"privilege": privilege, "via": [{"global": "admin"}]})
+            continue
+        via = [
+            {
+                "acl_id": r["id"],
+                "role": r["role"],
+                "resource_type": r["resource_type"],
+                "resource_id": r["resource_id"],
+                "subject_type": r["subject_type"],
+                "subject_id": r["subject_id"],
+            }
+            for r in granting(user, perimeters, privilege, rows)
+        ]
+        if user["role"] == "viewer" and privilege in {"vm.view", "vm.console", "container.view"}:
+            via.insert(0, {"global": "viewer"})
+        if via:
+            out.append({"privilege": privilege, "via": via})
+    return out
+
+
+def grant_refusal(user, subject_type, subject_id, role, resource_type, resource_id):
+    """Why `user` may not give (or remove) that assignment, or None (docs/design/access-2.md, section 2). An
+    administrator may always. A delegate (access.manage on a perimeter) may on that perimeter and below it, except
+    the cluster, never to itself or a group it belongs to, and gives another delegate only from a wider perimeter."""
+    if user["role"] == "admin":
+        return None
+    if resource_type == "cluster":
+        return "Only an administrator gives rights on the whole cluster"
+    if (subject_type == "user" and subject_id == user["username"]) or (
+        subject_type == "group"
+        and str(subject_id).isdigit()
+        and int(subject_id) in set(get_user_groups(user["username"]))
+    ):
+        return "Rights are given to you by someone else: not to yourself or a group you belong to"
+    target = perimeters_of(resource_type, resource_id)
+    holding = granting(user, target, "access.manage")
+    if not holding:
+        return f"Insufficient rights on {resource_type} '{resource_id}' (required privilege: access.manage)"
+    if "access.manage" in get_role_privileges(role) and all(
+        (r["resource_type"], r["resource_id"]) == (resource_type, str(resource_id)) for r in holding
+    ):
+        return "A delegate gives another delegate only from a wider perimeter than the one they share"
+    return None
+
+
+def holds_anywhere(user, privilege):
+    """True if one of `user`'s assignments, on any perimeter, gives `privilege`."""
     if user["role"] == "admin":
         return True
     group_ids = set(get_user_groups(user["username"]))
-    for row in _store().acl(resource_type):
-        subject_ok = (row["subject_type"] == "user" and row["subject_id"] == user["username"]) or (
-            row["subject_type"] == "group" and row["subject_id"].isdigit() and int(row["subject_id"]) in group_ids
-        )
-        if subject_ok and row["resource_id"] == str(resource_id) and privilege in get_role_privileges(row["role"]):
-            return True
-    return False
+    return any(
+        _subject_matches(r, user["username"], group_ids) and privilege in get_role_privileges(r["role"])
+        for r in _store().acl()
+    )
+
+
+def may_view_access(user, resource_type, resource_id):
+    if user["role"] == "admin":
+        return True
+    return bool(granting(user, perimeters_of(resource_type, resource_id), "access.view"))
 
 
 def refuse_unless(user, resource_type, resource_id, privilege, what):
@@ -380,27 +564,10 @@ def allocation_refusal(user, resource_pool, storage_pools, networks):
 
 
 def has_container_privilege(user, container_name, privilege):
-    """Equivalent of has_privilege() for LXC containers: the same role catalog
-    (drive/operator/manager/custom), with resource_type='container' in
-    the ACL instead of 'vm'. There is NO grouping by pool for containers in
-    this first pass (the pools of app/routers/pools.py are a VM-only concept,
-    "VM added to the pool"): a known limitation, documented rather than
-    silently absent."""
+    """Equivalent of has_privilege() for LXC containers: the same role catalog, with resource_type='container' in
+    the assignments instead of 'vm', and the node and the cluster above it. Containers are not members of pools."""
     if user["role"] == "admin":
         return True
     if user["role"] == "viewer" and privilege == "container.view":
         return True  # same principle as vm.view: global read access for observers, not the terminal
-
-    group_ids = set(get_user_groups(user["username"]))
-
-    rows = _store().acl("container")
-
-    for row in rows:
-        subject_ok = (row["subject_type"] == "user" and row["subject_id"] == user["username"]) or (
-            row["subject_type"] == "group" and row["subject_id"].isdigit() and int(row["subject_id"]) in group_ids
-        )
-        if not subject_ok or row["resource_id"] != container_name:
-            continue
-        if privilege in get_role_privileges(row["role"]):
-            return True
-    return False
+    return bool(granting(user, perimeters_of("container", container_name), privilege))

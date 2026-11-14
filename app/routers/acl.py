@@ -1,3 +1,4 @@
+import re
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,19 +8,20 @@ from app.core import permissions as perm
 from app.core import renaming
 from app.core.audit import log_action
 from app.core.listing import item, listing
-from app.core.security import require_role
+from app.core.security import get_current_user, require_role
 from app.domain.common import AlreadyExists
 from app.services import account_service
 
 router = APIRouter(prefix="/acl", tags=["acl"])
+NODE_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]{0,62}$")
 
 
 class AclCreate(BaseModel):
     subject_type: str  # "user" | "group"
     subject_id: str  # username, or group id (as text)
-    role: str  # "drive" | "operator" | "manager" | "custom:<id>"
-    resource_type: str  # "vm" | "pool" | "container" (containers are not grouped by pool for now)
-    resource_id: str  # VM/container name, or pool id (as text)
+    role: str  # a key of permissions.ROLES, or "custom:<id>"
+    resource_type: str  # one of permissions.RESOURCE_TYPES: an object, a pool, a node or "cluster"
+    resource_id: str  # VM/container/storage/network/store/node name, pool id (as text), "*" for the cluster
 
 
 class CustomRoleCreate(BaseModel):
@@ -28,7 +30,7 @@ class CustomRoleCreate(BaseModel):
 
 
 @router.get("/roles")
-def get_roles_catalog(user: dict = Depends(require_role("admin"))):
+def get_roles_catalog(user: dict = Depends(get_current_user)):
     """Catalog of predefined roles (assignable scopes), used to build the
     assignment form in the dashboard without duplicating a hard-coded list.
     Custom roles are exposed separately (GET /acl/custom-roles); the dashboard
@@ -37,14 +39,15 @@ def get_roles_catalog(user: dict = Depends(require_role("admin"))):
 
 
 @router.get("/privileges")
-def get_privileges_catalog(user: dict = Depends(require_role("admin"))):
+def get_privileges_catalog(user: dict = Depends(get_current_user)):
     """Full catalog of privileges (key -> label), used to build the custom role
     builder (checkboxes)."""
     return perm.ALL_PRIVILEGES  # a catalogue {privilege: label}, not a list
 
 
 @router.get("/custom-roles")
-def list_custom_roles(user: dict = Depends(require_role("admin"))):
+def list_custom_roles(user: dict = Depends(get_current_user)):
+    """Every account may read the catalogue (a delegate assigns from it); only an administrator changes it."""
     return listing(perm.list_custom_roles())
 
 
@@ -113,11 +116,13 @@ def delete_custom_role(role_id: int, user: dict = Depends(require_role("admin"))
 
 
 @router.get("/object/{resource_type}/{resource_id}")
-def object_acl(resource_type: str, resource_id: str, user: dict = Depends(require_role("admin"))):
-    """Assignments on one VM or container, for the object's Permissions tab: its own ones and, for a VM, the
-    ones it inherits from its pools."""
-    if resource_type not in ("vm", "container"):
-        raise HTTPException(status_code=422, detail="resource_type must be 'vm' or 'container'")
+def object_acl(resource_type: str, resource_id: str, user: dict = Depends(get_current_user)):
+    """Assignments on one object, for its Rights tab: its own ones and the ones it inherits from the perimeters that
+    contain it (a VM's pools, the node, the cluster). An administrator, or access.view on the object or above."""
+    if resource_type not in perm.RESOURCE_TYPES:
+        raise HTTPException(status_code=422, detail=f"resource_type must be one of: {', '.join(perm.RESOURCE_TYPES)}")
+    if not perm.may_view_access(user, resource_type, resource_id):
+        raise HTTPException(status_code=403, detail="Insufficient rights (required privilege: access.view)")
     return listing(perm.acl_for_object(resource_type, resource_id))
 
 
@@ -127,18 +132,29 @@ def list_acl(user: dict = Depends(require_role("admin"))):
 
 
 @router.post("", status_code=201)
-def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
+def create_acl(payload: AclCreate, user: dict = Depends(get_current_user)):
     if payload.subject_type not in ("user", "group"):
         raise HTTPException(status_code=422, detail="subject_type must be 'user' or 'group'")
     if payload.resource_type not in perm.RESOURCE_TYPES:
         raise HTTPException(status_code=422, detail=f"resource_type must be one of: {', '.join(perm.RESOURCE_TYPES)}")
     if not perm.role_exists(payload.role):
         raise HTTPException(status_code=422, detail=f"Unknown role: {payload.role}")
-    if payload.resource_type in ("storage", "network", "backup_store"):
+    if payload.resource_type == "cluster":
+        payload.resource_id = "*"
+    if payload.resource_type == "node" and not NODE_NAME.match(payload.resource_id):
+        raise HTTPException(status_code=422, detail="A node is named in lowercase letters, digits, dots and dashes")
+    refusal = perm.grant_refusal(
+        user, payload.subject_type, payload.subject_id, payload.role, payload.resource_type, payload.resource_id
+    )
+    if refusal:
+        raise HTTPException(status_code=403, detail=refusal)
+    if payload.resource_type in ("storage", "network", "backup_store", "node", "cluster"):
         from app.core import statd
 
         behind = statd.members_without(
-            "acl_backup_store" if payload.resource_type == "backup_store" else "acl_storage_network"
+            {"backup_store": "acl_backup_store", "node": "acl_perimeters", "cluster": "acl_perimeters"}.get(
+                payload.resource_type, "acl_storage_network"
+            )
         )
         if behind:
             raise HTTPException(
@@ -170,7 +186,16 @@ def create_acl(payload: AclCreate, user: dict = Depends(require_role("admin"))):
 
 
 @router.delete("/{acl_id}")
-def delete_acl(acl_id: int, user: dict = Depends(require_role("admin"))):
+def delete_acl(acl_id: int, user: dict = Depends(get_current_user)):
+    row = next((a for a in perm.list_acl() if a["id"] == acl_id), None)
+    if row is not None:
+        refusal = perm.grant_refusal(
+            user, row["subject_type"], row["subject_id"], row["role"], row["resource_type"], row["resource_id"]
+        )
+        if refusal:
+            raise HTTPException(status_code=403, detail=refusal)
+    elif user["role"] != "admin":
+        raise HTTPException(status_code=404, detail=f"Assignment {acl_id} not found")
     perm.delete_acl(acl_id)
     log_action(user["username"], "delete_acl", str(acl_id), "success")
     return {"message": "Assignment deleted"}

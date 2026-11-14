@@ -66,10 +66,11 @@ export function activeService(selection, tab) {
   return ALIASES[tab] || tab || "summary";
 }
 
-// The menu of a resource page: its pages in groups, an overview first. `admin` pages are hidden from the others.
+// The menu of a resource page: its pages in groups, an overview first. `admin` pages are hidden from the others;
+// `access` pages (Rights) from those who neither are administrators nor hold access.view somewhere.
 export const RESOURCE_MENUS = {
   vm: [
-    { pages: ["summary", "tasks", { id: "permissions", admin: true }] },
+    { pages: ["summary", "tasks", { id: "permissions", access: true }] },
     { group: "res.g.connect", pages: ["console"] },
     { group: "res.g.operations", pages: ["run", "schedules"] },
     { group: "res.g.settings", pages: ["hardware", "advanced", "options", "network", "cloudinit"] },
@@ -77,13 +78,13 @@ export const RESOURCE_MENUS = {
     { group: "res.g.monitoring", pages: ["perf", "guest", "history", "advisor"] },
   ],
   node: [
-    { pages: ["summary", "tasks"] },
+    { pages: ["summary", "tasks", { id: "permissions", access: true }] },
     { group: "res.g.settings", pages: ["system", { id: "updates", admin: true }, "network", "disk"] },
     { group: "res.g.monitoring", pages: ["perf", "compat", "advisor"] },
     { group: "res.g.connect", pages: ["shell"] },
   ],
   container: [
-    { pages: ["summary", "tasks", { id: "permissions", admin: true }] },
+    { pages: ["summary", "tasks", { id: "permissions", access: true }] },
     { group: "res.g.connect", pages: ["console"] },
     { group: "res.g.protection", pages: ["snapshots", "backup"] },
   ],

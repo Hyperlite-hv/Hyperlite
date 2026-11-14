@@ -279,7 +279,7 @@ class AclCreate(Args):
     subject_type: Literal["user", "group"]
     subject_id: Name
     role: Role
-    resource_type: Literal["vm", "pool", "container", "storage", "network", "backup_store"]
+    resource_type: Literal["vm", "pool", "container", "storage", "network", "backup_store", "node", "cluster"]
     resource_id: Name
 
 
@@ -301,8 +301,30 @@ _register("pool_member_add", "access", "add_pool_member", PoolMember, needs=by_r
 _register("pool_member_remove", "access", "remove_pool_member", PoolMember, needs=ADMIN)
 _register("pool_member_rename", "access", "rename_pool_member", PoolMemberRename, needs=ADMIN)
 _register("pool_vm_forget", "access", "remove_vm_from_all_pools", Vm, needs=on_vm("vm.allocate", "vm_name"))
-_register("acl_create", "access", "create_acl", AclCreate, needs=ADMIN)
-_register("acl_delete", "access", "delete_acl", AclId, needs=ADMIN)
+
+
+def _may_grant(user, args):
+    """A delegate (access.manage on a perimeter) gives assignments there (app/core/permissions.py, grant_refusal)."""
+    from app.core import permissions
+
+    return permissions.grant_refusal(
+        user, args.subject_type, args.subject_id, args.role, args.resource_type, args.resource_id
+    )
+
+
+def _may_remove(user, args):
+    from app.core import permissions
+
+    row = next((r for r in _store("access").acl() if r["id"] == args.acl_id), None)
+    if row is None:
+        return None  # nothing to remove: the store's delete is a no-op
+    return permissions.grant_refusal(
+        user, row["subject_type"], row["subject_id"], row["role"], row["resource_type"], row["resource_id"]
+    )
+
+
+_register("acl_create", "access", "create_acl", AclCreate, needs=by_rule(_may_grant))
+_register("acl_delete", "access", "delete_acl", AclId, needs=by_rule(_may_remove))
 _register("acl_vm_forget", "access", "delete_acl_for_vm", Vm, needs=on_vm("vm.allocate", "vm_name"))
 
 

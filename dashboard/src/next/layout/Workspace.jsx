@@ -22,6 +22,7 @@ import { ContainerHeaderActions } from "../pages/ContainerPages";
 import { formatSizeMb } from "../lib/format";
 import PendingChanges from "../components/PendingChanges";
 import DatabaseBanner from "../components/DatabaseBanner";
+import { holdsAnywhere, useAccess } from "../lib/access";
 
 
 
@@ -133,11 +134,12 @@ function NodeFacts({ node }) {
 // The menu of a resource page: a filter, then its pages in groups. The current page is marked.
 function ResourceMenu({ type, name, tab, admin, onPage }) {
   const t = useT();
+  const delegate = holdsAnywhere(useAccess((s) => s.me), "access.view");
   const [q, setQ] = useState("");
   const needle = normalize(q);
   const groups = RESOURCE_MENUS[type].map((g) => ({
     group: g.group,
-    pages: g.pages.map((p) => (typeof p === "string" ? { id: p } : p)).filter((p) => (!p.admin || admin || p.id === tab) && (!needle || normalize(t(resourcePageLabel(p.id))).includes(needle))),
+    pages: g.pages.map((p) => (typeof p === "string" ? { id: p } : p)).filter((p) => (!p.admin || admin || p.id === tab) && (!p.access || admin || delegate || p.id === tab) && (!needle || normalize(t(resourcePageLabel(p.id))).includes(needle))),
   })).filter((g) => g.pages.length);
   return (
     <nav className="hc-rmenu" aria-label={name}>

@@ -45,6 +45,7 @@ from app.daemon.registry import DaemonError
 from app.repositories.cfs.ids import NO_ID_DETAIL, NoId
 from app.repositories.cfs.inbound import start_apply_loop
 from app.repositories.cfs.shadow import start_shadow_copy
+from app.routers.access import router as access_router
 from app.routers.acl import router as acl_router
 from app.routers.admin_cli import router as admin_cli_router
 from app.routers.alert_rules import router as alert_rules_router
@@ -248,6 +249,7 @@ _API_ROUTERS = (
     notifications_router,
     reports_router,
     alert_rules_router,
+    access_router,
     workstation_router,
     kubernetes_router,
     meta_router,

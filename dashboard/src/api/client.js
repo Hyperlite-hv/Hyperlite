@@ -1535,6 +1535,15 @@ export async function createAcl(payload) {
   return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
 }
 // Assignments on one VM or container, with those a VM inherits from its pools (`herite_de`).
+export async function fetchMyAccess() {
+  return realFetch("/access/me");
+}
+export async function fetchAccessSubjects() {
+  return realFetch("/access/subjects");
+}
+export async function explainAccess(resourceType, resourceId, username) {
+  return realFetch(`/access/explain?resource_type=${encodeURIComponent(resourceType)}&resource_id=${encodeURIComponent(resourceId)}&username=${encodeURIComponent(username)}`);
+}
 export async function fetchObjectAcl(kind, name) {
   return realList(`/acl/object/${kind}/${encodeURIComponent(name)}`);
 }
