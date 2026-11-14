@@ -260,6 +260,35 @@
     "title": "ApplyRequest",
     "type": "object"
    },
+   "AsScope": {
+    "properties": {
+     "resource_id": {
+      "default": "*",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+     },
+     "resource_type": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Resource Type",
+      "type": "string"
+     },
+     "role": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Role",
+      "type": "string"
+     }
+    },
+    "required": [
+     "role",
+     "resource_type"
+    ],
+    "title": "AsScope",
+    "type": "object"
+   },
    "AutoCleanupConfig": {
     "properties": {
      "inactive_days": {
@@ -3454,6 +3483,22 @@
     "title": "NodeTest",
     "type": "object"
    },
+   "OpenIn": {
+    "properties": {
+     "as": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AsScope"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "title": "OpenIn",
+    "type": "object"
+   },
    "PasswordChange": {
     "properties": {
      "code": {
@@ -4345,6 +4390,122 @@
      "threshold"
     ],
     "title": "Settings",
+    "type": "object"
+   },
+   "SettingsIn": {
+    "properties": {
+     "cpu_percent": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cpu Percent"
+     },
+     "everyone": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Everyone"
+     },
+     "home_mb": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Home Mb"
+     },
+     "idle_min": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Idle Min"
+     },
+     "max_hours": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Hours"
+     },
+     "memory_mb": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Memory Mb"
+     },
+     "per_account": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Per Account"
+     },
+     "per_node": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Per Node"
+     },
+     "recording": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Recording"
+     },
+     "tasks": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tasks"
+     }
+    },
+    "title": "SettingsIn",
     "type": "object"
    },
    "SigninRuleIn": {
@@ -31516,6 +31677,408 @@
     "summary": "Create Tunnel Ticket",
     "tags": [
      "vms"
+    ]
+   }
+  },
+  "/api/v1/workbench": {
+   "get": {
+    "description": "Whether the account may open a Terminal here, its open sessions, and the limits that concern it.",
+    "operationId": "overview_api_v1_workbench_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Overview",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
+  "/api/v1/workbench/sessions": {
+   "get": {
+    "description": "Every open session of this node: account, since, attached or not, the address it was opened from.",
+    "operationId": "all_sessions_api_v1_workbench_sessions_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "All Sessions",
+    "tags": [
+     "workbench"
+    ]
+   },
+   "post": {
+    "description": "A signed-in session only: an API token (a script, another Terminal) does not open Terminals.",
+    "operationId": "open_session_api_v1_workbench_sessions_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OpenIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Open Session",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
+  "/api/v1/workbench/sessions/{sid}": {
+   "delete": {
+    "operationId": "end_session_api_v1_workbench_sessions__sid__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "End Session",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
+  "/api/v1/workbench/sessions/{sid}/files": {
+   "get": {
+    "operationId": "download_api_v1_workbench_sessions__sid__files_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "path",
+      "required": true,
+      "schema": {
+       "title": "Path",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Download",
+    "tags": [
+     "workbench"
+    ]
+   },
+   "post": {
+    "description": "The request's body, as is, into `path` of the home (20 MB at most).",
+    "operationId": "upload_api_v1_workbench_sessions__sid__files_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "path",
+      "required": true,
+      "schema": {
+       "title": "Path",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Upload",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
+  "/api/v1/workbench/sessions/{sid}/ticket": {
+   "post": {
+    "operationId": "attach_ticket_api_v1_workbench_sessions__sid__ticket_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Attach Ticket",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
+  "/api/v1/workbench/sessions/{sid}/tools/tofu": {
+   "post": {
+    "description": "From the session itself (`hl tofu`) or the console: OpenTofu into the session's home.",
+    "operationId": "install_tofu_api_v1_workbench_sessions__sid__tools_tofu_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Install Tofu",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
+  "/api/v1/workbench/settings": {
+   "get": {
+    "operationId": "get_settings_api_v1_workbench_settings_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Settings",
+    "tags": [
+     "workbench"
+    ]
+   },
+   "put": {
+    "operationId": "put_settings_api_v1_workbench_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Settings",
+    "tags": [
+     "workbench"
     ]
    }
   },

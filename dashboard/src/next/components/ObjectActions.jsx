@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTerminalDock } from "../lib/terminalDock";
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowUpRight, Archive, Camera, ChevronDown, Copy, CopyPlus, Eraser, Globe, Heart, LayoutTemplate, Link, MoveHorizontal, PencilLine, Play, Plus, Power, RefreshCw,
@@ -191,6 +192,7 @@ export function useVmMenu(vm, { open, close, openTab, withPower = false, followB
           ? item("console", SquareTerminal, t("actions.primary.console"), act("console"), () => vmActions.openConsole(vm))
           : item("start", Play, t("menu.start"), act("start"), () => vmActions.run(vm, "start"))}
         {running && item("stop", Square, t("menu.stop"), act("stop"), () => vmActions.run(vm, "stop"))}
+        {running && item("in-terminal", SquareTerminal, t("tm.openVm"), act("console"), () => useTerminalDock.getState().add({ kind: "ssh", title: `SSH · ${vm.name}`, vm: vm.name, node: vm.node }))}
         <hr />
       </>}
       <MenuGroup label={t("vx.g.power")} />
