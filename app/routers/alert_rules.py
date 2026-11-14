@@ -1,5 +1,8 @@
 """Alert rules (#348, app/core/alert_rules.py): read by every signed-in user, written by administrators."""
 
+from datetime import datetime
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -89,3 +92,43 @@ def delete_rule(rule_id: str, user: dict = Depends(require_area("alert.manage"))
     if not rule or not alert_rules.delete(rule_id):
         raise HTTPException(status_code=404, detail="No such alert rule")
     log_action(user["username"], "alert_rule_delete", rule["name"], "success", f"id={rule_id}")
+
+
+silences_router = APIRouter(prefix="/alert-silences", tags=["alerts"])
+
+
+class SilenceIn(BaseModel):
+    target_kind: Literal["all", "node", "vm", "pool", "rule"] = "all"
+    target: str | None = Field(None, max_length=256)
+    starts_at: datetime
+    ends_at: datetime
+    reason: str = Field("", max_length=500)
+
+
+@silences_router.get("")
+def list_silences(user: dict = Depends(require_area("alert.view"))):
+    return listing(alert_rules.silences())
+
+
+@silences_router.post("", status_code=201)
+def add_silence(payload: SilenceIn, user: dict = Depends(require_area("alert.manage"))):
+    from datetime import UTC
+
+    start = (payload.starts_at if payload.starts_at.tzinfo else payload.starts_at.replace(tzinfo=UTC)).astimezone(UTC)
+    end = (payload.ends_at if payload.ends_at.tzinfo else payload.ends_at.replace(tzinfo=UTC)).astimezone(UTC)
+    try:
+        row = alert_rules.add_silence(payload.target_kind, payload.target, start.isoformat(), end.isoformat(),
+                                      payload.reason, user["username"])  # fmt: skip
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    log_action(user["username"], "alert_silence", f"{payload.target_kind}:{payload.target or '*'}", "success",
+               f"until {end.isoformat()[:16]} {payload.reason}".strip())  # fmt: skip
+    return row
+
+
+@silences_router.delete("/{silence_id}")
+def remove_silence(silence_id: str, user: dict = Depends(require_area("alert.manage"))):
+    if not alert_rules.remove_silence(silence_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "alert_silence_removed", silence_id, "success")
+    return {"message": "Silence removed"}
