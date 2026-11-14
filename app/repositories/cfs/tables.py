@@ -25,6 +25,11 @@ TABLES = {
     "acl": {},
     "pools": {},
     "pool_members": {},
+    "access_terms": {},
+    "access_eligibility": {},
+    "api_token_scopes": {},
+    "access_requests": {},
+    "access_reviews": {},
     "sso_config": {"priv": True},
     "ldap_config": {"priv": True},
     # Nodes and the cluster
@@ -41,6 +46,10 @@ TABLES = {
     "drs_rules": {},
     # Alert rules (app/core/alert_rules.py): written by administrators, their state by the leader on a change only.
     "alert_rules": {},
+    # Protections, envelopes and guardrails (app/core/protections.py, app/core/guardrails.py): the same on every node.
+    "resource_protections": {},
+    "pool_envelopes": {},
+    "guardrails": {},
     # VM schedules (app/core/vm_schedules.py): run by the node hosting the VM, which writes their outcome.
     "vm_schedules": {},
     "drs_vms": {},

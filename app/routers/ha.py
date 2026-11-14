@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from app.core import ha, ha_admission, ha_fencing, ha_watch, maintenance
 from app.core.audit import log_action
 from app.core.listing import item, listing
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_area
 from app.services import node_service
 
 router = APIRouter(prefix="/ha", tags=["ha"])
@@ -53,7 +53,7 @@ def _with_policy(row):
 
 
 @router.post("/{vm_name}/enable", status_code=201)
-def enable(vm_name: str, payload: EnableRequest, user: dict = Depends(require_role("admin"))):
+def enable(vm_name: str, payload: EnableRequest, user: dict = Depends(require_area("cluster.manage"))):
     try:
         admission = ha.enable_protection(vm_name, payload.node, user["username"])
         ha.set_policy(vm_name, payload.priority, payload.preferred_nodes)
@@ -67,7 +67,7 @@ def enable(vm_name: str, payload: EnableRequest, user: dict = Depends(require_ro
 
 
 @router.delete("/{vm_name}")
-def disable(vm_name: str, user: dict = Depends(require_role("admin"))):
+def disable(vm_name: str, user: dict = Depends(require_area("cluster.manage"))):
     if not ha.get_protected(vm_name):
         raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
     ha.disable_protection(vm_name, user["username"])
@@ -75,7 +75,7 @@ def disable(vm_name: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.put("/{vm_name}/policy")
-def set_policy(vm_name: str, payload: PolicyRequest, user: dict = Depends(require_role("admin"))):
+def set_policy(vm_name: str, payload: PolicyRequest, user: dict = Depends(require_area("cluster.manage"))):
     """An HA VM's restart priority and preferred nodes, changed without turning its protection off (4.3)."""
     if not ha.get_protected(vm_name):
         raise HTTPException(status_code=404, detail=f"'{vm_name}' is not HA-protected")
@@ -89,7 +89,7 @@ def set_policy(vm_name: str, payload: PolicyRequest, user: dict = Depends(requir
 
 
 @router.put("/{vm_name}/monitoring")
-def set_monitoring(vm_name: str, payload: MonitoringRequest, user: dict = Depends(require_role("admin"))):
+def set_monitoring(vm_name: str, payload: MonitoringRequest, user: dict = Depends(require_area("cluster.manage"))):
     """VM monitoring of an HA VM on or off (docs/design/ha-automatic.md, 4.9): it needs qemu-guest-agent in the guest;
     a VM whose agent never answered is never reset."""
     if not ha.get_protected(vm_name):
@@ -104,7 +104,7 @@ class RecoverRequest(BaseModel):
 
 
 @router.post("/{vm_name}/recover", status_code=202)
-def recover(vm_name: str, payload: RecoverRequest, user: dict = Depends(require_role("admin"))):
+def recover(vm_name: str, payload: RecoverRequest, user: dict = Depends(require_area("cluster.manage"))):
     maintenance.refuse_if_in_maintenance(payload.target_node, "HA recovery")
     try:
         ha.recover(vm_name, payload.target_node, user["username"])
@@ -134,7 +134,7 @@ def watch_status(user: dict = Depends(get_current_user)):
 
 
 @router.get("/history")
-async def history(limit: int = 50, user: dict = Depends(require_role("admin"))):
+async def history(limit: int = 50, user: dict = Depends(require_area("cluster.view"))):
     """The latest HA events of this node's audit log (lost, fenced, restarted, reset by monitoring...), newest first."""
     from app.services import audit_service
 
@@ -146,7 +146,7 @@ class AdmissionPolicy(BaseModel):
 
 
 @router.put("/admission")
-def put_admission(payload: AdmissionPolicy, user: dict = Depends(require_role("admin"))):
+def put_admission(payload: AdmissionPolicy, user: dict = Depends(require_area("cluster.manage"))):
     ha_admission.set_policy(payload.policy)
     log_action(user["username"], "ha_admission", "ha", "success", f"policy={payload.policy}")
     return ha_admission.check()
@@ -159,7 +159,7 @@ class HaSettings(BaseModel):
 
 
 @router.put("/settings")
-def put_settings(payload: HaSettings, user: dict = Depends(require_role("admin"))):
+def put_settings(payload: HaSettings, user: dict = Depends(require_area("cluster.manage"))):
     try:
         result = ha_watch.save_settings(payload.witness, payload.suspect_threshold, payload.failure_threshold)
     except ValueError as e:
@@ -177,7 +177,7 @@ def _known_node(node):
 
 
 @router.get("/fencing")
-def list_fencing(user: dict = Depends(require_role("admin"))):
+def list_fencing(user: dict = Depends(require_area("cluster.view"))):
     return listing(ha_fencing.list_all())
 
 
@@ -192,7 +192,7 @@ class FencingSettings(BaseModel):
 
 
 @router.put("/fencing/{node}")
-def put_fencing(node: str, payload: FencingSettings, user: dict = Depends(require_role("admin"))):
+def put_fencing(node: str, payload: FencingSettings, user: dict = Depends(require_area("cluster.manage"))):
     _known_node(node)
     try:
         result = ha_fencing.save(
@@ -212,7 +212,7 @@ def put_fencing(node: str, payload: FencingSettings, user: dict = Depends(requir
 
 
 @router.delete("/fencing/{node}")
-def delete_fencing(node: str, user: dict = Depends(require_role("admin"))):
+def delete_fencing(node: str, user: dict = Depends(require_area("cluster.manage"))):
     if not ha_fencing.delete(node):
         raise HTTPException(status_code=404, detail="No fencing is set for this node")
     log_action(user["username"], "ha_fencing_delete", node, "success")
@@ -220,7 +220,7 @@ def delete_fencing(node: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/fencing/{node}/test")
-def test_fencing(node: str, user: dict = Depends(require_role("admin"))):
+def test_fencing(node: str, user: dict = Depends(require_area("cluster.manage"))):
     """Reads the power state through the BMC or AMT. Never powers anything off."""
     try:
         result = ha_fencing.test(node)
@@ -233,7 +233,7 @@ def test_fencing(node: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.get("/leases/{node}")
-def lease_check(node: str, user: dict = Depends(require_role("admin"))):
+def lease_check(node: str, user: dict = Depends(require_area("cluster.view"))):
     _known_node(node)
     return ha_watch.lease_check(node)
 

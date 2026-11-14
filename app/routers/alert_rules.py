@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from app.core import alert_rules
 from app.core.audit import log_action
 from app.core.listing import listing
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_area
 
 router = APIRouter(prefix="/alert-rules", tags=["alerts"])
 
@@ -47,7 +47,7 @@ def options(user: dict = Depends(get_current_user)):
 
 
 @router.post("", status_code=201)
-def create_rule(payload: AlertRule, user: dict = Depends(require_role("admin"))):
+def create_rule(payload: AlertRule, user: dict = Depends(require_area("alert.manage"))):
     try:
         rule = alert_rules.create(payload.model_dump(), user["username"])
     except ValueError as e:
@@ -57,7 +57,7 @@ def create_rule(payload: AlertRule, user: dict = Depends(require_role("admin")))
 
 
 @router.put("/{rule_id}")
-def update_rule(rule_id: str, payload: AlertRule, user: dict = Depends(require_role("admin"))):
+def update_rule(rule_id: str, payload: AlertRule, user: dict = Depends(require_area("alert.manage"))):
     try:
         rule = alert_rules.update(rule_id, payload.model_dump())
     except ValueError as e:
@@ -69,7 +69,7 @@ def update_rule(rule_id: str, payload: AlertRule, user: dict = Depends(require_r
 
 
 @router.put("/{rule_id}/enabled")
-def enable_rule(rule_id: str, payload: AlertRuleEnabled, user: dict = Depends(require_role("admin"))):
+def enable_rule(rule_id: str, payload: AlertRuleEnabled, user: dict = Depends(require_area("alert.manage"))):
     rule = alert_rules.set_enabled(rule_id, payload.enabled)
     if rule is None:
         raise HTTPException(status_code=404, detail="No such alert rule")
@@ -84,7 +84,7 @@ def enable_rule(rule_id: str, payload: AlertRuleEnabled, user: dict = Depends(re
 
 
 @router.delete("/{rule_id}", status_code=204)
-def delete_rule(rule_id: str, user: dict = Depends(require_role("admin"))):
+def delete_rule(rule_id: str, user: dict = Depends(require_area("alert.manage"))):
     rule = alert_rules.rule(rule_id)
     if not rule or not alert_rules.delete(rule_id):
         raise HTTPException(status_code=404, detail="No such alert rule")

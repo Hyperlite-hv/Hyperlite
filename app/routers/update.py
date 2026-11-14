@@ -46,7 +46,7 @@ from app.core import (
 from app.core.audit import log_action
 from app.core.database import DB_PATH, access_path
 from app.core.http_safety import require_http_url
-from app.core.security import require_role
+from app.core.security import require_area
 from app.core.tasks import create_task, finish_task, task_log, update_task_progress
 
 logger = logging.getLogger(__name__)
@@ -544,7 +544,7 @@ def _release_notes(installed, candidate, lang):
 
 
 @router.get("/check")
-def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
+def check_update(lang: str = "en", user: dict = Depends(require_area("update.view"))):
     if _install_method() == "apt":
         result = _check_update_apt((user or {}).get("username"))
         if result.get("verifiable") and not result.get("up_to_date"):
@@ -988,7 +988,7 @@ class ApplyRequest(BaseModel):
 
 
 @router.post("/apply", status_code=202)
-def apply_update(payload: ApplyRequest | None = None, user: dict = Depends(require_role("admin"))):
+def apply_update(payload: ApplyRequest | None = None, user: dict = Depends(require_area("update.apply"))):
     # Two administrators (or a double click) must not start two updates at once: two package
     # installs, two backups and two restarts at the same time would corrupt each other.
     with _apply_lock:
@@ -1111,7 +1111,7 @@ def _offline_summary(info, lang):
 
 @router.post("/offline")
 async def upload_offline_update(
-    file: UploadFile = File(...), lang: str = "en", user: dict = Depends(require_role("admin"))
+    file: UploadFile = File(...), lang: str = "en", user: dict = Depends(require_area("update.apply"))
 ):
     """Receives an update file (published next to the ISO) and checks its signature and contents. Nothing is
     installed: POST /update/offline/apply does."""
@@ -1132,21 +1132,21 @@ async def upload_offline_update(
 
 
 @router.get("/offline")
-def get_offline_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
+def get_offline_update(lang: str = "en", user: dict = Depends(require_area("update.view"))):
     """The update file received and not applied yet, or {"version": null}."""
     info = offline_update.stored()
     return _offline_summary(info, lang) if info else {"version": None}
 
 
 @router.delete("/offline")
-def delete_offline_update(user: dict = Depends(require_role("admin"))):
+def delete_offline_update(user: dict = Depends(require_area("update.apply"))):
     offline_update.discard()
     log_action(user["username"], "delete_update_file", "hyperlite", "success")
     return {"version": None}
 
 
 @router.post("/offline/apply", status_code=202)
-def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depends(require_role("admin"))):
+def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depends(require_area("update.apply"))):
     """The update of section 5 from the received file: its packages only, under the same backup and watchdog."""
     if _install_method() != "apt":
         raise HTTPException(status_code=409, detail="Only a node installed from the package can be updated from a file")
@@ -1179,7 +1179,7 @@ class ChannelRequest(BaseModel):
 
 
 @router.get("/channel")
-def get_channel(user: dict = Depends(require_role("admin"))):
+def get_channel(user: dict = Depends(require_area("update.view"))):
     """The channel this node updates from: `stable` (releases) or `test` (every merge into the test branch)."""
     return {"channel": host_system.channel(), "channels": list(host_system.CHANNELS)}
 
@@ -1198,7 +1198,7 @@ def _set_channel(user, name):
 
 
 @router.put("/channel")
-def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admin"))):
+def put_channel(payload: ChannelRequest, user: dict = Depends(require_area("update.apply"))):
     """Moves the node to another channel. Nothing is installed: the next check shows what the channel offers, and
     leaving test keeps the installed build until a stable release is newer (no downgrade)."""
     try:
@@ -1211,7 +1211,7 @@ def put_channel(payload: ChannelRequest, user: dict = Depends(require_role("admi
 
 
 @router.post("/rollback", status_code=202)
-def rollback_update(user: dict = Depends(require_role("admin"))):
+def rollback_update(user: dict = Depends(require_area("update.apply"))):
     """Back to the version before the last update of Hyperlite (its package kept on the node), under the same
     safety net as an update. Hyperlite only: the Debian packages stay as they are."""
     if _install_method() != "apt":
@@ -1250,7 +1250,7 @@ def _watchdog_log_tail(lines=60):
 
 
 @router.get("/status")
-def update_status(user: dict = Depends(require_role("admin"))):
+def update_status(user: dict = Depends(require_area("update.view"))):
     """Everything the Updates page shows at a glance: the versions, the last check (kept, the mirror is not contacted
     here), the run in progress with its steps, the last run, the settings."""
     from app.core import update_check
@@ -1270,12 +1270,12 @@ def update_status(user: dict = Depends(require_role("admin"))):
 
 
 @router.get("/history")
-def update_history(limit: int = 30, user: dict = Depends(require_role("admin"))):
+def update_history(limit: int = 30, user: dict = Depends(require_area("update.view"))):
     return {"items": update_runs.history(max(1, min(limit, 100)))}
 
 
 @router.get("/runs/{run_id}")
-def update_run(run_id: int, user: dict = Depends(require_role("admin"))):
+def update_run(run_id: int, user: dict = Depends(require_area("update.view"))):
     """One run, its steps, and the technical log: the job's lines and, for a run that restarted the service, the end of
     the watchdog's log."""
     from app.core.tasks import get_task_log
@@ -1296,7 +1296,7 @@ def update_run(run_id: int, user: dict = Depends(require_role("admin"))):
 
 
 @router.get("/preflight")
-def update_preflight_checks(user: dict = Depends(require_role("admin"))):
+def update_preflight_checks(user: dict = Depends(require_area("update.view"))):
     """The checks an update would run now (docs/design/updates-2.md, 2.2): blocking ones stop it, warnings are said."""
     installed = _dpkg_installed_version()
     target = _candidate() if _install_method() == "apt" else None
@@ -1305,14 +1305,14 @@ def update_preflight_checks(user: dict = Depends(require_role("admin"))):
 
 
 @router.get("/settings")
-def get_update_settings(user: dict = Depends(require_role("admin"))):
+def get_update_settings(user: dict = Depends(require_area("update.view"))):
     from app.core import update_check
 
     return {"check_interval_h": update_check.interval_h(), "intervals": list(update_check.INTERVALS_H)}
 
 
 @router.put("/settings")
-def put_update_settings(payload: UpdateSettings, user: dict = Depends(require_role("admin"))):
+def put_update_settings(payload: UpdateSettings, user: dict = Depends(require_area("update.apply"))):
     from app.core import update_check
 
     try:

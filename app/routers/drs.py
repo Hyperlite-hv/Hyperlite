@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from app.core import drs, drs_rules
 from app.core.audit import log_action
 from app.core.listing import listing
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_area
 
 router = APIRouter(prefix="/drs", tags=["drs"])
 
@@ -66,7 +66,7 @@ def get_drs(user: dict = Depends(get_current_user)):
 
 
 @router.put("/settings")
-def put_settings(payload: Settings, user: dict = Depends(require_role("admin"))):
+def put_settings(payload: Settings, user: dict = Depends(require_area("cluster.manage"))):
     try:
         result = drs_rules.save_settings(payload.mode, payload.threshold)
     except ValueError as e:
@@ -82,7 +82,7 @@ def list_rules(user: dict = Depends(get_current_user)):
 
 
 @router.put("/rules/{name}")
-def put_rule(name: str, payload: Rule, user: dict = Depends(require_role("admin"))):
+def put_rule(name: str, payload: Rule, user: dict = Depends(require_area("cluster.manage"))):
     if payload.name != name:
         raise HTTPException(status_code=422, detail="The rule's name is the one in the path")
     try:
@@ -94,7 +94,7 @@ def put_rule(name: str, payload: Rule, user: dict = Depends(require_role("admin"
 
 
 @router.delete("/rules/{name}")
-def delete_rule(name: str, user: dict = Depends(require_role("admin"))):
+def delete_rule(name: str, user: dict = Depends(require_area("cluster.manage"))):
     if not drs_rules.delete_rule(name):
         raise HTTPException(status_code=404, detail=f"Rule '{name}' not found")
     log_action(user["username"], "drs_rule_delete", name, "success")
@@ -102,7 +102,7 @@ def delete_rule(name: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.put("/vms/{vm_name}")
-def put_behaviour(vm_name: str, payload: Behaviour, user: dict = Depends(require_role("admin"))):
+def put_behaviour(vm_name: str, payload: Behaviour, user: dict = Depends(require_area("cluster.manage"))):
     """A VM left to the cluster's mode ("default"), kept in manual while the cluster is automatic ("manual"), or never
     moved by load balancing ("excluded")."""
     try:
@@ -114,7 +114,7 @@ def put_behaviour(vm_name: str, payload: Behaviour, user: dict = Depends(require
 
 
 @router.post("/apply", status_code=202)
-def apply_move(payload: Move, user: dict = Depends(require_role("admin"))):
+def apply_move(payload: Move, user: dict = Depends(require_area("cluster.manage"))):
     """A recommended move carried out by an administrator, through the live migration (its checks, its lock)."""
     return drs.apply(payload.model_dump(), user["username"])
 

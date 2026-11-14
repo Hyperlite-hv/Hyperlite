@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.core import metric_export
 from app.core.audit import log_action
 from app.core.listing import listing
-from app.core.security import require_role
+from app.core.security import require_area
 
 router = APIRouter(prefix="/metric-servers", tags=["metrics"])
 
@@ -28,12 +28,12 @@ class MetricServer(BaseModel):
 
 
 @router.get("")
-def list_metric_servers(user: dict = Depends(require_role("admin"))):
+def list_metric_servers(user: dict = Depends(require_area("alert.view"))):
     return listing(metric_export.list_servers())
 
 
 @router.post("", status_code=201)
-def create_metric_server(payload: MetricServer, user: dict = Depends(require_role("admin"))):
+def create_metric_server(payload: MetricServer, user: dict = Depends(require_area("alert.manage"))):
     try:
         server = metric_export.save_server(payload.model_dump())
     except metric_export.ExportError as e:
@@ -43,7 +43,7 @@ def create_metric_server(payload: MetricServer, user: dict = Depends(require_rol
 
 
 @router.put("/{server_id}")
-def update_metric_server(server_id: int, payload: MetricServer, user: dict = Depends(require_role("admin"))):
+def update_metric_server(server_id: int, payload: MetricServer, user: dict = Depends(require_area("alert.manage"))):
     if metric_export.get_server(server_id) is None:
         raise HTTPException(status_code=404, detail="Metric server not found")
     try:
@@ -55,7 +55,7 @@ def update_metric_server(server_id: int, payload: MetricServer, user: dict = Dep
 
 
 @router.delete("/{server_id}")
-def delete_metric_server(server_id: int, user: dict = Depends(require_role("admin"))):
+def delete_metric_server(server_id: int, user: dict = Depends(require_area("alert.manage"))):
     if not metric_export.delete_server(server_id):
         raise HTTPException(status_code=404, detail="Metric server not found")
     log_action(user["username"], "delete_metric_server", str(server_id), "success")
@@ -69,7 +69,7 @@ def _latest_rows():
 
 
 @router.post("/{server_id}/test")
-def test_metric_server(server_id: int, user: dict = Depends(require_role("admin"))):
+def test_metric_server(server_id: int, user: dict = Depends(require_area("alert.manage"))):
     """Send the latest samples now, to check the address, the credentials and the firewall in one go."""
     server = metric_export.get_server(server_id)
     if server is None:

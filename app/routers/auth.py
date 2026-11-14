@@ -186,8 +186,17 @@ class WebAuthnDelete(BaseModel):
     password: str
 
 
+class TokenScopeIn(BaseModel):
+    """A delegated token (docs/design/access-2.md, section 7): one role on one perimeter, within the owner's rights."""
+
+    role: str = Field(min_length=1, max_length=128)
+    resource_type: str = Field(min_length=1, max_length=32)
+    resource_id: str = Field("*", min_length=1, max_length=256)
+
+
 class TokenCreate(BaseModel):
     name: str
+    scope: TokenScopeIn | None = None
     # A token made by hand used to never expire: a leaked script token stayed valid for good. 90 days unless
     # asked otherwise; null keeps a token without expiry, when explicitly chosen.
     expires_days: int | None = Field(90, ge=1, le=3650)
@@ -491,7 +500,9 @@ def webauthn_delete(request: Request, key_id: int, payload: WebAuthnDelete, user
 # the token is not a valid JWT).
 @router.get("/tokens")
 def get_api_tokens(user: dict = Depends(get_current_user)):
-    return listing(list_tokens(user["username"]))
+    from app.core.api_tokens import scope_of
+
+    return listing([{**t, "scope": scope_of(t["id"])} for t in list_tokens(user["username"])])
 
 
 @router.post("/tokens", status_code=201)
@@ -504,7 +515,30 @@ def post_api_token(payload: TokenCreate, user: dict = Depends(get_session_user))
     expires_at = (
         (datetime.now(UTC) + timedelta(days=payload.expires_days)).isoformat() if payload.expires_days else None
     )
+    scope = payload.scope
+    if scope is not None:
+        from app.core import permissions as perm
+
+        if not perm.role_exists(scope.role) or scope.resource_type not in perm.RESOURCE_TYPES:
+            raise HTTPException(status_code=422, detail="A delegated token names a known role and kind of perimeter")
+        from app.core import statd
+
+        if statd.members_without("acl_terms"):
+            raise HTTPException(status_code=409, detail="Update every node before making delegated tokens")
     token_id, token = create_token(user["username"], name, expires_at=expires_at)
+    if scope is not None:
+        from app.core.api_tokens import set_scope
+
+        try:
+            set_scope(
+                token_id,
+                scope.role,
+                scope.resource_type,
+                "*" if scope.resource_type == "cluster" else scope.resource_id,
+            )
+        except Exception:
+            revoke_token(user["username"], token_id)  # never a token wider than asked for
+            raise
     log_action(
         user["username"],
         "create_api_token",
@@ -514,7 +548,13 @@ def post_api_token(payload: TokenCreate, user: dict = Depends(get_session_user))
     )
     # The plain token is returned only HERE, once: it can never be retrieved again
     # afterwards (only its SHA-256 hash is stored).
-    return {"id": token_id, "name": name, "token": token, "expires_at": expires_at}
+    return {
+        "id": token_id,
+        "name": name,
+        "token": token,
+        "expires_at": expires_at,
+        "scope": scope and scope.model_dump(),
+    }
 
 
 class ApiTokenRename(BaseModel):

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.core import backup_groups
 from app.core.audit import log_action
 from app.core.listing import item, listing
-from app.core.security import require_role
+from app.core.security import require_area
 from app.core.tasks import start_thread
 
 router = APIRouter(prefix="/backup-groups", tags=["backups"])
@@ -30,18 +30,18 @@ class GroupJob(BaseModel):
 
 
 @router.get("")
-def list_group_jobs(user: dict = Depends(require_role("admin"))):
+def list_group_jobs(user: dict = Depends(require_area("backup.view"))):
     return listing(backup_groups.list_jobs())
 
 
 @router.get("/{job_id}")
-def get_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
+def get_group_job(job_id: int, user: dict = Depends(require_area("backup.view"))):
     """One job, as GET /backup-groups lists it (with the VMs it selects now)."""
     return item(backup_groups.list_jobs(), "id", job_id, "Backup job")
 
 
 @router.post("", status_code=201)
-def create_group_job(payload: GroupJob, user: dict = Depends(require_role("admin"))):
+def create_group_job(payload: GroupJob, user: dict = Depends(require_area("backup.manage"))):
     try:
         job = backup_groups.save_job(payload.model_dump())
     except backup_groups.GroupError as e:
@@ -53,7 +53,7 @@ def create_group_job(payload: GroupJob, user: dict = Depends(require_role("admin
 
 
 @router.put("/{job_id}")
-def update_group_job(job_id: int, payload: GroupJob, user: dict = Depends(require_role("admin"))):
+def update_group_job(job_id: int, payload: GroupJob, user: dict = Depends(require_area("backup.manage"))):
     if backup_groups.get_job(job_id) is None:
         raise HTTPException(status_code=404, detail="Backup job not found")
     try:
@@ -65,7 +65,7 @@ def update_group_job(job_id: int, payload: GroupJob, user: dict = Depends(requir
 
 
 @router.delete("/{job_id}")
-def delete_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
+def delete_group_job(job_id: int, user: dict = Depends(require_area("backup.manage"))):
     if not backup_groups.delete_job(job_id):
         raise HTTPException(status_code=404, detail="Backup job not found")
     log_action(user["username"], "delete_backup_group", str(job_id), "success")
@@ -73,7 +73,7 @@ def delete_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/{job_id}/run", status_code=202)
-def run_group_job(job_id: int, user: dict = Depends(require_role("admin"))):
+def run_group_job(job_id: int, user: dict = Depends(require_area("backup.manage"))):
     """Run now, in the background: each VM's backup appears in the tasks as it goes."""
     job = backup_groups.get_job(job_id)
     if job is None:

@@ -103,6 +103,11 @@ def _check_vm(conn, row):
     if get_protected(vm_name):
         return  # HA VM: never touched automatically
 
+    from app.core import protections
+
+    if protections.refusal("vm", vm_name, deleting=True):
+        return  # kept or frozen (app/core/protections.py): its expiry waits until the protection is lifted
+
     age_h = _age_hours(row["last_active_at"])
     threshold_h = row["inactive_days"] * 24
 

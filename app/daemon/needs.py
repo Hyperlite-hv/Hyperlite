@@ -18,7 +18,7 @@ from app.daemon.registry import DaemonError
 class Need:
     """`kind`: "admin", "anyone" (any proven account), "public" (no proof: the sign-in itself), "own" (the account
     named in `arg`, or an administrator), a privilege on the object named in `arg` ("vm", "container", "storage",
-    "network", "backup_store"), "vms" (that privilege on each VM of the list `arg`), or "rule" (`rule(user, args)` says why not)."""
+    "network", "backup_store"), "area" (an area privilege where this node answers, docs/design/access-2.md), "vms" (that privilege on each VM of the list `arg`), or "rule" (`rule(user, args)` says why not)."""
 
     kind: str
     privilege: str | None = None
@@ -33,6 +33,12 @@ class Need:
             return "Only an administrator may do this"
         if self.kind == "rule":
             return self.rule(user, args)
+        if self.kind == "area":
+            from app.core import permissions
+
+            if permissions.has_area_privilege(user, self.privilege):
+                return None
+            return f"Insufficient rights (required privilege: {self.privilege})"
         value = getattr(args, self.arg, None)
         if self.kind == "vms":
             refused = [v for v in value or () if on_vm(self.privilege).refusal(user, _Named(v))]
@@ -124,6 +130,11 @@ def on_storage(privilege, arg="pool"):
 
 def on_network(privilege, arg="network"):
     return Need("network", privilege, arg)
+
+
+def on_area(privilege):
+    """An area privilege (backup.manage, update.apply...) on the cluster, or on this node for a node-bound area."""
+    return Need("area", privilege)
 
 
 def own(arg="username"):

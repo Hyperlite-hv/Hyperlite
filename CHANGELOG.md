@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-11-14
+
+### Added
+
+- Assignments can be given on a node or on the whole cluster, and hold on everything under them: a VM inherits the rights given on its pools, its node and the cluster.
+- New area privileges (nodes, storage, networks, backups, alerts, journal, updates, cluster, access) and seven wider roles: Steward, Builder, Observer, Access delegate, Backup keeper, Watcher, Maintainer. Backups, alerts, reports, metric servers, HA, load balancing, replication, the journal and updates now open to an account holding the matching privilege, not only to administrators.
+- An access delegate gives and removes assignments inside its own perimeter (never to itself, never on the whole cluster).
+- A Rights tab on VMs, containers and nodes: who can do what with where each right comes from, a test of one account's rights, and a three-step assignment wizard.
+- A Pools page: each pool with its VMs, tags and notes, envelope, protections and Rights tab; VMs added and removed there.
+- Protections on VMs, containers, pools and nodes: Kept (no deletion of the object, its disks or snapshots) and Frozen (no change at all, consoles stay open). A protection on a pool or a node holds on what is under it; administrators are held too, and lifting one is journaled.
+- Guardrails: creation rules on the cluster or a pool (name pattern, largest VM, storage pools and networks allowed) and pool envelopes (VMs, vCPUs, memory, disk), on a new Guardrails page.
+- Assignments can end on a date and carry a tag restriction (they then grant only on the VMs and containers with that tag); ended ones grant nothing and are removed within a minute, journaled.
+- On-demand rights on a new Access page: an administrator or a delegate makes an account or a group eligible for a role on a perimeter for a limited time, granted at once or after approval; asking takes a reason and the second factor when the account has one; every step is journaled and notified.
+- Delegated API tokens: a token acts with one role on one perimeter, never beyond what its owner holds.
+- Access review on the Access page: every assignment with its account's last sign-in, its end, whether it gives access or covers the whole cluster, and whether its account or group still exists; keep one (with a note, for 90 days) or remove it there. Idle accounts, administrators without a second factor and forgotten API tokens are listed with it.
+- Tags and notes on pools, storage pools and networks too.
+- Export a VM's definition from its Advanced page: a body for POST /vms, the full JSON, or the Terraform / OpenTofu `hyperlite_vm` resource (`GET /vms/{name}/definition`).
+- Bulk actions on the containers list (start, stop, delete) and the nodes list (leave maintenance, add a tag).
+
 ## [1.20.1] - 2026-11-14
 
 ### Fixed
