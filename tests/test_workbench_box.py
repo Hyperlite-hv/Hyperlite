@@ -57,4 +57,6 @@ def test_commands():
     assert "--property=IPAddressAllow=127.0.0.1" in relay and "--property=IPAddressDeny=any" in relay
     assert relay[-3:] == ["unix-to-tcp", str(box.RUN / SID / "api.sock"), "127.0.0.1"] or relay[-4] == "unix-to-tcp"
     attach = box.attach_argv(SID, UID)
-    assert attach[:2] == ["setpriv", f"--reuid={UID}"] and "--no-new-privs" in attach and "-A" in attach
+    assert attach[:2] == ["setpriv", f"--reuid={UID}"] and "--no-new-privs" in attach
+    # Attach only: never a command that would start a tmux server (and shells) outside the box.
+    assert attach[-3:] == ["attach-session", "-t", "main"] and "new-session" not in attach

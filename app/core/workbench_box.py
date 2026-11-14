@@ -120,7 +120,7 @@ def box_argv(sid, uid, limits):
     """The systemd-run command that starts the box."""
     argv = ["systemd-run", "--quiet", "--collect", f"--unit={unit_name(sid)}", "--description=Hyperlite Terminal"]
     argv += [f"--property={p}" for p in box_properties(sid, uid, limits)]
-    return [*argv, "/bin/sh", str(SCRIPTS / "box.sh")]
+    return [*argv, "/bin/bash", str(SCRIPTS / "box.sh")]
 
 
 def relay_argv(sid, uid):
@@ -153,10 +153,10 @@ def relay_argv(sid, uid):
 
 def attach_argv(sid, uid):
     """The tmux client the daemon runs in a terminal, as the session's uid, outside the box: the shells it shows run
-    inside, in the tmux server's box."""
+    inside, in the tmux server's box. Attach only: a client that made a session would start a server, and its shells,
+    outside the box when the box's server is gone."""
     _check(sid, uid)
     return [
         "setpriv", f"--reuid={uid}", f"--regid={uid}", "--clear-groups", "--inh-caps=-all", "--no-new-privs", "--",
-        "/usr/bin/tmux", "-S", str(RUN / sid / "tmux.sock"), "-f", str(SCRIPTS / "tmux.conf"),
-        "new-session", "-A", "-s", "main",
+        "/usr/bin/tmux", "-S", str(RUN / sid / "tmux.sock"), "attach-session", "-t", "main",
     ]  # fmt: skip
