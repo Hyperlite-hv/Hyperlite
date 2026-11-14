@@ -21,7 +21,6 @@ import Palette from "./layout/Palette";
 import SideMenu from "./layout/SideMenu";
 import Tray from "./layout/Tray";
 import ShortcutsDialog from "./components/ShortcutsDialog";
-import { useInfraStore } from "../store/useInfraStore";
 import { GO, SEQUENCE_MS, isTyping, moveRow, toggleRow } from "./lib/shortcuts";
 import { preloadCommon, preloadPage } from "./legacy/tabs";
 
