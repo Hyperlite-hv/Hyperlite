@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchObjectAcl, fetchAccessSubjects, fetchAclRoles, fetchCustomRoles, fetchPrivileges, explainAccess, createAcl, deleteAcl } from "../../api/client";
+import { fetchObjectProtections, putProtection, liftProtection, fetchObjectAcl, fetchAccessSubjects, fetchAclRoles, fetchCustomRoles, fetchPrivileges, explainAccess, createAcl, deleteAcl } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { confirmAction } from "../../store/useConfirmStore";
@@ -84,9 +84,58 @@ function ObjectPermissions({ kind, name }) {
           </TableWrap>
         )}
       </Card>
+      <ProtectionsCard kind={kind} name={name} canChange={!!data.subjects} />
       <ExplainCard kind={kind} name={name} data={data} me={me} />
       {data.subjects && <AssignWizard kind={kind} name={name} data={data} onDone={load} />}
     </>
+  );
+}
+
+// Keep (no deletion) and Freeze (no change at all), on this object or inherited from a pool or its node
+// (app/core/protections.py). Putting or lifting one is for an administrator or a delegate of the perimeter.
+function ProtectionsCard({ kind, name, canChange }) {
+  const t = useT();
+  const pushToast = useInfraStore((s) => s.pushToast);
+  const [held, setHeld] = useState(null);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => fetchObjectProtections(kind, name).then(setHeld).catch(() => setHeld([])), [kind, name]);
+  useEffect(() => { load(); }, [load]);
+  if (!held) return null;
+  const own = (level) => held.find((p) => p.level === level && !p.inherited_type);
+  async function toggle(level) {
+    const on = own(level);
+    if (on && !(await confirmAction({ title: t("gr.liftTitle"), message: t("gr.liftMsg", { what: `${t(`acc.kind.${kind}`)} ${name}` }), confirmLabel: t("gr.lift"), danger: true }))) return;
+    setBusy(true);
+    try {
+      if (on) await liftProtection(kind, name, level); else await putProtection(kind, name, level, reason.trim());
+      pushToast({ kind: "success", title: t(on ? "gr.lifted" : "prot.put") });
+      setReason("");
+      await load();
+    } catch (e) { pushToast({ kind: "error", title: t("gr.saveFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
+  }
+  return (
+    <Card title={t("gr.protections")} note={t("prot.note")}>
+      {held.filter((p) => p.inherited_type).map((p) => (
+        <p key={p.id} className="nx-muted" style={{ margin: "0 0 var(--space-2)" }}>
+          <Chip tone={p.level === "freeze" ? "warning" : "accent"}>{t(`gr.level.${p.level}`)}</Chip> {t("prot.inherited", { what: `${t(`acc.kind.${p.inherited_type}`)} ${p.resource_id}` })}{p.reason ? ` — ${p.reason}` : ""}
+        </p>
+      ))}
+      <div className="hc-protect">
+        {["keep", "freeze"].map((level) => (
+          <div key={level} className="hc-protect-row">
+            <div>
+              <strong>{t(`gr.level.${level}`)}</strong>
+              <small className="nx-muted">{t(`prot.help.${level}`)}</small>
+              {own(level) && <small>{t("prot.since", { by: own(level).set_by })}{own(level).reason ? ` — ${own(level).reason}` : ""}</small>}
+            </div>
+            {canChange && <button type="button" className={`nx-btn ${own(level) ? "nx-btn--ghost" : "nx-btn--primary"}`} disabled={busy} aria-pressed={!!own(level)} onClick={() => toggle(level)}>{t(own(level) ? "gr.lift" : "prot.on")}</button>}
+            {!canChange && <Chip tone={own(level) ? "accent" : undefined}>{t(own(level) ? "prot.isOn" : "prot.isOff")}</Chip>}
+          </div>
+        ))}
+      </div>
+      {canChange && <Field label={t("gr.reason")} hint={t("prot.reasonHint")}>{(p) => <input {...p} className="nx-inp" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>}
+    </Card>
   );
 }
 

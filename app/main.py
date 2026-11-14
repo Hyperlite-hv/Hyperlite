@@ -81,6 +81,7 @@ from app.routers.network import router as network_router
 from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
+from app.routers.protections import router as protections_router
 from app.routers.replication import router as replication_router
 from app.routers.reports import router as reports_router
 from app.routers.sites import router as sites_router
@@ -163,6 +164,28 @@ _INLINE_SCRIPT_HASHES = inline_script_hashes(f"{DASHBOARD_DIST}/index.html")
 
 
 _GUEST_PATH = re.compile(r"^(/api/v1/(vms|containers)/)([0-9]{1,9})(/.*)?$")
+
+
+@app.middleware("http")
+async def refuse_protected(request: Request, call_next):
+    """A change to a VM or a container that a protection holds (keep, freeze: app/core/protections.py) is refused
+    before any route runs, whoever asks. Inner to guests_by_vmid below, so it sees the guest's name. A request for a
+    guest on another member is checked there."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return await call_next(request)
+    node = request.query_params.get("node")
+    if node and node not in ("local", self_node.name()):
+        return await call_next(request)
+    from app.core import protections
+
+    try:
+        refusal = await run_in_threadpool(protections.request_refusal, request.method, request.scope["path"])
+    except Exception:  # the database not answering: the route's own checks decide, said in the log
+        logger.warning("Protections not read for %s", request.scope["path"], exc_info=True)
+        refusal = None
+    if refusal:
+        return JSONResponse(status_code=423, content={"detail": refusal, "code": "protected"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -250,6 +273,7 @@ _API_ROUTERS = (
     reports_router,
     alert_rules_router,
     access_router,
+    protections_router,
     workstation_router,
     kubernetes_router,
     meta_router,

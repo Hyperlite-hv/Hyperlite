@@ -1535,6 +1535,27 @@ export async function createAcl(payload) {
   return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
 }
 // Assignments on one VM or container, with those a VM inherits from its pools (`herite_de`).
+export async function fetchProtections() {
+  return realList("/protections");
+}
+export async function fetchObjectProtections(kind, name) {
+  return realList(`/protections/${kind}/${encodeURIComponent(name)}`);
+}
+export async function putProtection(kind, name, level, reason) {
+  return realFetch(`/protections/${kind}/${encodeURIComponent(name)}/${level}`, { method: "PUT", ...jsonBody({ reason }) });
+}
+export async function liftProtection(kind, name, level) {
+  return realFetch(`/protections/${kind}/${encodeURIComponent(name)}/${level}`, { method: "DELETE" });
+}
+export async function fetchGuardrails() {
+  return realFetch("/guardrails");
+}
+export async function putGuardrailRule(scope, rule) {
+  return realFetch(`/guardrails/rules/${encodeURIComponent(scope)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function putPoolEnvelope(poolId, envelope) {
+  return realFetch(`/guardrails/envelopes/${poolId}`, { method: "PUT", ...jsonBody(envelope) });
+}
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

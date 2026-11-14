@@ -29,6 +29,20 @@ class VMUpdate(BaseModel):
     os_label: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[^\x00-\x1f<>]+$")
 
 
+def _refuse_past_envelope(name, domain, vcpu, memory_mb):
+    """422 when the VM's growth would break the envelope of one of its pools (app/core/guardrails.py)."""
+    from app.core import guardrails
+    from app.core import permissions as perm
+
+    info = domain.info()
+    more_vcpus = max(0, (vcpu or info[3]) - info[3])
+    more_memory = max(0, (memory_mb or info[1] // 1024) - info[1] // 1024)
+    for pool_id in perm.get_vm_pools(name):
+        broken = guardrails.envelope_refusal(pool_id, vcpus=more_vcpus, memory_mb=more_memory)
+        if broken:
+            raise HTTPException(status_code=422, detail=broken)
+
+
 @router.patch("/{name}")
 def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_privilege("vm.resize"))):
     if payload.vcpu is None and payload.memory_mb is None and payload.os_label is None:
@@ -60,6 +74,7 @@ def update_vm(name: str, payload: VMUpdate, user: dict = Depends(require_vm_priv
         if domain.isActive():
             log_action(user["username"], "update_vm", name, "failed", "VM active")
             raise HTTPException(status_code=409, detail="Stop the VM before changing its resources")
+        _refuse_past_envelope(name, domain, payload.vcpu, payload.memory_mb)
 
         # Written by hyperlite-daemon (app/daemon/ops/vm.py), which checks again that the VM is stopped.
         privileged.ask(

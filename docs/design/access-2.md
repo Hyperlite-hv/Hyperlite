@@ -105,16 +105,20 @@ A **protection** on a VM, a container, a pool or a node (`resource_protections` 
 - **Keep**: the object cannot be deleted (VM, container, its disks and snapshots) until the protection is lifted.
 - **Freeze**: no change at all (configuration, power, snapshots); only reading and the console.
 
-A protection on a pool or a node holds for what is under it. Lifting one is a separate, journaled action that needs
+A protection on a pool or a node holds for what is under it; on a pool itself, Keep refuses deleting the pool and
+Freeze changing its members. The API refuses a protected change before any route runs (423, code `protected`), and
+the automatic deletion of expired VMs waits until the protection is lifted. Lifting one is a separate, journaled action that needs
 `access.manage` on the perimeter; administrators are not exempt (that is the point), they only may lift it.
 
 ## 5. Envelopes and guardrails
 
 An **envelope** caps what a pool may hold (`resource_envelopes`): VMs, vCPUs, memory, disk. Creating, cloning or
-resizing a VM in the pool past its envelope is refused with what would be exceeded.
+resizing a VM in the pool, or adding one to it, past its envelope is refused with what would be exceeded. The VMs
+are counted wherever they run; their vCPUs, memory and disk are those of the members the answering node hosts (a VM's
+size is its node's to read).
 
-**Guardrails** are creation rules held on the cluster or a pool (`guardrails`): tags every new VM must carry, storage
-pools and networks allowed, the largest VM (vCPU, memory), a name pattern. They are checked when a VM is created or
+**Guardrails** are creation rules held on the cluster or a pool (`guardrails`): storage pools and networks allowed,
+the largest VM (vCPU, memory, disk), a name pattern. They are checked when a VM is created or
 cloned; administrators are held by them too (an administrator can change them).
 
 ## 6. Dated rights and on-demand rights

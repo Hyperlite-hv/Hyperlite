@@ -750,3 +750,14 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-roleopt span { display: grid; gap: 2px; }
 .hc-roleopt small { color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1.35; }
 .hc-recap { margin: 0 0 var(--space-3); font-size: var(--font-size-md); }
+
+/* Guardrails page: what a pool holds against its envelope */
+.hc-usage { display: inline-grid; gap: 3px; min-width: 84px; }
+.hc-usage-bar { display: block; height: 4px; border-radius: 2px; background: var(--color-bg-hover); overflow: hidden; }
+.hc-usage-bar > span { display: block; height: 100%; background: var(--color-success); }
+.hc-usage-bar > span[data-level="mid"] { background: var(--color-warning); }
+.hc-usage-bar > span[data-level="high"] { background: var(--color-danger); }
+.hc-protect { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); }
+.hc-protect-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-card); border-radius: var(--radius-md); }
+.hc-protect-row > div { display: grid; gap: 2px; }
+.hc-protect-row small { font-size: var(--font-size-xs); }
