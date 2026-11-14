@@ -45,7 +45,8 @@ if [ "$FRESH_INSTALL" = "1" ]; then
     log "first installation: generating the secrets specific to this machine"
     install -d -m 755 "$ETC"
     install -d -m 700 "$PRIV" "$PRIV/ssh" "$ETC/local"
-    install -d -m 755 "$VAR/template" "$VAR/template/iso" "$VAR/template/vm" "$VAR/dump" "$VAR/import" "$VAR/tmp"
+    install -d -m 755 "$VAR/template" "$VAR/template/iso" "$VAR/template/vm" "$VAR/dump" "$VAR/dump/export" \
+        "$VAR/dump/container" "$VAR/import" "$VAR/tmp"
     SECRET_KEY=$(openssl rand -hex 32)
     ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -d '=+/' | cut -c1-16)
     (umask 077 && cat > "$PRIV/env" <<ENVEOF
