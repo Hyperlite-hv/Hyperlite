@@ -1,0 +1,22 @@
+#!/bin/bash
+# The Terminal's helper (docs/design/workbench.md, section 8): the API with this session's own token, and tools.
+#   hl api GET /vms                 any route, JSON out (pipe it to jq)
+#   hl api POST /vms/web-1/start
+#   hl api PUT /some/route '{"key": "value"}'
+#   hl tofu                         installs OpenTofu (a pinned, checked release) into ~/.local/bin
+#   hl whoami                       what this session may do (GET /access/me)
+set -euo pipefail
+CONFIG=${HYPERLITE_CONFIG:-/run/workbench/hyperlite.json}
+TOKEN=$(jq -r '.servers.local.token' "$CONFIG")
+BASE=https://127.0.0.1:8443/api/v1
+call() {  # method path [json]
+    # -k: the box has no network but its own loopback, where only the relay to this node's API listens; there is no
+    # one in between to impersonate it (the hyperlite client pins the certificate all the same).
+    curl -sS -k -X "$1" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' ${3:+--data "$3"} "$BASE$2"
+}
+case "${1:-}" in
+    api) shift; [ $# -ge 2 ] || { echo "usage: hl api METHOD /path [json]" >&2; exit 2; }; call "$1" "$2" "${3:-}"; echo ;;
+    whoami) call GET /access/me | jq . ;;
+    tofu) call POST "/workbench/sessions/$HL_TERMINAL_SID/tools/tofu" | jq -r '.message // .detail' ;;
+    *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

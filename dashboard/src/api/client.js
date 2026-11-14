@@ -1640,6 +1640,22 @@ export async function exportPool(id) {
   if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
   return res.text();
 }
+export async function fetchTerminal() { return realFetch("/workbench"); }
+export async function openTerminalSession(as = null) { return realFetch("/workbench/sessions", { method: "POST", ...jsonBody(as ? { as } : {}) }); }
+export async function terminalTicket(sid) { return realFetch(`/workbench/sessions/${sid}/ticket`, { method: "POST" }); }
+export async function endTerminalSession(sid) { return realFetch(`/workbench/sessions/${sid}`, { method: "DELETE" }); }
+export async function fetchTerminalSessions() { return realList("/workbench/sessions"); }
+export async function fetchTerminalSettings() { return realFetch("/workbench/settings"); }
+export async function saveTerminalSettings(s) { return realFetch("/workbench/settings", { method: "PUT", ...jsonBody(s) }); }
+export async function uploadToTerminal(sid, path, file) {
+  return realFetch(`/workbench/sessions/${sid}/files?path=${encodeURIComponent(path)}`, { method: "POST", body: file, headers: { "Content-Type": "application/octet-stream" } });
+}
+export async function downloadFromTerminal(sid, path) {
+  const res = await fetch(apiPath(`/workbench/sessions/${sid}/files?path=${encodeURIComponent(path)}`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) { const d = await res.json().catch(() => null); throw Object.assign(new Error(d?.detail || `HTTP ${res.status}`), { status: res.status }); }
+  return res.blob();
+}
+export async function installTofu(sid) { return realFetch(`/workbench/sessions/${sid}/tools/tofu`, { method: "POST" }); }
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }
