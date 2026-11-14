@@ -1071,6 +1071,27 @@ def _init_db():
                 changed_at TEXT
             )
         """)
+        # Accounts that end (a contractor, an intern): refused at sign-in and on every request from that moment.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS account_expiry (
+                username TEXT PRIMARY KEY,
+                expires_at TEXT NOT NULL,
+                set_by TEXT
+            )
+        """)
+        # Silences of the alert rules (app/core/alert_rules.py): during a window, a node, a VM, a pool's VMs, a rule or
+        # everything fires without notifying (the journal still says it). Replicated: the leader evaluates.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alert_silences (
+                id TEXT PRIMARY KEY,
+                target_kind TEXT NOT NULL CHECK(target_kind IN ('all', 'node', 'vm', 'pool', 'rule')),
+                target TEXT,
+                starts_at TEXT NOT NULL,
+                ends_at TEXT NOT NULL,
+                reason TEXT,
+                created_by TEXT
+            )
+        """)
         # Alert rules (#348): a metric of a node or a VM above or below a threshold for a few minutes, evaluated by the
         # leader (app/core/alert_rules.py). Replicated, their state too: every node shows which rules fire.
         conn.execute("""

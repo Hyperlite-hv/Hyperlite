@@ -5,7 +5,7 @@ import {
   fetchPools, createPool, deletePool, addPoolMember, removePoolMember,
   fetchAclRoles, fetchAcl, fetchMyAccess, createAcl, deleteAcl,
   fetchPrivileges, fetchCustomRoles, createCustomRole, deleteCustomRole, fetchContainers,
-  fetchStoragePools, fetchNetworks, fetchBackupStores,
+  fetchStoragePools, fetchNetworks, fetchBackupStores, fetchAccountEnds, setAccountEnd,
 } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -17,7 +17,7 @@ import { ErrorState } from "../components/States";
 import SsoPage from "./SsoPage";
 import { PageHeader, SideDrawer, Field, Chip, Empty, Loading, TableWrap } from "../components/ui";
 import { useIntent } from "../lib/intents";
-import { KeyRound, Layers, PencilLine, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
+import { CalendarClock, KeyRound, Layers, PencilLine, Plus, Trash2, Users as UsersIcon, X } from "lucide-react";
 import { askNewName } from "../lib/rename";
 import { NewPasswordFields } from "../components/PasswordFields";
 import { passwordAccepted } from "../lib/passwordPolicy";
@@ -119,6 +119,19 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
   const [resetPw, setResetPw] = useState("");
   const closeReset = () => { setResetFor(null); setResetPw(""); };
   const ctx = useContextTarget(); // right click on a user: their actions
+  // End dates (contractors, interns): from then on the account is refused, its sessions and tokens with it.
+  const [ends, setEnds] = useState({});
+  const [endFor, setEndFor] = useState(null);
+  const [endAt, setEndAt] = useState("");
+  const loadEnds = useCallback(() => fetchAccountEnds().then((x) => setEnds(x || {})).catch(() => setEnds({})), []);
+  useEffect(() => { loadEnds(); }, [loadEnds, data]);
+  const localInput = (iso) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  function openEnd(u) { setEndFor(u); setEndAt(ends[u.username] ? localInput(ends[u.username]) : ""); }
+  async function saveEnd(clear) {
+    const name = endFor.username;
+    const value = clear ? null : new Date(endAt).toISOString();
+    if (await run(() => setAccountEnd(name, value), { ok: { title: clear ? t("ae.cleared") : t("ae.set"), message: name }, fail: t("sec.updateFailed") })) { setEndFor(null); loadEnds(); }
+  }
   async function reset() {
     const name = resetFor.username;
     let revoked = 0;
@@ -144,7 +157,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
       <div className="nx-card2 nx-card2--flush">
         <TableWrap>
           <table className="nx-table">
-            <thead><tr><th scope="col">{t("sec.user")}</th><th scope="col">{t("sec.globalRole")}</th><th scope="col">{t("sec.auth")}</th><th scope="col">2FA</th><th scope="col">{t("sec.lastLogin")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+            <thead><tr><th scope="col">{t("sec.user")}</th><th scope="col">{t("sec.globalRole")}</th><th scope="col">{t("sec.auth")}</th><th scope="col">2FA</th><th scope="col">{t("sec.lastLogin")}</th><th scope="col">{t("ae.col")}</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
             <tbody>
               {data.users.map((u) => {
                 const self = u.username === me;
@@ -155,7 +168,9 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
                     <td><Chip>{u.auth_source === "sso" ? "SSO" : t("sec.local")}</Chip></td>
                     <td>{u.totp_enabled ? <span className="nx-tone-success">{t("sec.on2fa")}</span> : <span className="nx-muted">{t("sec.off2fa")}</span>}</td>
                     <td className="nx-mono nx-muted">{when(u.last_login_at) || t("sec.never")}</td>
+                    <td>{ends[u.username] ? <span className={new Date(ends[u.username]) <= new Date() ? "nx-tone-danger" : "nx-mono"}>{new Date(ends[u.username]) <= new Date() ? t("ae.ended", { when: when(ends[u.username]) }) : when(ends[u.username])}</span> : <span className="nx-muted">—</span>}</td>
                     <td><div className="nx-ra">
+                      <IconBtn icon={CalendarClock} label={self ? t("ae.self") : t("ae.for", { name: u.username })} disabled={self} onClick={() => openEnd(u)} />
                       <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm nx-btn--icon" aria-label={self ? t("pw.resetSelf") : u.auth_source === "sso" ? t("pw.resetSso") : t("pw.resetFor", { name: u.username })}
                         title={self ? t("pw.resetSelf") : u.auth_source === "sso" ? t("pw.resetSso") : t("pw.reset")} disabled={self || u.auth_source === "sso"} onClick={() => setResetFor(u)}><KeyRound size={15} aria-hidden="true" /></button>
                       <IconBtn label={self ? t("sec.selfDelete") : t("a11y.delete_user_x", { v: u.username })} title={self ? t("sec.selfDelete") : del(t)} disabled={self} onClick={() => remove(u)} />
@@ -168,6 +183,7 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
           <ActionsContextMenu ctx={ctx} label={(u) => t("ctx.menuOf", { name: u.username })} entries={(u) => {
             const self = u.username === me;
             return [
+              { key: "end", icon: "clock", label: t("ae.title"), run: () => openEnd(u), disabled: self, reason: t("ae.self") },
               { key: "reset", icon: "key", label: t("pw.reset"), run: () => setResetFor(u), disabled: self || u.auth_source === "sso", reason: self ? t("pw.resetSelf") : t("pw.resetSso") },
               u.role === "admin"
                 ? { key: "role", icon: "user", label: t("ctx.makeObserver"), run: () => changeRole(u, "viewer"), disabled: self, reason: t("sec.selfRole") }
@@ -185,6 +201,14 @@ function UsersTab({ t, run, data, drawer, closeDrawer }) {
         <Field label={t("sec.username")}>{(p) => <input {...p} className="nx-inp" aria-label={t("a11y.username")} value={f.username} autoComplete="off" placeholder="jdupont" onChange={(e) => setF({ ...f, username: e.target.value })} />}</Field>
         <NewPasswordFields label={t("ct.password")} username={f.username.trim()} value={f.password} onChange={(v) => setF((s) => ({ ...s, password: v }))} generate />
         <Field label={t("sec.globalRole")}>{(p) => <select {...p} className="nx-inp" aria-label={t("a11y.role_of_the_new_user")} value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="viewer">{t("sec.observer")}</option><option value="admin">{t("sec.admin")}</option></select>}</Field>
+      </SideDrawer>
+      <SideDrawer open={!!endFor} title={endFor ? t("ae.drawer", { name: endFor.username }) : ""} onClose={() => setEndFor(null)} footer={<>
+        {endFor && ends[endFor.username] && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => saveEnd(true)}>{t("ae.clear")}</button>}
+        <button type="button" className="nx-btn nx-btn--ghost" onClick={() => setEndFor(null)}>{t("action.cancel")}</button>
+        <button type="button" className="nx-btn nx-btn--primary" disabled={!endAt} onClick={() => saveEnd(false)}>{t("ae.save")}</button>
+      </>}>
+        <p className="nx-muted">{t("ae.note")}</p>
+        <Field label={t("ae.at")}>{(p) => <input {...p} type="datetime-local" className="nx-inp" value={endAt} onChange={(e) => setEndAt(e.target.value)} />}</Field>
       </SideDrawer>
       <SideDrawer open={!!resetFor} title={resetFor ? t("pw.resetTitle", { name: resetFor.username }) : ""} onClose={closeReset} footer={<>
         <button type="button" className="nx-btn nx-btn--ghost" onClick={closeReset}>{t("action.cancel")}</button>

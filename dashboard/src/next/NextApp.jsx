@@ -56,7 +56,7 @@ export default function NextApp() {
     }
     return () => {
       cleanup?.();
-      delete root.dataset.ui; delete root.dataset.theme; delete root.dataset.accent; delete root.dataset.density;
+      delete root.dataset.ui; delete root.dataset.theme; delete root.dataset.accent; delete root.dataset.density; delete root.dataset.contrast;
       root.style.removeProperty("--ui-scale");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

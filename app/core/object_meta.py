@@ -107,3 +107,40 @@ def delete(kind, name, node=None):
 def follow_migration(vm_name, source_node, target_node):
     """A VM's notes and tags move with it to the node it was live-migrated to."""
     return _store().move_vm_meta(vm_name, source_node or LOCAL, target_node or LOCAL)
+
+
+def retag(old, new=None):
+    """Rename the tag `old` to `new` on every object (merging it into `new` where both are there), or remove it when
+    `new` is None. Returns how many objects changed."""
+    names = normalize_tags([old])
+    if not names:
+        raise MetaError("Name the tag to change")
+    old = names[0]
+    new = (normalize_tags([new]) or [None])[0] if new else None
+    changed = 0
+    for row in _store().all_meta(None):
+        tags = json.loads(row["tags"] or "[]")
+        if old not in tags:
+            continue
+        out = []
+        for tag in tags:
+            replaced = new if tag == old else tag
+            if replaced and replaced not in out:
+                out.append(replaced)
+        if not (row["notes"] or "").strip() and not out:
+            _store().delete_meta(row["kind"], row["node"], row["name"])
+        else:
+            _store().put_meta(row["kind"], row["node"], row["name"], row["notes"] or "", json.dumps(out))
+        changed += 1
+    return changed
+
+
+def tag_counts():
+    """Every tag in use: how many objects carry it, by kind."""
+    counts = {}
+    for row in _store().all_meta(None):
+        for tag in json.loads(row["tags"] or "[]"):
+            entry = counts.setdefault(tag, {"tag": tag, "total": 0, "kinds": {}})
+            entry["total"] += 1
+            entry["kinds"][row["kind"]] = entry["kinds"].get(row["kind"], 0) + 1
+    return sorted(counts.values(), key=lambda e: (-e["total"], e["tag"]))

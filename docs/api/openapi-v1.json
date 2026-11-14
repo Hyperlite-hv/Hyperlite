@@ -19,6 +19,24 @@
     "title": "AccessSettings",
     "type": "object"
    },
+   "AccountEnd": {
+    "properties": {
+     "expires_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     }
+    },
+    "title": "AccountEnd",
+    "type": "object"
+   },
    "AclCreate": {
     "properties": {
      "expires_at": {
@@ -4078,6 +4096,24 @@
     "title": "RestoreRequest",
     "type": "object"
    },
+   "RetagIn": {
+    "properties": {
+     "new": {
+      "anyOf": [
+       {
+        "maxLength": 32,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "New"
+     }
+    },
+    "title": "RetagIn",
+    "type": "object"
+   },
    "Retention": {
     "properties": {
      "access_log_days": {
@@ -4586,6 +4622,56 @@
      "name"
     ],
     "title": "SigninRuleIn",
+    "type": "object"
+   },
+   "SilenceIn": {
+    "properties": {
+     "ends_at": {
+      "format": "date-time",
+      "title": "Ends At",
+      "type": "string"
+     },
+     "reason": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Reason",
+      "type": "string"
+     },
+     "starts_at": {
+      "format": "date-time",
+      "title": "Starts At",
+      "type": "string"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "maxLength": 256,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target"
+     },
+     "target_kind": {
+      "default": "all",
+      "enum": [
+       "all",
+       "node",
+       "vm",
+       "pool",
+       "rule"
+      ],
+      "title": "Target Kind",
+      "type": "string"
+     }
+    },
+    "required": [
+     "starts_at",
+     "ends_at"
+    ],
+    "title": "SilenceIn",
     "type": "object"
    },
    "SiteAction": {
@@ -8009,6 +8095,117 @@
     ]
    }
   },
+  "/api/v1/alert-silences": {
+   "get": {
+    "operationId": "list_silences_api_v1_alert_silences_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Silences",
+    "tags": [
+     "alerts"
+    ]
+   },
+   "post": {
+    "operationId": "add_silence_api_v1_alert_silences_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SilenceIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Add Silence",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
+  "/api/v1/alert-silences/{silence_id}": {
+   "delete": {
+    "operationId": "remove_silence_api_v1_alert_silences__silence_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "silence_id",
+      "required": true,
+      "schema": {
+       "title": "Silence Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Remove Silence",
+    "tags": [
+     "alerts"
+    ]
+   }
+  },
   "/api/v1/api-docs/access": {
    "get": {
     "description": "Who may open Swagger, and whether this user may.",
@@ -8782,6 +8979,87 @@
      }
     ],
     "summary": "Setup 2Fa",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/v1/auth/account-expiry": {
+   "get": {
+    "description": "{username: end date} of the accounts that end.",
+    "operationId": "account_end_dates_api_v1_auth_account_expiry_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Account End Dates",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/v1/auth/account-expiry/{username}": {
+   "put": {
+    "description": "The account's end date (null: it never ends). Not one's own: an administrator cannot lock itself out.",
+    "operationId": "set_account_end_api_v1_auth_account_expiry__username__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "username",
+      "required": true,
+      "schema": {
+       "title": "Username",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AccountEnd"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Account End",
     "tags": [
      "auth"
     ]
@@ -17849,6 +18127,87 @@
      }
     ],
     "summary": "List Meta",
+    "tags": [
+     "meta"
+    ]
+   }
+  },
+  "/api/v1/meta/tags/summary": {
+   "get": {
+    "description": "Every tag in use with how many objects carry it, by kind.",
+    "operationId": "tags_summary_api_v1_meta_tags_summary_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Tags Summary",
+    "tags": [
+     "meta"
+    ]
+   }
+  },
+  "/api/v1/meta/tags/{tag}": {
+   "put": {
+    "description": "Rename a tag everywhere (merged into `new` where an object has both); `new` empty removes it everywhere.",
+    "operationId": "rename_tag_api_v1_meta_tags__tag__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "tag",
+      "required": true,
+      "schema": {
+       "title": "Tag",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RetagIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Rename Tag",
     "tags": [
      "meta"
     ]

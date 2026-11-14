@@ -1656,6 +1656,13 @@ export async function downloadFromTerminal(sid, path) {
   return res.blob();
 }
 export async function installTofu(sid) { return realFetch(`/workbench/sessions/${sid}/tools/tofu`, { method: "POST" }); }
+export async function fetchTagSummary() { return realList("/meta/tags/summary"); }
+export async function retag(tag, next) { return realFetch(`/meta/tags/${encodeURIComponent(tag)}`, { method: "PUT", ...jsonBody({ new: next }) }); }
+export async function fetchSilences() { return realList("/alert-silences"); }
+export async function addSilence(body) { return realFetch("/alert-silences", { method: "POST", ...jsonBody(body) }); }
+export async function removeSilence(id) { return realFetch(`/alert-silences/${id}`, { method: "DELETE" }); }
+export async function fetchAccountEnds() { return realFetch("/auth/account-expiry"); }
+export async function setAccountEnd(username, expiresAt) { return realFetch(`/auth/account-expiry/${encodeURIComponent(username)}`, { method: "PUT", ...jsonBody({ expires_at: expiresAt }) }); }
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

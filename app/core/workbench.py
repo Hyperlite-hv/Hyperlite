@@ -245,7 +245,7 @@ def mark_attached(sid, attached):
 def sweep(now=None):
     """End the sessions left detached past the idle time, past their longest time, or that a sign-in rule no longer
     allows (hyperlite-scheduler's access sweep, every minute)."""
-    from app.core import signin_rules
+    from app.core import account_expiry, signin_rules
     from app.services import account_service
 
     now = now or _now()
@@ -275,6 +275,8 @@ def sweep(now=None):
             account = account_service.get(row["account"])
             if account is None:
                 why = "account deleted"
+            elif account_expiry.expired(row["account"], now):
+                why = "account ended"
             elif signin_rules.refusal(account, row["from_address"]):
                 why = "sign-in rule"
         if why:

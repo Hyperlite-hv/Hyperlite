@@ -274,8 +274,12 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     # intermediate token that the frontend exchanges for the real token through /auth/login/2fa after the TOTP code.
     # The account's failures are cleared only once the code is right too: clearing them here would let whoever knows
     # the password guess the code without limit.
-    from app.core import signin_rules
+    from app.core import account_expiry, signin_rules
 
+    ended = account_expiry.expired(user["username"])
+    if ended:
+        log_action(user["username"], "login", "auth", "failed", f"Account ended on {ended[:10]}")
+        raise HTTPException(status_code=403, detail=f"This account ended on {ended[:10]}")
     refused = signin_rules.refusal(user, ip, has_second_factor=answer["result"] == "second_factor")
     if refused:
         log_action(user["username"], "login", "auth", "failed", refused)
@@ -748,6 +752,9 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     for group_id in get_user_groups(username):
         remove_group_member(group_id, username)
     delete_acl_for_user(username)
+    from app.core import account_expiry
+
+    account_expiry.set_date(username, None, user["username"])  # a later account of that name starts afresh
     log_action(user["username"], "delete_user", username, "success")
     return {"message": "User deleted"}
 
@@ -763,3 +770,33 @@ def reset_second_factor(username: str, user: dict = Depends(require_role("admin"
     webauthn_keys.delete_all_keys(username)
     log_action(user["username"], "reset_second_factor", username, "success")
     return {"message": f"The second factors of '{username}' are removed"}
+
+
+class AccountEnd(BaseModel):
+    expires_at: datetime | None = None
+
+
+@router.get("/account-expiry")
+def account_end_dates(user: dict = Depends(require_role("admin"))):
+    """{username: end date} of the accounts that end."""
+    from app.core import account_expiry
+
+    return account_expiry.all_dates()
+
+
+@router.put("/account-expiry/{username}")
+def set_account_end(username: str, payload: AccountEnd, user: dict = Depends(require_role("admin"))):
+    """The account's end date (null: it never ends). Not one's own: an administrator cannot lock itself out."""
+    from app.core import account_expiry
+
+    if username == user["username"]:
+        raise HTTPException(status_code=422, detail="Not for your own account")
+    if not account_service.get(username):
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+    when = None
+    if payload.expires_at is not None:
+        end = payload.expires_at if payload.expires_at.tzinfo else payload.expires_at.replace(tzinfo=UTC)
+        when = end.astimezone(UTC).isoformat()
+    account_expiry.set_date(username, when, user["username"])
+    log_action(user["username"], "account_expiry", username, "success", when or "never")
+    return {"username": username, "expires_at": when}

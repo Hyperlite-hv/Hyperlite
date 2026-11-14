@@ -300,7 +300,21 @@ def _session_user(payload: dict, pending_ok: bool = False):
         raise _credentials_exception()
     if user.get("must_change_password") and not pending_ok:
         raise _password_change_required()
+    _refuse_if_ended(user)
     return user
+
+
+def _refuse_if_ended(user):
+    """401 for an account whose end date has passed (app/core/account_expiry.py)."""
+    from app.core import account_expiry
+
+    ended = account_expiry.expired(user["username"])
+    if ended:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"This account ended on {ended[:10]}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def _refuse_by_signin_rules(user):
@@ -340,6 +354,7 @@ def _current_user(token: str, pending_ok: bool):
     user = verify_token(token)
     if user is None or _reserved(user["username"]):
         raise _credentials_exception()
+    _refuse_if_ended(user)
     # The same rule as a session: an account whose password must be changed can do nothing else, including
     # through a script's token.
     if user.get("must_change_password") and not pending_ok:
