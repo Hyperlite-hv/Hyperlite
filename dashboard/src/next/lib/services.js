@@ -110,6 +110,16 @@ export const useConsoleStore = create((set, get) => ({
     write(FAV_KEY, favorites);
     set({ favorites });
   },
+  moveFavorite(id, delta) {
+    const favorites = [...get().favorites];
+    const i = favorites.indexOf(id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= favorites.length) return;
+    [favorites[i], favorites[j]] = [favorites[j], favorites[i]];
+    write(FAV_KEY, favorites);
+    set({ favorites });
+  },
+  resetFavorites() { write(FAV_KEY, DEFAULT_FAVORITES); set({ favorites: DEFAULT_FAVORITES }); },
   // Remembers that a resource was opened: the most recent first, each resource once, ten at most.
   visit(type, id, name) {
     if (!type || id == null) return;
