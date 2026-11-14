@@ -274,6 +274,12 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), re
     # intermediate token that the frontend exchanges for the real token through /auth/login/2fa after the TOTP code.
     # The account's failures are cleared only once the code is right too: clearing them here would let whoever knows
     # the password guess the code without limit.
+    from app.core import signin_rules
+
+    refused = signin_rules.refusal(user, ip, has_second_factor=answer["result"] == "second_factor")
+    if refused:
+        log_action(user["username"], "login", "auth", "failed", refused)
+        raise HTTPException(status_code=403, detail=refused)
     if answer["result"] == "second_factor":
         log_action(user["username"], "login", "auth", "success", "Password validated, second factor required")
         return {"require_2fa": True, "preauth_token": answer["preauth_token"], "methods": answer["methods"]}

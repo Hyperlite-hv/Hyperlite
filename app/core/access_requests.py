@@ -191,6 +191,12 @@ def _loop():
             sweep()
         except Exception:  # the next round tries again; an ended right grants nothing meanwhile (permissions._in_force)
             logger.warning("Ended rights not swept", exc_info=True)
+        try:
+            from app.core import access_review
+
+            access_review.tick()
+        except Exception:  # a round starts or closes at the next minute
+            logger.warning("Scheduled access reviews not run", exc_info=True)
 
 
 def start_access_sweep():

@@ -574,6 +574,48 @@
     "title": "BootSetting",
     "type": "object"
    },
+   "CampaignIn": {
+    "properties": {
+     "deadline_days": {
+      "default": 14,
+      "maximum": 90.0,
+      "minimum": 1.0,
+      "title": "Deadline Days",
+      "type": "integer"
+     },
+     "every_days": {
+      "default": 90,
+      "maximum": 366.0,
+      "minimum": 1.0,
+      "title": "Every Days",
+      "type": "integer"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "remove_undecided": {
+      "default": false,
+      "title": "Remove Undecided",
+      "type": "boolean"
+     },
+     "reviewers": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Reviewers",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "CampaignIn",
+    "type": "object"
+   },
    "CdromRequest": {
     "properties": {
      "iso": {
@@ -1353,6 +1395,23 @@
     "title": "CustomRoleRename",
     "type": "object"
    },
+   "DecisionIn": {
+    "properties": {
+     "decision": {
+      "enum": [
+       "keep",
+       "remove"
+      ],
+      "title": "Decision",
+      "type": "string"
+     }
+    },
+    "required": [
+     "decision"
+    ],
+    "title": "DecisionIn",
+    "type": "object"
+   },
    "DeployRequest": {
     "properties": {
      "linked": {
@@ -1746,6 +1805,57 @@
      }
     },
     "title": "Envelope",
+    "type": "object"
+   },
+   "ExclusionIn": {
+    "properties": {
+     "privilege": {
+      "default": "*",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Privilege",
+      "type": "string"
+     },
+     "reason": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Reason",
+      "type": "string"
+     },
+     "resource_id": {
+      "default": "*",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+     },
+     "resource_type": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Resource Type",
+      "type": "string"
+     },
+     "subject_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Subject Id",
+      "type": "string"
+     },
+     "subject_type": {
+      "enum": [
+       "user",
+       "group"
+      ],
+      "title": "Subject Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "subject_type",
+     "subject_id",
+     "resource_type"
+    ],
+    "title": "ExclusionIn",
     "type": "object"
    },
    "FeedMarks": {
@@ -3926,6 +4036,86 @@
     "title": "Settings",
     "type": "object"
    },
+   "SigninRuleIn": {
+    "properties": {
+     "days": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 7,
+      "title": "Days",
+      "type": "array"
+     },
+     "hours": {
+      "anyOf": [
+       {
+        "maxLength": 11,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Hours"
+     },
+     "mode": {
+      "default": "watch",
+      "enum": [
+       "watch",
+       "enforce"
+      ],
+      "title": "Mode",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "networks": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Networks",
+      "type": "array"
+     },
+     "require_2fa": {
+      "default": false,
+      "title": "Require 2Fa",
+      "type": "boolean"
+     },
+     "subject_id": {
+      "anyOf": [
+       {
+        "maxLength": 256,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Subject Id"
+     },
+     "subject_type": {
+      "default": "all",
+      "enum": [
+       "all",
+       "role",
+       "group",
+       "user"
+      ],
+      "title": "Subject Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "SigninRuleIn",
+    "type": "object"
+   },
    "SiteAction": {
     "properties": {
      "on": {
@@ -5678,6 +5868,280 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/api/v1/access/campaigns": {
+   "get": {
+    "description": "An administrator's every review; anyone else the reviews it is a reviewer of.",
+    "operationId": "list_campaigns_api_v1_access_campaigns_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Campaigns",
+    "tags": [
+     "governance"
+    ]
+   },
+   "post": {
+    "operationId": "create_campaign_api_v1_access_campaigns_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CampaignIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Campaign",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/campaigns/{campaign_id}": {
+   "delete": {
+    "operationId": "delete_campaign_api_v1_access_campaigns__campaign_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Campaign",
+    "tags": [
+     "governance"
+    ]
+   },
+   "put": {
+    "operationId": "update_campaign_api_v1_access_campaigns__campaign_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CampaignIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Campaign",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/campaigns/{campaign_id}/items": {
+   "get": {
+    "operationId": "campaign_items_api_v1_access_campaigns__campaign_id__items_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Campaign Items",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/campaigns/{campaign_id}/items/{item_id}": {
+   "post": {
+    "operationId": "decide_item_api_v1_access_campaigns__campaign_id__items__item_id__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "item_id",
+      "required": true,
+      "schema": {
+       "title": "Item Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DecisionIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Decide Item",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
   "/api/v1/access/eligibility": {
    "get": {
     "description": "Every eligibility for an administrator; the account's own, and those on a perimeter it may read the access\nof, for anyone else.",
@@ -5787,6 +6251,117 @@
     "summary": "Delete Eligibility",
     "tags": [
      "access"
+    ]
+   }
+  },
+  "/api/v1/access/exclusions": {
+   "get": {
+    "operationId": "list_exclusions_api_v1_access_exclusions_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Exclusions",
+    "tags": [
+     "governance"
+    ]
+   },
+   "post": {
+    "operationId": "create_exclusion_api_v1_access_exclusions_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExclusionIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Exclusion",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/exclusions/{exclusion_id}": {
+   "delete": {
+    "operationId": "delete_exclusion_api_v1_access_exclusions__exclusion_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "exclusion_id",
+      "required": true,
+      "schema": {
+       "title": "Exclusion Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Exclusion",
+    "tags": [
+     "governance"
     ]
    }
   },
@@ -20005,6 +20580,170 @@
     "summary": "Put Weekly Settings",
     "tags": [
      "notifications"
+    ]
+   }
+  },
+  "/api/v1/signin-rules": {
+   "get": {
+    "operationId": "list_signin_rules_api_v1_signin_rules_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Signin Rules",
+    "tags": [
+     "governance"
+    ]
+   },
+   "post": {
+    "operationId": "create_signin_rule_api_v1_signin_rules_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SigninRuleIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Signin Rule",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/signin-rules/{rule_id}": {
+   "delete": {
+    "operationId": "delete_signin_rule_api_v1_signin_rules__rule_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Signin Rule",
+    "tags": [
+     "governance"
+    ]
+   },
+   "put": {
+    "operationId": "update_signin_rule_api_v1_signin_rules__rule_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SigninRuleIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Signin Rule",
+    "tags": [
+     "governance"
     ]
    }
   },
