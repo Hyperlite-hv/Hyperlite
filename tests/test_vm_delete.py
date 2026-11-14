@@ -105,7 +105,8 @@ def test_the_answer_and_the_audit_say_what_stays(client, auth_headers, daemon_li
     monkeypatch.setattr(lifecycle, "open_conn", lambda node=None, **_k: _Kept(conn))
     logged = []
     monkeypatch.setattr(lifecycle, "log_action", lambda *a, **k: logged.append(a))
-    r = client.delete("/vms/web?confirm=true", headers=auth_headers("root"))
+    # purge: past the recycle bin, the deletion of the disks themselves (app/core/recycle_bin.py).
+    r = client.delete("/vms/web?confirm=true&purge=true", headers=auth_headers("root"))
     assert r.status_code == 200
     assert r.json()["kept_disks"] == {str(images / "shared.qcow2"): "used by VM db"}
     assert logged[-1][3:] == ("success", f"disk {images / 'shared.qcow2'} kept (used by VM db)")

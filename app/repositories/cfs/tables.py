@@ -33,6 +33,8 @@ TABLES = {
     "signin_rules": {},
     "review_campaigns": {},
     "review_items": {},
+    "vault_secrets": {"priv": True},
+    "vault_grants": {},
     "access_requests": {},
     "access_reviews": {},
     "sso_config": {"priv": True},

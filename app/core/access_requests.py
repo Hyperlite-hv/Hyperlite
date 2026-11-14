@@ -197,6 +197,12 @@ def _loop():
             access_review.tick()
         except Exception:  # a round starts or closes at the next minute
             logger.warning("Scheduled access reviews not run", exc_info=True)
+        try:
+            from app.core import vm_identity
+
+            vm_identity.renew_due()
+        except Exception:  # the next minute tries again; a token still has a week to run
+            logger.warning("VM identities not renewed", exc_info=True)
 
 
 def start_access_sweep():

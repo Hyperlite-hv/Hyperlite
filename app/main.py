@@ -84,6 +84,7 @@ from app.routers.nodes import router as nodes_router
 from app.routers.notifications import router as notifications_router
 from app.routers.pools import router as pools_router
 from app.routers.protections import router as protections_router
+from app.routers.recycle_bin import router as recycle_bin_router
 from app.routers.replication import router as replication_router
 from app.routers.reports import router as reports_router
 from app.routers.sites import router as sites_router
@@ -93,6 +94,7 @@ from app.routers.storage import router as storage_router
 from app.routers.tasks import router as tasks_router
 from app.routers.templates import router as templates_router
 from app.routers.update import router as update_router
+from app.routers.vault import router as vault_router
 from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
 from app.routers.vms import router as vms_router
@@ -278,6 +280,8 @@ _API_ROUTERS = (
     protections_router,
     compliance_router,
     governance_router,
+    recycle_bin_router,
+    vault_router,
     workstation_router,
     kubernetes_router,
     meta_router,

@@ -373,6 +373,21 @@
     "title": "Behaviour",
     "type": "object"
    },
+   "BinSettings": {
+    "properties": {
+     "days": {
+      "maximum": 365.0,
+      "minimum": 0.0,
+      "title": "Days",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "days"
+    ],
+    "title": "BinSettings",
+    "type": "object"
+   },
    "Body_cli_start_api_v1_auth_cli_start_post": {
     "properties": {
      "client_version": {
@@ -2307,6 +2322,44 @@
     "title": "HostnameSettings",
     "type": "object"
    },
+   "IdentityIn": {
+    "properties": {
+     "resource_id": {
+      "default": "*",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+     },
+     "resource_type": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Resource Type",
+      "type": "string"
+     },
+     "role": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Role",
+      "type": "string"
+     },
+     "shell": {
+      "default": "sh",
+      "enum": [
+       "sh",
+       "powershell"
+      ],
+      "title": "Shell",
+      "type": "string"
+     }
+    },
+    "required": [
+     "role",
+     "resource_type"
+    ],
+    "title": "IdentityIn",
+    "type": "object"
+   },
    "Incoming": {
     "properties": {
      "allocated": {
@@ -4014,6 +4067,47 @@
      "time"
     ],
     "title": "ScheduleRequest",
+    "type": "object"
+   },
+   "SecretIn": {
+    "properties": {
+     "description": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Description",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "readers": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "title": "Readers",
+      "type": "array"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "maxLength": 65536,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "SecretIn",
     "type": "object"
    },
    "Settings": {
@@ -20256,6 +20350,167 @@
     ]
    }
   },
+  "/api/v1/recycle-bin": {
+   "get": {
+    "description": "The VMs in the bin that the account may bring back (vm.allocate on them; an administrator all), and how long\nthe bin keeps them.",
+    "operationId": "list_bin_api_v1_recycle_bin_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Bin",
+    "tags": [
+     "recycle-bin"
+    ]
+   }
+  },
+  "/api/v1/recycle-bin/settings": {
+   "put": {
+    "description": "0 turns the bin off: a deletion deletes at once, as before.",
+    "operationId": "set_settings_api_v1_recycle_bin_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BinSettings"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Settings",
+    "tags": [
+     "recycle-bin"
+    ]
+   }
+  },
+  "/api/v1/recycle-bin/{name}": {
+   "delete": {
+    "description": "Delete it for good now: its disks go.",
+    "operationId": "purge_api_v1_recycle_bin__name__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Purge",
+    "tags": [
+     "recycle-bin"
+    ]
+   }
+  },
+  "/api/v1/recycle-bin/{name}/restore": {
+   "post": {
+    "operationId": "restore_api_v1_recycle_bin__name__restore_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Restore",
+    "tags": [
+     "recycle-bin"
+    ]
+   }
+  },
   "/api/v1/replication/jobs": {
    "get": {
     "operationId": "list_jobs_api_v1_replication_jobs_get",
@@ -24421,6 +24676,218 @@
     ]
    }
   },
+  "/api/v1/vault": {
+   "get": {
+    "description": "The secrets the account may read (an administrator: all), without their values.",
+    "operationId": "list_secrets_api_v1_vault_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Secrets",
+    "tags": [
+     "vault"
+    ]
+   },
+   "post": {
+    "operationId": "create_secret_api_v1_vault_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SecretIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Secret",
+    "tags": [
+     "vault"
+    ]
+   }
+  },
+  "/api/v1/vault/reveal/{name}": {
+   "post": {
+    "description": "The value, for an account that may read it: journaled.",
+    "operationId": "reveal_api_v1_vault_reveal__name__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Reveal",
+    "tags": [
+     "vault"
+    ]
+   }
+  },
+  "/api/v1/vault/{secret_id}": {
+   "delete": {
+    "operationId": "delete_secret_api_v1_vault__secret_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "secret_id",
+      "required": true,
+      "schema": {
+       "title": "Secret Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Secret",
+    "tags": [
+     "vault"
+    ]
+   },
+   "put": {
+    "description": "An empty value keeps the current one.",
+    "operationId": "update_secret_api_v1_vault__secret_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "secret_id",
+      "required": true,
+      "schema": {
+       "title": "Secret Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SecretIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Secret",
+    "tags": [
+     "vault"
+    ]
+   }
+  },
   "/api/v1/vm-disks": {
    "get": {
     "operationId": "list_vm_disks_api_v1_vm_disks_get",
@@ -24928,7 +25395,7 @@
   },
   "/api/v1/vms/{name}": {
    "delete": {
-    "description": "An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there).",
+    "description": "An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there). With\nthe recycle bin on (app/core/recycle_bin.py) the VM is kept there for some days; purge=true deletes it now.",
     "operationId": "delete_vm_api_v1_vms__name__delete",
     "parameters": [
      {
@@ -24966,6 +25433,16 @@
        ],
        "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
+      }
+     },
+     {
+      "in": "query",
+      "name": "purge",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Purge",
+       "type": "boolean"
       }
      }
     ],
@@ -27981,6 +28458,148 @@
     "summary": "Detach Vm Hostdev",
     "tags": [
      "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/identity": {
+   "delete": {
+    "operationId": "delete_identity_api_v1_vms__name__identity_delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Identity",
+    "tags": [
+     "vault"
+    ]
+   },
+   "get": {
+    "operationId": "get_identity_api_v1_vms__name__identity_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Identity",
+    "tags": [
+     "vault"
+    ]
+   },
+   "put": {
+    "description": "Turn the VM's identity on, or change its role: a token written into the guest by its agent (vm.exec, since it\nwrites in the guest), owned by the caller and never wider than the caller's rights.",
+    "operationId": "put_identity_api_v1_vms__name__identity_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IdentityIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Identity",
+    "tags": [
+     "vault"
     ]
    }
   },

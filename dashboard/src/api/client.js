@@ -1612,6 +1612,17 @@ export async function fetchCampaignItems(id) { return realList(`/access/campaign
 export async function decideCampaignItem(id, itemId, decision) {
   return realFetch(`/access/campaigns/${id}/items/${itemId}`, { method: "POST", ...jsonBody({ decision }) });
 }
+export async function fetchRecycleBin() { return realFetch("/recycle-bin"); }
+export async function restoreFromBin(name) { return realFetch(`/recycle-bin/${encodeURIComponent(name)}/restore`, { method: "POST" }); }
+export async function purgeFromBin(name) { return realFetch(`/recycle-bin/${encodeURIComponent(name)}`, { method: "DELETE" }); }
+export async function setRecycleBinDays(days) { return realFetch("/recycle-bin/settings", { method: "PUT", ...jsonBody({ days }) }); }
+export async function fetchVault() { return realList("/vault"); }
+export async function saveSecret(body, id = null) { return realFetch(id ? `/vault/${id}` : "/vault", { method: id ? "PUT" : "POST", ...jsonBody(body) }); }
+export async function deleteSecret(id) { return realFetch(`/vault/${id}`, { method: "DELETE" }); }
+export async function revealSecret(name) { return realFetch(`/vault/reveal/${encodeURIComponent(name)}`, { method: "POST" }); }
+export async function fetchVmIdentity(name) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`); }
+export async function setVmIdentity(name, body) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`, { method: "PUT", ...jsonBody(body) }); }
+export async function deleteVmIdentity(name) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`, { method: "DELETE" }); }
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

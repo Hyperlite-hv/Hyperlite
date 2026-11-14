@@ -782,3 +782,4 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-cp-pct[data-level="ok"] strong { color: var(--color-success); }
 .hc-cp-pct[data-level="mid"] strong { color: var(--color-warning); }
 .hc-cp-pct[data-level="low"] strong { color: var(--color-danger); }
+.hc-secret { padding: 2px 6px; border: 1px dashed var(--color-accent); border-radius: var(--radius-sm); user-select: all; word-break: break-all; }

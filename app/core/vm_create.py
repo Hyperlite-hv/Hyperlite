@@ -326,6 +326,10 @@ def create(conn, payload, pending=frozenset(), check_only=False):
             except cloudinit_edit.CloudInitError as e:
                 errors.append(str(e))
 
+    from app.core import recycle_bin
+
+    if recycle_bin.holds(payload.name):
+        errors.append(f"A VM named '{payload.name}' is in the recycle bin: restore it, or empty it from the bin")
     try:
         conn.lookupByName(payload.name)
         errors.append(f"A VM named '{payload.name}' already exists")

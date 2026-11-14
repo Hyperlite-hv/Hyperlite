@@ -832,6 +832,55 @@ def _init_db():
                 reviewed_at TEXT NOT NULL
             )
         """)
+        # The recycle bin (docs/design/governance.md, section 7): VMs deleted but kept until purge_at; their definition
+        # is root's (paths.RECYCLE_BIN), their disks stay where they were. Each node's own: a VM is binned where it ran.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS recycle_bin (
+                vm_name TEXT PRIMARY KEY,
+                deleted_by TEXT NOT NULL,
+                deleted_at TEXT NOT NULL,
+                purge_at TEXT NOT NULL,
+                disks TEXT NOT NULL DEFAULT '[]',
+                vcpu INTEGER,
+                memory_mb INTEGER
+            )
+        """)
+        # The secrets vault (docs/design/governance.md, section 8): values sealed with the node's key
+        # (app/core/secrets_crypto.py), read by the accounts given access; `vault_grants` says who.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vault_secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                value TEXT NOT NULL,
+                created_by TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vault_grants (
+                id TEXT PRIMARY KEY,
+                secret_id TEXT NOT NULL,
+                subject_type TEXT NOT NULL CHECK(subject_type IN ('user', 'group')),
+                subject_id TEXT NOT NULL
+            )
+        """)
+        # VM identities (docs/design/governance.md, section 9): a delegated API token the guest holds, renewed.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_identities (
+                vm_name TEXT PRIMARY KEY,
+                token_id INTEGER NOT NULL,
+                owner TEXT NOT NULL,
+                role TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                shell TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                delivered_at TEXT,
+                last_error TEXT
+            )
+        """)
         # Sign-in rules (docs/design/governance.md, section 4): where from, when, and with which factor an account may
         # sign in and use the API. Enforced, or only journaled ("watch").
         conn.execute("""
