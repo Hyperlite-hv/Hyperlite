@@ -1,3 +1,0 @@
-- Assignments can end on a date and carry a tag restriction (they then grant only on the VMs and containers with that tag); ended ones grant nothing and are removed within a minute, journaled.
-- On-demand rights on a new Access page: an administrator or a delegate makes an account or a group eligible for a role on a perimeter for a limited time, granted at once or after approval; asking takes a reason and the second factor when the account has one; every step is journaled and notified.
-- Delegated API tokens: a token acts with one role on one perimeter, never beyond what its owner holds.
