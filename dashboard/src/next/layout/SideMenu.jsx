@@ -50,7 +50,7 @@ export default function SideMenu({ collapsed, drawerOpen = false, onToggleCollap
     const label = t(serviceLabel(id));
     const on = active === id;
     return (
-      <button key={id} type="button" className="hc-si" aria-current={on ? "page" : undefined} title={collapsed ? label : undefined} onClick={() => go(id)}>
+      <button key={id} type="button" className="hc-si" data-preload={`datacenter:${id}`} aria-current={on ? "page" : undefined} title={collapsed ? label : undefined} onClick={() => go(id)}>
         <ServiceTile id={id} />
         <span className="hc-si-lb">{label}</span>
       </button>
@@ -61,7 +61,7 @@ export default function SideMenu({ collapsed, drawerOpen = false, onToggleCollap
     <nav ref={navRef} className="hc-side" aria-label={t("nav.main")}>
       <div className="hc-side-scroll">
         {caps.create && (
-          <button type="button" className="hc-si hc-si--create" aria-current={active === "create" ? "page" : undefined} title={collapsed ? t("svc.create") : undefined} onClick={() => go("create")}>
+          <button type="button" className="hc-si hc-si--create" data-preload="datacenter:create" aria-current={active === "create" ? "page" : undefined} title={collapsed ? t("svc.create") : undefined} onClick={() => go("create")}>
             <Plus size={20} aria-hidden="true" />
             <span className="hc-si-lb">{t("svc.create")}</span>
           </button>

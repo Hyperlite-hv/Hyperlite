@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCached } from "../lib/useCached";
+import { useEffect, useRef } from "react";
 import { Download, Monitor, RefreshCw, ShieldCheck } from "lucide-react";
 import { downloadGalleryImage, fetchImageGallery } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -21,12 +22,10 @@ export default function ImageGallery() {
   const caps = capabilities(useAuthStore((s) => s.role));
   const pushToast = useInfraStore((s) => s.pushToast);
   const tasks = useInfraStore((s) => s.tasks);
-  const [images, setImages] = useState(null);
-  const [error, setError] = useState(null);
-  const load = useCallback(() => {
-    fetchImageGallery().then((r) => { setImages(asList(r)); setError(null); }).catch((e) => setError(errorMessage(e)));
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  const cached = useCached("image-gallery", async () => asList(await fetchImageGallery()));
+  const images = cached.data;
+  const error = cached.error && !images ? errorMessage(cached.error) : null;
+  const load = cached.reload;
   // A download that ends changes what is there: reload when the running ones go down.
   const running = tasks.filter((x) => x.type === "gallery_download" && x.status === "running");
   const prev = useRef(running.length);
