@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Bell, Menu as MenuIcon, Search, Settings } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -87,6 +87,11 @@ export default function TopBar({ onOpenPalette, onToggleNavigator, wizards, setW
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const [panel, setPanel] = useState(false);
   const [dialog, setDialog] = useState(null); // update | security | password | prefs
+  useEffect(() => { // the command palette opens the preferences too
+    const open = () => setDialog("prefs");
+    window.addEventListener("nx:prefs", open);
+    return () => window.removeEventListener("nx:prefs", open);
+  }, []);
   const bellBtn = useRef(null);
   const menuBtn = useRef(null);
   const env = useEnvironmentLabel();
