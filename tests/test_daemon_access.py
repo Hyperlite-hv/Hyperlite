@@ -28,6 +28,7 @@ TABLES = (
     "access_terms",
     "access_eligibility",
     "api_token_scopes",
+    "pool_rules",
 )
 WRITES = re.compile(r"\b(?:INSERT(?: OR \w+)? INTO|UPDATE|DELETE FROM|REPLACE INTO)\s+(\w+)")
 STORES = (
@@ -54,7 +55,7 @@ def test_every_write_of_the_permissions_is_the_daemons():
             assert hasattr(fn, "daemon_op"), f"{store.__name__}.{name} writes {sorted(written)} outside the daemon"
         if hasattr(fn, "daemon_op"):
             marked.add(fn.daemon_op)
-    assert len(marked) == 48
+    assert len(marked) == 49
     assert marked <= set(OPERATIONS), sorted(marked - set(OPERATIONS))
     # A method of the API's own state (the sign-in's challenges, its failure counters) is not the daemon's.
     assert not hasattr(identity.SqliteIdentityStore.store_challenge, "daemon_op")

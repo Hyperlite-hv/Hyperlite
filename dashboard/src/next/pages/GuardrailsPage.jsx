@@ -14,8 +14,8 @@ const ENVELOPE = [["max_vms", "vms", "gr.envVms"], ["max_vcpus", "vcpus", "gr.en
 
 const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
 const list = (v) => (v || "").split(",").map((x) => x.trim()).filter(Boolean);
-const ruleForm = (r) => ({ name_pattern: r?.name_pattern || "", max_vcpu: r?.max_vcpu ?? "", max_memory_mb: r?.max_memory_mb ?? "", max_disk_gb: r?.max_disk_gb ?? "", storage_pools: (r?.storage_pools || []).join(", "), networks: (r?.networks || []).join(", ") });
-const ruleBody = (f) => ({ name_pattern: f.name_pattern.trim() || null, max_vcpu: num(f.max_vcpu), max_memory_mb: num(f.max_memory_mb), max_disk_gb: num(f.max_disk_gb), storage_pools: list(f.storage_pools).length ? list(f.storage_pools) : null, networks: list(f.networks).length ? list(f.networks) : null });
+const ruleForm = (r) => ({ required_tags: (r?.required_tags || []).join(", "), name_pattern: r?.name_pattern || "", max_vcpu: r?.max_vcpu ?? "", max_memory_mb: r?.max_memory_mb ?? "", max_disk_gb: r?.max_disk_gb ?? "", storage_pools: (r?.storage_pools || []).join(", "), networks: (r?.networks || []).join(", ") });
+const ruleBody = (f) => ({ required_tags: list(f.required_tags).map((x) => x.toLowerCase()), name_pattern: f.name_pattern.trim() || null, max_vcpu: num(f.max_vcpu), max_memory_mb: num(f.max_memory_mb), max_disk_gb: num(f.max_disk_gb), storage_pools: list(f.storage_pools).length ? list(f.storage_pools) : null, networks: list(f.networks).length ? list(f.networks) : null });
 
 // Guardrails (docs/design/access-2.md, sections 4 and 5): the creation rules of the cluster and of each pool, the
 // pools' envelopes with what each holds, and every protection in place. An administrator, or access.manage on the
@@ -124,6 +124,7 @@ function RuleFields({ t, f, set, disabled }) {
       <div className="nx-fg">
         <Field label={t("gr.storages")} hint={t("gr.listHint")}>{(p) => <input {...p} className="nx-inp" value={f.storage_pools} onChange={set("storage_pools")} disabled={disabled} />}</Field>
         <Field label={t("gr.networks")} hint={t("gr.listHint")}>{(p) => <input {...p} className="nx-inp" value={f.networks} onChange={set("networks")} disabled={disabled} />}</Field>
+        <Field label={t("gr.requiredTags")} hint={t("gr.requiredTagsHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={f.required_tags} onChange={set("required_tags")} disabled={disabled} placeholder="owner, env" />}</Field>
       </div>
     </>
   );

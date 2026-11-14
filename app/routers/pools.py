@@ -129,3 +129,25 @@ def remove_member(pool_id: int, vm_name: str, user: dict = Depends(require_role(
     perm.remove_pool_member(pool_id, vm_name)
     log_action(user["username"], "remove_pool_member", f"{pool_id}:{vm_name}", "success")
     return {"message": "VM removed from the pool"}
+
+
+class PoolRuleIn(BaseModel):
+    tag: str | None = Field(None, max_length=32)
+    name_pattern: str | None = Field(None, max_length=200)
+
+
+@router.put("/{pool_id}/rule")
+def put_pool_rule(pool_id: int, payload: PoolRuleIn, user: dict = Depends(require_role("admin"))):
+    """A dynamic pool: the VMs carrying `tag`, or whose name matches `name_pattern`, belong to it as its members do.
+    Both empty: the pool holds its members only."""
+    if pool_id not in {p["id"] for p in perm.list_pools()}:
+        raise HTTPException(status_code=404, detail=f"Pool {pool_id} not found")
+    _refuse_protected(pool_id, deleting=False)
+    try:
+        perm.set_pool_rule(pool_id, (payload.tag or "").strip() or None, (payload.name_pattern or "").strip() or None)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    log_action(
+        user["username"], "set_pool_rule", str(pool_id), "success", f"tag={payload.tag} name={payload.name_pattern}"
+    )
+    return next(p for p in perm.list_pools() if p["id"] == pool_id)

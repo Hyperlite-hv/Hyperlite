@@ -407,6 +407,16 @@ _register("acl_create_terms", "access", "create_acl_with_terms", AclCreateTerms,
 _register("eligibility_create", "access", "create_eligibility", EligibilityCreate, needs=by_rule(_may_make_eligible))
 _register("eligibility_delete", "access", "delete_eligibility", EligibilityId, needs=by_rule(_may_remove_eligibility))
 _register("token_scope_set", "access", "set_token_scope", TokenScope, needs=by_rule(_own_token))
+
+
+class PoolRule(Args):
+    pool_id: Id
+    tag: Annotated[str, Field(min_length=1, max_length=32)] | None
+    name_pattern: Annotated[str, Field(min_length=1, max_length=200)] | None
+
+
+# A rule decides which VMs a pool holds, and so who has rights on them: an administrator's alone.
+_register("pool_rule_set", "access", "set_pool_rule", PoolRule, needs=ADMIN)
 _register("acl_delete", "access", "delete_acl", AclId, needs=by_rule(_may_remove))
 _register("acl_vm_forget", "access", "delete_acl_for_vm", Vm, needs=on_vm("vm.allocate", "vm_name"))
 

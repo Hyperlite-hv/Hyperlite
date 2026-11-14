@@ -1921,6 +1921,24 @@
     "title": "FirewallRule",
     "type": "object"
    },
+   "FixIn": {
+    "properties": {
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 500,
+      "minItems": 1,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "vms"
+    ],
+    "title": "FixIn",
+    "type": "object"
+   },
    "GroupCreate": {
     "properties": {
      "name": {
@@ -3220,6 +3238,36 @@
      "vm_name"
     ],
     "title": "PoolMemberAdd",
+    "type": "object"
+   },
+   "PoolRuleIn": {
+    "properties": {
+     "name_pattern": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name Pattern"
+     },
+     "tag": {
+      "anyOf": [
+       {
+        "maxLength": 32,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tag"
+     }
+    },
+    "title": "PoolRuleIn",
     "type": "object"
    },
    "PowerRequest": {
@@ -4792,6 +4840,14 @@
       ],
       "title": "Storage Pool"
      },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Tags",
+      "type": "array"
+     },
      "username": {
       "anyOf": [
        {
@@ -5279,6 +5335,21 @@
        }
       ],
       "title": "Networks"
+     },
+     "required_tags": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 16,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Required Tags"
      },
      "storage_pools": {
       "anyOf": [
@@ -11242,6 +11313,75 @@
     "summary": "Get Plan",
     "tags": [
      "cluster"
+    ]
+   }
+  },
+  "/api/v1/compliance": {
+   "get": {
+    "operationId": "get_compliance_api_v1_compliance_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Compliance",
+    "tags": [
+     "compliance"
+    ]
+   }
+  },
+  "/api/v1/compliance/fix": {
+   "post": {
+    "description": "Add the required tags each VM lacks; returns them per VM.",
+    "operationId": "fix_api_v1_compliance_fix_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FixIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Fix",
+    "tags": [
+     "compliance"
     ]
    }
   },
@@ -19241,6 +19381,62 @@
      }
     ],
     "summary": "Remove Member",
+    "tags": [
+     "pools"
+    ]
+   }
+  },
+  "/api/v1/pools/{pool_id}/rule": {
+   "put": {
+    "description": "A dynamic pool: the VMs carrying `tag`, or whose name matches `name_pattern`, belong to it as its members do.\nBoth empty: the pool holds its members only.",
+    "operationId": "put_pool_rule_api_v1_pools__pool_id__rule_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_id",
+      "required": true,
+      "schema": {
+       "title": "Pool Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PoolRuleIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Pool Rule",
     "tags": [
      "pools"
     ]

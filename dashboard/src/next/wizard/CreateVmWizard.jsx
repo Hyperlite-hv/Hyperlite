@@ -36,7 +36,7 @@ function initialForm(nodes, networks, d = DEFAULTS) {
   return {
     node: defaultNode(nodes), iso: "", isoNode: "local", driversIso: "", driversIsoNode: "local", guestOs: "auto", diskController: "auto", firmware: "auto", importDisk: null,
     name: "", vcpu: d.vcpu, memory_mb: d.memory_mb, disks: [{ size_gb: d.disk_gb }],
-    username: "", password: "", network: defaultNetwork(networks) || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7,
+    username: "", password: "", network: defaultNetwork(networks) || "default", storagePool: "", eraseLuns: false, autoCleanupEnabled: false, autoCleanupDays: 7, tags: "",
   };
 }
 
@@ -220,6 +220,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
       import_disk: importMode && form.importDisk !== "__pending__" ? form.importDisk : null, storage_pool: form.storagePool || null,
       auto_cleanup_days: form.autoCleanupEnabled ? Number(form.autoCleanupDays) : null,
       erase_luns: Boolean(iscsiPool && form.eraseLuns),
+      tags: form.tags.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
     };
     const copied = [payload.iso_node, payload.drivers_iso_node].some((n) => n && n !== "local");
     if (copied) {
@@ -261,7 +262,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
     [3, t("wz.step.compute"), [["vCPU", form.vcpu], [t("ct.memory"), formatSizeMb(Number(form.memory_mb), lang)]]],
     [4, t("wz.step.storage"), [[t("vh.disks"), form.disks.map((d, i) => (iscsiPool ? d.lun || "—" : importMode && i === 0 ? t("wz.r.imported") : formatSizeGb(Number(d.size_gb), lang))).join(" + ")], [t("wz.controller"), diskController(form) === "sata" ? "SATA" : "VirtIO SCSI"]]],
     [5, t("wz.step.network"), [[t("vh.network"), form.network], [t("wz.adapter"), profile === "linux" ? "VirtIO" : "Intel E1000e"]]],
-    [6, t("wz.step.advanced"), [[t("wz.firmware"), t(`fw.${vmFirmware(form, fwSupport)}`)], [t("wz.drivers"), form.driversIso || t("wz.none")], [t("wz.cleanup"), form.autoCleanupEnabled ? t("wz.r.cleanupDays", { n: form.autoCleanupDays }) : t("wz.off")]]],
+    [6, t("wz.step.advanced"), [[t("wz.firmware"), t(`fw.${vmFirmware(form, fwSupport)}`)], [t("wz.drivers"), form.driversIso || t("wz.none")], [t("wz.cleanup"), form.autoCleanupEnabled ? t("wz.r.cleanupDays", { n: form.autoCleanupDays }) : t("wz.off")], [t("wz.tags"), form.tags.trim() || t("wz.none")]]],
   ];
 
   return (
@@ -457,6 +458,7 @@ export default function CreateVmWizard({ open, onClose, triggerRef }) {
                 {fwSupport && !fwSupport.uefi_secure && fwSupport.reason && <span className="nx-hint">{t("wz.fw.missing", { reason: fwSupport.reason })}</span>}
                 {loadErrors.firmware && <InlineError message={loadErrors.firmware} onRetry={reloadFirmware} />}
               </label>
+              <label>{t("wz.tags")}<input className="nx-input nx-mono" value={form.tags} onChange={(e) => patch({ tags: e.target.value })} placeholder="prod, owner-x" /><span className="nx-hint">{t("wz.tagsHelp")}</span></label>
               <fieldset className="nx-fieldset">
                 <legend>{t("wz.cleanup")}</legend>
                 <label className="nx-check"><input type="checkbox" checked={form.autoCleanupEnabled} onChange={(e) => patch({ autoCleanupEnabled: e.target.checked })} /> {t("wz.cleanupLabel")}</label>

@@ -59,6 +59,7 @@ from app.routers.certificate import router as certificate_router
 from app.routers.cfs import router as cfs_router
 from app.routers.cluster_setup import router as cluster_setup_router
 from app.routers.cluster_update import router as cluster_update_router
+from app.routers.compliance import router as compliance_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.drs import router as drs_router
@@ -274,6 +275,7 @@ _API_ROUTERS = (
     alert_rules_router,
     access_router,
     protections_router,
+    compliance_router,
     workstation_router,
     kubernetes_router,
     meta_router,

@@ -268,7 +268,73 @@ def get_user_groups(username):
 
 
 def list_pools():
-    return _store().pools()
+    """Every pool with its own members (`vms`), its rule (`rule`: a tag, a name pattern, or None) and the VMs the rule
+    takes in that this node knows of (`dynamic_vms`: its own VMs, and the tagged VMs of every node)."""
+    pools = _store().pools()
+    rules = _store().pool_rules()
+    known = None
+    for p in pools:
+        rule = rules.get(p["id"])
+        p["rule"] = {"tag": rule["tag"], "name_pattern": rule["name_pattern"]} if rule else None
+        if rule:
+            known = _known_vms() if known is None else known
+            p["dynamic_vms"] = sorted(n for n in known if n not in p["vms"] and _rule_takes(rule, n))
+        else:
+            p["dynamic_vms"] = []
+    return pools
+
+
+def _known_vms():
+    """The VM names this node knows of: its own (libvirt), and those of every node carrying tags."""
+    from app.core import object_meta
+
+    names = {m["name"] for m in object_meta.list_all("vm")}
+    try:
+        from app.core.libvirt_utils import open_conn
+
+        conn = open_conn(readonly=True)
+        try:
+            names |= {d.name() for d in conn.listAllDomains()}
+        finally:
+            conn.close()
+    except Exception:  # no libvirt here (a test, a node being repaired): the tagged ones only, said in the log
+        import logging
+
+        logging.getLogger(__name__).warning("VMs of this node not listed for the dynamic pools", exc_info=True)
+    return names
+
+
+def _rule_takes(rule, vm_name):
+    """True when a pool's rule takes that VM in: it carries the tag (its own tags, not inherited ones), or its name
+    matches the pattern."""
+    import re
+
+    if rule.get("name_pattern"):
+        try:
+            if re.fullmatch(rule["name_pattern"], vm_name):
+                return True
+        except re.error:
+            pass
+    if rule.get("tag"):
+        from app.core import object_meta
+
+        return rule["tag"] in object_meta.get("vm", vm_name)["tags"]
+    return False
+
+
+def set_pool_rule(pool_id, tag, name_pattern):
+    import re
+
+    if name_pattern:
+        try:
+            re.compile(name_pattern)
+        except re.error as e:
+            raise ValueError(f"The name pattern is not a valid regular expression: {e}") from None
+    if tag:
+        from app.core import object_meta
+
+        tag = object_meta.normalize_tags([tag])[0]
+    _store().set_pool_rule(pool_id, tag or None, name_pattern or None)
 
 
 def create_pool(name, description=""):
@@ -297,7 +363,12 @@ def rename_pool_member(old_vm_name, new_vm_name):
 
 
 def get_vm_pools(vm_name):
-    return _store().pools_of(vm_name)
+    """The pools a VM belongs to: as a member, or because a pool's rule takes it in (a dynamic pool)."""
+    found = list(_store().pools_of(vm_name))
+    for pool_id, rule in _store().pool_rules().items():
+        if pool_id not in found and _rule_takes(rule, vm_name):
+            found.append(pool_id)
+    return found
 
 
 def remove_vm_from_all_pools(vm_name):
@@ -433,7 +504,7 @@ def _in_force(row, terms, target):
             return False
         from app.core import object_meta
 
-        return t["tag"] in object_meta.get(target[0], target[1])["tags"]
+        return t["tag"] in object_meta.effective_tags(target[0], target[1])
     return True
 
 
