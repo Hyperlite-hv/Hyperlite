@@ -589,6 +589,42 @@
     "title": "BootSetting",
     "type": "object"
    },
+   "BudgetIn": {
+    "properties": {
+     "alert_percent": {
+      "default": 80,
+      "maximum": 100.0,
+      "minimum": 1.0,
+      "title": "Alert Percent",
+      "type": "integer"
+     },
+     "monthly": {
+      "exclusiveMinimum": 0.0,
+      "maximum": 1000000000.0,
+      "title": "Monthly",
+      "type": "number"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "scope": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Scope",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "scope",
+     "monthly"
+    ],
+    "title": "BudgetIn",
+    "type": "object"
+   },
    "CampaignIn": {
     "properties": {
      "deadline_days": {
@@ -3456,6 +3492,42 @@
     "title": "PowerRequest",
     "type": "object"
    },
+   "PricesIn": {
+    "properties": {
+     "currency": {
+      "default": "EUR",
+      "maxLength": 8,
+      "minLength": 1,
+      "title": "Currency",
+      "type": "string"
+     },
+     "disk_gb": {
+      "maximum": 100000.0,
+      "minimum": 0.0,
+      "title": "Disk Gb",
+      "type": "number"
+     },
+     "memory_gb": {
+      "maximum": 100000.0,
+      "minimum": 0.0,
+      "title": "Memory Gb",
+      "type": "number"
+     },
+     "vcpu": {
+      "maximum": 100000.0,
+      "minimum": 0.0,
+      "title": "Vcpu",
+      "type": "number"
+     }
+    },
+    "required": [
+     "vcpu",
+     "memory_gb",
+     "disk_gb"
+    ],
+    "title": "PricesIn",
+    "type": "object"
+   },
    "PrimaryRequest": {
     "properties": {
      "name": {
@@ -3908,6 +3980,41 @@
     "title": "RollingRequest",
     "type": "object"
    },
+   "RunIn": {
+    "properties": {
+     "reboot": {
+      "default": false,
+      "title": "Reboot",
+      "type": "boolean"
+     },
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Vms",
+      "type": "array"
+     },
+     "window_end": {
+      "format": "date-time",
+      "title": "Window End",
+      "type": "string"
+     },
+     "window_start": {
+      "format": "date-time",
+      "title": "Window Start",
+      "type": "string"
+     }
+    },
+    "required": [
+     "vms",
+     "window_start",
+     "window_end"
+    ],
+    "title": "RunIn",
+    "type": "object"
+   },
    "RunRequest": {
     "properties": {
      "dry_run": {
@@ -3979,6 +4086,24 @@
      "enabled"
     ],
     "title": "SSOConfigIn",
+    "type": "object"
+   },
+   "ScanIn": {
+    "properties": {
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "vms"
+    ],
+    "title": "ScanIn",
     "type": "object"
    },
    "ScheduleRequest": {
@@ -13106,6 +13231,216 @@
     ]
    }
   },
+  "/api/v1/costs": {
+   "get": {
+    "operationId": "get_costs_api_v1_costs_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Costs",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/costs/budgets": {
+   "post": {
+    "operationId": "create_budget_api_v1_costs_budgets_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BudgetIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Budget",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/costs/budgets/{budget_id}": {
+   "delete": {
+    "operationId": "delete_budget_api_v1_costs_budgets__budget_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "budget_id",
+      "required": true,
+      "schema": {
+       "title": "Budget Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Budget",
+    "tags": [
+     "fleet"
+    ]
+   },
+   "put": {
+    "operationId": "update_budget_api_v1_costs_budgets__budget_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "budget_id",
+      "required": true,
+      "schema": {
+       "title": "Budget Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BudgetIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Budget",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/costs/prices": {
+   "put": {
+    "operationId": "put_prices_api_v1_costs_prices_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PricesIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Prices",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
   "/api/v1/dashboard": {
    "get": {
     "operationId": "dashboard_api_v1_dashboard_get",
@@ -14156,6 +14491,164 @@
     "summary": "Put Rule",
     "tags": [
      "protections"
+    ]
+   }
+  },
+  "/api/v1/guest-updates": {
+   "get": {
+    "operationId": "list_guest_updates_api_v1_guest_updates_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Guest Updates",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/runs": {
+   "post": {
+    "operationId": "schedule_run_api_v1_guest_updates_runs_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RunIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Schedule Run",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/runs/{run_id}/cancel": {
+   "post": {
+    "operationId": "cancel_run_api_v1_guest_updates_runs__run_id__cancel_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Cancel Run",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/scan": {
+   "post": {
+    "description": "Ask each guest what it has pending (vm.exec on each: it runs a command as root in the guest).",
+    "operationId": "scan_api_v1_guest_updates_scan_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScanIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Scan",
+    "tags": [
+     "fleet"
     ]
    }
   },

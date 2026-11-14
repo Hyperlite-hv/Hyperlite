@@ -881,6 +881,46 @@ def _init_db():
                 last_error TEXT
             )
         """)
+        # Costs (docs/design/governance.md, section 10): budgets on the cluster, a pool or a tag, and the last alert
+        # each sent this month (so an alert goes out once per threshold).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cost_budgets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                monthly REAL NOT NULL,
+                alert_percent INTEGER NOT NULL DEFAULT 80,
+                alerted_month TEXT,
+                alerted_level INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT
+            )
+        """)
+        # Guest updates (docs/design/governance.md, section 11): what each guest has pending, and the runs that
+        # install it within a window.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_updates (
+                vm_name TEXT PRIMARY KEY,
+                checked_at TEXT NOT NULL,
+                family TEXT,
+                pending INTEGER,
+                security INTEGER,
+                packages TEXT NOT NULL DEFAULT '[]',
+                error TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_update_runs (
+                id TEXT PRIMARY KEY,
+                vms TEXT NOT NULL,
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                reboot INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL CHECK(status IN ('scheduled', 'running', 'done', 'cancelled')),
+                results TEXT NOT NULL DEFAULT '{}',
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         # Sign-in rules (docs/design/governance.md, section 4): where from, when, and with which factor an account may
         # sign in and use the API. Enforced, or only journaled ("watch").
         conn.execute("""

@@ -1623,6 +1623,14 @@ export async function revealSecret(name) { return realFetch(`/vault/reveal/${enc
 export async function fetchVmIdentity(name) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`); }
 export async function setVmIdentity(name, body) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`, { method: "PUT", ...jsonBody(body) }); }
 export async function deleteVmIdentity(name) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`, { method: "DELETE" }); }
+export async function fetchCosts() { return realFetch("/costs"); }
+export async function saveCostPrices(p) { return realFetch("/costs/prices", { method: "PUT", ...jsonBody(p) }); }
+export async function saveBudget(b, id = null) { return realFetch(id ? `/costs/budgets/${id}` : "/costs/budgets", { method: id ? "PUT" : "POST", ...jsonBody(b) }); }
+export async function deleteBudget(id) { return realFetch(`/costs/budgets/${id}`, { method: "DELETE" }); }
+export async function fetchGuestUpdates() { return realFetch("/guest-updates"); }
+export async function scanGuestUpdates(vms) { return realList("/guest-updates/scan", { method: "POST", ...jsonBody({ vms }) }); }
+export async function scheduleGuestUpdates(body) { return realFetch("/guest-updates/runs", { method: "POST", ...jsonBody(body) }); }
+export async function cancelGuestUpdates(id) { return realFetch(`/guest-updates/runs/${id}/cancel`, { method: "POST" }); }
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }
