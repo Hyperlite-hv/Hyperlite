@@ -203,6 +203,12 @@ def _loop():
             vm_identity.renew_due()
         except Exception:  # the next minute tries again; a token still has a week to run
             logger.warning("VM identities not renewed", exc_info=True)
+        for name, job in (("guest updates", "guest_updates.tick"), ("cost budgets", "costs.check_budgets_if_due")):
+            try:
+                module, fn = job.split(".")
+                getattr(__import__(f"app.core.{module}", fromlist=[fn]), fn)()
+            except Exception:  # each minute tries again
+                logger.warning("%s not run", name.capitalize(), exc_info=True)
 
 
 def start_access_sweep():

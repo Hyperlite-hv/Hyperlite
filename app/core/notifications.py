@@ -63,6 +63,10 @@ NOTIFY_EVENTS = {
     "access_request": "On-demand right (asked for, granted, refused, ended)",
     # A scheduled access review started or closed (docs/design/governance.md, section 5).
     "access_review": "Scheduled access review (started, closed)",
+    # A cost budget reached its alert threshold or was exceeded (docs/design/governance.md, section 10).
+    "cost_budget": "Cost budget (threshold reached, exceeded)",
+    # Guest updates installed in a window, or failed (docs/design/governance.md, section 11).
+    "guest_updates": "Guest updates (installed, failed)",
 }
 
 

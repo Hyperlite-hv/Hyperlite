@@ -35,6 +35,7 @@ TABLES = {
     "review_items": {},
     "vault_secrets": {"priv": True},
     "vault_grants": {},
+    "cost_budgets": {},
     "access_requests": {},
     "access_reviews": {},
     "sso_config": {"priv": True},
