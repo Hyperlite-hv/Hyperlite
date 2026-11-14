@@ -52,6 +52,9 @@ HISTORY_TABLES = (
     "metrics_samples",
     "storage_samples",
     "node_live",
+    "update_runs",
+    "notification_feed",
+    "notification_marks",
     "vm_config_versions",
 )
 SERVICE = "hyperlite"

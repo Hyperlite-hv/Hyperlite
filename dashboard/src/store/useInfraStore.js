@@ -133,7 +133,8 @@ export const useInfraStore = create((set, get) => ({
   pushToast({ kind, title, message, duration }) {
     toastCounter += 1;
     const id = `toast-${toastCounter}`;
-    toast[kind === "error" ? "error" : "success"](title, {
+    // A notice is not a success: information and warnings get their own look (sonner has both).
+    toast[{ error: "error", warning: "warning", info: "info" }[kind] || "success"](title, {
       id,
       description: message || undefined,
       duration: duration ?? (kind === "error" ? ERROR_TOAST_MS : 5000),

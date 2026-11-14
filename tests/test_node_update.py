@@ -98,8 +98,10 @@ def test_hyperlite_alone_is_installed_without_a_time_limit(job, monkeypatch):
             raise AssertionError(f"apt-get install run with a time limit: {cmd}")
         return real_run(cmd, *args, **kwargs)
 
-    monkeypatch.setattr(update, "_keep_previous", lambda task_id: None)
+    monkeypatch.setattr(update, "_keep_previous", lambda task_id, apt_opts=(): None)
     monkeypatch.setattr(update.subprocess, "run", no_timeout)
     assert run(["1.0.0", "1.0.1"], system=False) == "succeeded"
-    [cmd] = calls["upgrade"]
+    # Fetched first, then installed: a cut download installs nothing (docs/design/updates-2.md).
+    download, cmd = calls["upgrade"]
+    assert download[-4:] == ["--download-only", "install", "--only-upgrade", "hyperlite"]
     assert cmd[-3:] == ["install", "--only-upgrade", "hyperlite"] and "HYPERLITE_SKIP_RESTART=1" in cmd

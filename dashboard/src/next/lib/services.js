@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import {
-  Activity, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
+  Activity, ArrowDownToLine, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
   Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, Share2, ShipWheel, Siren, Users, Waypoints, Workflow, Lightbulb,
 } from "lucide-react";
 
@@ -34,6 +34,7 @@ export const SERVICES = [
   { id: "metrics", icon: ChartColumn, cat: "monitor", admin: true },
   { id: "alerts", icon: Siren, cat: "monitor" },
   { id: "notifications", icon: BellRing, cat: "monitor", admin: true },
+  { id: "updates", icon: ArrowDownToLine, cat: "monitor", admin: true },
   { id: "automation", icon: Workflow, cat: "auto" },
   { id: "api", icon: Braces, cat: "auto", apiDocs: true },
   { id: "permissions", icon: Users, cat: "identity", admin: true, label: "nav.usersRoles" },

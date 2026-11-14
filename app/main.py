@@ -577,6 +577,13 @@ def on_startup():
     close_interrupted_tasks()
     # This node updated itself as the last step of a rolling update: now that it runs, out of maintenance.
     rolling_update.finish_self_after_restart()
+    # The update this start follows, if any: closed now that it is known which version runs (app/core/update_runs.py).
+    try:
+        from app.core import update_runs, version
+
+        update_runs.finalize_after_restart(version.STARTUP_VERSION)
+    except Exception:
+        logger.warning("The last update run could not be closed", exc_info=True)
     start_metrics_collector()
     if not scheduler.separate():  # hyperlite-scheduler runs them on an installed node (app/scheduler)
         scheduler.start()
