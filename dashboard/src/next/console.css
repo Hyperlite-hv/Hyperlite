@@ -793,7 +793,7 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-dock-grip:hover, .hc-dock-grip:focus-visible { background: var(--color-accent); outline: none; }
 .hc-dock-bar { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); min-height: 34px; border-bottom: 1px solid rgba(255, 255, 255, .08); flex: none; }
 .hc-dock-bar .hc-hb { color: inherit; }
-.hc-dock-tabs { display: flex; align-items: center; gap: 2px; overflow-x: auto; flex: 1; min-width: 0; }
+.hc-dock-tabs { display: flex; align-items: center; gap: 2px; overflow-x: auto; flex: 0 1 auto; min-width: 0; }
 .hc-dock-tab { display: flex; align-items: center; border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
 .hc-dock-tab > button:first-child { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; color: #aeb7c4; background: none; border: 0; font-size: var(--font-size-xs); white-space: nowrap; cursor: pointer; }
 .hc-dock-tab.is-on { background: rgba(255, 255, 255, .07); }
@@ -804,7 +804,7 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-dock-menu { position: absolute; bottom: 100%; left: 0; z-index: 2; display: grid; min-width: 200px; padding: 4px; background: var(--color-bg-surface-raised); color: var(--color-text-primary); border: 1px solid var(--color-border-card); border-radius: var(--radius-md); box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
 .hc-dock-menu button { text-align: left; padding: 6px 10px; background: none; border: 0; color: inherit; border-radius: var(--radius-sm); cursor: pointer; }
 .hc-dock-menu button:hover { background: var(--color-bg-hover); }
-.hc-dock-info { font-size: var(--font-size-xs); color: #8b95a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.hc-dock-info { margin-left: auto; font-size: var(--font-size-xs); color: #8b95a3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
 .hc-dock-body { position: relative; flex: 1; min-height: 0; }
 .hc-tv { position: absolute; inset: 0; padding: 4px 8px; }
 .hc-tv[hidden] { display: none; }
