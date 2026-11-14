@@ -43,6 +43,9 @@ def cycle(database, monkeypatch):
     import app.routers.vms.lifecycle as lifecycle
 
     monkeypatch.setattr(lifecycle, "_perform_vm_deletion", lambda conn, domain, name, node=None: deleted.append(name))
+    from app.core import recycle_bin
+
+    monkeypatch.setattr(recycle_bin, "days", lambda: 0)  # the deletion itself; the bin has its own test below
 
     def add(name, days=7, last_active=None, warned=None, active=False):
         domains[name] = Domain(name, active)
@@ -103,3 +106,17 @@ def test_an_orphaned_entry_is_removed(cycle, database):
     vm_cleanup._check_vm(Conn({}), {"vm_name": "gone"})
     with database.get_conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM vm_auto_cleanup WHERE vm_name = 'gone'").fetchone()[0] == 0
+
+
+def test_with_the_recycle_bin_an_expired_vm_goes_there(cycle, monkeypatch):
+    from app.core import recycle_bin
+
+    add, deleted, _ = cycle
+    binned = []
+    monkeypatch.setattr(recycle_bin, "days", lambda: 7)
+    monkeypatch.setattr(
+        recycle_bin, "put", lambda domain, user: binned.append(user) or {"purge_at": "2026-12-01T00:00"}
+    )
+    add("due", days=7, last_active=_ago(days=8), warned=_ago(hours=25))
+    vm_cleanup.check_once()
+    assert deleted == [] and binned == ["system"]

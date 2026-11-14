@@ -1,0 +1,3 @@
+- Sign-in rules: where from (networks), on which days and hours, and with a second factor, for everyone, a global role, a group or an account; each rule watched (journaled only) or enforced, checked at sign-in and on every request. Root of a node is never held.
+- Exclusions: a right (or every right) taken from an account or a group on a perimeter and below it, whatever its assignments give.
+- Scheduled access reviews: a round every N days with its reviewers and deadline, assignments kept or removed one by one, and what nobody decided removed at the deadline when the review says so.

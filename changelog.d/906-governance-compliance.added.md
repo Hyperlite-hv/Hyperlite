@@ -1,0 +1,4 @@
+- A Compliance page: every VM checked against the guardrails of the cluster and of its pools and against their envelopes, with the share of compliant VMs; a missing required tag is fixed from there.
+- Guardrails can require tags on every new VM; the VM creation wizard takes tags.
+- A VM inherits the tags of its pools (shown apart on its page; a tag restriction reads them too), and the VM list tags a selection at once.
+- Dynamic pools: a pool can take in the VMs carrying a tag or whose name matches a pattern; its rights, protections and envelope hold on them.

@@ -731,6 +731,111 @@ def delete(args, ctx):
             raise DaemonError(e.kind, e.detail) from e
 
 
+# --- The recycle bin (app/core/recycle_bin.py): a deleted VM's definition kept by root, its disks left in place ---
+
+
+class BinArgs(Args):
+    vm: str = Field(min_length=1, max_length=VM_NAME)
+
+
+def _bin_file(vm):
+    from app.core import paths
+    from app.core.safe_paths import safe_child
+
+    return safe_child(paths.RECYCLE_BIN, f"{vm}.json")
+
+
+@operation("vm.bin", BinArgs, needs=on_vm("vm.allocate"))
+@_libvirt
+def to_bin(args, ctx):
+    """The stopped VM leaves libvirt; its definition and its snapshots' are kept in a file only root reads, its disks
+    and NVRAM stay where they are. {"disks": [path]}."""
+    import json
+    import os
+    import xml.etree.ElementTree as ET
+
+    import libvirt
+
+    from app.core import libvirt_utils
+
+    with libvirt_utils.local_conn() as conn:
+        try:
+            domain = conn.lookupByName(args.vm)
+        except libvirt.libvirtError:
+            raise DaemonError("not_found", f"VM '{args.vm}' not found") from None
+        if domain.isActive():
+            raise DaemonError("in_use", f"VM '{args.vm}' is running. Stop it before deleting it")
+        xml = domain.XMLDesc(libvirt.VIR_DOMAIN_XML_SECURE | libvirt.VIR_DOMAIN_XML_INACTIVE)
+        snapshots = [s.getXMLDesc(libvirt.VIR_DOMAIN_XML_SECURE) for s in domain.listAllSnapshots()]
+        disks = [
+            src.get("file") or src.get("dev")
+            for src in ET.fromstring(xml).findall("./devices/disk[@device='disk']/source")
+            if src.get("file") or src.get("dev")
+        ]
+        target = _bin_file(args.vm)
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump({"xml": xml, "snapshots": snapshots}, f)
+        flags = 0
+        for name in ("VIR_DOMAIN_UNDEFINE_KEEP_NVRAM", "VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA",
+                     "VIR_DOMAIN_UNDEFINE_CHECKPOINTS_METADATA", "VIR_DOMAIN_UNDEFINE_MANAGED_SAVE"):  # fmt: skip
+            flags |= getattr(libvirt, name, 0)
+        domain.undefineFlags(flags)
+    return {"disks": disks}
+
+
+def _redefine(conn, vm):
+    import json
+    import logging
+
+    import libvirt
+
+    source = _bin_file(vm)
+    if not source.is_file():
+        raise DaemonError("not_found", f"VM '{vm}' is not in the recycle bin")
+    kept = json.loads(source.read_text())
+    try:
+        conn.lookupByName(vm)
+    except libvirt.libvirtError:
+        pass
+    else:
+        raise DaemonError("in_use", f"A VM '{vm}' exists again: rename it before restoring this one")
+    domain = conn.defineXML(kept["xml"])
+    for snap in kept["snapshots"]:
+        try:
+            domain.snapshotCreateXML(snap, libvirt.VIR_DOMAIN_SNAPSHOT_CREATE_REDEFINE)
+        except libvirt.libvirtError:
+            logging.getLogger(__name__).warning("A snapshot of %s was not brought back", vm, exc_info=True)
+    source.unlink()
+    return domain
+
+
+@operation("vm.unbin", BinArgs, needs=on_vm("vm.allocate"))
+@_libvirt
+def from_bin(args, ctx):
+    """The VM defined again from the definition the bin kept, with its snapshots."""
+    from app.core import libvirt_utils
+
+    with libvirt_utils.local_conn() as conn:
+        _redefine(conn, args.vm)
+    return {"restored": args.vm}
+
+
+@operation("vm.bin_purge", BinArgs, needs=on_vm("vm.allocate"))
+@_libvirt
+def purge_bin(args, ctx):
+    """The VM defined again for a moment, then deleted as DELETE /vms/{name} deletes one: its disks go too."""
+    from app.core import libvirt_utils, vm_delete
+
+    with libvirt_utils.local_conn() as conn:
+        _redefine(conn, args.vm)
+        try:
+            return {"kept": vm_delete.delete(conn, args.vm, None)}
+        except vm_delete.DeleteError as e:
+            raise DaemonError(e.kind, e.detail) from e
+
+
 # --- Part 3c: clones and templates (app/core/vm_clone.py) ---
 
 

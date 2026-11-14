@@ -373,6 +373,21 @@
     "title": "Behaviour",
     "type": "object"
    },
+   "BinSettings": {
+    "properties": {
+     "days": {
+      "maximum": 365.0,
+      "minimum": 0.0,
+      "title": "Days",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "days"
+    ],
+    "title": "BinSettings",
+    "type": "object"
+   },
    "Body_cli_start_api_v1_auth_cli_start_post": {
     "properties": {
      "client_version": {
@@ -572,6 +587,84 @@
      "autostart"
     ],
     "title": "BootSetting",
+    "type": "object"
+   },
+   "BudgetIn": {
+    "properties": {
+     "alert_percent": {
+      "default": 80,
+      "maximum": 100.0,
+      "minimum": 1.0,
+      "title": "Alert Percent",
+      "type": "integer"
+     },
+     "monthly": {
+      "exclusiveMinimum": 0.0,
+      "maximum": 1000000000.0,
+      "title": "Monthly",
+      "type": "number"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "scope": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Scope",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "scope",
+     "monthly"
+    ],
+    "title": "BudgetIn",
+    "type": "object"
+   },
+   "CampaignIn": {
+    "properties": {
+     "deadline_days": {
+      "default": 14,
+      "maximum": 90.0,
+      "minimum": 1.0,
+      "title": "Deadline Days",
+      "type": "integer"
+     },
+     "every_days": {
+      "default": 90,
+      "maximum": 366.0,
+      "minimum": 1.0,
+      "title": "Every Days",
+      "type": "integer"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "remove_undecided": {
+      "default": false,
+      "title": "Remove Undecided",
+      "type": "boolean"
+     },
+     "reviewers": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Reviewers",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "CampaignIn",
     "type": "object"
    },
    "CdromRequest": {
@@ -1239,6 +1332,26 @@
     "title": "ConvertRequest",
     "type": "object"
    },
+   "CountIn": {
+    "properties": {
+     "count": {
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "force": {
+      "default": false,
+      "title": "Force",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "count"
+    ],
+    "title": "CountIn",
+    "type": "object"
+   },
    "CpuCheck": {
     "properties": {
      "cpu_xml": {
@@ -1351,6 +1464,23 @@
      }
     },
     "title": "CustomRoleRename",
+    "type": "object"
+   },
+   "DecisionIn": {
+    "properties": {
+     "decision": {
+      "enum": [
+       "keep",
+       "remove"
+      ],
+      "title": "Decision",
+      "type": "string"
+     }
+    },
+    "required": [
+     "decision"
+    ],
+    "title": "DecisionIn",
     "type": "object"
    },
    "DeployRequest": {
@@ -1748,6 +1878,57 @@
     "title": "Envelope",
     "type": "object"
    },
+   "ExclusionIn": {
+    "properties": {
+     "privilege": {
+      "default": "*",
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Privilege",
+      "type": "string"
+     },
+     "reason": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Reason",
+      "type": "string"
+     },
+     "resource_id": {
+      "default": "*",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+     },
+     "resource_type": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Resource Type",
+      "type": "string"
+     },
+     "subject_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Subject Id",
+      "type": "string"
+     },
+     "subject_type": {
+      "enum": [
+       "user",
+       "group"
+      ],
+      "title": "Subject Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "subject_type",
+     "subject_id",
+     "resource_type"
+    ],
+    "title": "ExclusionIn",
+    "type": "object"
+   },
    "FeedMarks": {
     "properties": {
      "ids": {
@@ -1921,6 +2102,24 @@
     "title": "FirewallRule",
     "type": "object"
    },
+   "FixIn": {
+    "properties": {
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 500,
+      "minItems": 1,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "vms"
+    ],
+    "title": "FixIn",
+    "type": "object"
+   },
    "GroupCreate": {
     "properties": {
      "name": {
@@ -1932,6 +2131,78 @@
      "name"
     ],
     "title": "GroupCreate",
+    "type": "object"
+   },
+   "GroupIn": {
+    "properties": {
+     "count": {
+      "default": 0,
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "linked": {
+      "default": true,
+      "title": "Linked",
+      "type": "boolean"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "network": {
+      "anyOf": [
+       {
+        "maxLength": 256,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
+     "pool_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pool Id"
+     },
+     "prefix": {
+      "maxLength": 41,
+      "minLength": 1,
+      "title": "Prefix",
+      "type": "string"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Tags",
+      "type": "array"
+     },
+     "template": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Template",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "template",
+     "prefix"
+    ],
+    "title": "GroupIn",
     "type": "object"
    },
    "GroupJob": {
@@ -2177,6 +2448,44 @@
      "name"
     ],
     "title": "HostnameSettings",
+    "type": "object"
+   },
+   "IdentityIn": {
+    "properties": {
+     "resource_id": {
+      "default": "*",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+     },
+     "resource_type": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Resource Type",
+      "type": "string"
+     },
+     "role": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Role",
+      "type": "string"
+     },
+     "shell": {
+      "default": "sh",
+      "enum": [
+       "sh",
+       "powershell"
+      ],
+      "title": "Shell",
+      "type": "string"
+     }
+    },
+    "required": [
+     "role",
+     "resource_type"
+    ],
+    "title": "IdentityIn",
     "type": "object"
    },
    "Incoming": {
@@ -3222,6 +3531,36 @@
     "title": "PoolMemberAdd",
     "type": "object"
    },
+   "PoolRuleIn": {
+    "properties": {
+     "name_pattern": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name Pattern"
+     },
+     "tag": {
+      "anyOf": [
+       {
+        "maxLength": 32,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tag"
+     }
+    },
+    "title": "PoolRuleIn",
+    "type": "object"
+   },
    "PowerRequest": {
     "properties": {
      "action": {
@@ -3243,6 +3582,42 @@
      "confirmation"
     ],
     "title": "PowerRequest",
+    "type": "object"
+   },
+   "PricesIn": {
+    "properties": {
+     "currency": {
+      "default": "EUR",
+      "maxLength": 8,
+      "minLength": 1,
+      "title": "Currency",
+      "type": "string"
+     },
+     "disk_gb": {
+      "maximum": 100000.0,
+      "minimum": 0.0,
+      "title": "Disk Gb",
+      "type": "number"
+     },
+     "memory_gb": {
+      "maximum": 100000.0,
+      "minimum": 0.0,
+      "title": "Memory Gb",
+      "type": "number"
+     },
+     "vcpu": {
+      "maximum": 100000.0,
+      "minimum": 0.0,
+      "title": "Vcpu",
+      "type": "number"
+     }
+    },
+    "required": [
+     "vcpu",
+     "memory_gb",
+     "disk_gb"
+    ],
+    "title": "PricesIn",
     "type": "object"
    },
    "PrimaryRequest": {
@@ -3697,6 +4072,41 @@
     "title": "RollingRequest",
     "type": "object"
    },
+   "RunIn": {
+    "properties": {
+     "reboot": {
+      "default": false,
+      "title": "Reboot",
+      "type": "boolean"
+     },
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Vms",
+      "type": "array"
+     },
+     "window_end": {
+      "format": "date-time",
+      "title": "Window End",
+      "type": "string"
+     },
+     "window_start": {
+      "format": "date-time",
+      "title": "Window Start",
+      "type": "string"
+     }
+    },
+    "required": [
+     "vms",
+     "window_start",
+     "window_end"
+    ],
+    "title": "RunIn",
+    "type": "object"
+   },
    "RunRequest": {
     "properties": {
      "dry_run": {
@@ -3768,6 +4178,24 @@
      "enabled"
     ],
     "title": "SSOConfigIn",
+    "type": "object"
+   },
+   "ScanIn": {
+    "properties": {
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "vms"
+    ],
+    "title": "ScanIn",
     "type": "object"
    },
    "ScheduleRequest": {
@@ -3858,6 +4286,47 @@
     "title": "ScheduleRequest",
     "type": "object"
    },
+   "SecretIn": {
+    "properties": {
+     "description": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Description",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "readers": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "title": "Readers",
+      "type": "array"
+     },
+     "value": {
+      "anyOf": [
+       {
+        "maxLength": 65536,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "SecretIn",
+    "type": "object"
+   },
    "Settings": {
     "properties": {
      "mode": {
@@ -3876,6 +4345,86 @@
      "threshold"
     ],
     "title": "Settings",
+    "type": "object"
+   },
+   "SigninRuleIn": {
+    "properties": {
+     "days": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 7,
+      "title": "Days",
+      "type": "array"
+     },
+     "hours": {
+      "anyOf": [
+       {
+        "maxLength": 11,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Hours"
+     },
+     "mode": {
+      "default": "watch",
+      "enum": [
+       "watch",
+       "enforce"
+      ],
+      "title": "Mode",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "networks": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Networks",
+      "type": "array"
+     },
+     "require_2fa": {
+      "default": false,
+      "title": "Require 2Fa",
+      "type": "boolean"
+     },
+     "subject_id": {
+      "anyOf": [
+       {
+        "maxLength": 256,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Subject Id"
+     },
+     "subject_type": {
+      "default": "all",
+      "enum": [
+       "all",
+       "role",
+       "group",
+       "user"
+      ],
+      "title": "Subject Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "SigninRuleIn",
     "type": "object"
    },
    "SiteAction": {
@@ -4792,6 +5341,14 @@
       ],
       "title": "Storage Pool"
      },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Tags",
+      "type": "array"
+     },
      "username": {
       "anyOf": [
        {
@@ -5280,6 +5837,21 @@
       ],
       "title": "Networks"
      },
+     "required_tags": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 16,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Required Tags"
+     },
      "storage_pools": {
       "anyOf": [
        {
@@ -5607,6 +6179,280 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/api/v1/access/campaigns": {
+   "get": {
+    "description": "An administrator's every review; anyone else the reviews it is a reviewer of.",
+    "operationId": "list_campaigns_api_v1_access_campaigns_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Campaigns",
+    "tags": [
+     "governance"
+    ]
+   },
+   "post": {
+    "operationId": "create_campaign_api_v1_access_campaigns_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CampaignIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Campaign",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/campaigns/{campaign_id}": {
+   "delete": {
+    "operationId": "delete_campaign_api_v1_access_campaigns__campaign_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Campaign",
+    "tags": [
+     "governance"
+    ]
+   },
+   "put": {
+    "operationId": "update_campaign_api_v1_access_campaigns__campaign_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CampaignIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Campaign",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/campaigns/{campaign_id}/items": {
+   "get": {
+    "operationId": "campaign_items_api_v1_access_campaigns__campaign_id__items_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Campaign Items",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/campaigns/{campaign_id}/items/{item_id}": {
+   "post": {
+    "operationId": "decide_item_api_v1_access_campaigns__campaign_id__items__item_id__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "campaign_id",
+      "required": true,
+      "schema": {
+       "title": "Campaign Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "item_id",
+      "required": true,
+      "schema": {
+       "title": "Item Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DecisionIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Decide Item",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
   "/api/v1/access/eligibility": {
    "get": {
     "description": "Every eligibility for an administrator; the account's own, and those on a perimeter it may read the access\nof, for anyone else.",
@@ -5716,6 +6562,117 @@
     "summary": "Delete Eligibility",
     "tags": [
      "access"
+    ]
+   }
+  },
+  "/api/v1/access/exclusions": {
+   "get": {
+    "operationId": "list_exclusions_api_v1_access_exclusions_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Exclusions",
+    "tags": [
+     "governance"
+    ]
+   },
+   "post": {
+    "operationId": "create_exclusion_api_v1_access_exclusions_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExclusionIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Exclusion",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/access/exclusions/{exclusion_id}": {
+   "delete": {
+    "operationId": "delete_exclusion_api_v1_access_exclusions__exclusion_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "exclusion_id",
+      "required": true,
+      "schema": {
+       "title": "Exclusion Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Exclusion",
+    "tags": [
+     "governance"
     ]
    }
   },
@@ -11245,6 +12202,75 @@
     ]
    }
   },
+  "/api/v1/compliance": {
+   "get": {
+    "operationId": "get_compliance_api_v1_compliance_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Compliance",
+    "tags": [
+     "compliance"
+    ]
+   }
+  },
+  "/api/v1/compliance/fix": {
+   "post": {
+    "description": "Add the required tags each VM lacks; returns them per VM.",
+    "operationId": "fix_api_v1_compliance_fix_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FixIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Fix",
+    "tags": [
+     "compliance"
+    ]
+   }
+  },
   "/api/v1/containers": {
    "get": {
     "operationId": "list_containers_api_v1_containers_get",
@@ -12294,6 +13320,216 @@
     "summary": "Create Terminal Ticket",
     "tags": [
      "containers"
+    ]
+   }
+  },
+  "/api/v1/costs": {
+   "get": {
+    "operationId": "get_costs_api_v1_costs_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Costs",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/costs/budgets": {
+   "post": {
+    "operationId": "create_budget_api_v1_costs_budgets_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BudgetIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Budget",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/costs/budgets/{budget_id}": {
+   "delete": {
+    "operationId": "delete_budget_api_v1_costs_budgets__budget_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "budget_id",
+      "required": true,
+      "schema": {
+       "title": "Budget Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Budget",
+    "tags": [
+     "fleet"
+    ]
+   },
+   "put": {
+    "operationId": "update_budget_api_v1_costs_budgets__budget_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "budget_id",
+      "required": true,
+      "schema": {
+       "title": "Budget Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BudgetIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Budget",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/costs/prices": {
+   "put": {
+    "operationId": "put_prices_api_v1_costs_prices_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PricesIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Prices",
+    "tags": [
+     "fleet"
     ]
    }
   },
@@ -13347,6 +14583,164 @@
     "summary": "Put Rule",
     "tags": [
      "protections"
+    ]
+   }
+  },
+  "/api/v1/guest-updates": {
+   "get": {
+    "operationId": "list_guest_updates_api_v1_guest_updates_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Guest Updates",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/runs": {
+   "post": {
+    "operationId": "schedule_run_api_v1_guest_updates_runs_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RunIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Schedule Run",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/runs/{run_id}/cancel": {
+   "post": {
+    "operationId": "cancel_run_api_v1_guest_updates_runs__run_id__cancel_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "run_id",
+      "required": true,
+      "schema": {
+       "title": "Run Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Cancel Run",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/scan": {
+   "post": {
+    "description": "Ask each guest what it has pending (vm.exec on each: it runs a command as root in the guest).",
+    "operationId": "scan_api_v1_guest_updates_scan_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScanIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Scan",
+    "tags": [
+     "fleet"
     ]
    }
   },
@@ -19137,6 +20531,52 @@
     ]
    }
   },
+  "/api/v1/pools/{pool_id}/export": {
+   "get": {
+    "description": "The pool, its VMs on this node, the networks and storage pools they use and its assignments, as one\nTerraform / OpenTofu file (app/core/vm_definition.py, pool_as_terraform).",
+    "operationId": "export_pool_api_v1_pools__pool_id__export_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_id",
+      "required": true,
+      "schema": {
+       "title": "Pool Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Export Pool",
+    "tags": [
+     "pools"
+    ]
+   }
+  },
   "/api/v1/pools/{pool_id}/members": {
    "post": {
     "operationId": "add_member_api_v1_pools__pool_id__members_post",
@@ -19241,6 +20681,62 @@
      }
     ],
     "summary": "Remove Member",
+    "tags": [
+     "pools"
+    ]
+   }
+  },
+  "/api/v1/pools/{pool_id}/rule": {
+   "put": {
+    "description": "A dynamic pool: the VMs carrying `tag`, or whose name matches `name_pattern`, belong to it as its members do.\nBoth empty: the pool holds its members only.",
+    "operationId": "put_pool_rule_api_v1_pools__pool_id__rule_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_id",
+      "required": true,
+      "schema": {
+       "title": "Pool Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PoolRuleIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Pool Rule",
     "tags": [
      "pools"
     ]
@@ -19482,6 +20978,167 @@
     "summary": "Put Protection",
     "tags": [
      "protections"
+    ]
+   }
+  },
+  "/api/v1/recycle-bin": {
+   "get": {
+    "description": "The VMs in the bin that the account may bring back (vm.allocate on them; an administrator all), and how long\nthe bin keeps them.",
+    "operationId": "list_bin_api_v1_recycle_bin_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Bin",
+    "tags": [
+     "recycle-bin"
+    ]
+   }
+  },
+  "/api/v1/recycle-bin/settings": {
+   "put": {
+    "description": "0 turns the bin off: a deletion deletes at once, as before.",
+    "operationId": "set_settings_api_v1_recycle_bin_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BinSettings"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Settings",
+    "tags": [
+     "recycle-bin"
+    ]
+   }
+  },
+  "/api/v1/recycle-bin/{name}": {
+   "delete": {
+    "description": "Delete it for good now: its disks go.",
+    "operationId": "purge_api_v1_recycle_bin__name__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Purge",
+    "tags": [
+     "recycle-bin"
+    ]
+   }
+  },
+  "/api/v1/recycle-bin/{name}/restore": {
+   "post": {
+    "operationId": "restore_api_v1_recycle_bin__name__restore_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Restore",
+    "tags": [
+     "recycle-bin"
     ]
    }
   },
@@ -19809,6 +21466,170 @@
     "summary": "Put Weekly Settings",
     "tags": [
      "notifications"
+    ]
+   }
+  },
+  "/api/v1/signin-rules": {
+   "get": {
+    "operationId": "list_signin_rules_api_v1_signin_rules_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Signin Rules",
+    "tags": [
+     "governance"
+    ]
+   },
+   "post": {
+    "operationId": "create_signin_rule_api_v1_signin_rules_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SigninRuleIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Signin Rule",
+    "tags": [
+     "governance"
+    ]
+   }
+  },
+  "/api/v1/signin-rules/{rule_id}": {
+   "delete": {
+    "operationId": "delete_signin_rule_api_v1_signin_rules__rule_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Signin Rule",
+    "tags": [
+     "governance"
+    ]
+   },
+   "put": {
+    "operationId": "update_signin_rule_api_v1_signin_rules__rule_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "title": "Rule Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SigninRuleIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Signin Rule",
+    "tags": [
+     "governance"
     ]
    }
   },
@@ -23486,6 +25307,218 @@
     ]
    }
   },
+  "/api/v1/vault": {
+   "get": {
+    "description": "The secrets the account may read (an administrator: all), without their values.",
+    "operationId": "list_secrets_api_v1_vault_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Secrets",
+    "tags": [
+     "vault"
+    ]
+   },
+   "post": {
+    "operationId": "create_secret_api_v1_vault_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SecretIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Secret",
+    "tags": [
+     "vault"
+    ]
+   }
+  },
+  "/api/v1/vault/reveal/{name}": {
+   "post": {
+    "description": "The value, for an account that may read it: journaled.",
+    "operationId": "reveal_api_v1_vault_reveal__name__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Reveal",
+    "tags": [
+     "vault"
+    ]
+   }
+  },
+  "/api/v1/vault/{secret_id}": {
+   "delete": {
+    "operationId": "delete_secret_api_v1_vault__secret_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "secret_id",
+      "required": true,
+      "schema": {
+       "title": "Secret Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Secret",
+    "tags": [
+     "vault"
+    ]
+   },
+   "put": {
+    "description": "An empty value keeps the current one.",
+    "operationId": "update_secret_api_v1_vault__secret_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "secret_id",
+      "required": true,
+      "schema": {
+       "title": "Secret Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SecretIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Secret",
+    "tags": [
+     "vault"
+    ]
+   }
+  },
   "/api/v1/vm-disks": {
    "get": {
     "operationId": "list_vm_disks_api_v1_vm_disks_get",
@@ -23853,6 +25886,173 @@
     ]
    }
   },
+  "/api/v1/vm-groups": {
+   "get": {
+    "operationId": "list_groups_api_v1_vm_groups_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Groups",
+    "tags": [
+     "vm-groups"
+    ]
+   },
+   "post": {
+    "operationId": "create_group_api_v1_vm_groups_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GroupIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Group",
+    "tags": [
+     "vm-groups"
+    ]
+   }
+  },
+  "/api/v1/vm-groups/{group_id}": {
+   "delete": {
+    "description": "The group is forgotten; its VMs stay, as ordinary VMs.",
+    "operationId": "delete_group_api_v1_vm_groups__group_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "group_id",
+      "required": true,
+      "schema": {
+       "title": "Group Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Group",
+    "tags": [
+     "vm-groups"
+    ]
+   }
+  },
+  "/api/v1/vm-groups/{group_id}/count": {
+   "put": {
+    "operationId": "set_count_api_v1_vm_groups__group_id__count_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "group_id",
+      "required": true,
+      "schema": {
+       "title": "Group Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CountIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Count",
+    "tags": [
+     "vm-groups"
+    ]
+   }
+  },
   "/api/v1/vms": {
    "get": {
     "description": "node: the name of a registered remote node, to list ITS VMs instead of those\nof the local host. Omitted or None = unchanged behaviour (local host).\nThe frontend used to have no way to query a remote node here, so the VMs of\na registered node never appeared in the main tree (only the dedicated\n\"Nodes\" tab showed them, through /nodes/{name}/summary): a real bug reported\nwhen testing with a real second physical node.\ncluster=true: every member's VMs from the cluster's status (_cluster_vms, phase E).",
@@ -23993,7 +26193,7 @@
   },
   "/api/v1/vms/{name}": {
    "delete": {
-    "description": "An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there).",
+    "description": "An administrator, or vm.allocate on the VM or on a pool holding it (the account that created it there). With\nthe recycle bin on (app/core/recycle_bin.py) the VM is kept there for some days; purge=true deletes it now.",
     "operationId": "delete_vm_api_v1_vms__name__delete",
     "parameters": [
      {
@@ -24031,6 +26231,16 @@
        ],
        "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
        "title": "Node"
+      }
+     },
+     {
+      "in": "query",
+      "name": "purge",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Purge",
+       "type": "boolean"
       }
      }
     ],
@@ -27046,6 +29256,148 @@
     "summary": "Detach Vm Hostdev",
     "tags": [
      "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/identity": {
+   "delete": {
+    "operationId": "delete_identity_api_v1_vms__name__identity_delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Identity",
+    "tags": [
+     "vault"
+    ]
+   },
+   "get": {
+    "operationId": "get_identity_api_v1_vms__name__identity_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Identity",
+    "tags": [
+     "vault"
+    ]
+   },
+   "put": {
+    "description": "Turn the VM's identity on, or change its role: a token written into the guest by its agent (vm.exec, since it\nwrites in the guest), owned by the caller and never wider than the caller's rights.",
+    "operationId": "put_identity_api_v1_vms__name__identity_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IdentityIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Identity",
+    "tags": [
+     "vault"
     ]
    }
   },
