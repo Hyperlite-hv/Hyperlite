@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Boxes, Plus, Trash2 } from "lucide-react";
-import { addPoolMember, setPoolRule, createPool, deletePool, fetchGuardrails, fetchMetaList, fetchPools, fetchProtections, removePoolMember } from "../../api/client";
+import { exportPool, addPoolMember, setPoolRule, createPool, deletePool, fetchGuardrails, fetchMetaList, fetchPools, fetchProtections, removePoolMember } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT } from "../i18n";
@@ -88,6 +88,7 @@ export default function PoolsPage() {
           {(admin || pool.rule) && <PoolRule t={t} pool={pool} admin={admin} onSave={(rule) => run(() => setPoolRule(pool.id, rule), t("pl.ruleSaved"))} />}
           <NotesCard kind="pool" name={String(pool.id)} canEdit />
           <PoolPermissionsPanel poolId={pool.id} />
+          {admin && <div className="nx-fa"><button type="button" className="nx-btn" onClick={async () => { try { const text = await exportPool(pool.id); const url = URL.createObjectURL(new Blob([text], { type: "text/plain" })); Object.assign(document.createElement("a"), { href: url, download: `${pool.name}.tf` }).click(); URL.revokeObjectURL(url); } catch (e) { pushToast({ kind: "error", title: t("ac.failed"), message: errorMessage(e) }); } }}>{t("pl.export")}</button></div>}
           {admin && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--danger" onClick={async () => { if (await confirmAction({ title: t("pl.deleteTitle"), message: t("pl.deleteMsg", { pool: pool.name }), confirmLabel: t("pl.delete"), danger: true }) && await run(() => deletePool(pool.id), t("pl.deleted"))) setOpen(null); }}><Trash2 size={14} aria-hidden="true" /> {t("pl.delete")}</button></div>}
         </SideDrawer>
       )}

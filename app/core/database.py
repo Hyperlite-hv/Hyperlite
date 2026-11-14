@@ -921,6 +921,23 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # VM groups (docs/design/governance.md, section 13): N identical VMs made from one template, named
+        # <prefix>-<n>, their number raised or lowered. Each node's own: its VMs are made where it answers.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                template TEXT NOT NULL,
+                network TEXT,
+                linked INTEGER NOT NULL DEFAULT 1,
+                pool_id INTEGER,
+                tags TEXT NOT NULL DEFAULT '[]',
+                prefix TEXT UNIQUE NOT NULL,
+                count INTEGER NOT NULL,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         # Sign-in rules (docs/design/governance.md, section 4): where from, when, and with which factor an account may
         # sign in and use the API. Enforced, or only journaled ("watch").
         conn.execute("""

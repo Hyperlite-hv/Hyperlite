@@ -98,6 +98,7 @@ from app.routers.update import router as update_router
 from app.routers.vault import router as vault_router
 from app.routers.vm_disks import router as vm_disks_router
 from app.routers.vm_export import router as vm_export_router
+from app.routers.vm_groups import router as vm_groups_router
 from app.routers.vms import router as vms_router
 from app.routers.workstation import pages as workstation_pages
 from app.routers.workstation import router as workstation_router
@@ -284,6 +285,7 @@ _API_ROUTERS = (
     recycle_bin_router,
     vault_router,
     fleet_router,
+    vm_groups_router,
     workstation_router,
     kubernetes_router,
     meta_router,
