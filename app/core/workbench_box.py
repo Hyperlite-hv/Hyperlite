@@ -100,6 +100,8 @@ def box_properties(sid, uid, limits):
         "UMask=0077",
         "KeyringMode=private",
         "OOMScoreAdjust=500",
+        # A process past the memory limit is killed alone; the session goes on (systemd stops the unit by default).
+        "OOMPolicy=continue",
         f"MemoryMax={int(lim['memory_mb'])}M",
         "MemorySwapMax=0",
         f"CPUQuota={int(lim['cpu_percent'])}%",

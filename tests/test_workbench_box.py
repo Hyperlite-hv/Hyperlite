@@ -19,7 +19,7 @@ def props():
         "ProtectHome=tmpfs", "PrivateTmp=yes", "PrivateDevices=yes", "DevicePolicy=closed", "PrivateNetwork=yes",
         "RestrictNamespaces=yes", "ProtectProc=invisible", "ProcSubset=pid", "ProtectKernelModules=yes",
         "ProtectKernelTunables=yes", "RestrictSUIDSGID=yes", "SystemCallFilter=@system-service",
-        "SystemCallArchitectures=native", "SystemCallErrorNumber=EPERM", "MemoryMax=256M", "MemorySwapMax=0", "CPUQuota=25%", "TasksMax=64",
+        "SystemCallArchitectures=native", "SystemCallErrorNumber=EPERM", "MemoryMax=256M", "MemorySwapMax=0", "OOMPolicy=continue", "CPUQuota=25%", "TasksMax=64",
         "RuntimeMaxSec=7200", "UMask=0077",
     ],
 )  # fmt: skip
