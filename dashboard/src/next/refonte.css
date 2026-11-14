@@ -262,7 +262,7 @@ select.nx-inp, select.nx-input { max-width: 32rem; }
 
 /* ---------- Side drawer ---------- */
 .nx-scrim--drawer { position: fixed; inset: 0; z-index: 60; background: color-mix(in oklab, var(--color-bg-app) 55%, transparent); padding: 0; }
-.nx-sdrawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(29.3333rem, 100vw); background: var(--color-bg-surface); border-left: 1px solid var(--color-border-default); box-shadow: var(--shadow-float); z-index: 61; display: flex; flex-direction: column; }
+.nx-sdrawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(29.3333rem, 100vw); background: var(--color-bg-surface); border-left: 1px solid var(--color-border-default); box-shadow: var(--shadow-float); z-index: 61; display: flex; flex-direction: column; color: var(--color-text-primary); text-align: left; }
 .nx-sdrawer-h { display: flex; align-items: center; gap: 0.6667rem; padding: 0.9333rem 1.0667rem; border-bottom: 1px solid var(--color-border-subtle); }
 .nx-sdrawer-h h2 { margin: 0; font-size: var(--fs-15); font-weight: 600; }
 .nx-sdrawer-x { margin-left: auto; }

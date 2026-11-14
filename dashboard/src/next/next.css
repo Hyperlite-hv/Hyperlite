@@ -20,7 +20,7 @@
      grows with the viewport so a 2K/4K screen is not a tiny island of text: 17px at 2560px, capped at 18px.
      Written in rem (= the browser's default size, 16px unless the user changed it) so the user's own
      font-size preference still scales everything. */
-  font-size: clamp(0.9375rem, calc(0.5625rem + 0.3125vw), 1.125rem);
+  font-size: calc(clamp(0.9375rem, calc(0.5625rem + 0.3125vw), 1.125rem) * var(--ui-scale, 1));
   /* Surfaces: blue-black; the cobalt stays for the brand and for links */
   /* Header band: the brand colour in light, near-black in dark */
   --color-head-bg: #0B0E14;
