@@ -8,6 +8,7 @@ import { useExplorerStore, useSeriesData } from "../lib/useExplorer";
 import ExplorerChart, { useSeriesLabel } from "../components/ExplorerChart";
 import { PageHeader, TableWrap } from "../components/ui";
 import { Cmd, PickCmd, downloadCsv } from "../components/portal";
+import { PinDialog } from "../components/PinDialog";
 
 const vmKey = (v) => (v.node && v.node !== "local" ? `${v.name}@${v.node}` : v.name);
 
@@ -20,8 +21,8 @@ function defaultChart(nodes) {
 // a chart can be pinned to Home.
 export default function MetricsExplorer() {
   const t = useT();
-  const { nodes, vms, pushToast } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms, pushToast: s.pushToast })));
-  const { stored, setChart, pin } = useExplorerStore(useShallow((s) => ({ stored: s.chart, setChart: s.setChart, pin: s.pin })));
+  const { nodes, vms } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, vms: s.vms })));
+  const { stored, setChart } = useExplorerStore(useShallow((s) => ({ stored: s.chart, setChart: s.setChart })));
   const chart = stored || defaultChart(nodes);
   const { reload } = useSeriesData(chart.series, chart.range);
   const labelOf = useSeriesLabel();
@@ -39,7 +40,8 @@ export default function MetricsExplorer() {
   const add = () => { if (!why) update({ series: [...chart.series, next] }); };
   const remove = (key) => update({ series: chart.series.filter((s) => seriesKey(s) !== key) });
   const title = chart.series.length === 1 ? labelOf(chart.series[0]) : t("mxp.chartTitle", { n: chart.series.length });
-  const doPin = () => { pin(chart, title); pushToast({ kind: "success", title: t("mxp.pinned"), message: title }); };
+  const [pinning, setPinning] = useState(false);
+  const doPin = () => setPinning(true);
 
   return (
     <>
@@ -88,6 +90,7 @@ export default function MetricsExplorer() {
         </ExplorerChart>
       </div>
       <p className="nx-hint">{t("mxp.note")}</p>
+      <PinDialog open={pinning} onClose={() => setPinning(false)} tile={{ type: "chart", title, size: 1, config: { series: chart.series, range: chart.range } }} />
     </>
   );
 }

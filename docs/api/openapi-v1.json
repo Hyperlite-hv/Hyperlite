@@ -1379,6 +1379,24 @@
     "title": "ConvertRequest",
     "type": "object"
    },
+   "CopyIn": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "maxLength": 80,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     }
+    },
+    "title": "CopyIn",
+    "type": "object"
+   },
    "CountIn": {
     "properties": {
      "count": {
@@ -1511,6 +1529,79 @@
      }
     },
     "title": "CustomRoleRename",
+    "type": "object"
+   },
+   "DashboardIn": {
+    "properties": {
+     "name": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "shared": {
+      "default": "private",
+      "title": "Shared",
+      "type": "string"
+     },
+     "tiles": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "title": "Tiles",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "DashboardIn",
+    "type": "object"
+   },
+   "DashboardPatch": {
+    "properties": {
+     "name": {
+      "anyOf": [
+       {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "shared": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Shared"
+     },
+     "tiles": {
+      "anyOf": [
+       {
+        "items": {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tiles"
+     }
+    },
+    "title": "DashboardPatch",
     "type": "object"
    },
    "DecisionIn": {
@@ -3711,6 +3802,114 @@
      }
     },
     "title": "ProtectionPut",
+    "type": "object"
+   },
+   "QueryIn": {
+    "properties": {
+     "group_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Group By"
+     },
+     "name": {
+      "maxLength": 80,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "query": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+     },
+     "shared": {
+      "default": "private",
+      "title": "Shared",
+      "type": "string"
+     },
+     "view": {
+      "default": "list",
+      "title": "View",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "query"
+    ],
+    "title": "QueryIn",
+    "type": "object"
+   },
+   "QueryPatch": {
+    "properties": {
+     "group_by": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Group By"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "query": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Query"
+     },
+     "shared": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Shared"
+     },
+     "view": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "View"
+     }
+    },
+    "title": "QueryPatch",
     "type": "object"
    },
    "RecoverRequest": {
@@ -10250,6 +10449,138 @@
     ]
    }
   },
+  "/api/v1/availability/summary": {
+   "get": {
+    "description": "Every VM and node this node watches: its state now and its share available over `days`. A VM the account may\nnot read is left out.",
+    "operationId": "availability_summary_api_v1_availability_summary_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 7,
+       "maximum": 90,
+       "minimum": 1,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Availability Summary",
+    "tags": [
+     "availability"
+    ]
+   }
+  },
+  "/api/v1/availability/{kind}/{name}": {
+   "get": {
+    "description": "The Availability tab of a VM (`node`: its node, omitted or \"local\" for this one) or a node: its state now, the\nshare available over 1, 7 and 30 days, its states over the period and the interruptions with their cause.",
+    "operationId": "availability_report_api_v1_availability__kind___name__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "kind",
+      "required": true,
+      "schema": {
+       "title": "Kind",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Node"
+      }
+     },
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 7,
+       "maximum": 90,
+       "minimum": 1,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Availability Report",
+    "tags": [
+     "availability"
+    ]
+   }
+  },
   "/api/v1/backup-groups": {
    "get": {
     "operationId": "list_group_jobs_api_v1_backup_groups_get",
@@ -13993,6 +14324,271 @@
     "summary": "Dashboard",
     "tags": [
      "dashboard"
+    ]
+   }
+  },
+  "/api/v1/dashboards": {
+   "get": {
+    "description": "The dashboards this account reads: its own, those shared with everyone and with its groups.",
+    "operationId": "list_dashboards_api_v1_dashboards_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Dashboards",
+    "tags": [
+     "dashboards"
+    ]
+   },
+   "post": {
+    "operationId": "create_dashboard_api_v1_dashboards_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DashboardIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Dashboard",
+    "tags": [
+     "dashboards"
+    ]
+   }
+  },
+  "/api/v1/dashboards/{dash_id}": {
+   "delete": {
+    "operationId": "delete_dashboard_api_v1_dashboards__dash_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "dash_id",
+      "required": true,
+      "schema": {
+       "title": "Dash Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Dashboard",
+    "tags": [
+     "dashboards"
+    ]
+   },
+   "get": {
+    "operationId": "read_dashboard_api_v1_dashboards__dash_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "dash_id",
+      "required": true,
+      "schema": {
+       "title": "Dash Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Read Dashboard",
+    "tags": [
+     "dashboards"
+    ]
+   },
+   "patch": {
+    "description": "Its name, who it is shared with, its tiles (the whole list, in order).",
+    "operationId": "change_dashboard_api_v1_dashboards__dash_id__patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "dash_id",
+      "required": true,
+      "schema": {
+       "title": "Dash Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DashboardPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Change Dashboard",
+    "tags": [
+     "dashboards"
+    ]
+   }
+  },
+  "/api/v1/dashboards/{dash_id}/copy": {
+   "post": {
+    "description": "A private copy of a dashboard this account reads, to make its own.",
+    "operationId": "copy_dashboard_api_v1_dashboards__dash_id__copy_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "dash_id",
+      "required": true,
+      "schema": {
+       "title": "Dash Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CopyIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Copy Dashboard",
+    "tags": [
+     "dashboards"
     ]
    }
   },
@@ -21986,6 +22582,170 @@
     "summary": "Put Weekly Settings",
     "tags": [
      "notifications"
+    ]
+   }
+  },
+  "/api/v1/saved-queries": {
+   "get": {
+    "operationId": "list_queries_api_v1_saved_queries_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Queries",
+    "tags": [
+     "dashboards"
+    ]
+   },
+   "post": {
+    "operationId": "save_query_api_v1_saved_queries_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/QueryIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Save Query",
+    "tags": [
+     "dashboards"
+    ]
+   }
+  },
+  "/api/v1/saved-queries/{query_id}": {
+   "delete": {
+    "operationId": "delete_query_api_v1_saved_queries__query_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "query_id",
+      "required": true,
+      "schema": {
+       "title": "Query Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Query",
+    "tags": [
+     "dashboards"
+    ]
+   },
+   "patch": {
+    "operationId": "change_query_api_v1_saved_queries__query_id__patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "query_id",
+      "required": true,
+      "schema": {
+       "title": "Query Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/QueryPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Change Query",
+    "tags": [
+     "dashboards"
     ]
    }
   },
