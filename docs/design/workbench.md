@@ -1,6 +1,7 @@
 # Workbench: a terminal in the console, for every account, within its rights
 
-Status: analysis and design (#914), nothing implemented yet. To be decided by the maintainer (section 17).
+Status: steps 1 to 4 implemented (#914, #916) and run in a disposable Debian 13 VM with Hyperlite installed (section
+18); step 5's escape checks done there too. Later: the custom image (option B), internet through a proxy, shared homes.
 
 The console gains a `>_` button at the top right. It opens a panel docked at the bottom of every page: a terminal that
 stays open while you move between pages, with the `hyperlite` client already signed in as you, `ssh` to your VMs
@@ -286,3 +287,27 @@ Each step ships alone; the panel shows only what exists.
    the account's home).
 5. **Escape tests**: in a disposable VM on antho (Debian 13 with Hyperlite installed inside), made for the tests and
    deleted after; the tests run inside that VM, never on antho itself.
+
+## 18. What the test VM showed (2026-11-14)
+
+Hyperlite 1.22.0 installed from the APT repository in a fresh Debian 13 VM on antho, the Terminal's code on top, driven
+like the browser (a WebSocket client). Found and fixed on the way:
+
+- systemd runs a unit only as a user it knows: the daemon makes a system account `hl-term-<uid>` (its group the same
+  number) the first time;
+- the tmux server quit before its session was made (`exit-empty` must stay off with `-D`), and a client that ran
+  `new-session` would start a server, and shells, **outside the box** once the box's server was gone: the session is
+  made inside the box, the attach is `attach-session` only;
+- the seccomp filter killed every pane (SIGSYS): refused calls now fail with EPERM;
+- a process past the memory limit stopped the whole unit: `OOMPolicy=continue`;
+- `bash -l` reset the PATH: the shell starts with its own rc file;
+- `/run/hyperlite` is emptied by systemd at each restart of the daemon: the sessions' sockets moved to
+  `/run/hyperlite-workbench`;
+- unrelated, fixed apart (#917): a fresh install's API did not start (missing `dump/export`), and routes on one's own
+  account (API tokens, second factor) were refused by the daemon since the API runs as www-data.
+
+Checked from inside a box: the account's own uid; the node's secrets, databases, libvirt, `/etc/shadow` unreadable;
+`sudo`, user namespaces and `mount` refused; no internet, no direct API, no libvirt TCP, only the relay; 6 processes
+visible; read-only system; a 900 MB allocation killed alone at 512 MB; the `hyperlite` client and `hl api` working through
+the relay; OpenTofu 1.13.9 installed and run; files sent and fetched, `..` and links out of the home refused both ways;
+the same shell re-attached after a reload and after a restart of the daemon, the API and the scheduler.

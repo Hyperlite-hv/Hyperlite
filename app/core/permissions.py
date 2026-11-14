@@ -70,9 +70,10 @@ ALL_PRIVILEGES = {
     "cluster.manage": "Cluster: HA, load balancing and cluster settings",
     "access.view": "Access: read assignments, groups and roles in the perimeter",
     "access.manage": "Access: give and remove assignments in the perimeter",
+    "workbench.use": "Terminal: open a terminal in the console, acting with the account's own rights",
 }
 
-AREAS = ("node", "storage", "network", "backup", "alert", "audit", "update", "cluster", "access")
+AREAS = ("node", "storage", "network", "backup", "alert", "audit", "update", "cluster", "access", "workbench")
 # The areas that are the whole cluster's configuration (replicated tables): held on a node they would let that node's
 # delegate change every other node's, so only the cluster perimeter grants them.
 CLUSTER_ONLY_AREAS = {"backup", "alert", "audit", "cluster"}
@@ -158,7 +159,7 @@ ROLES = {
     "maintainer": {
         "label": "Maintainer",
         "description": "Updates and maintenance of the nodes in the perimeter.",
-        "privileges": {"update.view", "update.apply", "node.view", "node.manage"},
+        "privileges": {"update.view", "update.apply", "node.view", "node.manage", "workbench.use"},
     },
 }
 

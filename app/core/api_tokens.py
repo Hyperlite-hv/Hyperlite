@@ -77,7 +77,7 @@ def verify_token(token: str):
     if not user:
         return None
     # Which token authenticated the request: a token may revoke itself, never create or revoke others.
-    user = {**user, "api_token_id": row["id"]}
+    user = {**user, "api_token_id": row["id"], "api_token_kind": row["kind"]}
     # A delegated token acts with one role on one perimeter, within its owner's rights (app/core/permissions.py,
     # _holds): its global role becomes "delegated", which no route reserved to a global role accepts.
     scope = _access().token_scope(row["id"])
