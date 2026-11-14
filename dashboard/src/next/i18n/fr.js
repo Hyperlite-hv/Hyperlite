@@ -5697,4 +5697,8 @@ export default {
   "tm.download": "Récupérer un fichier de votre dossier",
   "tm.downloadPath": "Chemin dans votre dossier",
   "tm.dropHint": "déposez des fichiers sur le panneau pour les envoyer",
+  "prefs.menuShow": "Menu de gauche",
+  "prefs.menuShow.hidden": "Masqué (☰ l’ouvre)",
+  "prefs.menuShow.pinned": "Fixé",
+  "nav.pin": "Garder le menu ouvert",
 };

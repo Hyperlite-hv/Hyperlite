@@ -5666,4 +5666,8 @@ export default {
   "tm.download": "Get a file from your home",
   "tm.downloadPath": "Path in your home",
   "tm.dropHint": "drop files on the panel to send them",
+  "prefs.menuShow": "Left menu",
+  "prefs.menuShow.hidden": "Hidden (☰ opens it)",
+  "prefs.menuShow.pinned": "Pinned",
+  "nav.pin": "Keep the menu open",
 };

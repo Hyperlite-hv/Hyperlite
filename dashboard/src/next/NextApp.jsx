@@ -69,8 +69,9 @@ export default function NextApp() {
   usePolling(useCallback(() => refreshInventory(), []), REFRESH_MS);
   usePolling(useCallback(() => refreshExtras(), []), EXTRAS_MS);
 
+  const menuMode = useAppearance((s) => s.menu);
   const toggleSidebar = useCallback(() => {
-    if (window.innerWidth < 1024) { setSidebarOpen((o) => !o); return; }
+    if (window.innerWidth < 1024 || useAppearance.getState().menu === "hidden") { setSidebarOpen((o) => !o); return; }
     setSidebarCollapsed((c) => { const next = !c; try { localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0"); } catch { /* preference only */ } return next; });
   }, []);
 
@@ -134,7 +135,7 @@ export default function NextApp() {
   }, []);
 
   useEffect(() => {
-    const close = () => { if (window.innerWidth < 1024) setSidebarOpen(false); };
+    const close = () => { if (window.innerWidth < 1024 || useAppearance.getState().menu === "hidden") setSidebarOpen(false); };
     window.addEventListener("nx:navigated", close);
     return () => window.removeEventListener("nx:navigated", close);
   }, []);
@@ -147,15 +148,16 @@ export default function NextApp() {
     return () => window.removeEventListener("keydown", onKey);
   }, [sidebarOpen]);
 
-  const sidebarState = sidebarOpen ? "open" : sidebarCollapsed ? "collapsed" : undefined;
+  const sidebarState = sidebarOpen ? "open" : menuMode === "hidden" ? "hidden" : sidebarCollapsed ? "collapsed" : undefined;
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="nx-root hc" data-sidebar={sidebarState}>
+      <div className="nx-root hc" data-sidebar={sidebarState} data-menu={menuMode}>
         <a className="nx-skip" href="#nx-main" onClick={(e) => { e.preventDefault(); document.getElementById("nx-main")?.focus(); }}>{t("skip")}</a>
         {sidebarOpen && <div className="nx-scrim nx-scrim--nav" onClick={() => setSidebarOpen(false)} />}
         <TopBar onOpenPalette={() => setPaletteOpen(true)} onToggleNavigator={toggleSidebar} wizards={wizards} setWizards={setWizards} />
-        <SideMenu collapsed={sidebarCollapsed && !sidebarOpen} drawerOpen={sidebarOpen} onToggleCollapse={toggleSidebar} />
+        <SideMenu collapsed={menuMode !== "hidden" && sidebarCollapsed && !sidebarOpen} drawerOpen={sidebarOpen} onToggleCollapse={toggleSidebar}
+          menuMode={menuMode} onPin={() => { useAppearance.getState().update({ menu: "pinned" }); setSidebarOpen(false); }} />
         <Routes>
           <Route path="/" element={<Navigate to="/datacenter" replace />} />
           <Route path="/datacenter" element={<Workspace />} />

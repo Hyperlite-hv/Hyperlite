@@ -812,3 +812,13 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-tv-state { position: absolute; left: 12px; bottom: 10px; display: flex; gap: var(--space-2); align-items: center; padding: 4px 10px; background: rgba(0, 0, 0, .6); border-radius: var(--radius-sm); font-size: var(--font-size-xs); color: #e5e9f0; }
 #nx-main { padding-bottom: var(--hc-dock-h, 0px); }
 @media (max-width: 640px) { .hc-dock { top: 0; height: auto !important; } .hc-dock-info { display: none; } }
+
+/* The left menu hidden (lib/appearance.js, menu "hidden"): the page keeps the whole width; the top bar's menu button
+   opens the menu over the page, as on a narrow screen, and choosing a page closes it. */
+@media (min-width: 1024px) {
+  .nx-root.hc[data-menu="hidden"] { --sidebar-width: 0rem; grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main" "dock"; }
+  .nx-root.hc[data-menu="hidden"] .hc-side { position: fixed; top: var(--topbar-height); bottom: 0; left: 0; z-index: 41; width: 17.6rem; transform: translateX(-100%); transition: transform var(--duration-fast, .15s) var(--ease-standard, ease); }
+  .nx-root.hc[data-menu="hidden"][data-sidebar="open"] .hc-side { transform: none; box-shadow: var(--shadow-float); }
+  .nx-root.hc[data-menu="hidden"] .nx-scrim--nav { z-index: 40; padding: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .nx-root.hc[data-menu="hidden"] .hc-side { transition: none; } }
