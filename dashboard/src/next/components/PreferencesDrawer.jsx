@@ -56,8 +56,8 @@ export default function PreferencesDrawer({ open, onClose }) {
         <Choice label={t("top.theme")} value={mode} onChange={setMode} options={["system", "light", "dark"].map((m) => [m, t(`top.theme.${m}`)])} />
         <div className="hc-choice" role="group" aria-label={t("prefs.accent")}>
           <span>{t("prefs.accent")}</span>
-          <div className="hc-swatches">{ACCENTS.map((a) => (
-            <button key={a} type="button" aria-pressed={look.accent === a} className="hc-swatch" data-swatch={a} title={t(`prefs.accent.${a}`)} aria-label={t(`prefs.accent.${a}`)} onClick={() => look.update({ accent: a })}>{look.accent === a && <Check size={14} aria-hidden="true" />}</button>
+          <div className="hc-accents">{ACCENTS.map((a) => (
+            <button key={a} type="button" aria-pressed={look.accent === a} className="hc-accent" data-accent-swatch={a} title={t(`prefs.accent.${a}`)} aria-label={t(`prefs.accent.${a}`)} onClick={() => look.update({ accent: a })}>{look.accent === a && <Check size={14} aria-hidden="true" />}</button>
           ))}</div>
         </div>
         <Choice label={t("prefs.density")} value={look.density} onChange={(density) => look.update({ density })} options={DENSITIES.map((d) => [d, t(`prefs.density.${d}`)])} />
