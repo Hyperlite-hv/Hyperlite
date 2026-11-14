@@ -31818,6 +31818,113 @@
     ]
    }
   },
+  "/api/v1/workbench/sessions/{sid}/files": {
+   "get": {
+    "operationId": "download_api_v1_workbench_sessions__sid__files_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "path",
+      "required": true,
+      "schema": {
+       "title": "Path",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Download",
+    "tags": [
+     "workbench"
+    ]
+   },
+   "post": {
+    "description": "The request's body, as is, into `path` of the home (20 MB at most).",
+    "operationId": "upload_api_v1_workbench_sessions__sid__files_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "path",
+      "required": true,
+      "schema": {
+       "title": "Path",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Upload",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
   "/api/v1/workbench/sessions/{sid}/ticket": {
    "post": {
     "operationId": "attach_ticket_api_v1_workbench_sessions__sid__ticket_post",
@@ -31858,6 +31965,52 @@
      }
     ],
     "summary": "Attach Ticket",
+    "tags": [
+     "workbench"
+    ]
+   }
+  },
+  "/api/v1/workbench/sessions/{sid}/tools/tofu": {
+   "post": {
+    "description": "From the session itself (`hl tofu`) or the console: OpenTofu into the session's home.",
+    "operationId": "install_tofu_api_v1_workbench_sessions__sid__tools_tofu_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "sid",
+      "required": true,
+      "schema": {
+       "title": "Sid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Install Tofu",
     "tags": [
      "workbench"
     ]

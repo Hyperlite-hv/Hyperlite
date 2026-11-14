@@ -116,6 +116,7 @@ def box_properties(sid, uid, limits):
         "Environment=TERM=xterm-256color",
         "Environment=LANG=C.UTF-8",
         "Environment=HYPERLITE_CONFIG=/run/workbench/hyperlite.json",
+        f"Environment=HL_TERMINAL_SID={sid}",
         f"Environment=PATH=/home/workbench/.local/bin:{paths.CODE}/cli/dist/linux-amd64:/usr/local/bin:/usr/bin:/bin",
     ]
     return props

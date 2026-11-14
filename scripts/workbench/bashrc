@@ -1,7 +1,7 @@
 # The Terminal's shell (docs/design/workbench.md, section 8): the system's own settings, the person's, then the
 # hyperlite client on the PATH and a short welcome the first time in a session.
 [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
-export PATH="$HOME/.local/bin:/usr/lib/hyperlite/cli/dist/linux-amd64:/usr/local/bin:/usr/bin:/bin"
+export PATH="$HOME/.local/bin:/usr/lib/hyperlite/scripts/workbench/bin:/usr/lib/hyperlite/cli/dist/linux-amd64:/usr/local/bin:/usr/bin:/bin"
 export HYPERLITE_CONFIG=/run/workbench/hyperlite.json
 [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
 if [ -z "${HL_TERMINAL_WELCOMED:-}" ]; then
@@ -9,5 +9,6 @@ if [ -z "${HL_TERMINAL_WELCOMED:-}" ]; then
     echo "Hyperlite Terminal: you act with your own rights, through the API only."
     echo "  hyperlite vms            your VMs"
     echo "  hyperlite ssh <vm>       a shell in a VM (through Hyperlite)"
+    echo "  hl api GET /vms          any API route with your rights;  hl tofu  installs OpenTofu"
     echo "  your files stay in $HOME; this session ends when you type exit."
 fi

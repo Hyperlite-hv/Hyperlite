@@ -242,3 +242,108 @@ def home_delete(args, ctx):
     _run(["umount", str(workbench_box.MOUNTS / str(args.uid))])
     (workbench_box.HOMES / f"{args.uid}.img").unlink(missing_ok=True)
     return {"deleted": args.uid}
+
+
+# --- Tools and files of the home (docs/design/workbench.md, sections 8 and 11) ---
+
+TOFU_VERSION = "1.13.9"
+TOFU_SHA256 = "bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce"
+TOFU_URL = f"https://github.com/opentofu/opentofu/releases/download/v{TOFU_VERSION}/tofu_{TOFU_VERSION}_linux_amd64.zip"
+FILE_MAX = 20 * 1024 * 1024
+
+
+def _home_path(row, relative):
+    """The file `relative` inside the session's mounted home, refused when it obviously leaves it (`..`, an absolute
+    path). Every read and write then runs as the session's own account (_as_user), so a link inside the home cannot
+    lead the daemon anywhere that account could not go itself."""
+    from app.core import workbench_box
+
+    root = workbench_box.MOUNTS / str(row["uid"])
+    parts = [p for p in (relative or "").split("/") if p not in ("", ".")]
+    if not parts or relative.startswith("/") or "\0" in relative or ".." in parts:
+        raise DaemonError("refused", "A path inside your home, such as notes/plan.txt")
+    return root, root.joinpath(*parts)
+
+
+def _inside(row, root, target):
+    """Refuse a path that resolves outside the home (a link to the host's own files): resolved as the session's account,
+    so a world-readable file of the host hidden in the box is not handed out either."""
+    real = _as_user(row["uid"], ["realpath", "-m", "--", str(target)]).decode().strip()
+    base = _as_user(row["uid"], ["realpath", "--", str(root)]).decode().strip()
+    if real != base and not real.startswith(base + "/"):
+        raise DaemonError("refused", "That path leads out of your home")
+
+
+def _as_user(uid, argv, data=None, timeout=120):
+    """argv run as the session's account, without privileges."""
+    cmd = ["setpriv", f"--reuid={uid}", f"--regid={uid}", "--clear-groups", "--inh-caps=-all", "--no-new-privs", "--",
+           *argv]  # fmt: skip
+    r = subprocess.run(cmd, input=data, capture_output=True, timeout=timeout)
+    if r.returncode != 0:
+        raise DaemonError("refused", (r.stderr.decode(errors="replace").strip() or "Refused")[-300:])
+    return r.stdout
+
+
+@operation("workbench.install_tofu", SessionArgs, needs=by_rule(_owner))
+def install_tofu(args, ctx):
+    """OpenTofu, a pinned release checked against its SHA-256, into the home's ~/.local/bin (the box has no network)."""
+    import io
+    import urllib.request
+    import zipfile
+
+    row = _session(args.sid)
+    _, target = _home_path(row, ".local/bin/tofu")
+    with urllib.request.urlopen(TOFU_URL, timeout=120) as r:
+        data = r.read(200 * 1024 * 1024)
+    if hashlib.sha256(data).hexdigest() != TOFU_SHA256:
+        raise DaemonError("failed", "The OpenTofu download does not match its checksum: not installed")
+    binary = zipfile.ZipFile(io.BytesIO(data)).read("tofu")
+    _as_user(row["uid"], ["mkdir", "-p", str(target.parent)])
+    _as_user(row["uid"], ["/usr/bin/dd", f"of={target}", "status=none"], data=binary)
+    _as_user(row["uid"], ["chmod", "700", str(target)])
+    return {"installed": f"OpenTofu {TOFU_VERSION}", "path": "~/.local/bin/tofu"}
+
+
+class FilePutArgs(Args):
+    sid: str = SID
+    path: str = Field(min_length=1, max_length=512)
+    data: str = Field(max_length=FILE_MAX * 4 // 3 + 8)  # base64
+
+
+@operation("workbench.file_put", FilePutArgs, needs=by_rule(_owner))
+def file_put(args, ctx):
+    """A file written into the home, by the session's own account."""
+    import base64
+
+    row = _session(args.sid)
+    root, target = _home_path(row, args.path)
+    content = base64.b64decode(args.data)
+    if len(content) > FILE_MAX:
+        raise DaemonError("refused", "At most 20 MB per file")
+    _inside(row, root, target)
+    _as_user(row["uid"], ["mkdir", "-p", str(target.parent)])
+    _as_user(row["uid"], ["/usr/bin/dd", f"of={target}", "status=none"], data=content)
+    return {"path": str(target.relative_to(root)), "size": len(content)}
+
+
+class FileGetArgs(Args):
+    sid: str = SID
+    path: str = Field(min_length=1, max_length=512)
+
+
+@operation("workbench.file_get", FileGetArgs, needs=by_rule(_owner))
+def file_get(args, ctx):
+    """A regular file of the home, base64, 20 MB at most."""
+    import base64
+
+    row = _session(args.sid)
+    root, target = _home_path(row, args.path)
+    _inside(row, root, target)
+    size = _as_user(row["uid"], ["stat", "-L", "-c", "%F %s", str(target)]).decode().strip()
+    kind, _, length = size.rpartition(" ")
+    if kind != "regular file" and kind != "regular empty file":
+        raise DaemonError("refused", "Not a regular file")
+    if int(length) > FILE_MAX:
+        raise DaemonError("refused", "At most 20 MB per file")
+    data = _as_user(row["uid"], ["cat", str(target)])
+    return {"name": target.name, "data": base64.b64encode(data).decode()}

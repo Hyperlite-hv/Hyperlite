@@ -16,6 +16,8 @@ def daemon(monkeypatch):
         calls.append((op, args.get("sid")))
         if op == "workbench.list":
             return {"sessions": [c[1] for c in calls if c[0] == "workbench.open"]}
+        if op == "workbench.file_put":
+            return {"path": args["path"], "size": 1}
         return {}
 
     monkeypatch.setattr(privileged, "run", run)
@@ -209,3 +211,26 @@ def test_a_session_whose_shell_exited_ends(database, daemon, make_user):
     daemon[:] = [c for c in daemon if c[1] != row["id"]]  # its box stopped (the shell's `exit`)
     workbench.sweep()
     assert workbench.get(row["id"])["ended_why"] == "shell exited"
+
+
+def test_home_paths_are_checked():
+    from app.daemon.ops import workbench as ops
+    from app.daemon.registry import DaemonError
+
+    row = {"uid": 700001}
+    for bad in ("", "/etc/passwd", "../x", "a/../../b", "a\0b"):
+        with pytest.raises(DaemonError):
+            ops._home_path(row, bad)
+    root, target = ops._home_path(row, "notes/./plan.txt")
+    assert target == root / "notes" / "plan.txt"
+
+
+def test_files_and_tools_are_the_owners(client, auth_headers, daemon):
+    admin_h = auth_headers("root", "admin")
+    row = client.post("/workbench/sessions", json={}, headers=admin_h).json()
+    other = auth_headers("eve", "admin")
+    assert (
+        client.post(f"/workbench/sessions/{row['id']}/files?path=a.txt", content=b"x", headers=other).status_code == 404
+    )
+    assert client.get(f"/workbench/sessions/{row['id']}/files?path=a.txt", headers=other).status_code == 404
+    assert client.post(f"/workbench/sessions/{row['id']}/tools/tofu", headers=other).status_code == 404

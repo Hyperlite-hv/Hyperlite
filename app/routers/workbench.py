@@ -133,3 +133,62 @@ def put_settings(payload: SettingsIn, user: dict = Depends(require_role("admin")
     saved = _answer(workbench.set_settings, changes)
     log_action(user["username"], "terminal_settings", ", ".join(f"{k}={v}" for k, v in changes.items()), "success")
     return saved
+
+
+# ---- Tools and files (docs/design/workbench.md, sections 8 and 11) ----
+
+
+def _own_open_session(sid, user):
+    row = workbench.get(sid)
+    if row is None or row["state"] != "open" or row["account"] != user["username"]:
+        raise HTTPException(status_code=404, detail="No such open Terminal session of yours")
+    return row
+
+
+def _daemon(op, user, **args):
+    from app.core import privileged
+
+    try:
+        return privileged.run(op, user=user["username"], timeout=300, **args)
+    except DaemonError as e:
+        raise privileged.http_error(e) from None
+
+
+@router.post("/sessions/{sid}/tools/tofu")
+def install_tofu(sid: str, user: dict = Depends(get_current_user)):
+    """From the session itself (`hl tofu`) or the console: OpenTofu into the session's home."""
+    _own_open_session(sid, user)
+    done = _daemon("workbench.install_tofu", user, sid=sid)
+    log_action(user["username"], "terminal_tool", sid, "success", done["installed"])
+    return {"message": f"{done['installed']} installed in {done['path']}", **done}
+
+
+@router.post("/sessions/{sid}/files", status_code=201)
+async def upload(sid: str, request: Request, path: str, user: dict = Depends(get_current_user)):
+    """The request's body, as is, into `path` of the home (20 MB at most)."""
+    import base64
+
+    from fastapi.concurrency import run_in_threadpool
+
+    _own_open_session(sid, user)
+    body = await request.body()
+    if len(body) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="At most 20 MB per file")
+    done = await run_in_threadpool(_daemon, "workbench.file_put", user, sid=sid, path=path,
+                                   data=base64.b64encode(body).decode())  # fmt: skip
+    log_action(user["username"], "terminal_upload", sid, "success", f"{done['path']} ({done['size']} bytes)")
+    return done
+
+
+@router.get("/sessions/{sid}/files")
+def download(sid: str, path: str, user: dict = Depends(get_current_user)):
+    import base64
+
+    from fastapi.responses import Response
+
+    _own_open_session(sid, user)
+    got = _daemon("workbench.file_get", user, sid=sid, path=path)
+    log_action(user["username"], "terminal_download", sid, "success", path)
+    safe = "".join(c for c in got["name"] if c.isalnum() or c in "._-") or "file"
+    return Response(base64.b64decode(got["data"]), media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{safe}"'})  # fmt: skip
