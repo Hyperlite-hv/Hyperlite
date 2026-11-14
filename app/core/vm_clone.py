@@ -56,6 +56,10 @@ def check(conn, name, new_name):
         pass
     else:
         raise CloneError("in_use", f"A VM '{new_name}' already exists")
+    from app.core import recycle_bin
+
+    if recycle_bin.holds(new_name):
+        raise CloneError("in_use", f"A VM '{new_name}' is in the recycle bin")
     if domain.isActive():
         raise CloneError("in_use", "Stop the VM before cloning it")
 

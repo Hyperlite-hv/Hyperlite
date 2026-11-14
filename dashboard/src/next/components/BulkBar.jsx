@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { MoveHorizontal, Play, Power, RotateCcw, Square, Trash2, X } from "lucide-react";
-import { migrateVM } from "../../api/client";
+import { MoveHorizontal, Play, Power, RotateCcw, Square, Tag, Trash2, X } from "lucide-react";
+import { fetchMeta, migrateVM, saveMeta } from "../../api/client";
+import { promptText } from "../../store/usePromptStore";
+import { useMetaStore } from "../lib/meta";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT } from "../i18n";
@@ -99,6 +101,20 @@ export default function BulkBar({ selected, caps, nodes, onClear, bare = false }
     );
   };
 
+  // Tags on every selected VM at once: added to its own tags, its notes kept.
+  async function tagAll() {
+    const tag = (await promptText({ title: t("bulk.tag.title", { n: selected.length }), label: t("bulkn.tag.label") }))?.trim().toLowerCase();
+    if (!tag) return;
+    setBusy("tag");
+    const { failed } = await runBulk(selected, async (vm) => {
+      const meta = await fetchMeta("vm", vm.name, vm.node);
+      if (!meta.tags.includes(tag)) await saveMeta("vm", vm.name, { notes: meta.notes, tags: [...meta.tags, tag] }, vm.node);
+    });
+    setBusy(null);
+    pushToast({ kind: failed.length ? "warning" : "success", title: t("bulkc.done", { ok: selected.length - failed.length, n: selected.length }), message: failed.map(({ item, error }) => `${item.name}: ${errorMessage(error)}`).join("\n") || undefined });
+    useMetaStore.getState().load?.();
+  }
+  const tagButton = caps.admin && selected.length > 0 && <button type="button" className={`nx-btn${bare ? "" : " nx-btn--sm"}`} disabled={busy != null} onClick={tagAll}><Tag size={bare ? 16 : 14} aria-hidden="true" />{t("bulkn.tag")}</button>;
   const migrateDialog = migrating && (
         <BulkMigrateDialog vms={splitSelection("migrate", selected, caps).apply} nodes={nodes} onClose={() => setMigrating(false)}
           onPick={(target) => {
@@ -114,6 +130,7 @@ export default function BulkBar({ selected, caps, nodes, onClear, bare = false }
         {["start", "restart", "stop", "force-stop"].map(button)}
         {caps.delete && button("delete")}
         {caps.admin && nodes.length > 1 && button("migrate")}
+        {tagButton}
         {busy && <span className="nx-muted" role="status">{t("bulk.running", { action: t(`bulk.${busy}.label`) })}</span>}
         {migrateDialog}
       </>
@@ -126,6 +143,7 @@ export default function BulkBar({ selected, caps, nodes, onClear, bare = false }
         {["start", "stop", "restart", "force-stop"].map(button)}
         {caps.admin && nodes.length > 1 && button("migrate")}
         {caps.delete && button("delete")}
+        {tagButton}
       </div>
       <span className="nx-sp" />
       <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={onClear} disabled={busy != null}><X size={14} aria-hidden="true" />{t("bulk.clear")}</button>

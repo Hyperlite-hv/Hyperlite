@@ -48,8 +48,16 @@ def refuse_unallowed(payload, user):
     )
     if refusal:
         raise HTTPException(status_code=403, detail=refusal)
-    from app.core import guardrails
+    from app.core import guardrails, object_meta, vault
 
+    try:
+        payload.password = vault.resolve(user, payload.password)  # `vault:<name>`: read from the vault
+    except vault.VaultError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+    try:
+        payload.tags = object_meta.normalize_tags(payload.tags)
+    except object_meta.MetaError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     broken = guardrails.creation_refusal(
         payload.name,
         payload.vcpu,
@@ -58,6 +66,7 @@ def refuse_unallowed(payload, user):
         [payload.storage_pool or "default"],
         [payload.network],
         payload.resource_pool,
+        payload.tags,
     )
     if broken:
         raise HTTPException(status_code=422, detail=broken)
@@ -191,6 +200,10 @@ def _create_vm(payload, user, pending=frozenset(), check_only=False, task_id=Non
         set_vm_auto_cleanup(payload.name, payload.auto_cleanup_days)
     if payload.resource_pool is not None:
         perm.add_pool_member(payload.resource_pool, payload.name)
+    if payload.tags:
+        from app.core import object_meta
+
+        object_meta.put("vm", payload.name, "", payload.tags)
     log_action(user["username"], "create_vm", payload.name, "success", task_id=task_id)
     conn = open_conn(readonly=True)
     try:

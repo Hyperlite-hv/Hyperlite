@@ -109,6 +109,10 @@ def rename(conn, domain, old, new, node=None):
         raise RenameError("in_use", f"A VM named '{new}' already exists")
     except libvirt.libvirtError:
         pass
+    from app.core import recycle_bin
+
+    if recycle_bin.holds(new):
+        raise RenameError("in_use", f"A VM named '{new}' is in the recycle bin")
     if domain.isActive():
         raise RenameError("in_use", "Stop the VM before renaming it")
     if domain.snapshotNum(0) > 0:

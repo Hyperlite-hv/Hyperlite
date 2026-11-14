@@ -132,7 +132,13 @@ def _rule(row):
 
 def rules():
     with get_conn() as db:
-        return {r["scope"]: _rule(r) for r in db.execute("SELECT * FROM guardrails")}
+        found = {r["scope"]: _rule(r) for r in db.execute("SELECT * FROM guardrails")}
+        for r in db.execute("SELECT scope, required_tags FROM guardrail_tags"):
+            found.setdefault(r["scope"], {"scope": r["scope"], **dict.fromkeys(RULE_FIELDS)})
+            found[r["scope"]]["required_tags"] = json.loads(r["required_tags"] or "[]")
+    for rule in found.values():
+        rule.setdefault("required_tags", [])
+    return found
 
 
 def set_rule(scope, rule, username):
@@ -147,7 +153,21 @@ def set_rule(scope, rule, username):
         json.dumps(sorted(set(rule[f]))) if f in ("storage_pools", "networks") and rule.get(f) else rule.get(f) or None
         for f in RULE_FIELDS
     ]
+    from app.core import object_meta
+
+    try:
+        required = object_meta.normalize_tags(rule.get("required_tags") or [])
+    except object_meta.MetaError as e:
+        raise ValueError(str(e)) from None
     with get_conn() as db:
+        if required:
+            db.execute(
+                "INSERT INTO guardrail_tags (scope, required_tags) VALUES (?, ?) ON CONFLICT(scope) DO UPDATE SET "
+                "required_tags = excluded.required_tags",
+                (scope, json.dumps(required)),
+            )
+        else:
+            db.execute("DELETE FROM guardrail_tags WHERE scope = ?", (scope,))
         if all(v is None for v in values):
             db.execute("DELETE FROM guardrails WHERE scope = ?", (scope,))
         else:
@@ -167,13 +187,18 @@ def set_rule(scope, rule, username):
 def forget_pool(pool_id):
     with get_conn() as db:
         db.execute("DELETE FROM guardrails WHERE scope = ?", (f"pool:{pool_id}",))
+        db.execute("DELETE FROM guardrail_tags WHERE scope = ?", (f"pool:{pool_id}",))
         db.execute("DELETE FROM pool_envelopes WHERE pool_id = ?", (str(pool_id),))
         db.commit()
 
 
-def creation_refusal(name, vcpu, memory_mb, disk_gb, storage_pools, networks, pool_id=None):
-    """Why a new VM breaks a guardrail of the cluster or of its pool, or an envelope of its pool, or None."""
+def creation_refusal(name, vcpu, memory_mb, disk_gb, storage_pools, networks, pool_id=None, tags=()):
+    """Why a new VM breaks a guardrail of the cluster or of its pool, or an envelope of its pool, or None. `tags`: the
+    tags it is created with; it also carries those of its pool."""
+    from app.core import object_meta
+
     held = rules()
+    tags = set(tags) | (set(object_meta.get("pool", str(pool_id))["tags"]) if pool_id is not None else set())
     for scope in ("cluster", f"pool:{pool_id}" if pool_id is not None else None):
         rule = held.get(scope) if scope else None
         if not rule:
@@ -187,6 +212,9 @@ def creation_refusal(name, vcpu, memory_mb, disk_gb, storage_pools, networks, po
             return f"{memory_mb} MB of memory: {where} allows {rule['max_memory_mb']} MB at most per VM"
         if rule["max_disk_gb"] and disk_gb > rule["max_disk_gb"]:
             return f"{disk_gb} GB of disk: {where} allows {rule['max_disk_gb']} GB at most per VM"
+        missing = [t for t in rule.get("required_tags") or [] if t not in tags]
+        if missing:
+            return f"{where} requires the tag{'s' if len(missing) > 1 else ''} {', '.join(missing)} on every new VM"
         for kind, chosen, allowed in (
             ("storage pool", storage_pools, rule["storage_pools"]),
             ("network", networks, rule["networks"]),

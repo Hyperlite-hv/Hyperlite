@@ -96,7 +96,11 @@ def get_meta(kind: str, name: str, node: str | None = None, user: dict = Depends
     _kind(kind)
     if not _allowed(user, kind, name, edit=False):
         raise HTTPException(status_code=403, detail="Insufficient rights on this object")
-    return object_meta.get(kind, name, node)
+    found = object_meta.get(kind, name, node)
+    if kind == "vm" and (node in (None, "local")):
+        # The tags it carries from its pools (a dynamic pool included), shown apart from its own.
+        found["inherited_tags"] = [t for t in object_meta.effective_tags("vm", name) if t not in found["tags"]]
+    return found
 
 
 @router.put("/{kind}/{name}")
