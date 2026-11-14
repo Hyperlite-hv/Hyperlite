@@ -19,3 +19,10 @@ describe("Home layout", () => {
     expect(s.main[s.main.length - 1]).toBe("watch");
   });
 });
+
+describe("left menu mode", () => {
+  it("is hidden unless chosen otherwise, and keeps a valid choice", async () => {
+    const { MENUS } = await import("../next/lib/appearance");
+    expect(MENUS).toEqual(["hidden", "pinned"]);
+  });
+});

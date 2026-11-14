@@ -41,7 +41,10 @@ export default function TerminalView({ getUrl, visible, label, onEnded }) {
         tm.onResize(({ cols, rows }) => { if (ws.current?.readyState === WebSocket.OPEN) ws.current.send("\x00" + JSON.stringify({ cols, rows })); });
       }
       const tm = term.current;
-      const sock = new WebSocket(wsUrl(path));
+      fitRef.current?.fit();
+      // The terminal's own size from the start: attached at 80x24 then resized, tmux left a stray cursor on screen.
+      const sized = `${path}${path.includes("?") ? "&" : "?"}cols=${tm.cols}&rows=${tm.rows}`;
+      const sock = new WebSocket(wsUrl(sized));
       ws.current = sock;
       sock.onopen = () => { attempts.current = 0; setStatus("connected"); setError(null); fitRef.current?.fit(); sock.send("\x00" + JSON.stringify({ cols: tm.cols, rows: tm.rows })); };
       sock.onmessage = (ev) => tm.write(ev.data);
