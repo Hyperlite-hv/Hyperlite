@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCached } from "../lib/useCached";
+import { useRef, useState } from "react";
 import { fetchTemplates, deployTemplate, deleteTemplate, renameTemplate } from "../../api/client";
 import { askNewName } from "../lib/rename";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -89,16 +90,13 @@ export default function TemplatesPanel() {
   const pushToast = useInfraStore((s) => s.pushToast);
   const refreshAll = useInfraStore((s) => s.refreshAll);
   const vms = useInfraStore((s) => s.vms);
-  const [items, setItems] = useState(null);
-  const [error, setError] = useState(null);
+  const cached = useCached("templates", async () => { const r = await fetchTemplates(); return Array.isArray(r) ? r : []; });
+  const items = cached.data;
+  const error = cached.error ? errorMessage(cached.error) : null;
   const [busy, setBusy] = useState(null);
   const [bulk, setBulk] = useState(null);
 
-  const reload = useCallback(async () => {
-    try { const r = await fetchTemplates(); setItems(Array.isArray(r) ? r : []); setError(null); }
-    catch (e) { setError(errorMessage(e)); }
-  }, []);
-  useEffect(() => { reload(); }, [reload]);
+  const reload = cached.reload;
 
   const ctx = useContextTarget(); // right click on a template: its actions
   async function deploy(tpl) {

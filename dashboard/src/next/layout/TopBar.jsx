@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Bell, Menu as MenuIcon, Search, Settings } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -11,13 +11,14 @@ import { useFreshness } from "../lib/inventory";
 import Menu, { MenuItem } from "../components/Menu";
 import CreateVmWizard from "../wizard/CreateVmWizard";
 import CreateContainerWizard from "../wizard/CreateContainerWizard";
-import UpdateDialog from "../components/UpdateDialog";
 import AccountSecurityModal from "../../components/AccountSecurityModal";
 import ChangePasswordDrawer from "../components/ChangePasswordDrawer";
 import PreferencesDrawer from "../components/PreferencesDrawer";
 import EnclaveMark from "../../components/EnclaveMark";
 import { useEnvironmentLabel } from "../lib/environment";
 import NotificationsPanel from "./NotificationsPanel";
+import { useFeed } from "../lib/feed";
+import { usePolling } from "../lib/polling";
 
 // The operations running now: the cluster's tasks, plus the ones this tab started that the server has not listed yet.
 export function useRunningOps() {
@@ -65,14 +66,13 @@ function AccountMenu({ dialog, setDialog }) {
         <div className="nx-menu-label">{t("top.theme")}</div>
         {["system", "light", "dark"].map((m) => <MenuItem key={m} onSelect={() => setMode(m)}>{t(`top.theme.${m}`)}{mode === m ? " ✓" : ""}</MenuItem>)}
         <hr />
-        {caps.admin && <MenuItem onSelect={() => open("update")}>{t("top.updates")}</MenuItem>}
+        {caps.admin && <MenuItem onSelect={() => { setMenu(false); useInfraStore.getState().navigateTo("datacenter", null, "updates"); }}>{t("top.updates")}</MenuItem>}
         {authSource !== "sso" && authSource !== "ldap" && <MenuItem onSelect={() => open("password")}>{t("pw.changeMenu")}</MenuItem>}
         <MenuItem onSelect={() => open("security")}>{t("top.security")}</MenuItem>
         <MenuItem onSelect={() => open("prefs")}>{t("prefs.menu")}</MenuItem>
         <hr />
         <MenuItem danger onSelect={logout}>{t("top.signout")}</MenuItem>
       </Menu>
-      {dialog === "update" && <UpdateDialog onClose={() => setDialog(null)} />}
       <AccountSecurityModal open={dialog === "security"} onClose={() => setDialog(null)} triggerRef={btn} />
       <ChangePasswordDrawer open={dialog === "password"} onClose={() => setDialog(null)} />
       <PreferencesDrawer open={dialog === "prefs"} onClose={() => setDialog(null)} />
@@ -87,13 +87,29 @@ export default function TopBar({ onOpenPalette, onToggleNavigator, wizards, setW
   const navigateTo = useInfraStore((s) => s.navigateTo);
   const [panel, setPanel] = useState(false);
   const [dialog, setDialog] = useState(null); // update | security | password | prefs
+  useEffect(() => { // the command palette opens the preferences too
+    const open = () => setDialog("prefs");
+    window.addEventListener("nx:prefs", open);
+    return () => window.removeEventListener("nx:prefs", open);
+  }, []);
   const bellBtn = useRef(null);
   const menuBtn = useRef(null);
   const env = useEnvironmentLabel();
   const ops = useRunningOps();
   const alerts = useAlerts();
   const health = summarizeHealth(alerts);
-  const count = ops.length + health.total;
+  const { unread, fresh, load: loadFeed } = useFeed();
+  usePolling(loadFeed, 30000);
+  useEffect(() => { loadFeed(); }, [loadFeed]);
+  // Each new entry once, as a toast: the bell keeps it until it is read.
+  useEffect(() => {
+    for (const e of fresh.slice(0, 3)) {
+      const k = `nf.${e.kind}`; const v = t(k, { subject: e.subject || "" });
+      useInfraStore.getState().pushToast({ kind: e.level === "error" ? "error" : e.level === "warning" ? "warning" : "info", title: v === k ? e.title : v, message: e.detail || "" });
+    }
+  }, [fresh, t]);
+  // The bell counts what is unread and what is critical now, not the routine operations.
+  const count = unread + (health.critical ? 1 : 0);
 
   return (
     <header className="hc-top">
@@ -113,7 +129,7 @@ export default function TopBar({ onOpenPalette, onToggleNavigator, wizards, setW
         </button>
       </div>
       <button ref={bellBtn} type="button" className="hc-hb" onClick={() => setPanel(true)} aria-haspopup="dialog" aria-expanded={panel}
-        aria-label={count > 0 ? `${count} · ${t("notif.title")} — ${t("top.opsLabel", { n: ops.length })}, ${t("top.alertsLabel", { n: health.total })}` : t("notif.title")} title={t("notif.title")}>
+        aria-label={`${t("notif.title")} — ${t("nf.unreadLabel", { n: unread })}, ${t("top.opsLabel", { n: ops.length })}, ${t("top.alertsLabel", { n: health.total })}`} title={t("notif.title")}>
         <Bell size={18} aria-hidden="true" />
         {count > 0 && <span className="hc-dot" data-tone={health.critical ? "danger" : undefined}>{count}</span>}
       </button>

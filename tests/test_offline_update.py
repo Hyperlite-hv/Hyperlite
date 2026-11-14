@@ -209,7 +209,7 @@ def test_the_update_uses_the_file_packages_only(node, database, monkeypatch):
     monkeypatch.setattr(update, "_dpkg_installed_version", lambda: next(versions))
     monkeypatch.setattr(update.version, "STARTUP_VERSION", "1.0.0")
     monkeypatch.setattr(update, "_backup", lambda task_id: tmp / "backup.tar.gz")
-    monkeypatch.setattr(update, "_keep_previous", lambda task_id: None)
+    monkeypatch.setattr(update, "_keep_previous", lambda task_id, apt_opts=(): None)
     monkeypatch.setattr(update, "_apt_update_with_retry", lambda **k: pytest.fail("the network is not used"))
     monkeypatch.setattr(
         update, "_run_c", lambda cmd, **k: apt_runs.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
@@ -220,7 +220,8 @@ def test_the_update_uses_the_file_packages_only(node, database, monkeypatch):
     task_id = create_task("hyperlite_update", "hyperlite", username="alice")
     update._run_update_job_apt(task_id, "alice", True, True)
     with database.get_conn() as conn:
-        assert conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()[0] == "succeeded"
+        row = conn.execute("SELECT status, error FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        assert row[0] == "succeeded", row[1]
     local = f"Dir::Etc::sourcelist={offline_update.WORK_DIR / 'local.list'}"
     assert local in apt_runs[0] and apt_runs[0][-1] == "update"
     full, install = commands

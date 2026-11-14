@@ -33,7 +33,16 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app.core import host_system, node_files, offline_update, paths, version
+from app.core import (
+    host_system,
+    node_files,
+    notification_feed,
+    offline_update,
+    paths,
+    update_preflight,
+    update_runs,
+    version,
+)
 from app.core.audit import log_action
 from app.core.database import DB_PATH, access_path
 from app.core.http_safety import require_http_url
@@ -546,6 +555,10 @@ def check_update(lang: str = "en", user: dict = Depends(require_role("admin"))):
         previous = _previous()
         result["previous"] = previous["version"] if previous else None
         result["channel"] = host_system.channel()
+        if user and user.get("username"):  # a check asked from the console: the Updates page shows it from now on
+            from app.core import update_check
+
+            update_check.remember(result)
         return result
 
     branch = _current_branch()
@@ -756,35 +769,66 @@ def _system_summary():
     }
 
 
+def _apt_progress(task_id, run_id, step_id):
+    """The line handler of an apt-get run with APT::Status-Fd=1: its status lines move the step's measured percentage
+    (and the task's), every other line goes to the task's log."""
+    last = {"pct": -1}
+
+    def on_line(line):
+        status = update_runs.parse_status(line)
+        if status is None:
+            task_log(task_id, line)
+            return
+        _kind, pct, text = status
+        if int(pct) != last["pct"] and run_id:
+            last["pct"] = int(pct)
+            update_runs.step(run_id, step_id, "running", detail=text, progress=pct)
+            update_task_progress(task_id, pct)
+
+    return on_line
+
+
+STATUS_FD = ["-o", "APT::Status-Fd=1"]
+
+
 def _run_update_job_apt(task_id, username, system=True, offline=False):
     """The node's update. offline: from the update file received by POST /update/offline (app/core/offline_update.py)
-    instead of the repositories: its packages only, no network."""
+    instead of the repositories: its packages only, no network. Each step is written to the run
+    (app/core/update_runs.py); only APT's own measures give a percentage."""
     log_file = BACKUP_DIR / "update.log"
+    run = update_runs.by_task(task_id)
+    run_id = run["id"] if run else None
 
-    def step(pct, message):
-        update_task_progress(task_id, pct)
+    def step(step_id, message):
+        if run_id:
+            update_runs.step(run_id, step_id, "running", detail=message)
+        update_task_progress(task_id, 0)  # no measure for this step: 0 is shown as an activity, not a number
         log_action(username, "hyperlite_update_step", message, "success")
 
     old_version = _dpkg_installed_version()
     try:
-        step(5, "Backing up the current state (code + config + database)")
+        step("preflight", "Checking the node before updating")
+        checks = update_preflight.run(old_version, run.get("to_version") if run else None)
+        blocked = update_preflight.blocking(checks)
+        if blocked:
+            raise RuntimeError("; ".join(f"{c['id']}: {c['detail'] or 'blocking'}" for c in blocked))
+
+        step("backup", "Backing up the current state (code + config + database)")
         tarball = _backup(task_id)
         _stage_watchdog()
 
         apt_opts, apt_env, package = [], [], None
         if offline:
-            step(15, "Checking the update file and extracting it")
+            step("index", "Checking the update file and extracting it")
             new_file_version, package, bundle = offline_update.extract()
             task_log(task_id, f"Update file of Hyperlite {new_file_version}, signature and checksums verified")
             apt_opts = offline_update.local_apt_options(bundle)
-            step(20, "Reading the packages of the update file")
             upd = _run_c(["apt-get", *apt_opts, "update"], timeout=120)
         else:
-            step(20, "Updating the APT index")
+            step("index", "Updating the APT index")
             # See _apt_update_with_retry above: the repository is served directly by nginx
             # (no CDN), so a modest retry is now enough. Slightly more patient than
-            # /update/check since this is a background task (the user already sees a progress
-            # bar).
+            # /update/check since this is a background task (the user already sees its steps).
             upd = _apt_update_with_retry(attempts=6, delay_s=10, timeout=30)
         if upd is None or upd.returncode != 0:
             detail = upd.stderr.strip()[:400] if upd is not None else "timed out"
@@ -793,65 +837,72 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
         rolled_back = bool(version.STARTUP_VERSION and old_version and old_version != version.STARTUP_VERSION)
         if not rolled_back:
             _keep_previous(task_id, apt_opts)
-        if rolled_back and not offline:
-            # After a rollback the package is already "installed" at the version that did not start: reinstall it.
-            step(35, "Installing Hyperlite again (the last update was rolled back)")
+
+        def apt(step_id, args, env=()):
             code = host_system.run_upgrade(
-                _apt_command(["install", "--reinstall", "hyperlite"]), lambda line: task_log(task_id, line)
+                _apt_command([*STATUS_FD, *args], env), _apt_progress(task_id, run_id, step_id)
             )
             if code != 0:
-                raise RuntimeError(f"apt-get install exited with {code}: see the task log")
-        if offline:
-            step(40, "Installing the packages of the update file")
-            if system:
-                code = host_system.run_upgrade(
-                    _apt_command([*apt_opts, "full-upgrade"], apt_env), lambda line: task_log(task_id, line)
+                raise RuntimeError(
+                    f"apt-get {' '.join(a for a in args if not a.startswith('-'))[:80]} exited with {code}: see the task log"
                 )
-                if code != 0:
-                    raise RuntimeError(f"apt-get full-upgrade exited with {code}: see the task log")
+
+        if offline:
+            step("install", "Installing the packages of the update file")
+            if system:
+                apt("install", [*apt_opts, "full-upgrade"], apt_env)
             # The package from the file (its dependencies from the bundle); again after a rolled back update.
-            install = [*apt_opts, "install", *(["--reinstall"] if rolled_back else []), str(package)]
-            code = host_system.run_upgrade(_apt_command(install, apt_env), lambda line: task_log(task_id, line))
-            if code != 0:
-                raise RuntimeError(f"apt-get install exited with {code}: see the task log")
-        elif system:
-            # One update for the whole node: Hyperlite and every Debian package (docs/design/updates-1.0.md).
-            step(40, "Installing the updates of Hyperlite and Debian (apt-get full-upgrade)")
-            code = host_system.run_upgrade(_full_upgrade_command(), lambda line: task_log(task_id, line))
-            if code != 0:
-                raise RuntimeError(f"apt-get full-upgrade exited with {code}: see the task log")
+            apt("install", [*apt_opts, "install", *(["--reinstall"] if rolled_back else []), str(package)], apt_env)
         else:
-            # As the full upgrade: no time limit, which killed apt-get in the middle of dpkg on a loaded node (a new
-            # dependency still unpacking after 300 s), leaving packages unpacked and not configured. The output goes
-            # to the task's log, and apt-get runs in a unit of its own (_apt_command).
-            step(40, "Installing the new version (apt-get install)")
-            code = host_system.run_upgrade(
-                _apt_command(["install", "--only-upgrade", "hyperlite"]), lambda line: task_log(task_id, line)
-            )
-            if code != 0:
-                raise RuntimeError(f"apt-get install exited with {code}: see the task log")
+            # Everything is fetched before anything is installed: a download cut by the network installs nothing, and
+            # APT resumes its partial files on the next attempt.
+            if rolled_back:
+                # After a rollback the package is already "installed" at the version that did not start: reinstall it.
+                args = ["install", "--reinstall", "hyperlite"]
+            elif system:
+                # One update for the whole node: Hyperlite and every Debian package (docs/design/updates-1.0.md).
+                args = ["full-upgrade"]
+            else:
+                args = ["install", "--only-upgrade", "hyperlite"]
+            step("download", "Downloading the packages")
+            apt("download", ["--download-only", *args])
+            if run_id:
+                update_runs.step(run_id, "download", "done")
+            # No time limit, which killed apt-get in the middle of dpkg on a loaded node (a new dependency still
+            # unpacking after 300 s), leaving packages unpacked and not configured. The output goes to the task's log,
+            # and apt-get runs in a unit of its own (_apt_command).
+            step("install", "Installing the packages")
+            apt("install", args)
         new_version = _dpkg_installed_version()
-        if host_system.REBOOT_REQUIRED.exists():
+        reboot = host_system.REBOOT_REQUIRED.exists()
+        if run_id:
+            update_runs.step(run_id, "install", "done")
+            update_runs.set_target(run_id, new_version)
+        if reboot:
             task_log(task_id, "A reboot of the node is needed to use some of the new packages")
             log_action(username, "host_reboot_required", "host", "success", "after an update")
         if offline:
             offline_update.discard()  # applied: half a gigabyte less on the node
         if new_version == old_version and not rolled_back:
             # Only Debian packages changed: Hyperlite keeps running, nothing to restart or watch.
+            if run_id:
+                update_runs.succeed_without_restart(run_id, reboot)
             finish_task(task_id, "succeeded")
             log_action(username, "hyperlite_update", f"Debian packages updated, Hyperlite {new_version}", "success")
             return
 
-        step(85, "Checking the database schema (no migration required)")
-        step(90, "Restarting the service and post-update verification")
         log_action(username, "hyperlite_update_step", f"{old_version} -> {new_version}", "success")
+        if run_id:
+            update_runs.verifying(run_id, reboot)
 
         # The same safety net as the Git path: a detached watchdog BEFORE the restart
         # (it survives the death of this process), which verifies that the new code starts
-        # correctly and restores the tarball otherwise.
+        # correctly and puts the previous version back otherwise. Its verdict closes the run at the next start.
         _spawn_outside_service("hyperlite-update-watchdog", _watchdog_argv(tarball, log_file, new_version, _previous()))
         _spawn_outside_service("hyperlite-update-restart", ["bash", "-c", "sleep 2 && systemctl restart hyperlite"])
 
+        # The task is the job's: it ends here. The update itself is over once the new version answers, which the
+        # run says (verifying, then succeeded or rolled back).
         finish_task(task_id, "succeeded")
         log_action(username, "hyperlite_update", f"{old_version} -> {new_version}", "success")
 
@@ -862,6 +913,8 @@ def _run_update_job_apt(task_id, username, system=True, offline=False):
         # state stay inconsistent anyway.
         if offline:
             offline_update.clean_extracted()  # the received file stays, to try again
+        if run_id:
+            update_runs.fail(run_id, str(exc))
         finish_task(task_id, "failed", str(exc))
         log_action(username, "hyperlite_update", str(exc), "failed")
 
@@ -948,9 +1001,47 @@ def apply_update(payload: ApplyRequest | None = None, user: dict = Depends(requi
         return _start_update(user, payload.system if payload else True)
 
 
+def _candidate():
+    """The version APT would install, from its lists as they are (no network)."""
+    try:
+        policy = _run_c(["apt-cache", "policy", "hyperlite"], timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for line in policy.stdout.splitlines():
+        if line.strip().startswith("Candidate:"):
+            value = version.without_epoch(line.split(":", 1)[1].strip())
+            return None if value in ("(none)", "") else value
+    return None
+
+
+def _refuse_if_blocked(installed, target):
+    """409 with the checks when one of them blocks the update (docs/design/updates-2.md, 2.2)."""
+    checks = update_preflight.run(installed, target)
+    blocked = update_preflight.blocking(checks)
+    if blocked:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "The node is not ready for an update: " + "; ".join(c["detail"] or c["id"] for c in blocked),
+                "checks": checks,
+            },
+        )
+
+
+def _begin(task_id, kind, from_version, to_version, system, user):
+    run_id = update_runs.begin(task_id, kind, from_version, to_version, system, user["username"])
+    notification_feed.update_started(update_runs.get(run_id))
+    return run_id
+
+
 def _start_update(user, system=True):
     if _install_method() == "apt":
+        # Compared with the installed package, as the rest of the update does; the run says the version that runs.
+        installed = _dpkg_installed_version()
+        target = _candidate()
+        _refuse_if_blocked(installed, target if target != installed else None)
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
+        _begin(task_id, "online", version.STARTUP_VERSION or installed, target, system, user)
         _start_job(user, "apt", task_id, system)
         return {"task_id": task_id, "status": "running"}
 
@@ -975,11 +1066,16 @@ def _run_rollback_job(task_id, username, previous):
     database). The task ends before: the service stops with it."""
     log_file = BACKUP_DIR / "update.log"
     old_version = _dpkg_installed_version()
+    run = update_runs.by_task(task_id)
+    run_id = run["id"] if run else None
     try:
-        update_task_progress(task_id, 5)
+        if run_id:
+            update_runs.step(run_id, "backup", "running", detail="Backing up the current state")
         tarball = _backup(task_id)
         _stage_watchdog()
-        update_task_progress(task_id, 90)
+        if run_id:
+            update_runs.step(run_id, "backup", "done")
+            update_runs.verifying(run_id)
         task_log(task_id, f"The service stops, {previous['version']} is installed again, then the service starts")
         finish_task(task_id, "succeeded")
         log_action(username, "hyperlite_rollback", f"{old_version} -> {previous['version']}", "success")
@@ -990,6 +1086,8 @@ def _run_rollback_job(task_id, username, previous):
             _watchdog_argv(tarball, log_file, previous["version"], previous, now=True),
         )
     except Exception as exc:
+        if run_id:
+            update_runs.fail(run_id, str(exc))
         finish_task(task_id, "failed", str(exc))
         log_action(username, "hyperlite_rollback", str(exc), "failed")
 
@@ -1067,8 +1165,12 @@ def apply_offline_update(payload: ApplyRequest | None = None, user: dict = Depen
                 status_code=409,
                 detail=f"An update started by {running_for} is already running. Wait for it to finish.",
             )
+        installed = _dpkg_installed_version()
+        _refuse_if_blocked(installed, info["version"])
+        system = payload.system if payload else True
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
-        _start_job(user, "offline", task_id, payload.system if payload else True)
+        _begin(task_id, "file", version.STARTUP_VERSION or installed, info["version"], system, user)
+        _start_job(user, "offline", task_id, system)
     return {"task_id": task_id, "status": "running", "version": info["version"]}
 
 
@@ -1125,5 +1227,99 @@ def rollback_update(user: dict = Depends(require_role("admin"))):
                 detail=f"An update started by {running_for} is already running. Wait for it to finish.",
             )
         task_id = create_task("hyperlite_update", "hyperlite", node=None, username=user["username"])
+        _begin(
+            task_id, "rollback", version.STARTUP_VERSION or _dpkg_installed_version(), previous["version"], False, user
+        )
         _start_job(user, "rollback", task_id)
     return {"task_id": task_id, "status": "running", "version": previous["version"]}
+
+
+# ---- The Updates page (docs/design/updates-2.md): state, runs, checks and settings ----
+
+
+class UpdateSettings(BaseModel):
+    check_interval_h: int
+
+
+def _watchdog_log_tail(lines=60):
+    path = WATCHDOG_STAGE.parent / "update.log"
+    try:
+        return path.read_text(errors="replace").splitlines()[-lines:]
+    except OSError:
+        return []
+
+
+@router.get("/status")
+def update_status(user: dict = Depends(require_role("admin"))):
+    """Everything the Updates page shows at a glance: the versions, the last check (kept, the mirror is not contacted
+    here), the run in progress with its steps, the last run, the settings."""
+    from app.core import update_check
+
+    runs = update_runs.history(1)
+    return {
+        "installed": version.STARTUP_VERSION or _dpkg_installed_version(),
+        "install_method": _install_method(),
+        "channel": host_system.channel() if _install_method() == "apt" else None,
+        "previous": (_previous() or {}).get("version"),
+        "last_check": update_check.last_result(),
+        "check_interval_h": update_check.interval_h(),
+        "current": update_runs.current(),
+        "last_run": runs[0] if runs else None,
+        "reboot_required": host_system.REBOOT_REQUIRED.exists(),
+    }
+
+
+@router.get("/history")
+def update_history(limit: int = 30, user: dict = Depends(require_role("admin"))):
+    return {"items": update_runs.history(max(1, min(limit, 100)))}
+
+
+@router.get("/runs/{run_id}")
+def update_run(run_id: int, user: dict = Depends(require_role("admin"))):
+    """One run, its steps, and the technical log: the job's lines and, for a run that restarted the service, the end of
+    the watchdog's log."""
+    from app.core.tasks import get_task_log
+
+    run = update_runs.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="No such update run")
+    log = (
+        [
+            entry.get("message", "") if isinstance(entry, dict) else str(entry)
+            for entry in (get_task_log(run["task_id"]) or [])
+        ]
+        if run["task_id"]
+        else []
+    )
+    restarted = any(s["id"] == "restart" and s["status"] in ("running", "done") for s in run["steps"])
+    return {**run, "log": log[-400:], "watchdog_log": _watchdog_log_tail() if restarted else []}
+
+
+@router.get("/preflight")
+def update_preflight_checks(user: dict = Depends(require_role("admin"))):
+    """The checks an update would run now (docs/design/updates-2.md, 2.2): blocking ones stop it, warnings are said."""
+    installed = _dpkg_installed_version()
+    target = _candidate() if _install_method() == "apt" else None
+    checks = update_preflight.run(installed, target if target != installed else None, _update_in_progress())
+    return {"checks": checks, "blocking": bool(update_preflight.blocking(checks))}
+
+
+@router.get("/settings")
+def get_update_settings(user: dict = Depends(require_role("admin"))):
+    from app.core import update_check
+
+    return {"check_interval_h": update_check.interval_h(), "intervals": list(update_check.INTERVALS_H)}
+
+
+@router.put("/settings")
+def put_update_settings(payload: UpdateSettings, user: dict = Depends(require_role("admin"))):
+    from app.core import update_check
+
+    try:
+        hours = update_check.set_interval_h(payload.check_interval_h)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    log_action(
+        user["username"], "update_settings", "hyperlite", "success", f"check every {hours} h" if hours else "check off"
+    )
+    return {"check_interval_h": hours, "intervals": list(update_check.INTERVALS_H)}

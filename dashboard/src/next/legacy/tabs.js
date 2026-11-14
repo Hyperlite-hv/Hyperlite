@@ -3,7 +3,14 @@
 import { lazy } from "react";
 import { loadOrReload } from "../../lib/lazyRetry";
 
-const onDemand = (load, name = "default") => lazy(() => loadOrReload(load).then((m) => ({ default: m[name] })));
+// Each page's loader is kept, so a page can be fetched before it is opened: when the pointer or the focus reaches a
+// link to it (preloadPage), and the most used ones once the browser is idle (preloadCommon).
+const loaders = new Map();
+const onDemand = (load, name = "default") => {
+  const page = lazy(() => loadOrReload(load).then((m) => ({ default: m[name] })));
+  loaders.set(page, load);
+  return page;
+};
 
 const SecurityPage = onDemand(() => import("../pages/SecurityPage"));
 const SecuritySsoPage = onDemand(() => import("../pages/SecurityPage"), "SecuritySsoPage");
@@ -58,6 +65,7 @@ const VmConfigHistoryPage = onDemand(() => import("../pages/VmConfigHistory"));
 const VmSchedulesPage = onDemand(() => import("../pages/VmSchedules"));
 const VmRunCommandPage = onDemand(() => import("../pages/VmGuest"), "VmRunCommandPage");
 const MetricsPage = onDemand(() => import("../pages/MetricsPage"));
+const UpdatesPage = onDemand(() => import("../pages/UpdatesPage"));
 const TopologyPage = onDemand(() => import("../pages/TopologyPage"));
 const MetricsExplorer = onDemand(() => import("../pages/MetricsExplorer"));
 const ApiPage = onDemand(() => import("../pages/ApiPage"));
@@ -72,13 +80,13 @@ const NodeAdvisorPage = onDemand(() => import("../pages/AdvisorPage"), "NodeAdvi
 
 // The datacenter pages that draw their own header (the others get one from the workspace). Kept here because a page
 // that is not loaded yet cannot say so itself; src/__tests__/ownHeader.test.js checks it against the pages.
-export const OWN_HEADER = new Set(["activity", "advisor", "alerts", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "explorer", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "topology", "vms"]);
+export const OWN_HEADER = new Set(["activity", "advisor", "alerts", "all", "api", "automation", "backups", "cfs", "compat", "containers", "create", "drs", "explorer", "exports", "ha", "journal", "kubernetes", "library", "network", "nodes", "notifications", "perf", "permissions", "services", "sites", "snapshots", "sso", "storage", "summary", "templates", "topology", "updates", "vms"]);
 
 // Datacenter tabs are grouped by the new sections; every legacy `?tab=` id stays valid.
 export const DATACENTER_TABS = {
   summary: Home, services: ServicesPage, all: AllResourcesPage, create: CreatePage, perf: ClusterPerf, vms: VmList, snapshots: SnapshotsPage, activity: ActivityTasksPage, storage: StoragePage, templates: LibraryPage, library: LibraryPage, backups: BackupsPage,
   exports: ExportsPage, permissions: SecurityPage, network: NetworkPage, firewall: FirewallPage, automation: AutomationPage, containers: ContainersPage, kubernetes: KubernetesPage,
-  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, topology: TopologyPage, explorer: MetricsExplorer, api: ApiPage, cfs: CfsPage, sites: SitesPage, advisor: AdvisorPage, alerts: AlertRulesPage,
+  nodes: NodesPage, ha: HaPage, drs: DrsPage, compat: CompatibilityPage, notifications: NotificationsPage, sso: SecuritySsoPage, journal: ActivityJournalPage, metrics: MetricsPage, updates: UpdatesPage, topology: TopologyPage, explorer: MetricsExplorer, api: ApiPage, cfs: CfsPage, sites: SitesPage, advisor: AdvisorPage, alerts: AlertRulesPage,
 };
 export const NODE_TABS = {
   summary: NodeSummary, perf: NodePerformancePage, system: NodeSystemPage, updates: NodeUpdatesPage, network: NodeNetworkPage, disk: NodeDiskPage, tasks: ActivityPage, compat: NodeCompatPage, shell: NodeShellPage, advisor: NodeAdvisorPage,
@@ -143,4 +151,24 @@ export function locate(type, pageId) {
   const top = tabs.find((t) => t.pages.some((p) => p.page === pageId)) || tabs[0];
   const found = top.pages.find((p) => p.page === pageId) || top.pages[0];
   return { tabs, top, page: found.page };
+}
+
+const REGISTRIES = () => ({ datacenter: DATACENTER_TABS, vm: VM_TABS, node: NODE_TABS, container: CONTAINER_TABS });
+const preloaded = new Set();
+
+// Fetches a page's code ahead of its opening; a failure is left to the opening itself, which retries.
+export function preloadPage(type, tab) {
+  const page = REGISTRIES()[type]?.[tab];
+  const load = page && loaders.get(page);
+  if (!load || preloaded.has(load)) return;
+  preloaded.add(load);
+  load().catch(() => preloaded.delete(load));
+}
+
+// The pages nearly every session opens, fetched while the browser has nothing else to do.
+export function preloadCommon() {
+  const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500));
+  const list = [["datacenter", "vms"], ["vm", "summary"], ["datacenter", "nodes"], ["node", "summary"], ["datacenter", "storage"], ["datacenter", "activity"]];
+  const next = () => { const item = list.shift(); if (!item) return; preloadPage(...item); idle(next); };
+  idle(next);
 }

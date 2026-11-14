@@ -208,6 +208,15 @@ class SqliteTaskStore:
             conn.execute("DELETE FROM task_logs WHERE at < ?", (limit,))
             conn.commit()
 
+    def running_since(self, since):
+        """(type, target) of the tasks still running that started after `since`."""
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT type, target FROM tasks WHERE status = 'running' AND created_at > ? ORDER BY created_at",
+                (since,),
+            ).fetchall()
+        return [(r["type"], r["target"]) for r in rows]
+
     def latest_running(self, type_, since):
         """The username behind the newest running task of this type created after `since`, or None."""
         with get_conn() as conn:

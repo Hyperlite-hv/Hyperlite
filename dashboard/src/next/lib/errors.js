@@ -6,6 +6,7 @@ export function normalizeDetail(detail) {
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) return detail.map(normalizeDetail).filter(Boolean).join(" ; ");
   if (typeof detail === "object") {
+    if (typeof detail.message === "string") return detail.message; // a refusal that carries more (the update's checks)
     if (detail.msg) {
       const where = Array.isArray(detail.loc) ? detail.loc.filter((p) => p !== "body").join(".") : "";
       return where ? `${where}: ${detail.msg}` : detail.msg;

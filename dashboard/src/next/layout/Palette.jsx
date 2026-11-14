@@ -8,6 +8,11 @@ import { normalize } from "../lib/format";
 import { capabilities, vmActionState } from "../lib/capabilities";
 import { useVmActions } from "../lib/vmActions";
 import StatusIndicator from "../components/StatusIndicator";
+import { allowedServices, serviceLabel } from "../lib/services";
+import { GO } from "../lib/shortcuts";
+import { useThemeStore } from "../tokens/theme";
+
+const GO_KEY = Object.fromEntries(Object.entries(GO).map(([k, id]) => [id, k]));
 import { stateInfo } from "../lib/enums";
 
 // Command palette (Ctrl/Cmd+K): resources + actions + navigation, one keyboard-first listbox.
@@ -57,12 +62,17 @@ export default function Palette({ open, onClose, setWizards }) {
         }
       }
     }
+    // Every service this person may open, then the console's own settings.
     const go = [
-      ["tab.summary", () => navigateTo("datacenter", null, "summary")], ["tab.monitor", () => navigateTo("datacenter", null, "activity")],
-      ["tab.configure", () => navigateTo("datacenter", null, "nodes")], ["tab.permissions", () => navigateTo("datacenter", null, "permissions")],
-      ["tab.containers", () => navigateTo("datacenter", null, "containers")],
-    ].map(([k, run]) => ({ group: "cmd.group.go", id: `g:${k}`, label: `${t("inv.datacenter")} › ${t(k)}`, run }));
-    return [...res, ...actions.filter((a) => match(a.label)), ...go.filter((g) => match(g.label))];
+      { id: "summary", label: t("nav.overview") },
+      ...allowedServices({ admin: caps.admin, apiDocs: caps.admin }).map((svc) => ({ id: svc.id, label: t(serviceLabel(svc.id)) })),
+    ].map((g) => ({ group: "cmd.group.go", id: `g:${g.id}`, label: g.label, hint: GO_KEY[g.id] ? `g ${GO_KEY[g.id]}` : null, run: () => navigateTo("datacenter", null, g.id) }));
+    const settings = [
+      ...["system", "light", "dark"].map((m) => ({ group: "cmd.group.settings", id: `s:theme:${m}`, label: `${t("top.theme")} · ${t(`top.theme.${m}`)}`, run: () => useThemeStore.getState().setMode(m) })),
+      { group: "cmd.group.settings", id: "s:prefs", label: t("prefs.menu"), run: () => window.dispatchEvent(new CustomEvent("nx:prefs")) },
+      { group: "cmd.group.settings", id: "s:kbd", label: t("kbd.title"), hint: "?", run: () => window.dispatchEvent(new CustomEvent("nx:shortcuts")) },
+    ];
+    return [...res, ...actions.filter((a) => match(a.label)), ...go.filter((g) => match(g.label)), ...settings.filter((g) => match(g.label))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, nodes, vms, caps.create, caps.admin]);
 
