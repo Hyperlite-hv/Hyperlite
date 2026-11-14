@@ -818,6 +818,43 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # Protections, envelopes and guardrails (docs/design/access-2.md, sections 4 and 5): replicated, held by
+        # every node the same. Text keys: nothing to reserve from the cluster.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS resource_protections (
+                id TEXT PRIMARY KEY,
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm', 'container', 'pool', 'node')),
+                resource_id TEXT NOT NULL,
+                level TEXT NOT NULL CHECK(level IN ('keep', 'freeze')),
+                reason TEXT,
+                set_by TEXT,
+                set_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pool_envelopes (
+                pool_id TEXT PRIMARY KEY,
+                max_vms INTEGER,
+                max_vcpus INTEGER,
+                max_memory_mb INTEGER,
+                max_disk_gb INTEGER,
+                changed_by TEXT,
+                changed_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guardrails (
+                scope TEXT PRIMARY KEY,
+                name_pattern TEXT,
+                max_vcpu INTEGER,
+                max_memory_mb INTEGER,
+                max_disk_gb INTEGER,
+                storage_pools TEXT,
+                networks TEXT,
+                changed_by TEXT,
+                changed_at TEXT
+            )
+        """)
         # Alert rules (#348): a metric of a node or a VM above or below a threshold for a few minutes, evaluated by the
         # leader (app/core/alert_rules.py). Replicated, their state too: every node shows which rules fire.
         conn.execute("""

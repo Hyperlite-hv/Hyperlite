@@ -1593,6 +1593,64 @@
     "title": "EnableRequest",
     "type": "object"
    },
+   "Envelope": {
+    "properties": {
+     "max_disk_gb": {
+      "anyOf": [
+       {
+        "maximum": 1073741824.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Disk Gb"
+     },
+     "max_memory_mb": {
+      "anyOf": [
+       {
+        "maximum": 1073741824.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Memory Mb"
+     },
+     "max_vcpus": {
+      "anyOf": [
+       {
+        "maximum": 1000000.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Vcpus"
+     },
+     "max_vms": {
+      "anyOf": [
+       {
+        "maximum": 100000.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Vms"
+     }
+    },
+    "title": "Envelope",
+    "type": "object"
+   },
    "FeedMarks": {
     "properties": {
      "ids": {
@@ -3096,6 +3154,18 @@
     "title": "PrimaryRequest",
     "type": "object"
    },
+   "ProtectionPut": {
+    "properties": {
+     "reason": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Reason",
+      "type": "string"
+     }
+    },
+    "title": "ProtectionPut",
+    "type": "object"
+   },
    "RecoverRequest": {
     "properties": {
      "target_node": {
@@ -3477,50 +3547,6 @@
      }
     },
     "title": "RollingRequest",
-    "type": "object"
-   },
-   "Rule": {
-    "properties": {
-     "enabled": {
-      "default": true,
-      "title": "Enabled",
-      "type": "boolean"
-     },
-     "kind": {
-      "title": "Kind",
-      "type": "string"
-     },
-     "name": {
-      "title": "Name",
-      "type": "string"
-     },
-     "nodes": {
-      "items": {
-       "type": "string"
-      },
-      "maxItems": 64,
-      "title": "Nodes",
-      "type": "array"
-     },
-     "strength": {
-      "default": "should",
-      "title": "Strength",
-      "type": "string"
-     },
-     "vms": {
-      "items": {
-       "type": "string"
-      },
-      "maxItems": 64,
-      "title": "Vms",
-      "type": "array"
-     }
-    },
-    "required": [
-     "name",
-     "kind"
-    ],
-    "title": "Rule",
     "type": "object"
    },
    "RunRequest": {
@@ -4905,6 +4931,50 @@
     "title": "ZfsScrub",
     "type": "object"
    },
+   "app__routers__drs__Rule": {
+    "properties": {
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "nodes": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Nodes",
+      "type": "array"
+     },
+     "strength": {
+      "default": "should",
+      "title": "Strength",
+      "type": "string"
+     },
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 64,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "name",
+     "kind"
+    ],
+    "title": "Rule",
+    "type": "object"
+   },
    "app__routers__pools__PoolCreate": {
     "properties": {
      "description": {
@@ -4952,6 +5022,93 @@
      }
     },
     "title": "PoolRename",
+    "type": "object"
+   },
+   "app__routers__protections__Rule": {
+    "properties": {
+     "max_disk_gb": {
+      "anyOf": [
+       {
+        "maximum": 1073741824.0,
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Disk Gb"
+     },
+     "max_memory_mb": {
+      "anyOf": [
+       {
+        "maximum": 1073741824.0,
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Memory Mb"
+     },
+     "max_vcpu": {
+      "anyOf": [
+       {
+        "maximum": 4096.0,
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Vcpu"
+     },
+     "name_pattern": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name Pattern"
+     },
+     "networks": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 200,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Networks"
+     },
+     "storage_pools": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 200,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Storage Pools"
+     }
+    },
+    "title": "Rule",
     "type": "object"
    },
    "app__routers__storage__PoolCreate": {
@@ -11824,7 +11981,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/Rule"
+        "$ref": "#/components/schemas/app__routers__drs__Rule"
        }
       }
      },
@@ -12473,6 +12630,141 @@
     "summary": "Remove Member",
     "tags": [
      "groups"
+    ]
+   }
+  },
+  "/api/v1/guardrails": {
+   "get": {
+    "description": "The creation rules (by scope: \"cluster\", \"pool:<id>\") and the pools' envelopes with what each holds.",
+    "operationId": "get_guardrails_api_v1_guardrails_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Guardrails",
+    "tags": [
+     "protections"
+    ]
+   }
+  },
+  "/api/v1/guardrails/envelopes/{pool_id}": {
+   "put": {
+    "operationId": "put_envelope_api_v1_guardrails_envelopes__pool_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_id",
+      "required": true,
+      "schema": {
+       "title": "Pool Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Envelope"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Envelope",
+    "tags": [
+     "protections"
+    ]
+   }
+  },
+  "/api/v1/guardrails/rules/{scope}": {
+   "put": {
+    "operationId": "put_rule_api_v1_guardrails_rules__scope__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "scope",
+      "required": true,
+      "schema": {
+       "title": "Scope",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/app__routers__protections__Rule"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Rule",
+    "tags": [
+     "protections"
     ]
    }
   },
@@ -18369,6 +18661,245 @@
     "summary": "Remove Member",
     "tags": [
      "pools"
+    ]
+   }
+  },
+  "/api/v1/protections": {
+   "get": {
+    "operationId": "list_protections_api_v1_protections_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Protections",
+    "tags": [
+     "protections"
+    ]
+   }
+  },
+  "/api/v1/protections/{resource_type}/{resource_id}": {
+   "get": {
+    "description": "The protections that hold on that object: its own and those of its pools and node.",
+    "operationId": "object_protections_api_v1_protections__resource_type___resource_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "resource_type",
+      "required": true,
+      "schema": {
+       "enum": [
+        "vm",
+        "container",
+        "pool",
+        "node"
+       ],
+       "title": "Resource Type",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "resource_id",
+      "required": true,
+      "schema": {
+       "title": "Resource Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Object Protections",
+    "tags": [
+     "protections"
+    ]
+   }
+  },
+  "/api/v1/protections/{resource_type}/{resource_id}/{level}": {
+   "delete": {
+    "operationId": "lift_protection_api_v1_protections__resource_type___resource_id___level__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "resource_type",
+      "required": true,
+      "schema": {
+       "enum": [
+        "vm",
+        "container",
+        "pool",
+        "node"
+       ],
+       "title": "Resource Type",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "resource_id",
+      "required": true,
+      "schema": {
+       "title": "Resource Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "level",
+      "required": true,
+      "schema": {
+       "enum": [
+        "keep",
+        "freeze"
+       ],
+       "title": "Level",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Lift Protection",
+    "tags": [
+     "protections"
+    ]
+   },
+   "put": {
+    "operationId": "put_protection_api_v1_protections__resource_type___resource_id___level__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "resource_type",
+      "required": true,
+      "schema": {
+       "enum": [
+        "vm",
+        "container",
+        "pool",
+        "node"
+       ],
+       "title": "Resource Type",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "resource_id",
+      "required": true,
+      "schema": {
+       "title": "Resource Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "level",
+      "required": true,
+      "schema": {
+       "enum": [
+        "keep",
+        "freeze"
+       ],
+       "title": "Level",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ProtectionPut"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Protection",
+    "tags": [
+     "protections"
     ]
    }
   },
