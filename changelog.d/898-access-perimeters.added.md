@@ -1,4 +1,0 @@
-- Assignments can be given on a node or on the whole cluster, and hold on everything under them: a VM inherits the rights given on its pools, its node and the cluster.
-- New area privileges (nodes, storage, networks, backups, alerts, journal, updates, cluster, access) and seven wider roles: Steward, Builder, Observer, Access delegate, Backup keeper, Watcher, Maintainer. Backups, alerts, reports, metric servers, HA, load balancing, replication, the journal and updates now open to an account holding the matching privilege, not only to administrators.
-- An access delegate gives and removes assignments inside its own perimeter (never to itself, never on the whole cluster).
-- A Rights tab on VMs, containers and nodes: who can do what with where each right comes from, a test of one account's rights, and a three-step assignment wizard.
