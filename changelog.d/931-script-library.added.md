@@ -1,0 +1,1 @@
+- Script library: ready-made scripts (Docker, Prometheus node exporter, SSH hardening, automatic security updates, time zone, free disk space, Windows remote desktop and OpenSSH Server) and your own, run inside guests in the background and followed until each ends.
