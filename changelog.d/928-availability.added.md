@@ -1,1 +1,0 @@
-- Availability tab on every VM and node: its state now and why, the share of time available over 24 hours, 7 and 30 days (stops made on purpose left out), its states over the period and each interruption with its cause and who stopped it.

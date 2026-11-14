@@ -1,1 +1,0 @@
-- Dashboards: named, private or shared with everyone or a group, made of tiles (charts, saved queries, availability, alerts firing, resources, notes) drawn with each reader's own rights; pin a chart from the metrics explorer, a query from the search page or a VM's availability, and show one on Home.
