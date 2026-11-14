@@ -1,0 +1,1 @@
+- Creating a VM or a container: the creation page sits under the header again, across the whole width (it was drawn half off the screen: the CSS minifier dropped the reset of the dialog's centring).
