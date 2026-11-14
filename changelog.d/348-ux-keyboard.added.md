@@ -1,0 +1,1 @@
+- Keyboard: "g" then a letter goes to a service (g v virtual machines, g n nodes, g s storage, and so on), "c" opens Create, "?" lists every shortcut, and in a list "j" and "k" move from row to row, "x" ticks the row and Enter opens it. The command palette (Ctrl+K) reaches every service, the theme, the preferences and the shortcuts.
