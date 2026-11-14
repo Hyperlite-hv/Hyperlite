@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-11-14
+
+### Added
+
+- A Compliance page: every VM checked against the guardrails of the cluster and of its pools and against their envelopes, with the share of compliant VMs; a missing required tag is fixed from there.
+- Guardrails can require tags on every new VM; the VM creation wizard takes tags.
+- A VM inherits the tags of its pools (shown apart on its page; a tag restriction reads them too), and the VM list tags a selection at once.
+- Dynamic pools: a pool can take in the VMs carrying a tag or whose name matches a pattern; its rights, protections and envelope hold on them.
+- Sign-in rules: where from (networks), on which days and hours, and with a second factor, for everyone, a global role, a group or an account; each rule watched (journaled only) or enforced, checked at sign-in and on every request. Root of a node is never held.
+- Exclusions: a right (or every right) taken from an account or a group on a perimeter and below it, whatever its assignments give.
+- Scheduled access reviews: a round every N days with its reviewers and deadline, assignments kept or removed one by one, and what nobody decided removed at the deadline when the review says so.
+- Recycle bin: a deleted VM (by hand or by the automatic deletion of inactive VMs) is kept 7 days by default with its disks, snapshots, pools and rights, then deleted for good; it is restored as it was from the Recycle bin page, and its name stays taken meanwhile. 0 days turns it off.
+- Secrets vault: passwords, keys and tokens sealed by the node, revealed one at a time to the accounts and groups given access (journaled), and named as `vault:<name>` instead of copied (a VM's password at creation).
+- VM identities: a VM gets a token of its own, with one role on one perimeter, written into the guest by its agent, renewed a week before its 30 days end and revoked with the VM.
+- Costs: prices per vCPU, GB of memory and GB of disk; the month's estimate per VM (compute while it runs, disk always), per pool, per tag and in total, on a new Costs page; budgets on the cluster, a pool or a tag alert once at their threshold and once when exceeded.
+- Guest patches: what each running guest has pending (apt, dnf, zypper, Windows Update), checked through its agent, and installations planned in a window, run in the background in each guest, followed every minute, with a reboot at the end when needed and asked.
+- Export a whole pool as one Terraform / OpenTofu file: the pool, its VMs, the networks and storage pools they use and its assignments.
+- VM groups: N identical VMs from one template, named prefix-1, prefix-2…; raising the count deploys the missing ones, lowering it deletes the highest-numbered stopped ones (to the recycle bin), running ones only when asked.
+- Search by query over every VM, container and node (kind, state, tag, pool, node, os, ip, name, vcpu and memory comparisons, exclusions), on a Search page and from the command palette.
+
 ## [1.21.0] - 2026-11-14
 
 ### Added
