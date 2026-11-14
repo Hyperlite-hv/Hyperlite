@@ -84,7 +84,13 @@ def _ensure_user(uid):
         return
     except KeyError:
         pass
-    r = _run(["useradd", "--system", "--uid", str(uid), "--user-group", "--no-create-home", "--home-dir",
+    import grp
+
+    if uid not in {g.gr_gid for g in grp.getgrall()}:
+        r = _run(["groupadd", "--system", "--gid", str(uid), f"hl-term-{uid}"])
+        if r.returncode != 0:
+            raise DaemonError("failed", f"The Terminal's group was not made: {r.stderr.strip()[-200:]}")
+    r = _run(["useradd", "--system", "--uid", str(uid), "--gid", str(uid), "--no-create-home", "--home-dir",
               "/home/workbench", "--shell", "/bin/bash", f"hl-term-{uid}"])  # fmt: skip
     if r.returncode != 0:
         raise DaemonError("failed", f"The Terminal's account was not made: {r.stderr.strip()[-200:]}")
