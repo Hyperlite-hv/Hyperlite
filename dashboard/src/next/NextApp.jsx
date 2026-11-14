@@ -11,6 +11,8 @@ import MaintenanceHost from "./components/MaintenanceDialog";
 import NodePowerHost from "./components/NodePowerDialog";
 import { useT, useLangStore } from "./i18n";
 import { useThemeStore } from "./tokens/theme";
+import { applyAppearance, useAppearance } from "./lib/appearance";
+import { useInfraStore } from "../store/useInfraStore";
 import { usePolling } from "./lib/polling";
 import { refreshInventory, refreshExtras } from "./lib/inventory";
 import TopBar from "./layout/TopBar";
@@ -41,9 +43,16 @@ export default function NextApp() {
     root.dataset.ui = "next";
     root.lang = lang;
     const cleanup = initTheme();
+    applyAppearance(useAppearance.getState());
+    // The page this person chose to open on, when the console is opened on its root address.
+    const start = useAppearance.getState().startPage;
+    if (start !== "summary" && window.location.pathname === "/" && !window.location.search) {
+      useInfraStore.getState().navigateTo("datacenter", null, start);
+    }
     return () => {
       cleanup?.();
-      delete root.dataset.ui; delete root.dataset.theme;
+      delete root.dataset.ui; delete root.dataset.theme; delete root.dataset.accent; delete root.dataset.density;
+      root.style.removeProperty("--ui-scale");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

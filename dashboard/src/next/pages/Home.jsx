@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Check, EyeOff, LayoutDashboard, PanelLeft, PanelRight, Plus } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT, useLangStore } from "../i18n";
@@ -18,6 +18,7 @@ import HomePins from "../components/HomePins";
 import SetupChecklist from "../components/SetupChecklist";
 import { useCapacityForecast } from "../lib/useForecast";
 import { formatDays } from "../lib/forecast";
+import { DEFAULT_HOME, moveBlock, useAppearance } from "../lib/appearance";
 
 const HOME_SERVICES = ["vms", "containers", "nodes", "storage", "network", "backups", "perf", "permissions"];
 const pct = (used, total) => (total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0);
@@ -73,6 +74,9 @@ export default function Home() {
   const alerts = useAlerts();
   const ops = useRunningOps();
   const [tab, setTab] = useState("recent");
+  const [editing, setEditing] = useState(false);
+  const { home, setHome } = useAppearance(useShallow((s) => ({ home: s.home, setHome: s.setHome })));
+  const resetHome = () => setHome(DEFAULT_HOME);
   const allowed = new Set(allowedServices({ admin: caps.admin, apiDocs }).map((s) => s.id));
   const go = (id) => navigateTo("datacenter", null, id);
   // A counted text takes its ".one" form for a single item (and for none in French).
@@ -97,18 +101,19 @@ export default function Home() {
   const rows = recent.map((r) => ({ r, l: live(r) })).filter((x) => x.l);
   const favs = favorites.filter((id) => allowed.has(id));
 
-  return (
-    <div className="hc-home">
-      <div className="hc-home-main">
-        {caps.admin && <SetupChecklist />}
-        {vms.length === 0 && caps.create && !caps.admin && (
-          <div className="nx-bn" data-tone="info" role="status">
-            <span className="nx-bn-t"><b>{t("home.emptyTitle")}</b> {t("home.emptyHelp")}</span>
-            <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}>{t("vmlist.create")}</button>
-          </div>
-        )}
+  const blocks = {
+    setup: (caps.admin || (vms.length === 0 && caps.create)) ? <>
+          {caps.admin && <SetupChecklist />}
+          {vms.length === 0 && caps.create && !caps.admin && (
+            <div className="nx-bn" data-tone="info" role="status">
+              <span className="nx-bn-t"><b>{t("home.emptyTitle")}</b> {t("home.emptyHelp")}</span>
+              <button type="button" className="nx-btn nx-btn--primary" onClick={() => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "vm" }))}>{t("vmlist.create")}</button>
+            </div>
+          )}
+        </> : null,
+    services: (
         <section>
-          <h1>{t("home.services")}</h1>
+          <h2 className="hc-h1like">{t("home.services")}</h2>
           <div className="hc-svcs">
             {caps.create && <button type="button" className="hc-svc" onClick={() => go("create")}><span className="hc-tile hc-tile--ghost" style={{ "--s": "2.6667rem" }}><Plus size={24} aria-hidden="true" /></span><span>{t("svc.create")}</span></button>}
             {HOME_SERVICES.filter((id) => allowed.has(id)).map((id) => (
@@ -117,9 +122,9 @@ export default function Home() {
             <button type="button" className="hc-svc" onClick={() => go("services")}><span className="hc-tile hc-tile--ghost" style={{ "--s": "2.6667rem" }}><ArrowRight size={24} aria-hidden="true" /></span><span>{t("svc.services")}</span></button>
           </div>
         </section>
-
-        <HomePins />
-
+    ),
+    dashboard: <HomePins />,
+    resources: (
         <section>
           <h2>{t("home.resources")}</h2>
           <div className="nx-tabs nx-tabs--page" role="tablist" aria-label={t("home.resources")}>
@@ -145,7 +150,8 @@ export default function Home() {
           ))}
           <p><button type="button" className="nx-lnk" onClick={() => go("all")}>{t("home.seeAll")}</button></p>
         </section>
-
+    ),
+    navigate: (
         <section>
           <h2>{t("home.navigate")}</h2>
           <div className="hc-navs">
@@ -155,9 +161,8 @@ export default function Home() {
             <button type="button" className="hc-nav" onClick={() => go("perf")}><ServiceTile id="perf" size={28} /><span><b>{t("tab.perf")}</b><small>{t("svc.d.perf")}</small></span></button>
           </div>
         </section>
-      </div>
-
-      <aside className="hc-home-side">
+    ),
+    cluster: (
         <section className="hc-card">
           <h2>{t("home.cluster")}{allowed.has("cfs") && <button type="button" className="nx-lnk" onClick={() => go("cfs")}>{t("home.details")}</button>}</h2>
           <p className="hc-hstate" data-tone={health}>{health === "ok" ? t("home.health.ok") : tn(`home.health.${health}`, health === "danger" ? alerts.filter((a) => a.level === "danger").length : alerts.length)}</p>
@@ -168,6 +173,8 @@ export default function Home() {
             : <div className="hc-cap"><div className="hc-cap-row"><b>{t("tab.storage")}</b><span>{t("home.noPool")}</span></div></div>}
           {online.length > 0 && <Forecast nodes={online} />}
         </section>
+    ),
+    watch: (
         <section className="hc-card">
           <h2>{t("home.watch")}</h2>
           {alerts.length === 0 ? <p className="nx-muted">{t("ns.noIncident")}</p> : (
@@ -181,6 +188,8 @@ export default function Home() {
             </ul>
           )}
         </section>
+    ),
+    running: (
         <section className="hc-card">
           <h2>{t("home.running")}<button type="button" className="nx-lnk" onClick={() => go("activity")}>{t("nav.activity")}</button></h2>
           {ops.length === 0 ? <p className="nx-muted">{t("top.opsNone")}</p> : (
@@ -198,8 +207,43 @@ export default function Home() {
             </ul>
           )}
         </section>
-      </aside>
-    </div>
+    ),
+  };
+  const column = (name) => home[name].filter((id) => !home.hidden.includes(id) && blocks[id]).map((id, i, shown) => (
+    editing ? (
+      <div key={id} className="hc-blk" data-col={name}>
+        <div className="hc-blk-bar" role="group" aria-label={t(`homeb.${id}`)}>
+          <b>{t(`homeb.${id}`)}</b>
+          <button type="button" className="hc-ibtn" aria-label={t("homeb.up", { name: t(`homeb.${id}`) })} title={t("homeb.upShort")} disabled={i === 0} onClick={() => setHome(moveBlock(home, id, -1))}><ArrowUp size={15} aria-hidden="true" /></button>
+          <button type="button" className="hc-ibtn" aria-label={t("homeb.down", { name: t(`homeb.${id}`) })} title={t("homeb.downShort")} disabled={i === shown.length - 1} onClick={() => setHome(moveBlock(home, id, 1))}><ArrowDown size={15} aria-hidden="true" /></button>
+          <button type="button" className="hc-ibtn" aria-label={t(name === "main" ? "homeb.toSide" : "homeb.toMain", { name: t(`homeb.${id}`) })} title={t(name === "main" ? "homeb.toSideShort" : "homeb.toMainShort")} onClick={() => setHome(moveBlock(home, id, "switch"))}>{name === "main" ? <PanelRight size={15} aria-hidden="true" /> : <PanelLeft size={15} aria-hidden="true" />}</button>
+          <button type="button" className="hc-ibtn" aria-label={t("homeb.hide", { name: t(`homeb.${id}`) })} title={t("homeb.hideShort")} onClick={() => setHome({ ...home, hidden: [...home.hidden, id] })}><EyeOff size={15} aria-hidden="true" /></button>
+        </div>
+        <div className="hc-blk-body">{blocks[id]}</div>
+      </div>
+    ) : <Fragment key={id}>{blocks[id]}</Fragment>
+  ));
+  const hiddenNow = home.hidden.filter((id) => blocks[id] !== null);
+
+  return (
+    <>
+      <h1 className="nx-sr">{t("nav.overview")}</h1>
+      <div className="hc-home-tools">
+        {editing && <span className="nx-muted">{t("homeb.editing")}</span>}
+        {editing && <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={resetHome}>{t("homeb.reset")}</button>}
+        <button type="button" className={`nx-btn nx-btn--sm${editing ? " nx-btn--primary" : " nx-btn--ghost"}`} aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? <Check size={15} aria-hidden="true" /> : <LayoutDashboard size={15} aria-hidden="true" />}{editing ? t("homeb.done") : t("homeb.customize")}</button>
+      </div>
+      {editing && hiddenNow.length > 0 && (
+        <div className="hc-blk-hidden" role="group" aria-label={t("homeb.hidden")}>
+          <span>{t("homeb.hidden")}</span>
+          {hiddenNow.map((id) => <button key={id} type="button" className="nx-btn nx-btn--sm" onClick={() => setHome({ ...home, hidden: home.hidden.filter((x) => x !== id) })}><Plus size={14} aria-hidden="true" />{t(`homeb.${id}`)}</button>)}
+        </div>
+      )}
+      <div className="hc-home" data-editing={editing || undefined}>
+        <div className="hc-home-main">{column("main")}</div>
+        <aside className="hc-home-side">{column("side")}</aside>
+      </div>
+    </>
   );
 }
 Home.ownHeader = true;
