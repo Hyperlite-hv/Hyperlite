@@ -191,6 +191,24 @@ def _loop():
             sweep()
         except Exception:  # the next round tries again; an ended right grants nothing meanwhile (permissions._in_force)
             logger.warning("Ended rights not swept", exc_info=True)
+        try:
+            from app.core import access_review
+
+            access_review.tick()
+        except Exception:  # a round starts or closes at the next minute
+            logger.warning("Scheduled access reviews not run", exc_info=True)
+        try:
+            from app.core import vm_identity
+
+            vm_identity.renew_due()
+        except Exception:  # the next minute tries again; a token still has a week to run
+            logger.warning("VM identities not renewed", exc_info=True)
+        for name, job in (("guest updates", "guest_updates.tick"), ("cost budgets", "costs.check_budgets_if_due")):
+            try:
+                module, fn = job.split(".")
+                getattr(__import__(f"app.core.{module}", fromlist=[fn]), fn)()
+            except Exception:  # each minute tries again
+                logger.warning("%s not run", name.capitalize(), exc_info=True)
 
 
 def start_access_sweep():

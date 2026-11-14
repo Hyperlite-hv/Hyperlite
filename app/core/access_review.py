@@ -112,3 +112,151 @@ def review():
         },
         "stale_days": STALE_DAYS,
     }
+
+
+# ---- Scheduled reviews (docs/design/governance.md, section 5) ----
+
+
+def campaigns():
+    import json
+
+    with get_conn() as db:
+        rows = [dict(r) for r in db.execute("SELECT * FROM review_campaigns ORDER BY name")]
+    for c in rows:
+        c["reviewers"] = json.loads(c["reviewers"] or "[]")
+        c["remove_undecided"] = bool(c["remove_undecided"])
+    return rows
+
+
+def save_campaign(fields, username, campaign_id=None):
+    import json
+    import uuid
+
+    now = datetime.now(UTC)
+    values = (fields["name"], fields["every_days"], fields["deadline_days"], json.dumps(fields["reviewers"]),
+              1 if fields["remove_undecided"] else 0)  # fmt: skip
+    with get_conn() as db:
+        if campaign_id:
+            cur = db.execute(
+                "UPDATE review_campaigns SET name = ?, every_days = ?, deadline_days = ?, reviewers = ?, "
+                "remove_undecided = ? WHERE id = ?",
+                (*values, campaign_id),
+            )
+            if cur.rowcount == 0:
+                return None
+        else:
+            campaign_id = uuid.uuid4().hex
+            db.execute(
+                "INSERT INTO review_campaigns (name, every_days, deadline_days, reviewers, remove_undecided, id, "
+                "next_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (*values, campaign_id, now.isoformat(), username),
+            )
+        db.commit()
+    return next(c for c in campaigns() if c["id"] == campaign_id)
+
+
+def delete_campaign(campaign_id):
+    with get_conn() as db:
+        cur = db.execute("DELETE FROM review_campaigns WHERE id = ?", (campaign_id,))
+        db.execute("DELETE FROM review_items WHERE campaign_id = ?", (campaign_id,))
+        db.commit()
+    return cur.rowcount > 0
+
+
+def items(campaign_id):
+    with get_conn() as db:
+        c = db.execute("SELECT round_started_at FROM review_campaigns WHERE id = ?", (campaign_id,)).fetchone()
+        if c is None or not c["round_started_at"]:
+            return []
+        return [
+            dict(r)
+            for r in db.execute(
+                "SELECT * FROM review_items WHERE campaign_id = ? AND round_started_at = ? ORDER BY summary",
+                (campaign_id, c["round_started_at"]),
+            )
+        ]
+
+
+def decide(campaign_id, item_id, decision, username):
+    """Keep or remove one assignment of the round; a removal removes it now."""
+    with get_conn() as db:
+        row = db.execute(
+            "SELECT * FROM review_items WHERE id = ? AND campaign_id = ?", (item_id, campaign_id)
+        ).fetchone()
+    if row is None:
+        return None
+    if decision == "remove":
+        perm.delete_acl(row["acl_id"])
+    else:
+        keep(row["acl_id"], f"kept in the review {campaign_id[:8]}", username)
+    with get_conn() as db:
+        db.execute(
+            "UPDATE review_items SET decision = ?, decided_by = ?, decided_at = ? WHERE id = ?",
+            (decision, username, datetime.now(UTC).isoformat(), item_id),
+        )
+        db.commit()
+    return dict(row, decision=decision, decided_by=username)
+
+
+def _start_round(c, now):
+    import uuid
+
+    from app.core.audit import log_action
+
+    found = review()["assignments"]
+    started = now.isoformat()
+    with get_conn() as db:
+        for a in found:
+            if "to_review" not in a["flags"]:
+                continue
+            where = "the cluster" if a["resource_type"] == "cluster" else f"{a['resource_type']} {a['resource_id']}"
+            summary = f"{a['subject_type']} {a['subject_label']}: {a['role']} on {where}"
+            db.execute(
+                "INSERT INTO review_items (id, campaign_id, round_started_at, acl_id, summary) VALUES (?, ?, ?, ?, ?)",
+                (uuid.uuid4().hex, c["id"], started, a["id"], summary),
+            )
+        db.execute(
+            "UPDATE review_campaigns SET round_started_at = ?, round_due_at = ?, next_at = ? WHERE id = ?",
+            (
+                started,
+                (now + timedelta(days=c["deadline_days"])).isoformat(),
+                (now + timedelta(days=c["every_days"])).isoformat(),
+                c["id"],
+            ),
+        )
+        db.commit()
+    log_action("system", "access_review", c["name"], "success",
+               f"review started, due in {c['deadline_days']} days; reviewers: {', '.join(c['reviewers']) or 'administrators'}")  # fmt: skip
+
+
+def _close_round(c):
+    from app.core.audit import log_action
+
+    undecided = [i for i in items(c["id"]) if i["decision"] is None]
+    removed = 0
+    for i in undecided:
+        if c["remove_undecided"] and i["acl_id"] in {a["id"] for a in perm.list_acl()}:
+            perm.delete_acl(i["acl_id"])
+            removed += 1
+        with get_conn() as db:
+            db.execute(
+                "UPDATE review_items SET decision = ?, decided_by = 'system', decided_at = ? WHERE id = ?",
+                ("removed_undecided" if c["remove_undecided"] else None, datetime.now(UTC).isoformat(), i["id"]),
+            )
+            db.commit()
+    with get_conn() as db:
+        db.execute("UPDATE review_campaigns SET round_due_at = NULL WHERE id = ?", (c["id"],))
+        db.commit()
+    log_action("system", "access_review", c["name"], "success",
+               f"review closed: {len(undecided)} undecided, {removed} removed")  # fmt: skip
+
+
+def tick(now=None):
+    """Start the rounds that are due and close those past their deadline (hyperlite-scheduler, every minute)."""
+    now = now or datetime.now(UTC)
+    for c in campaigns():
+        if c["round_due_at"] and datetime.fromisoformat(c["round_due_at"]) <= now:
+            _close_round(c)
+            c["round_due_at"] = None
+        if datetime.fromisoformat(c["next_at"]) <= now and not c["round_due_at"]:
+            _start_round(c, now)

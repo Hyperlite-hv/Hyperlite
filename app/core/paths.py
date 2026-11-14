@@ -59,6 +59,7 @@ SNIPPETS = VAR / "snippets"  # hook scripts, placed by root only (app/core/hooks
 HOOKSCRIPT_RUNS = VAR / "hookscript-runs"
 K3S = VAR / "k3s"
 BIN = VAR / "bin"
+RECYCLE_BIN = VAR / "recycle-bin"  # the definitions of the VMs in the recycle bin, root's (app/core/recycle_bin.py)
 TMP = VAR / "tmp"  # the service's TMPDIR: uploads of several GB, on the data disk rather than a tmpfs /tmp
 CONFIG_COPY_STAGING = VAR / "config-copy-staging"  # a copy this node is preparing to send
 UPDATE_BACKUPS = VAR / "update-backups"
