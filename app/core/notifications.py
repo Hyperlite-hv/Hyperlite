@@ -59,6 +59,8 @@ NOTIFY_EVENTS = {
     "weekly_report": "Weekly report",
     # An administrator's alert rule fired or stopped (app/core/alert_rules.py); a rule may name its own channels.
     "alert_rule": "Alert rule (fired or resolved)",
+    # On-demand rights (docs/design/access-2.md, section 6): asked for, granted, refused or ended.
+    "access_request": "On-demand right (asked for, granted, refused, ended)",
 }
 
 

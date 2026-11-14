@@ -1,0 +1,4 @@
+- A Pools page: each pool with its VMs, tags and notes, envelope, protections and Rights tab; VMs added and removed there.
+- Tags and notes on pools, storage pools and networks too.
+- Export a VM's definition from its Advanced page: a body for POST /vms, the full JSON, or the Terraform / OpenTofu `hyperlite_vm` resource (`GET /vms/{name}/definition`).
+- Bulk actions on the containers list (start, stop, delete) and the nodes list (leave maintenance, add a tag).

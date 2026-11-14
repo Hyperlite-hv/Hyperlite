@@ -29,6 +29,15 @@ def _allowed(user, kind, name, edit):
         return True
     if kind == "node":
         return not edit
+    if kind in ("pool", "storage", "network"):
+        # Tags of a pool are its VMs' business (vm.options on it); a storage pool's or a network's, their area's.
+        from app.core import permissions
+
+        if not edit:
+            return True
+        if kind == "pool":
+            return permissions.has_scoped_privilege(user, "pool", name, "vm.options")
+        return permissions.has_area_privilege(user, f"{kind}.manage")
     privilege = (_EDIT if edit else _READ)[kind]
     check = has_privilege if kind == "vm" else has_container_privilege
     return check(user, name, privilege)
@@ -41,6 +50,21 @@ def _require_exists(kind, name, node):
 
         if name != "local" and not get_node(name):
             raise HTTPException(status_code=404, detail=f"Node '{name}' not found")
+        return
+    if kind == "pool":
+        from app.core import permissions
+
+        if not name.isdigit() or int(name) not in {p["id"] for p in permissions.list_pools()}:
+            raise HTTPException(status_code=404, detail=f"Pool {name} not found")
+        return
+    if kind in ("storage", "network"):
+        conn = open_conn(None, readonly=True)
+        try:
+            (conn.storagePoolLookupByName if kind == "storage" else conn.networkLookupByName)(name)
+        except libvirt.libvirtError:
+            raise HTTPException(status_code=404, detail=f"{kind.capitalize()} '{name}' not found") from None
+        finally:
+            conn.close()
         return
     label = "VM" if kind == "vm" else "Container"
     # A node without the LXC driver has no containers: the name is not found, it is no server error.

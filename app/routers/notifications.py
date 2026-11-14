@@ -8,7 +8,7 @@ from app.core import notifications as notif
 from app.core.audit import log_action
 from app.core.http_safety import require_http_url
 from app.core.listing import listing
-from app.core.security import get_current_user, require_role
+from app.core.security import get_current_user, require_area
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -63,7 +63,7 @@ def _check_events(events):
 
 
 @router.post("/channels", status_code=201)
-def create_channel(payload: ChannelCreate, user: dict = Depends(require_role("admin"))):
+def create_channel(payload: ChannelCreate, user: dict = Depends(require_area("alert.manage"))):
     if payload.type not in ("webhook", "email"):
         raise HTTPException(status_code=422, detail="Invalid channel type (webhook or email)")
     if not payload.name.strip():
@@ -91,7 +91,7 @@ class ChannelUpdate(BaseModel):
 
 
 @router.patch("/channels/{channel_id}")
-def update_channel(channel_id: int, payload: ChannelUpdate, user: dict = Depends(require_role("admin"))):
+def update_channel(channel_id: int, payload: ChannelUpdate, user: dict = Depends(require_area("alert.manage"))):
     type_ = notif.get_channel_type(channel_id)
     if type_ is None:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -117,7 +117,7 @@ def update_channel(channel_id: int, payload: ChannelUpdate, user: dict = Depends
 
 
 @router.delete("/channels/{channel_id}")
-def delete_channel(channel_id: int, user: dict = Depends(require_role("admin"))):
+def delete_channel(channel_id: int, user: dict = Depends(require_area("alert.manage"))):
     if not notif.delete_channel(channel_id):
         raise HTTPException(status_code=404, detail="Channel not found")
     log_action(user["username"], "delete_notification_channel", str(channel_id), "success")
@@ -125,7 +125,7 @@ def delete_channel(channel_id: int, user: dict = Depends(require_role("admin")))
 
 
 @router.post("/channels/{channel_id}/test")
-def test_channel(channel_id: int, user: dict = Depends(require_role("admin"))):
+def test_channel(channel_id: int, user: dict = Depends(require_area("alert.manage"))):
     channel = next((c for c in notif.list_channels() if c["id"] == channel_id), None)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")

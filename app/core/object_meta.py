@@ -1,4 +1,4 @@
-"""Notes and tags on VMs, containers and nodes: the operating memory of a fleet (what this VM is for, who to ask,
+"""Notes and tags on VMs, containers, nodes, pools, storage pools and networks: the operating memory of a fleet (what this VM is for, who to ask,
 what not to touch) and a way to group objects across nodes ("prod", "db", "client-x").
 
 Notes are plain text: the dashboard shows them as text, never as HTML, so a note cannot inject a script. Tags are
@@ -15,7 +15,9 @@ def _store():
     return registry.objects().sync
 
 
-KINDS = ("vm", "container", "node")
+KINDS = ("vm", "container", "node", "pool", "storage", "network")
+# Known by their own name (a pool by its id) across the cluster, not by a node and a name.
+CLUSTER_WIDE = ("node", "pool", "storage", "network")
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,31}$")
 MAX_TAGS = 16
 MAX_NOTES = 20_000
@@ -49,7 +51,7 @@ def _key(kind, name, node):
     if kind not in KINDS:
         raise MetaError(f"Unknown object kind '{kind}'")
     # A node is identified by its own name; VMs and containers by their node and name.
-    return kind, "" if kind == "node" else (node or LOCAL), name
+    return kind, "" if kind in CLUSTER_WIDE else (node or LOCAL), name
 
 
 def get(kind, name, node=None):

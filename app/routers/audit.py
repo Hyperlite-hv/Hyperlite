@@ -9,7 +9,7 @@ from app.core import access_log, audit, cluster_view
 from app.core.audit import log_action
 from app.core.csv_export import csv_lines
 from app.core.listing import listing
-from app.core.security import require_role
+from app.core.security import require_area, require_role
 from app.services import audit_service
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -27,7 +27,7 @@ async def list_audit(
     # In a cluster: every member's entries, each marked with the node that holds it ("on"), and the members that
     # did not answer (app/core/cluster_view.py). Outside a cluster: this node's entries, in the same shape.
     cluster: bool = False,
-    user: dict = Depends(require_role("admin")),
+    user: dict = Depends(require_area("audit.view")),
 ):
     f = audit_service.filters(action, result, username, resource, since, until)
     rows = await audit_service.query(f, limit)
@@ -46,7 +46,7 @@ async def count_audit(
     since: str | None = None,
     until: str | None = None,
     cluster: bool = False,
-    user: dict = Depends(require_role("admin")),
+    user: dict = Depends(require_area("audit.view")),
 ):
     """Number of entries matching the same filters as GET /audit, which only returns the
     most recent ones: lets the page say "300 entries, showing the 100 most recent". cluster: every member's, summed
@@ -60,7 +60,7 @@ async def count_audit(
 
 
 @router.get("/actions")
-async def list_audit_actions(cluster: bool = False, user: dict = Depends(require_role("admin"))):
+async def list_audit_actions(cluster: bool = False, user: dict = Depends(require_area("audit.view"))):
     """Distinct action types already seen in the log. Feeds the "Action type"
     filter in the frontend without a hard-coded list that would drift as new
     endpoints are added. cluster: seen on any member."""
@@ -86,7 +86,7 @@ def export_audit(
     # In a cluster: every member's entries, merged newest first, with a last column "member" (the node that holds the
     # entry); the members that did not answer are named in the Hyperlite-Unreachable header.
     cluster: bool = False,
-    user: dict = Depends(require_role("admin")),
+    user: dict = Depends(require_area("audit.view")),
 ):
     """EVERY entry matching the same filters as GET /audit, newest first, as CSV. The
     page only loads the most recent entries: exporting those would pass a partial
@@ -133,7 +133,7 @@ def _retention():
 
 
 @router.get("/retention")
-def get_retention(user: dict = Depends(require_role("admin"))):
+def get_retention(user: dict = Depends(require_area("audit.view"))):
     """How long the users' addresses are kept: the access log's daily files and the audit log (#448, F4)."""
     return _retention()
 

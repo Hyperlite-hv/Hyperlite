@@ -1,0 +1,1 @@
+- Access review on the Access page: every assignment with its account's last sign-in, its end, whether it gives access or covers the whole cluster, and whether its account or group still exists; keep one (with a note, for 90 days) or remove it there. Idle accounts, administrators without a second factor and forgotten API tokens are listed with it.

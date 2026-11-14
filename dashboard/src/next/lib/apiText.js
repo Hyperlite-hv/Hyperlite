@@ -14,11 +14,20 @@ export function localizeApiText(t, text) {
 }
 
 // The predefined scoped roles (app/core/permissions.py ROLES) by their key; a custom role keeps the name it was given.
-const PRESET_ROLES = ["drive", "operator", "manager", "store_reader"];
+const PRESET_ROLES = ["drive", "operator", "manager", "store_reader", "steward", "builder", "observer", "access_delegate", "backup_keeper", "watcher", "maintainer"];
 
 export function localizeRoles(t, roles) {
   return Object.fromEntries(Object.entries(roles || {}).map(([key, r]) => [
     key,
     PRESET_ROLES.includes(key) ? { ...r, label: t(`sec.preset.${key}`), description: t(`sec.presetHelp.${key}`) } : r,
   ]));
+}
+
+// The privilege catalogue (GET /acl/privileges, {key: English label}) in the interface's language, by key; a privilege
+// this version has no text for keeps the API's.
+export function localizePrivileges(t, privileges) {
+  return Object.fromEntries(Object.entries(privileges || {}).map(([key, label]) => {
+    const text = t(`priv.${key}`);
+    return [key, text === `priv.${key}` ? label : text];
+  }));
 }

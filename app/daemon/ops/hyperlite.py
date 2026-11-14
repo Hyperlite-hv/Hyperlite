@@ -18,6 +18,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.core import paths
+from app.daemon.needs import on_area
 from app.daemon.registry import Args, DaemonError, operation
 
 ENV_FILE = paths.ENV_FILE
@@ -76,7 +77,7 @@ def _launch(args):
         raise DaemonError("failed", f"The update job did not start: {(r.stderr or r.stdout).strip()[-300:]}")
 
 
-@operation("hyperlite.start_update", StartArgs)
+@operation("hyperlite.start_update", StartArgs, needs=on_area("update.apply"))
 def start_update(args, ctx):
     """Start an update of Hyperlite (apt: from the mirror; offline: from the received file; git: a development
     checkout; rollback: the kept package of the previous version), after checking it can be done here."""
@@ -104,7 +105,7 @@ class RefreshArgs(Args):
     apt_timeout: int = Field(default=25, ge=5, le=180)
 
 
-@operation("hyperlite.refresh_lists", RefreshArgs)
+@operation("hyperlite.refresh_lists", RefreshArgs, needs=on_area("update.apply"))
 def refresh_lists(args, ctx):
     """apt-get update, retried (the check of a new version, app/routers/update.py)."""
     from app.routers import update

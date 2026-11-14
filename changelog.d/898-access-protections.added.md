@@ -1,0 +1,2 @@
+- Protections on VMs, containers, pools and nodes: Kept (no deletion of the object, its disks or snapshots) and Frozen (no change at all, consoles stay open). A protection on a pool or a node holds on what is under it; administrators are held too, and lifting one is journaled.
+- Guardrails: creation rules on the cluster or a pool (name pattern, largest VM, storage pools and networks allowed) and pool envelopes (VMs, vCPUs, memory, disk), on a new Guardrails page.

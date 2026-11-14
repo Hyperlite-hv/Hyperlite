@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Copy, CopyCheck, Download, Ellipsis, Plus, RefreshCw, Search, Server, Trash2 } from "lucide-react";
+import { Copy, CopyCheck, Download, Ellipsis, LogOut, Plus, RefreshCw, Search, Server, Tag, Trash2, X } from "lucide-react";
+import { fetchMeta, leaveNodeMaintenance, saveMeta } from "../../api/client";
+import { promptText } from "../../store/usePromptStore";
+import { nameList, runBulk } from "../lib/bulk";
 import { fetchClusterPubkey, addRemoteNode, deleteRemoteNode, testNodeConnection, fetchConfigCopies, copyConfigNow, fetchNodeMetricsHistory } from "../../api/client";
 import { nodeTone } from "../lib/nodeState";
 import { usePolling } from "../lib/polling";
@@ -178,12 +181,36 @@ export default function NodesPage() {
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
   const [view, setView] = useState("all"); // all | watch | maintenance
+  const [picked, setPicked] = useState(() => new Set());
   useIntent("node", () => caps.admin && setAdding(true));
   const sorted = useMemo(() => [...nodes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })), [nodes]);
   const heat = useHeat(sorted);
   const watch = sorted.filter((n) => ["warning", "danger"].includes(nodeTone(n).tone));
   const maint = sorted.filter((n) => n.maintenance);
   const shown = (view === "watch" ? watch : view === "maintenance" ? maint : sorted).filter((n) => !q || [n.name, n.ip].some((x) => x && String(x).toLowerCase().includes(q.trim().toLowerCase())));
+  const pickedList = shown.filter((n) => picked.has(n.id));
+  const togglePick = (id) => setPicked((p) => { const x = new Set(p); if (x.has(id)) x.delete(id); else x.add(id); return x; });
+  // Bulk work on nodes: what is safe to do on several at once. Entering maintenance moves VMs, node by node, and stays
+  // a single node's action; leaving it, and tagging, are not.
+  async function bulkLeave() {
+    const apply = pickedList.filter((n) => n.maintenance);
+    if (apply.length === 0) { pushToast({ kind: "info", title: t("bulkn.noneInMaintenance") }); return; }
+    if (!(await confirmAction({ title: t("bulkn.leave.title", { n: apply.length }), message: nameList(apply, (k) => t("bulk.andMore", { n: k })), confirmLabel: t("bulkn.leave") }))) return;
+    const { ok, failed } = await runBulk(apply, (n) => leaveNodeMaintenance(n.id));
+    pushToast({ kind: failed.length ? "warning" : "success", title: t("bulkc.done", { ok: ok.length, n: apply.length }), message: failed.map((f) => `${f.item.name}: ${errorMessage(f.error)}`).join("\n") || undefined });
+    setPicked(new Set());
+    refreshInventory().catch(() => {});
+  }
+  async function bulkTag() {
+    const tag = await promptText({ title: t("bulkn.tag.title", { n: pickedList.length }), label: t("bulkn.tag.label") });
+    if (!tag?.trim()) return;
+    const { ok, failed } = await runBulk(pickedList, async (n) => {
+      const meta = await fetchMeta("node", n.id);
+      if (!meta.tags.includes(tag.trim().toLowerCase())) await saveMeta("node", n.id, { notes: meta.notes, tags: [...meta.tags, tag.trim()] });
+    });
+    pushToast({ kind: failed.length ? "warning" : "success", title: t("bulkc.done", { ok: ok.length, n: pickedList.length }), message: failed.map((f) => `${f.item.name}: ${errorMessage(f.error)}`).join("\n") || undefined });
+    setPicked(new Set());
+  }
   const cores = nodes.reduce((a, n) => a + (n.cpu_coeurs || 0), 0);
   const mem = nodes.reduce((a, n) => a + (n.memoire_totale_mo || 0), 0);
 
@@ -218,16 +245,25 @@ export default function NodesPage() {
         <span className="nx-muted hc-hint">{t("nd.heatHint")}</span>
       </div>
       <p className="hc-count" role="status">{t("list.showing", { n: shown.length, total: sorted.length })} · {t("nd.totals", { cores, mem: formatSizeMb(mem, lang) || "—", vms: vms.length })}</p>
+      {caps.admin && pickedList.length > 0 && (
+        <div className="hc-bulkc" role="toolbar" aria-label={t("bulkc.bar", { n: pickedList.length })}>
+          <strong>{t("bulkc.bar", { n: pickedList.length })}</strong>
+          <button type="button" className="nx-btn nx-btn--sm" onClick={bulkLeave}><LogOut size={14} aria-hidden="true" /> {t("bulkn.leave")}</button>
+          <button type="button" className="nx-btn nx-btn--sm" onClick={bulkTag}><Tag size={14} aria-hidden="true" /> {t("bulkn.tag")}</button>
+          <button type="button" className="nx-btn nx-btn--sm nx-btn--ghost" aria-label={t("bulkc.clear")} onClick={() => setPicked(new Set())}><X size={14} aria-hidden="true" /></button>
+        </div>
+      )}
       <div className="hc-gridwrap">
         <table className="hc-grid hc-grid--list">
           <thead><tr>
+            {caps.admin && <th scope="col" className="hc-pick"><input type="checkbox" aria-label={t("bulkn.all")} checked={shown.length > 0 && pickedList.length === shown.length} onChange={(e) => setPicked(new Set(e.target.checked ? shown.map((n) => n.id) : []))} /></th>}
             <th scope="col">{t("nd.node")}</th><th scope="col">{t("ns.col.state")}</th>
             <th scope="col">{t("ns.cpu")}</th><th scope="col">{t("ns.memory")}</th>
             <th scope="col">{t("nd.vms")}</th><th scope="col">{t("nd.load24")}</th><th scope="col">{t("ns.uptime")}</th>
             <th scope="col"><span className="nx-sr">{t("actions")}</span></th>
           </tr></thead>
           <tbody>
-            {shown.length === 0 && <tr><td colSpan={8} className="nx-muted">{t("nd.noneShown")}</td></tr>}
+            {shown.length === 0 && <tr><td colSpan={caps.admin ? 9 : 8} className="nx-muted">{t("nd.noneShown")}</td></tr>}
             {shown.map((n) => {
               const local = n.id === "local";
               const nodeVms = vms.filter((v) => v.node === n.id);
@@ -236,6 +272,7 @@ export default function NodesPage() {
               const st = nodeTone(n);
               return (
                 <tr key={n.id} className={ctx.is("node", n.id) ? "is-ctx" : undefined} onContextMenu={ctx.open("node", n)}>
+                  {caps.admin && <td className="hc-pick"><input type="checkbox" aria-label={t("bulkc.pick", { name: n.name })} checked={picked.has(n.id)} onChange={() => togglePick(n.id)} /></td>}
                   <th scope="row" className="hc-namecell">
                     <div><Server size={16} aria-hidden="true" /><span>
                       <button type="button" className="nx-lnk" onClick={() => navigateTo("node", n.id, "summary")}>{n.name}</button>

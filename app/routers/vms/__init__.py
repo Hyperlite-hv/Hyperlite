@@ -26,5 +26,6 @@ from app.routers.vms import guest  # noqa: F401
 from app.routers.vms import screenshot  # noqa: F401
 from app.routers.vms import config_history  # noqa: F401
 from app.routers.vms import schedules  # noqa: F401
+from app.routers.vms import definition  # noqa: F401
 
 __all__ = ["router"]

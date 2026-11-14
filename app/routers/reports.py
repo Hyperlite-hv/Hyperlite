@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.core import weekly_report
 from app.core.audit import log_action
-from app.core.security import require_role
+from app.core.security import require_area
 
 router = APIRouter(prefix="/reports", tags=["notifications"])
 
@@ -17,7 +17,7 @@ class WeeklySettings(BaseModel):
 
 
 @router.get("/weekly")
-def get_weekly(user: dict = Depends(require_role("admin"))):
+def get_weekly(user: dict = Depends(require_area("alert.view"))):
     """The settings, when it was last sent, and the report as it would be sent now (its data and its text)."""
     report = weekly_report.current()
     return {
@@ -29,7 +29,7 @@ def get_weekly(user: dict = Depends(require_role("admin"))):
 
 
 @router.put("/weekly/settings")
-def put_weekly_settings(payload: WeeklySettings, user: dict = Depends(require_role("admin"))):
+def put_weekly_settings(payload: WeeklySettings, user: dict = Depends(require_area("alert.manage"))):
     try:
         value = weekly_report.save_settings(payload.enabled, payload.weekday, payload.hour)
     except ValueError as e:
@@ -39,7 +39,7 @@ def put_weekly_settings(payload: WeeklySettings, user: dict = Depends(require_ro
 
 
 @router.post("/weekly/send")
-def send_weekly(user: dict = Depends(require_role("admin"))):
+def send_weekly(user: dict = Depends(require_area("alert.manage"))):
     """Sends the report now to the channels that take the weekly_report event."""
     weekly_report.send(username=user["username"])
     return {"sent": True}
