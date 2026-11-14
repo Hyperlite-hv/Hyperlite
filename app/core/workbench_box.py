@@ -94,6 +94,9 @@ def box_properties(sid, uid, limits):
         "SystemCallArchitectures=native",
         "SystemCallFilter=@system-service",
         "SystemCallFilter=~" + " ".join(SYSCALLS_DENIED),
+        # A refused call fails with EPERM instead of killing the process: tmux and the shells it starts try calls the
+        # filter refuses (found in the test VM: every pane died of SIGSYS) and do without them.
+        "SystemCallErrorNumber=EPERM",
         "UMask=0077",
         "KeyringMode=private",
         "OOMScoreAdjust=500",
