@@ -250,9 +250,20 @@ def sweep(now=None):
 
     now = now or _now()
     s = settings()
-    for row in sessions():
+    open_rows = sessions()
+    running = None
+    if open_rows:
+        from app.daemon.registry import DaemonError
+
+        try:
+            running = set(privileged.run("workbench.list")["sessions"])
+        except DaemonError as e:
+            logger.warning("Terminal boxes not listed: %s", e.detail)
+    for row in open_rows:
         why = None
-        if (
+        if running is not None and row["id"] not in running:
+            why = "shell exited"
+        elif (
             not row["attached"]
             and row["detached_at"]
             and datetime.fromisoformat(row["detached_at"]) <= now - timedelta(minutes=s["idle_min"])

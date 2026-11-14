@@ -201,3 +201,11 @@ def test_the_daemon_starts_and_stops_a_box(database, make_user, daemon, monkeypa
     ops.close(ops.SessionArgs(sid=row["id"]), None)
     assert ran == ["systemctl", "systemctl", "umount"]
     assert not (workbench_box.RUN / row["id"]).exists()
+
+
+def test_a_session_whose_shell_exited_ends(database, daemon, make_user):
+    make_user("root", "admin")
+    row = workbench.open_session(admin(), "192.0.2.10")
+    daemon[:] = [c for c in daemon if c[1] != row["id"]]  # its box stopped (the shell's `exit`)
+    workbench.sweep()
+    assert workbench.get(row["id"])["ended_why"] == "shell exited"
