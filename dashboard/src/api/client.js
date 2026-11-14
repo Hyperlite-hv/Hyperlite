@@ -1574,6 +1574,12 @@ export async function askAccess(body) {
 export async function decideAccess(id, verb) {
   return realFetch(`/access/requests/${encodeURIComponent(id)}/${verb}`, { method: "POST" });
 }
+export async function fetchAccessReview() {
+  return realFetch("/access/review");
+}
+export async function keepAssignment(aclId, note) {
+  return realFetch(`/access/review/${aclId}/keep`, { method: "POST", ...jsonBody({ note }) });
+}
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

@@ -764,3 +764,6 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-token-once { margin-top: var(--space-3); padding: var(--space-3); border: 1px dashed var(--color-accent); border-radius: var(--radius-md); }
 .hc-token-once p { margin: 0 0 var(--space-2); }
 .hc-token-once code { word-break: break-all; user-select: all; }
+.hc-rv-sum { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-4) 0; }
+.hc-rv-act { gap: var(--space-2); }
+.hc-rv-act .nx-inp { width: 160px; }
