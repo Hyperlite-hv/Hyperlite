@@ -193,6 +193,11 @@ export const useInfraStore = create((set, get) => ({
     const taskId = get().addTask({ type: taskType, target: vmName, node });
 
     const apiFn = { start: startVM, stop: stopVM, restart: restartVM, delete: deleteVM }[action];
+    // The row answers at once: a transitional state while the request runs (its actions disabled meanwhile), the
+    // state the server returns once it answers, the state it had back if the request fails.
+    const transitional = { start: "starting", stop: "stopping", restart: "restarting", delete: "deleting" }[action];
+    const before = vm.state;
+    set((s) => ({ vms: s.vms.map((v) => (isThis(v) ? { ...v, state: transitional, prevState: before } : v)) }));
     try {
       // These endpoints answer in a single synchronous HTTP request (no real
       // intermediate percentage on the backend side): the task therefore goes straight
@@ -217,7 +222,7 @@ export const useInfraStore = create((set, get) => ({
         : await apiFn(vmName, node);
       set((s) => ({
         mutations: s.mutations + 1,
-        vms: s.vms.map((v) => (isThis(v) ? { ...v, state: result.state, ip: result.ip } : v))
+        vms: s.vms.map((v) => (isThis(v) ? { ...v, state: result.state, ip: result.ip, prevState: undefined } : v))
           .filter((v) => !(action === "delete" && isThis(v))),
       }));
       get().completeTask(taskId, "succeeded");
@@ -241,6 +246,7 @@ export const useInfraStore = create((set, get) => ({
 
       return taskId;
     } catch (e) {
+      set((s) => ({ vms: s.vms.map((v) => (isThis(v) && v.state === transitional ? { ...v, state: before, prevState: undefined } : v)) }));
       get().completeTask(taskId, "failed", e.message);
       throw e;
     }

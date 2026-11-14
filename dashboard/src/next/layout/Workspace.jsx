@@ -145,7 +145,7 @@ function ResourceMenu({ type, name, tab, admin, onPage }) {
       {groups.map((g, i) => (
         <div key={g.group || i} className="hc-rgroup" role="group" aria-label={g.group ? t(g.group) : name}>
           {g.group && <h2>{t(g.group)}</h2>}
-          {g.pages.map((p) => <button key={p.id} type="button" id={`nx-top-${p.id}`} aria-current={tab === p.id ? "page" : undefined} onClick={() => onPage(p.id)}>{t(resourcePageLabel(p.id))}</button>)}
+          {g.pages.map((p) => <button key={p.id} type="button" id={`nx-top-${p.id}`} data-preload={`${type}:${p.id}`} aria-current={tab === p.id ? "page" : undefined} onClick={() => onPage(p.id)}>{t(resourcePageLabel(p.id))}</button>)}
         </div>
       ))}
     </nav>
@@ -197,7 +197,7 @@ export default function Workspace({ children }) {
     && !(tab === "backup" && vmNode?.member);
   const pageEl = localOnly
     ? <EmptyState title={t("vm.remotePageTitle")} help={t("vm.remotePageHelp", { node: vmNode?.name || resource.node })} />
-    : Active ? <Suspense fallback={<Loading />}><Active resource={resource} selection={selection} /></Suspense> : null;
+    : Active ? <div className="hc-page-in" key={`${selection.type}:${selection.id}:${tab}`}><Suspense fallback={<Loading />}><Active resource={resource} selection={selection} /></Suspense></div> : null;
 
   return (
     <main className="nx-main" id="nx-main" tabIndex={-1}>
