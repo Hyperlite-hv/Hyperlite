@@ -41,6 +41,7 @@ extend-immutable-calls = [
     "fastapi.Body",
     # Dependency factories: they build the callable that FastAPI resolves per request.
     "app.core.security.require_role",
+    "app.core.security.require_area",
     "app.core.security.require_vm_privilege",
     "app.core.security.require_container_privilege",
 ]

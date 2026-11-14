@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useAccess } from "./lib/access";
 import { Routes, Route, Navigate } from "react-router-dom";
 import "./next.css";
 import "./refonte.css";
@@ -63,7 +64,7 @@ export default function NextApp() {
 
   // The task dock starts collapsed (calm by default); it shows a running-task count and can be opened at any time.
 
-  useEffect(() => { refreshInventory({ initial: true }).catch(() => {}); refreshExtras(); }, []);
+  useEffect(() => { refreshInventory({ initial: true }).catch(() => {}); refreshExtras(); useAccess.getState().load(); }, []);
   usePolling(useCallback(() => refreshInventory(), []), REFRESH_MS);
   usePolling(useCallback(() => refreshExtras(), []), EXTRAS_MS);
 

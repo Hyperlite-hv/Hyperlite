@@ -116,5 +116,6 @@ def test_object_acl_lists_own_and_pool_assignments(client, auth_headers):
     rows = client.get("/acl/object/container/vm-a", headers=admin).json()["items"]
     assert [r["subject_id"] for r in rows] == ["ct"]
 
-    assert client.get("/acl/object/pool/1", headers=admin).status_code == 422
+    assert client.get("/acl/object/pool/1", headers=admin).status_code == 200  # pools have a Rights tab too
+    assert client.get("/acl/object/planet/1", headers=admin).status_code == 422
     assert client.get("/acl/object/vm/vm-a", headers=auth_headers("watcher", "viewer")).status_code == 403

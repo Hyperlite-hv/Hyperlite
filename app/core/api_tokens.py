@@ -77,4 +77,24 @@ def verify_token(token: str):
     if not user:
         return None
     # Which token authenticated the request: a token may revoke itself, never create or revoke others.
-    return {**user, "api_token_id": row["id"]}
+    user = {**user, "api_token_id": row["id"]}
+    # A delegated token acts with one role on one perimeter, within its owner's rights (app/core/permissions.py,
+    # _holds): its global role becomes "delegated", which no route reserved to a global role accepts.
+    scope = _access().token_scope(row["id"])
+    if scope:
+        user.update(role="delegated", owner_role=user["role"], token_scope=dict(scope))
+    return user
+
+
+def _access():
+    from app.repositories import registry
+
+    return registry.access().sync
+
+
+def set_scope(token_id, role, resource_type, resource_id):
+    _access().set_token_scope(token_id, role, resource_type, str(resource_id))
+
+
+def scope_of(token_id):
+    return _access().token_scope(token_id)

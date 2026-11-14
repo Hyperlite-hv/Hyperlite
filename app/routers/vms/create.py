@@ -48,6 +48,19 @@ def refuse_unallowed(payload, user):
     )
     if refusal:
         raise HTTPException(status_code=403, detail=refusal)
+    from app.core import guardrails
+
+    broken = guardrails.creation_refusal(
+        payload.name,
+        payload.vcpu,
+        payload.memory_mb,
+        sum(d.size_gb for d in payload.disks),
+        [payload.storage_pool or "default"],
+        [payload.network],
+        payload.resource_pool,
+    )
+    if broken:
+        raise HTTPException(status_code=422, detail=broken)
 
 
 @router.post("", status_code=201)

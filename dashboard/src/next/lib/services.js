@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
-  Activity, ArrowDownToLine, BellRing, Box, Braces, BrickWall, Camera, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
-  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, Share2, ShipWheel, Siren, Users, Waypoints, Workflow, Lightbulb,
+  Activity, ArrowDownToLine, BellRing, Box, Boxes, Braces, BrickWall, Camera, Clock, ChartColumn, Database, DatabaseBackup, Disc3, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
+  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, Share2, ShieldCheck, ShipWheel, Siren, Users, Waypoints, Workflow, Lightbulb,
 } from "lucide-react";
 
 // The services of the console: one per datacenter page, under its historical `?tab=` id so every existing link
@@ -10,6 +10,7 @@ import {
 export const CATEGORIES = ["compute", "storage", "network", "cluster", "protect", "monitor", "auto", "identity"];
 export const SERVICES = [
   { id: "vms", icon: Monitor, cat: "compute", label: "nav.vms" },
+  { id: "pools", icon: Boxes, cat: "compute" },
   { id: "containers", icon: Box, cat: "compute" },
   { id: "kubernetes", icon: ShipWheel, cat: "compute" },
   { id: "nodes", icon: Server, cat: "compute" },
@@ -39,6 +40,8 @@ export const SERVICES = [
   { id: "api", icon: Braces, cat: "auto", apiDocs: true },
   { id: "permissions", icon: Users, cat: "identity", admin: true, label: "nav.usersRoles" },
   { id: "sso", icon: KeyRound, cat: "identity", admin: true, label: "svc.sso" },
+  { id: "guardrails", icon: ShieldCheck, cat: "identity" },
+  { id: "access", icon: Clock, cat: "identity" },
 ];
 // The pages of the console itself: they are not services and never appear in the catalogue.
 const BASE = [
@@ -66,10 +69,11 @@ export function activeService(selection, tab) {
   return ALIASES[tab] || tab || "summary";
 }
 
-// The menu of a resource page: its pages in groups, an overview first. `admin` pages are hidden from the others.
+// The menu of a resource page: its pages in groups, an overview first. `admin` pages are hidden from the others;
+// `access` pages (Rights) from those who neither are administrators nor hold access.view somewhere.
 export const RESOURCE_MENUS = {
   vm: [
-    { pages: ["summary", "tasks", { id: "permissions", admin: true }] },
+    { pages: ["summary", "tasks", { id: "permissions", access: true }] },
     { group: "res.g.connect", pages: ["console"] },
     { group: "res.g.operations", pages: ["run", "schedules"] },
     { group: "res.g.settings", pages: ["hardware", "advanced", "options", "network", "cloudinit"] },
@@ -77,13 +81,13 @@ export const RESOURCE_MENUS = {
     { group: "res.g.monitoring", pages: ["perf", "guest", "history", "advisor"] },
   ],
   node: [
-    { pages: ["summary", "tasks"] },
+    { pages: ["summary", "tasks", { id: "permissions", access: true }] },
     { group: "res.g.settings", pages: ["system", { id: "updates", admin: true }, "network", "disk"] },
     { group: "res.g.monitoring", pages: ["perf", "compat", "advisor"] },
     { group: "res.g.connect", pages: ["shell"] },
   ],
   container: [
-    { pages: ["summary", "tasks", { id: "permissions", admin: true }] },
+    { pages: ["summary", "tasks", { id: "permissions", access: true }] },
     { group: "res.g.connect", pages: ["console"] },
     { group: "res.g.protection", pages: ["snapshots", "backup"] },
   ],

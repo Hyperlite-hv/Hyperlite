@@ -2,7 +2,7 @@
 14, 4c): the scheduled jobs run apart from the API and the privileged daemon.
 
 It runs the scheduled backups (and the backup groups' jobs, the stores' copies and garbage collections), the
-replication, the inactive VMs' automatic deletion, the VMs' power and snapshot schedules, the update check and the start at boot; the nodes' poll (and the
+replication, the inactive VMs' automatic deletion, the VMs' power and snapshot schedules, the end of dated rights, the update check and the start at boot; the nodes' poll (and the
 start at boot of a registered host that came back), the configuration's copy, and at its start the network firewall's
 rules and the running VMs' VLANs (docs/design/privilege-separation.md, 4e). Its tasks record it as
 their runner (app/core/tasks.py): the dashboard lists and cancels them as the API's own. Its claims on VMs are the
@@ -23,6 +23,7 @@ def separate():
 
 def start():
     """Start every scheduler's thread in this process."""
+    from app.core.access_requests import start_access_sweep
     from app.core.backups import start_backup_scheduler
     from app.core.cluster import start_node_poller
     from app.core.config_copy import start_config_copy
@@ -38,6 +39,7 @@ def start():
     start_replication_scheduler()
     start_auto_cleanup_scheduler()
     start_weekly_report()
+    start_access_sweep()
     start_vm_schedules()
     start_update_check_scheduler()
     start_boot_sequence()

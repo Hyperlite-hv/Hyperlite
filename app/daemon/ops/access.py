@@ -279,7 +279,7 @@ class AclCreate(Args):
     subject_type: Literal["user", "group"]
     subject_id: Name
     role: Role
-    resource_type: Literal["vm", "pool", "container", "storage", "network", "backup_store"]
+    resource_type: Literal["vm", "pool", "container", "storage", "network", "backup_store", "node", "cluster"]
     resource_id: Name
 
 
@@ -301,8 +301,113 @@ _register("pool_member_add", "access", "add_pool_member", PoolMember, needs=by_r
 _register("pool_member_remove", "access", "remove_pool_member", PoolMember, needs=ADMIN)
 _register("pool_member_rename", "access", "rename_pool_member", PoolMemberRename, needs=ADMIN)
 _register("pool_vm_forget", "access", "remove_vm_from_all_pools", Vm, needs=on_vm("vm.allocate", "vm_name"))
-_register("acl_create", "access", "create_acl", AclCreate, needs=ADMIN)
-_register("acl_delete", "access", "delete_acl", AclId, needs=ADMIN)
+
+
+def _may_grant(user, args):
+    """A delegate (access.manage on a perimeter) gives assignments there (app/core/permissions.py, grant_refusal)."""
+    from app.core import permissions
+
+    return permissions.grant_refusal(
+        user, args.subject_type, args.subject_id, args.role, args.resource_type, args.resource_id
+    )
+
+
+def _may_remove(user, args):
+    from app.core import permissions
+
+    row = next((r for r in _store("access").acl() if r["id"] == args.acl_id), None)
+    if row is None:
+        return None  # nothing to remove: the store's delete is a no-op
+    if row["subject_type"] == "user" and row["subject_id"] == user["username"]:
+        return None  # giving back one's own right (an on-demand right ended early)
+    return permissions.grant_refusal(
+        user, row["subject_type"], row["subject_id"], row["role"], row["resource_type"], row["resource_id"]
+    )
+
+
+class AclCreateTerms(AclCreate):
+    expires_at: Time | None
+    tag: Annotated[str, Field(max_length=128)] | None
+    reason: Text
+    granted_by: Name
+    granted_at: Time
+    origin: Literal["manual", "request"]
+
+
+def _may_grant_with_terms(user, args):
+    """As _may_grant; or the account takes for itself, for a while, a role it is eligible to take without approval
+    (on-demand rights, docs/design/access-2.md, section 6)."""
+    from app.core import permissions
+
+    refusal = _may_grant(user, args)
+    if refusal is None or args.origin != "request":
+        return refusal
+    itself = args.subject_type == "user" and args.subject_id == user["username"] == args.granted_by
+    allowed = itself and permissions.self_service_allows(
+        user, args.role, args.resource_type, args.resource_id, args.expires_at
+    )
+    return None if allowed else refusal
+
+
+class EligibilityCreate(Args):
+    subject_type: Literal["user", "group"]
+    subject_id: Name
+    role: Role
+    resource_type: Literal["vm", "pool", "container", "storage", "network", "backup_store", "node", "cluster"]
+    resource_id: Name
+    max_minutes: Annotated[int, Field(ge=5, le=60 * 24 * 31)]
+    approval: Literal["auto", "approval"]
+    created_by: Name
+    created_at: Time
+
+
+class EligibilityId(Args):
+    eligibility_id: Id
+
+
+def _may_make_eligible(user, args):
+    from app.core import permissions
+
+    return permissions.grant_refusal(
+        user, args.subject_type, args.subject_id, args.role, args.resource_type, args.resource_id
+    )
+
+
+def _may_remove_eligibility(user, args):
+    from app.core import permissions
+
+    row = next((r for r in _store("access").eligibility() if r["id"] == args.eligibility_id), None)
+    if row is None:
+        return None
+    return permissions.grant_refusal(
+        user, row["subject_type"], row["subject_id"], row["role"], row["resource_type"], row["resource_id"]
+    )
+
+
+class TokenScope(Args):
+    token_id: Id
+    role: Role
+    resource_type: Literal["vm", "pool", "container", "storage", "network", "backup_store", "node", "cluster"]
+    resource_id: Name
+
+
+def _own_token(user, args):
+    """A token's owner narrows it; an administrator any token."""
+    from app.core.database import get_conn
+
+    with get_conn() as db:
+        row = db.execute("SELECT username FROM api_tokens WHERE id = ?", (args.token_id,)).fetchone()
+    if row is None or row["username"] != user["username"]:
+        return "Only the token's owner or an administrator may do this"
+    return None
+
+
+_register("acl_create", "access", "create_acl", AclCreate, needs=by_rule(_may_grant))
+_register("acl_create_terms", "access", "create_acl_with_terms", AclCreateTerms, needs=by_rule(_may_grant_with_terms))
+_register("eligibility_create", "access", "create_eligibility", EligibilityCreate, needs=by_rule(_may_make_eligible))
+_register("eligibility_delete", "access", "delete_eligibility", EligibilityId, needs=by_rule(_may_remove_eligibility))
+_register("token_scope_set", "access", "set_token_scope", TokenScope, needs=by_rule(_own_token))
+_register("acl_delete", "access", "delete_acl", AclId, needs=by_rule(_may_remove))
 _register("acl_vm_forget", "access", "delete_acl_for_vm", Vm, needs=on_vm("vm.allocate", "vm_name"))
 
 

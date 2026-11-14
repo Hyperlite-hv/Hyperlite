@@ -1535,6 +1535,66 @@ export async function createAcl(payload) {
   return realFetch("/acl", { method: "POST", ...jsonBody(payload) });
 }
 // Assignments on one VM or container, with those a VM inherits from its pools (`herite_de`).
+export async function fetchProtections() {
+  return realList("/protections");
+}
+export async function fetchObjectProtections(kind, name) {
+  return realList(`/protections/${kind}/${encodeURIComponent(name)}`);
+}
+export async function putProtection(kind, name, level, reason) {
+  return realFetch(`/protections/${kind}/${encodeURIComponent(name)}/${level}`, { method: "PUT", ...jsonBody({ reason }) });
+}
+export async function liftProtection(kind, name, level) {
+  return realFetch(`/protections/${kind}/${encodeURIComponent(name)}/${level}`, { method: "DELETE" });
+}
+export async function fetchGuardrails() {
+  return realFetch("/guardrails");
+}
+export async function putGuardrailRule(scope, rule) {
+  return realFetch(`/guardrails/rules/${encodeURIComponent(scope)}`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function putPoolEnvelope(poolId, envelope) {
+  return realFetch(`/guardrails/envelopes/${poolId}`, { method: "PUT", ...jsonBody(envelope) });
+}
+export async function fetchEligibility() {
+  return realList("/access/eligibility");
+}
+export async function createEligibility(body) {
+  return realFetch("/access/eligibility", { method: "POST", ...jsonBody(body) });
+}
+export async function deleteEligibility(id) {
+  return realFetch(`/access/eligibility/${id}`, { method: "DELETE" });
+}
+export async function fetchAccessRequests() {
+  return realList("/access/requests");
+}
+export async function askAccess(body) {
+  return realFetch("/access/requests", { method: "POST", ...jsonBody(body) });
+}
+export async function decideAccess(id, verb) {
+  return realFetch(`/access/requests/${encodeURIComponent(id)}/${verb}`, { method: "POST" });
+}
+export async function fetchAccessReview() {
+  return realFetch("/access/review");
+}
+export async function keepAssignment(aclId, note) {
+  return realFetch(`/access/review/${aclId}/keep`, { method: "POST", ...jsonBody({ note }) });
+}
+export async function fetchVmDefinition(name, format = "json") {
+  if (format !== "terraform") return realFetch(`/vms/${encodeURIComponent(name)}/definition?format=${format}`);
+  const res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/definition?format=terraform`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.text();
+}
+export async function fetchMyAccess() {
+  return realFetch("/access/me");
+}
+export async function fetchAccessSubjects() {
+  return realFetch("/access/subjects");
+}
+export async function explainAccess(resourceType, resourceId, username) {
+  return realFetch(`/access/explain?resource_type=${encodeURIComponent(resourceType)}&resource_id=${encodeURIComponent(resourceId)}&username=${encodeURIComponent(username)}`);
+}
 export async function fetchObjectAcl(kind, name) {
   return realList(`/acl/object/${kind}/${encodeURIComponent(name)}`);
 }
@@ -1747,8 +1807,8 @@ export async function fetchApiTokens() {
   return realList("/auth/tokens");
 }
 // expiresDays: null for a token that never expires (an explicit choice).
-export async function createApiToken(name, expiresDays = 90) {
-  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name, expires_days: expiresDays }) });
+export async function createApiToken(name, expiresDays = 90, scope = null) {
+  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name, expires_days: expiresDays, ...(scope ? { scope } : {}) }) });
 }
 export async function deleteApiToken(id) {
   return realFetch(`/auth/tokens/${id}`, { method: "DELETE" });
