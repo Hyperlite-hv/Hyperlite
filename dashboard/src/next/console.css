@@ -822,3 +822,5 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
   .nx-root.hc[data-menu="hidden"] .nx-scrim--nav { z-index: 40; padding: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .nx-root.hc[data-menu="hidden"] .hc-side { transition: none; } }
+.hc-json { max-height: none; min-height: 60vh; white-space: pre-wrap; word-break: break-word; }
+.hc-ph-json { margin-left: auto; align-self: flex-start; } .hc-ph-json + .hc-ph-close { margin-left: 0; }

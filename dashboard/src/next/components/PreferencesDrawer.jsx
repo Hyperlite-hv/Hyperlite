@@ -4,7 +4,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
 import { poolKey, TERM_FONTS, TERM_SIZES, usePrefs } from "../lib/prefs";
-import { ACCENTS, DENSITIES, MENUS, SCALES, useAppearance } from "../lib/appearance";
+import { ACCENTS, CONTRASTS, DENSITIES, MENUS, SCALES, useAppearance } from "../lib/appearance";
 import { allowedServices, serviceLabel, useConsoleStore } from "../lib/services";
 import { capabilities } from "../lib/capabilities";
 import { useApiDocsAccess } from "../layout/SideMenu";
@@ -60,6 +60,7 @@ export default function PreferencesDrawer({ open, onClose }) {
             <button key={a} type="button" aria-pressed={look.accent === a} className="hc-accent" data-accent-swatch={a} title={t(`prefs.accent.${a}`)} aria-label={t(`prefs.accent.${a}`)} onClick={() => look.update({ accent: a })}>{look.accent === a && <Check size={14} aria-hidden="true" />}</button>
           ))}</div>
         </div>
+        <Choice label={t("prefs.contrast")} value={look.contrast} onChange={(contrast) => look.update({ contrast })} options={CONTRASTS.map((c) => [c, t(`prefs.contrast.${c}`)])} />
         <Choice label={t("prefs.density")} value={look.density} onChange={(density) => look.update({ density })} options={DENSITIES.map((d) => [d, t(`prefs.density.${d}`)])} />
         <Choice label={t("prefs.scale")} value={look.scale} onChange={(scale) => look.update({ scale })} options={SCALES.map((x) => [x, `${Math.round(x * 100)} %`])} />
         <Choice label={t("prefs.menuShow")} value={look.menu} onChange={(menu) => look.update({ menu })} options={MENUS.map((m) => [m, t(`prefs.menuShow.${m}`)])} />

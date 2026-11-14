@@ -9,7 +9,7 @@ from app.core.audit import log_action
 from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
 from app.core.listing import listing
 from app.core.permissions import has_container_privilege, has_privilege
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_role
 
 router = APIRouter(prefix="/meta", tags=["meta"])
 
@@ -83,6 +83,27 @@ def _kind(kind):
     if kind not in object_meta.KINDS:
         raise HTTPException(status_code=404, detail=f"Unknown object kind '{kind}'")
     return kind
+
+
+class RetagIn(BaseModel):
+    new: str | None = Field(None, max_length=32)
+
+
+@router.get("/tags/summary")
+def tags_summary(user: dict = Depends(get_current_user)):
+    """Every tag in use with how many objects carry it, by kind."""
+    return listing(object_meta.tag_counts())
+
+
+@router.put("/tags/{tag}")
+def rename_tag(tag: str, payload: RetagIn, user: dict = Depends(require_role("admin"))):
+    """Rename a tag everywhere (merged into `new` where an object has both); `new` empty removes it everywhere."""
+    try:
+        changed = object_meta.retag(tag, (payload.new or "").strip() or None)
+    except object_meta.MetaError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    log_action(user["username"], "retag", tag, "success", f"-> {payload.new or '(removed)'} on {changed} object(s)")
+    return {"changed": changed}
 
 
 @router.get("")
