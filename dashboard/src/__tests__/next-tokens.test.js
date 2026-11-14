@@ -23,6 +23,24 @@ const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
 const dark = tokens(block(':root[data-ui="next"] {'));
 const light = { ...dark, ...tokens(block(':root[data-ui="next"][data-theme="light"]')) };
 
+const darkHigh = { ...dark, ...tokens(block(':root[data-ui="next"][data-contrast="high"] {')) };
+const lightHigh = { ...light, ...tokens(block(':root[data-ui="next"][data-theme="light"][data-contrast="high"]')) };
+
+describe("high contrast", () => {
+  for (const [name, T] of [["dark", darkHigh], ["light", lightHigh]]) {
+    it(`${name}: primary text 15:1, every other text and status colour 7:1, edges 3:1`, () => {
+      for (const s of ["color-bg-workspace", "color-bg-surface", "color-bg-surface-raised", "color-bg-hover"]) {
+        expect(ratio(T["color-text-primary"], T[s]), s).toBeGreaterThanOrEqual(15);
+        for (const c of ["text-secondary", "text-muted", "accent", "info", "success", "warning", "danger"]) expect(ratio(T[`color-${c}`], T[s]), `${c} on ${s}`).toBeGreaterThanOrEqual(7);
+      }
+      expect(ratio(T["color-border-card"], T["color-bg-surface"])).toBeGreaterThanOrEqual(3);
+      expect(ratio(T["color-border-default"], T["color-bg-surface"])).toBeGreaterThanOrEqual(3);
+      expect(ratio(T["color-border-focus"], T["color-bg-workspace"])).toBeGreaterThanOrEqual(3);
+      expect(ratio(T["color-text-on-accent"], T["color-accent"])).toBeGreaterThanOrEqual(7);
+    });
+  }
+});
+
 for (const [name, T] of [["dark", dark], ["light", light]]) {
   describe(`${name} theme contrast`, () => {
     const surfaces = ["color-bg-workspace", "color-bg-surface", "color-bg-surface-raised", "color-bg-selected", "color-bg-hover"];

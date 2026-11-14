@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useRef, useState } from "react";
+import { JsonViewButton } from "../components/JsonView";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -250,6 +251,7 @@ export default function Workspace({ children }) {
                   <div className="nx-ph-title"><h1>{resource.name}</h1>{selection.type === "vm" && resource.vmid != null && <span className="nx-vmid" title={t("vmid.title")}>{resource.vmid}</span>}{tab !== "summary" && <span className="hc-ph-page">{t(resourcePageLabel(tab))}</span>}</div>
                   <p className="hc-ph-sub">{t(`home.kind.${selection.type}`)}</p>
                 </div>
+                <JsonViewButton type={selection.type} resource={resource} />
                 <button type="button" className="hc-ibtn hc-ph-close" aria-label={t("action.close")} title={t("action.close")} onClick={toList}><X size={18} aria-hidden="true" /></button>
               </div>
             </header>

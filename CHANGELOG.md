@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-11-15
+
+### Added
+
+- Account end dates: from then on the account is refused at sign-in and on every request; moving the date brings it back.
+- Alert silences on everything, a node, a VM, a pool or a rule for a time window: alerts are still journaled, nobody is notified.
+- High contrast option (Preferences > Contrast), for both themes, following the system setting by default.
+- JSON view of a VM, container or node from its header, to copy or download.
+- Tags page: every tag in use and what carries it, renamed, merged or removed everywhere at once.
+
+### Fixed
+
+- Creating a VM or a container: the creation page sits under the header again, across the whole width (it was drawn half off the screen: the CSS minifier dropped the reset of the dialog's centring).
+
 ## [1.23.1] - 2026-11-14
 
 ### Changed
