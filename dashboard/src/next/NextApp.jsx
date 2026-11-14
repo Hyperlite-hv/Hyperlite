@@ -11,6 +11,8 @@ import MaintenanceHost from "./components/MaintenanceDialog";
 import NodePowerHost from "./components/NodePowerDialog";
 import { useT, useLangStore } from "./i18n";
 import { useThemeStore } from "./tokens/theme";
+import { applyAppearance, useAppearance } from "./lib/appearance";
+import { useInfraStore } from "../store/useInfraStore";
 import { usePolling } from "./lib/polling";
 import { refreshInventory, refreshExtras } from "./lib/inventory";
 import TopBar from "./layout/TopBar";
@@ -21,6 +23,7 @@ import Tray from "./layout/Tray";
 import ShortcutsDialog from "./components/ShortcutsDialog";
 import { useInfraStore } from "../store/useInfraStore";
 import { GO, SEQUENCE_MS, isTyping, moveRow, toggleRow } from "./lib/shortcuts";
+import { preloadCommon, preloadPage } from "./legacy/tabs";
 
 const SIDEBAR_KEY = "hyperlite-next-sidebar";
 function readSidebarCollapsed() { try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; } }
@@ -44,9 +47,16 @@ export default function NextApp() {
     root.dataset.ui = "next";
     root.lang = lang;
     const cleanup = initTheme();
+    applyAppearance(useAppearance.getState());
+    // The page this person chose to open on, when the console is opened on its root address.
+    const start = useAppearance.getState().startPage;
+    if (start !== "summary" && window.location.pathname === "/" && !window.location.search) {
+      useInfraStore.getState().navigateTo("datacenter", null, start);
+    }
     return () => {
       cleanup?.();
-      delete root.dataset.ui; delete root.dataset.theme;
+      delete root.dataset.ui; delete root.dataset.theme; delete root.dataset.accent; delete root.dataset.density;
+      root.style.removeProperty("--ui-scale");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -93,6 +103,21 @@ export default function NextApp() {
     const open = () => setShortcutsOpen(true);
     window.addEventListener("nx:shortcuts", open);
     return () => window.removeEventListener("nx:shortcuts", open);
+  }, []);
+
+  // Pages fetched before they are opened: links that name their page (data-preload="type:tab") when the pointer or
+  // the focus reaches them, the most used pages once the browser is idle.
+  useEffect(() => {
+    preloadCommon();
+    const on = (e) => {
+      const el = e.target?.closest?.("[data-preload]");
+      if (!el) return;
+      const [type, tab] = el.dataset.preload.split(":");
+      preloadPage(type, tab);
+    };
+    document.addEventListener("pointerover", on, { passive: true });
+    document.addEventListener("focusin", on);
+    return () => { document.removeEventListener("pointerover", on); document.removeEventListener("focusin", on); };
   }, []);
 
   useEffect(() => {
