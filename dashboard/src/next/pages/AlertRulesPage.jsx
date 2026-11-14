@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCached } from "../lib/useCached";
+import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { BellPlus, ChevronDown, ChevronRight, Pencil, RefreshCw, Siren, Trash2 } from "lucide-react";
 import { createAlertRule, deleteAlertRule, fetchAlertRules, fetchNotificationChannels, setAlertRuleEnabled, updateAlertRule } from "../../api/client";
@@ -116,15 +117,13 @@ export default function AlertRulesPage() {
   const lang = useLangStore((s) => s.lang);
   const { nodes, pushToast } = useInfraStore(useShallow((s) => ({ nodes: s.nodes, pushToast: s.pushToast })));
   const caps = capabilities(useAuthStore((s) => s.role));
-  const [rules, setRules] = useState(null);
-  const [error, setError] = useState(null);
+  const cached = useCached("alert-rules", async () => asList(await fetchAlertRules()));
+  const rules = cached.data;
+  const error = cached.error ? errorMessage(cached.error) : null;
   const [channels, setChannels] = useState(null);
   const [drawer, setDrawer] = useState(null); // { rule } | { rule: null } for a new one
   const [open, setOpen] = useState(null);
-  const load = useCallback(async () => {
-    try { setRules(asList(await fetchAlertRules())); setError(null); } catch (e) { setError(errorMessage(e)); setRules((r) => r || []); }
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  const load = cached.reload;
   usePolling(load, 30000);
   useEffect(() => { if (caps.admin) fetchNotificationChannels().then((r) => setChannels(asList(r))).catch(() => setChannels([])); }, [caps.admin]);
   const channelName = (id) => channels?.find((c) => c.id === id)?.name || `#${id}`;
