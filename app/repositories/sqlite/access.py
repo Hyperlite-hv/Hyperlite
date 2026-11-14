@@ -153,6 +153,23 @@ class SqliteAccessStore:
             (pool_id, tag, name_pattern),
         )
 
+    def exclusions(self):
+        return _rows("SELECT * FROM access_exclusions ORDER BY id")
+
+    @daemon_write("access.exclusion_create")
+    def create_exclusion(
+        self, subject_type, subject_id, privilege, resource_type, resource_id, reason, created_by, created_at
+    ):
+        return _write(
+            "INSERT INTO access_exclusions (subject_type, subject_id, privilege, resource_type, resource_id, reason, "
+            "created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (subject_type, subject_id, privilege, resource_type, resource_id, reason, created_by, created_at),
+        ).lastrowid
+
+    @daemon_write("access.exclusion_delete")
+    def delete_exclusion(self, exclusion_id):
+        _write("DELETE FROM access_exclusions WHERE id = ?", (exclusion_id,))
+
     def pools_of(self, vm_name):
         return [r["pool_id"] for r in _rows("SELECT pool_id FROM pool_members WHERE vm_name = ?", (vm_name,))]
 

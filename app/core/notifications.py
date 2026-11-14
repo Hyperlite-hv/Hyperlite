@@ -61,6 +61,8 @@ NOTIFY_EVENTS = {
     "alert_rule": "Alert rule (fired or resolved)",
     # On-demand rights (docs/design/access-2.md, section 6): asked for, granted, refused or ended.
     "access_request": "On-demand right (asked for, granted, refused, ended)",
+    # A scheduled access review started or closed (docs/design/governance.md, section 5).
+    "access_review": "Scheduled access review (started, closed)",
 }
 
 

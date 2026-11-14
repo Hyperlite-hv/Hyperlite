@@ -1595,6 +1595,23 @@ export async function fetchCompliance() {
 export async function fixCompliance(vms) {
   return realFetch("/compliance/fix", { method: "POST", ...jsonBody({ vms }) });
 }
+export async function fetchSigninRules() { return realList("/signin-rules"); }
+export async function saveSigninRule(rule, id = null) {
+  return realFetch(id ? `/signin-rules/${id}` : "/signin-rules", { method: id ? "PUT" : "POST", ...jsonBody(rule) });
+}
+export async function deleteSigninRule(id) { return realFetch(`/signin-rules/${id}`, { method: "DELETE" }); }
+export async function fetchExclusions() { return realList("/access/exclusions"); }
+export async function createExclusion(body) { return realFetch("/access/exclusions", { method: "POST", ...jsonBody(body) }); }
+export async function deleteExclusion(id) { return realFetch(`/access/exclusions/${id}`, { method: "DELETE" }); }
+export async function fetchCampaigns() { return realList("/access/campaigns"); }
+export async function saveCampaign(body, id = null) {
+  return realFetch(id ? `/access/campaigns/${id}` : "/access/campaigns", { method: id ? "PUT" : "POST", ...jsonBody(body) });
+}
+export async function deleteCampaign(id) { return realFetch(`/access/campaigns/${id}`, { method: "DELETE" }); }
+export async function fetchCampaignItems(id) { return realList(`/access/campaigns/${id}/items`); }
+export async function decideCampaignItem(id, itemId, decision) {
+  return realFetch(`/access/campaigns/${id}/items/${itemId}`, { method: "POST", ...jsonBody({ decision }) });
+}
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

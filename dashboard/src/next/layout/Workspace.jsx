@@ -83,7 +83,7 @@ function useUrlSync() {
 const LOCAL_ONLY_VM_PAGES = new Set(["hardware", "network", "backup", "snapshots", "cloudinit", "advanced"]);
 
 // Datacenter pages the backend reserves to administrators (their endpoints answer 403 to anyone else).
-const ADMIN_ONLY = new Set(["permissions", "sso", "journal", "exports", "metrics", "cfs", "sites"]);
+const ADMIN_ONLY = new Set(["permissions", "signin", "sso", "journal", "exports", "metrics", "cfs", "sites"]);
 
 // The line of facts under the commands of a resource: state first, then what identifies it.
 function VmFacts({ vm, node }) {

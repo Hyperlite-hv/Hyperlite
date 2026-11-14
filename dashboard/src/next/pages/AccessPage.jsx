@@ -14,6 +14,7 @@ import { useAccess } from "../lib/access";
 import { localizeRoles } from "../lib/apiText";
 import { ErrorState } from "../components/States";
 import AccessReview from "./AccessReview";
+import { CampaignsCard, ExclusionsCard } from "./GovernanceCards";
 import { Card, Chip, Empty, Field, Loading, PageHeader, SideDrawer, TableWrap } from "../components/ui";
 
 const STATUS_TONE = { pending: "warning", granted: "success", refused: "danger", ended: undefined, cancelled: undefined };
@@ -157,6 +158,8 @@ export default function AccessPage() {
       )}
 
       {reviewer && <AccessReview roles={data.roles} canDecide={decider} />}
+      <CampaignsCard admin={!!me?.admin} users={(data.subjects?.users || []).map((u) => u.username)} />
+      {me?.admin && data.subjects && <ExclusionsCard subjects={data.subjects} pools={data.pools} nodes={me?.nodes || []} />}
 
       <DelegatedToken roles={data.roles} pools={data.pools} nodes={me?.nodes || []} />
 

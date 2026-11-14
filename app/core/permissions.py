@@ -543,9 +543,47 @@ def _holds(user, perimeters, privilege, viewer=()):
         return _holds(owner, perimeters, privilege, viewer)
     if user["role"] == "admin":
         return True
+    if excluded(user, perimeters, privilege):
+        return False
     if user["role"] == "viewer" and privilege in viewer:
         return True
     return bool(granting(user, perimeters, privilege))
+
+
+def excluded(user, perimeters, privilege):
+    """The exclusion that takes `privilege` from `user` (or one of its groups) on one of `perimeters`, or None
+    (docs/design/governance.md, section 6): an exclusion on a pool holds on its VMs, on a node on what it hosts."""
+    rows = _store().exclusions()
+    if not rows:
+        return None
+    group_ids = set(get_user_groups(user["username"]))
+    on = {(t, str(i)) for t, i in perimeters}
+    return next(
+        (
+            e
+            for e in rows
+            if (e["resource_type"], e["resource_id"]) in on
+            and e["privilege"] in ("*", privilege)
+            and _subject_matches(e, user["username"], group_ids)
+        ),
+        None,
+    )
+
+
+def list_exclusions():
+    return _store().exclusions()
+
+
+def create_exclusion(subject_type, subject_id, privilege, resource_type, resource_id, reason, by):
+    if privilege != "*" and privilege not in ALL_PRIVILEGES:
+        raise ValueError(f"Unknown privilege: {privilege}")
+    return _store().create_exclusion(
+        subject_type, subject_id, privilege, resource_type, str(resource_id), reason or "", by, _now().isoformat()
+    )
+
+
+def delete_exclusion(exclusion_id):
+    _store().delete_exclusion(exclusion_id)
 
 
 def self_service_allows(user, role, resource_type, resource_id, expires_at):
@@ -695,7 +733,8 @@ def explain(user, resource_type, resource_id):
         if user["role"] == "viewer" and privilege in {"vm.view", "vm.console", "container.view"}:
             via.insert(0, {"global": "viewer"})
         if via:
-            out.append({"privilege": privilege, "via": via})
+            ex = excluded(user, perimeters, privilege)
+            out.append({"privilege": privilege, "via": via, **({"excluded_by": ex} if ex else {})})
     return out
 
 

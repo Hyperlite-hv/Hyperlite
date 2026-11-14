@@ -303,10 +303,24 @@ def _session_user(payload: dict, pending_ok: bool = False):
     return user
 
 
+def _refuse_by_signin_rules(user):
+    """403 when a sign-in rule in force refuses this account from this address now (app/core/signin_rules.py)."""
+    from app.core import signin_rules
+    from app.core.audit import request_ip
+
+    ip = request_ip.get()
+    if ip is None:
+        return  # not an HTTP request (hyperlite-daemon checking a proof, a thread): the request itself was checked
+    refusal = signin_rules.refusal(user, ip)
+    if refusal:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refusal)
+
+
 def _current_user(token: str, pending_ok: bool):
     payload = _decode_session(token)
     if payload is not None:
         user = _session_user(payload, pending_ok)
+        _refuse_by_signin_rules(user)
         peer_auth.remember(token)  # a call to another member in this user's name shows it (app/core/peer_auth.py)
         return user
 
@@ -324,6 +338,7 @@ def _current_user(token: str, pending_ok: bool):
     # through a script's token.
     if user.get("must_change_password") and not pending_ok:
         raise _password_change_required()
+    _refuse_by_signin_rules(user)
     peer_auth.remember(token)
     return user
 
