@@ -15,6 +15,7 @@ scratch): nothing is known about its content (OS, filesystem, existing
 accounts), so it boots as is and is accessed with the credentials already on
 it."""
 
+import logging
 import re
 import shutil
 from datetime import UTC, datetime
@@ -31,7 +32,12 @@ from app.core.tasks import create_task, finish_task, update_task_progress
 EXPORTS_DIR = paths.EXPORTS
 # What an export is named (`<vm>--<time>.qcow2`, export_copy): the only files vm.export_delete removes.
 EXPORT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}--\d{8}T\d{6}Z\.qcow2")
-EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+except PermissionError:
+    # The API runs as www-data: the package makes the directory (installer/deb/postinst). Without it the exports say
+    # so when used; the API itself must still start.
+    logging.getLogger(__name__).warning("%s is missing and cannot be made by this service", EXPORTS_DIR)
 
 
 def list_exports():
