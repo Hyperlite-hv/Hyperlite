@@ -10,6 +10,11 @@ const VM_STATES = {
   blocked: { key: "state.blocked", shape: "triangle", tone: "warning" },
   crashed: { key: "state.crashed", shape: "diamond", tone: "danger" },
   unknown: { key: "state.unknown", shape: "ring", tone: "unknown" },
+  // Shown by the console while its own request runs (useInfraStore.runVMAction), never sent by the server.
+  starting: { key: "state.starting", shape: "spinner", tone: "info" },
+  stopping: { key: "state.stopping", shape: "spinner", tone: "info" },
+  restarting: { key: "state.restarting", shape: "spinner", tone: "info" },
+  deleting: { key: "state.deleting", shape: "spinner", tone: "info" },
 };
 const NODE_STATES = {
   online: { key: "state.online", shape: "dot", tone: "success" },

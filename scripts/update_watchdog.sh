@@ -41,6 +41,13 @@ if [ ! -d "$(dirname -- "$LOG_FILE")" ]; then
     LOG_FILE="$(dirname -- "$(readlink -f -- "$0")")/watchdog.log"
 fi
 log() { echo "[$(date -u +%FT%TZ)] $*" >> "$LOG_FILE" 2>/dev/null || true; }
+# Its verdict for the update run (app/core/update_runs.py): read by whichever version starts next, so the outcome of an
+# update is the server's, never a guess of the browser that started it.
+RESULT_FILE="$(dirname -- "$LOG_FILE")/watchdog-result.json"
+verdict() { # outcome version detail
+    printf '{"outcome": "%s", "version": "%s", "detail": "%s", "at": "%s"}\n' "$1" "$2" "$(printf '%s' "$3" | tr -d '"\\' | head -c 400)" \
+        "$(date -u +%FT%TZ)" > "$RESULT_FILE" 2>/dev/null || true
+}
 run_logged() { # a command whose output goes to the log when it can: the command runs whatever happens to the log
     local out rc
     out="$("$@" 2>&1)"; rc=$?
@@ -63,6 +70,7 @@ for i in $(seq 1 "$ATTEMPTS"); do
         if [ -z "$EXPECTED" ] || [ "$GOT" = "$EXPECTED" ]; then
             OK=1
             log "Service answers on /health${GOT:+ with $GOT} (attempt $i): update validated, nothing to do."
+            [ "${HYPERLITE_ROLLBACK_NOW:-}" = 1 ] || verdict validated "$GOT" "answered on attempt $i"
             break
         fi
         log "Attempt $i/$ATTEMPTS: /health still answers with ${GOT:-an unknown version}, the previous process has not stopped yet."
@@ -84,8 +92,14 @@ if [ "$OK" -eq 0 ]; then
             log "Previous version reinstalled from $PREVIOUS_DEB"
             # It is the version installed now, no longer one to go back to.
             rm -f -- "$PREVIOUS_DEB"
+            if [ "${HYPERLITE_ROLLBACK_NOW:-}" = 1 ]; then
+                verdict validated "" "the previous version was installed again"
+            else
+                verdict rolled_back "" "${EXPECTED:-the new version} did not answer: the previous version was installed again"
+            fi
         else
             log "CRITICAL ERROR: reinstalling $PREVIOUS_DEB failed. Manual intervention required."
+            verdict failed "" "reinstalling the previous package failed: manual intervention required"
         fi
         systemctl start hyperlite
         log "Service started on the previous version."
@@ -114,7 +128,9 @@ if [ "$OK" -eq 0 ]; then
         fi
         systemctl start hyperlite
         log "Service started on the previous code."
+        verdict rolled_back "" "${EXPECTED:-the new version} did not answer: the backup was restored"
     else
         log "CRITICAL ERROR: backup file not found ($BACKUP_TARBALL), rollback impossible. Manual intervention required."
+        verdict failed "" "the new version did not answer and no backup was found: manual intervention required"
     fi
 fi

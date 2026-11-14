@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-11-14
+
+### Added
+
+- Customisable console: My preferences now sets the theme, an accent colour (six quiet ones), the density (comfortable or compact), the text size (90 to 120 %), the page the console opens on, and the order of the services pinned in the left menu. Home's blocks can be moved up and down, between its two columns, hidden and brought back (Customise on Home). All of it is kept in this browser. The preferences panel no longer shows its title and labels white on white.
+
+- Keyboard: "g" then a letter goes to a service (g v virtual machines, g n nodes, g s storage, and so on), "c" opens Create, "?" lists every shortcut, and in a list "j" and "k" move from row to row, "x" ticks the row and Enter opens it. The command palette (Ctrl+K) reaches every service, the theme, the preferences and the shortcuts.
+
+### Changed
+
+- Updates you can follow (docs/design/updates-2.md):
+  - a page of its own replaces the update dialog, with the installed and latest versions, the channel, the last check and its interval, the release notes, the checks before starting, the update in progress step by step, the history and each update's technical log;
+  - each update is recorded with its steps; only APT's own download and install measures give a percentage, and every other step shows an activity of unknown length;
+  - the outcome is the server's: the watchdog writes its verdict, and the next start closes the update as done, rolled back or failed, so closing or reloading the page loses nothing;
+  - packages are all downloaded before anything is installed, so a cut download installs nothing;
+  - checks before starting: free space, an interrupted dpkg, the package manager's lock, operations in progress, version order, a node in a cluster and a pending reboot; the blocking ones refuse the update;
+  - the automatic check runs every 1, 6 or 24 hours, or only by hand, keeps its last result and marks an update with security fixes as critical.
+- A notification centre: entries kept on the node, read and unread per account, mark all as read, archive, pinned until what they report is over, each leading to its page. It covers updates, reboots needed, alert rules, crashed VMs, failed backups and HA alerts, and each new entry appears once as a toast. Toasts of information and warnings no longer look like successes.
+
+- Smoother console: starting, stopping, restarting or deleting a VM shows its transitional state at once, with its other actions disabled until the server answers, and goes back to the previous state if the request fails. Pages are fetched before they are opened (when the pointer or the focus reaches a link to them, and the most used ones while the browser is idle), arrive with a short fade, and the alert rules, templates and image gallery show their last data at once while they are read again. Buttons answer the pointer immediately; nothing moves for people who ask for reduced motion.
+
 ## [1.19.0] - 2026-11-13
 
 ### Added

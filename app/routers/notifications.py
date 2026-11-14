@@ -2,7 +2,7 @@
 app/core/notifications.py."""
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core import notifications as notif
 from app.core.audit import log_action
@@ -136,3 +136,44 @@ def test_channel(channel_id: int, user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=502, detail=f"Sending failed: {e}") from e
     log_action(user["username"], "test_notification_channel", channel["name"], "success")
     return {"message": "Test notification sent"}
+
+
+# ---- The console's notification centre (app/core/notification_feed.py) ----
+
+
+class FeedMarks(BaseModel):
+    ids: list[int] | None = Field(default=None, max_length=500)  # None: every entry
+
+
+def _is_admin(user):
+    return user.get("role") == "admin"
+
+
+@router.get("/feed")
+def get_feed(archived: bool = False, limit: int = 50, user: dict = Depends(get_current_user)):
+    """The entries this account may read, pinned ones first, with their read marks, and the unread count."""
+    from app.core import notification_feed
+
+    admin = _is_admin(user)
+    return {
+        "items": notification_feed.entries(user["username"], admin, archived, max(1, min(limit, 200))),
+        "unread": notification_feed.unread_count(user["username"], admin),
+    }
+
+
+@router.post("/feed/read")
+def read_feed(payload: FeedMarks, user: dict = Depends(get_current_user)):
+    from app.core import notification_feed
+
+    notification_feed.mark_read(user["username"], _is_admin(user), payload.ids)
+    return {"unread": notification_feed.unread_count(user["username"], _is_admin(user))}
+
+
+@router.post("/feed/archive")
+def archive_feed(payload: FeedMarks, user: dict = Depends(get_current_user)):
+    from app.core import notification_feed
+
+    if not payload.ids:
+        raise HTTPException(status_code=422, detail="Name the entries to archive")
+    notification_feed.archive(user["username"], _is_admin(user), payload.ids)
+    return {"unread": notification_feed.unread_count(user["username"], _is_admin(user))}

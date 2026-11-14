@@ -88,7 +88,7 @@ async function realFetch(path, opts = {}) {
   if (!res.ok) {
     const msg = (data && data.detail) ? (normalizeDetail(data.detail) || "Unknown error") : "Unknown error";
     // The status lets a caller tell "this object does not exist (any more)" from a real failure.
-    throw Object.assign(new Error(msg), { status: res.status });
+    throw Object.assign(new Error(msg), { status: res.status, detail: data?.detail });
   }
   return data;
 }
@@ -863,6 +863,32 @@ export async function deleteUpdateFile() {
 }
 export async function applyUpdateFile(system = true) {
   return realFetch("/update/offline/apply", { method: "POST", ...jsonBody({ system }) });
+}
+// The Updates page (docs/design/updates-2.md): the state at a glance, the runs and their steps, the checks, the settings.
+export async function fetchUpdateStatus() {
+  return realFetch("/update/status");
+}
+export async function fetchUpdateHistory(limit = 30) {
+  return realList(`/update/history?limit=${limit}`);
+}
+export async function fetchUpdateRun(id) {
+  return realFetch(`/update/runs/${encodeURIComponent(id)}`);
+}
+export async function fetchUpdatePreflight() {
+  return realFetch("/update/preflight", { signal: AbortSignal.timeout(60000) });
+}
+export async function saveUpdateSettings(settings) {
+  return realFetch("/update/settings", { method: "PUT", ...jsonBody(settings) });
+}
+// The notification centre: this account's entries, read marks and archive.
+export async function fetchNotificationFeed(archived = false) {
+  return realFetch(`/notifications/feed${archived ? "?archived=true" : ""}`);
+}
+export async function markNotificationsRead(ids = null) {
+  return realFetch("/notifications/feed/read", { method: "POST", ...jsonBody({ ids }) });
+}
+export async function archiveNotifications(ids) {
+  return realFetch("/notifications/feed/archive", { method: "POST", ...jsonBody({ ids }) });
 }
 export async function applyUpdate(system = true) {
   return realFetch("/update/apply", { method: "POST", ...jsonBody({ system }) });
