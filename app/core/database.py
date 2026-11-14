@@ -832,6 +832,112 @@ def _init_db():
                 reviewed_at TEXT NOT NULL
             )
         """)
+        # The recycle bin (docs/design/governance.md, section 7): VMs deleted but kept until purge_at; their definition
+        # is root's (paths.RECYCLE_BIN), their disks stay where they were. Each node's own: a VM is binned where it ran.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS recycle_bin (
+                vm_name TEXT PRIMARY KEY,
+                deleted_by TEXT NOT NULL,
+                deleted_at TEXT NOT NULL,
+                purge_at TEXT NOT NULL,
+                disks TEXT NOT NULL DEFAULT '[]',
+                vcpu INTEGER,
+                memory_mb INTEGER
+            )
+        """)
+        # The secrets vault (docs/design/governance.md, section 8): values sealed with the node's key
+        # (app/core/secrets_crypto.py), read by the accounts given access; `vault_grants` says who.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vault_secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                value TEXT NOT NULL,
+                created_by TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vault_grants (
+                id TEXT PRIMARY KEY,
+                secret_id TEXT NOT NULL,
+                subject_type TEXT NOT NULL CHECK(subject_type IN ('user', 'group')),
+                subject_id TEXT NOT NULL
+            )
+        """)
+        # VM identities (docs/design/governance.md, section 9): a delegated API token the guest holds, renewed.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_identities (
+                vm_name TEXT PRIMARY KEY,
+                token_id INTEGER NOT NULL,
+                owner TEXT NOT NULL,
+                role TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                shell TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                delivered_at TEXT,
+                last_error TEXT
+            )
+        """)
+        # Costs (docs/design/governance.md, section 10): budgets on the cluster, a pool or a tag, and the last alert
+        # each sent this month (so an alert goes out once per threshold).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cost_budgets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                monthly REAL NOT NULL,
+                alert_percent INTEGER NOT NULL DEFAULT 80,
+                alerted_month TEXT,
+                alerted_level INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT
+            )
+        """)
+        # Guest updates (docs/design/governance.md, section 11): what each guest has pending, and the runs that
+        # install it within a window.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_updates (
+                vm_name TEXT PRIMARY KEY,
+                checked_at TEXT NOT NULL,
+                family TEXT,
+                pending INTEGER,
+                security INTEGER,
+                packages TEXT NOT NULL DEFAULT '[]',
+                error TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_update_runs (
+                id TEXT PRIMARY KEY,
+                vms TEXT NOT NULL,
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                reboot INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL CHECK(status IN ('scheduled', 'running', 'done', 'cancelled')),
+                results TEXT NOT NULL DEFAULT '{}',
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # VM groups (docs/design/governance.md, section 13): N identical VMs made from one template, named
+        # <prefix>-<n>, their number raised or lowered. Each node's own: its VMs are made where it answers.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                template TEXT NOT NULL,
+                network TEXT,
+                linked INTEGER NOT NULL DEFAULT 1,
+                pool_id INTEGER,
+                tags TEXT NOT NULL DEFAULT '[]',
+                prefix TEXT UNIQUE NOT NULL,
+                count INTEGER NOT NULL,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         # Sign-in rules (docs/design/governance.md, section 4): where from, when, and with which factor an account may
         # sign in and use the API. Enforced, or only journaled ("watch").
         conn.execute("""

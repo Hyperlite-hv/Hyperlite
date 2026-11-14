@@ -1612,6 +1612,34 @@ export async function fetchCampaignItems(id) { return realList(`/access/campaign
 export async function decideCampaignItem(id, itemId, decision) {
   return realFetch(`/access/campaigns/${id}/items/${itemId}`, { method: "POST", ...jsonBody({ decision }) });
 }
+export async function fetchRecycleBin() { return realFetch("/recycle-bin"); }
+export async function restoreFromBin(name) { return realFetch(`/recycle-bin/${encodeURIComponent(name)}/restore`, { method: "POST" }); }
+export async function purgeFromBin(name) { return realFetch(`/recycle-bin/${encodeURIComponent(name)}`, { method: "DELETE" }); }
+export async function setRecycleBinDays(days) { return realFetch("/recycle-bin/settings", { method: "PUT", ...jsonBody({ days }) }); }
+export async function fetchVault() { return realList("/vault"); }
+export async function saveSecret(body, id = null) { return realFetch(id ? `/vault/${id}` : "/vault", { method: id ? "PUT" : "POST", ...jsonBody(body) }); }
+export async function deleteSecret(id) { return realFetch(`/vault/${id}`, { method: "DELETE" }); }
+export async function revealSecret(name) { return realFetch(`/vault/reveal/${encodeURIComponent(name)}`, { method: "POST" }); }
+export async function fetchVmIdentity(name) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`); }
+export async function setVmIdentity(name, body) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`, { method: "PUT", ...jsonBody(body) }); }
+export async function deleteVmIdentity(name) { return realFetch(`/vms/${encodeURIComponent(name)}/identity`, { method: "DELETE" }); }
+export async function fetchCosts() { return realFetch("/costs"); }
+export async function saveCostPrices(p) { return realFetch("/costs/prices", { method: "PUT", ...jsonBody(p) }); }
+export async function saveBudget(b, id = null) { return realFetch(id ? `/costs/budgets/${id}` : "/costs/budgets", { method: id ? "PUT" : "POST", ...jsonBody(b) }); }
+export async function deleteBudget(id) { return realFetch(`/costs/budgets/${id}`, { method: "DELETE" }); }
+export async function fetchGuestUpdates() { return realFetch("/guest-updates"); }
+export async function scanGuestUpdates(vms) { return realList("/guest-updates/scan", { method: "POST", ...jsonBody({ vms }) }); }
+export async function scheduleGuestUpdates(body) { return realFetch("/guest-updates/runs", { method: "POST", ...jsonBody(body) }); }
+export async function cancelGuestUpdates(id) { return realFetch(`/guest-updates/runs/${id}/cancel`, { method: "POST" }); }
+export async function fetchVmGroups() { return realList("/vm-groups"); }
+export async function createVmGroup(body) { return realFetch("/vm-groups", { method: "POST", ...jsonBody(body) }); }
+export async function scaleVmGroup(id, count, force = false) { return realFetch(`/vm-groups/${id}/count`, { method: "PUT", ...jsonBody({ count, force }) }); }
+export async function deleteVmGroup(id) { return realFetch(`/vm-groups/${id}`, { method: "DELETE" }); }
+export async function exportPool(id) {
+  const res = await fetch(apiPath(`/pools/${id}/export`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.text();
+}
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

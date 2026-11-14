@@ -132,10 +132,16 @@ def _check_vm(conn, row):
         if domain.isActive():
             return
         try:
-            keep = _perform_vm_deletion(conn, domain, vm_name)
+            from app.core import recycle_bin
+
             msg = f"Automatic deletion: stopped for {row['inactive_days']}+ days (threshold set at creation)"
-            if keep:
-                msg += f"; {_kept_sentence(keep)}"
+            if recycle_bin.days() > 0:
+                binned = recycle_bin.put(domain, "system")
+                msg += f"; in the recycle bin until {binned['purge_at'][:10]}"
+            else:
+                keep = _perform_vm_deletion(conn, domain, vm_name)
+                if keep:
+                    msg += f"; {_kept_sentence(keep)}"
             log_action("system", "delete_vm", vm_name, "success", msg)
         except Exception as e:
             log_action("system", "delete_vm", vm_name, "failed", f"Automatic deletion failed: {e!r}")
@@ -148,6 +154,12 @@ def _loop():
                 check_once()
         except Exception:
             logger.exception("Automatic deletion cycle failed")
+        try:
+            from app.core import recycle_bin
+
+            recycle_bin.purge_due()
+        except Exception:
+            logger.exception("Recycle bin not emptied")
         time.sleep(CHECK_INTERVAL_S)
 
 

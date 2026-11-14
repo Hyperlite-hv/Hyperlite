@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import {
   Activity, ArrowDownToLine, BellRing, Box, Boxes, Braces, BrickWall, Camera, ClipboardCheck, Clock, ChartColumn, Database, DatabaseBackup, Disc3, DoorOpen, Gauge, Globe, HeartPulse, House, KeyRound, ChartLine,
-  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, Share2, ShieldCheck, ShipWheel, Siren, Users, Waypoints, Workflow, Lightbulb,
+  Layers, LayoutGrid, ListChecks, Monitor, Plus, Network, PackageOpen, Scale, ScrollText, Server, Share2, ShieldCheck, ShipWheel, Siren, Trash2, Users, Vault, Wallet, PackageCheck, TextSearch, Copy, Waypoints, Workflow, Lightbulb,
 } from "lucide-react";
 
 // The services of the console: one per datacenter page, under its historical `?tab=` id so every existing link
@@ -11,6 +11,7 @@ export const CATEGORIES = ["compute", "storage", "network", "cluster", "protect"
 export const SERVICES = [
   { id: "vms", icon: Monitor, cat: "compute", label: "nav.vms" },
   { id: "pools", icon: Boxes, cat: "compute" },
+  { id: "bin", icon: Trash2, cat: "compute" },
   { id: "containers", icon: Box, cat: "compute" },
   { id: "kubernetes", icon: ShipWheel, cat: "compute" },
   { id: "nodes", icon: Server, cat: "compute" },
@@ -36,6 +37,10 @@ export const SERVICES = [
   { id: "alerts", icon: Siren, cat: "monitor" },
   { id: "notifications", icon: BellRing, cat: "monitor", admin: true },
   { id: "updates", icon: ArrowDownToLine, cat: "monitor", admin: true },
+  { id: "costs", icon: Wallet, cat: "monitor" },
+  { id: "guestupdates", icon: PackageCheck, cat: "auto" },
+  { id: "search", icon: TextSearch, cat: "monitor" },
+  { id: "vmgroups", icon: Copy, cat: "compute", admin: true },
   { id: "automation", icon: Workflow, cat: "auto" },
   { id: "api", icon: Braces, cat: "auto", apiDocs: true },
   { id: "permissions", icon: Users, cat: "identity", admin: true, label: "nav.usersRoles" },
@@ -43,6 +48,7 @@ export const SERVICES = [
   { id: "guardrails", icon: ShieldCheck, cat: "identity" },
   { id: "compliance", icon: ClipboardCheck, cat: "identity" },
   { id: "signin", icon: DoorOpen, cat: "identity", admin: true },
+  { id: "vault", icon: Vault, cat: "identity" },
   { id: "access", icon: Clock, cat: "identity" },
 ];
 // The pages of the console itself: they are not services and never appear in the catalogue.

@@ -86,7 +86,7 @@ def test_the_vm_goes_in_its_pool(database, created):  # noqa: F811 (the fixture 
 
 def test_vm_allocate_on_its_pool_lets_an_account_delete_the_vm(client, pipeline, monkeypatch):
     deleted = []
-    monkeypatch.setattr(lifecycle, "_delete_vm", lambda name, confirm, node, user: deleted.append(name) or {})
+    monkeypatch.setattr(lifecycle, "_delete_vm", lambda name, confirm, node, user, purge=False: deleted.append(name) or {})
     h, pool, role = pipeline["headers"], pipeline["pool"], pipeline["role"]
     perm.add_pool_member(pool, "web")
     assert client.delete("/vms/web?confirm=true", headers=h).status_code == 403

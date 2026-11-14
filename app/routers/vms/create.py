@@ -48,8 +48,12 @@ def refuse_unallowed(payload, user):
     )
     if refusal:
         raise HTTPException(status_code=403, detail=refusal)
-    from app.core import guardrails, object_meta
+    from app.core import guardrails, object_meta, vault
 
+    try:
+        payload.password = vault.resolve(user, payload.password)  # `vault:<name>`: read from the vault
+    except vault.VaultError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
     try:
         payload.tags = object_meta.normalize_tags(payload.tags)
     except object_meta.MetaError as e:

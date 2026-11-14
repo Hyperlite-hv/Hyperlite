@@ -42,9 +42,12 @@ def list_rules():
 
 
 def _rules():
+    """The rules, read at most every CACHE_S (every request asks); kept per database file."""
+    from app.core import database
+
     with _lock:
-        if time.monotonic() - _cache["at"] > CACHE_S:
-            _cache.update(at=time.monotonic(), rules=list_rules())
+        if time.monotonic() - _cache["at"] > CACHE_S or _cache.get("db") != str(database.DB_PATH):
+            _cache.update(at=time.monotonic(), rules=list_rules(), db=str(database.DB_PATH))
         return _cache["rules"]
 
 
