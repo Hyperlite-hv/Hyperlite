@@ -180,3 +180,42 @@ def refuse(request_id: str, user: dict = Depends(get_current_user)):
 @router.post("/requests/{request_id}/cancel")
 def cancel(request_id: str, user: dict = Depends(get_current_user)):
     return _answer(access_requests.cancel, user, request_id)
+
+
+# ---- The access review (docs/design/access-2.md, section 8) ----
+
+
+def _refuse_unless_reviewer(user):
+    if not perm.has_scoped_privilege(user, "cluster", "*", "access.view"):
+        raise HTTPException(
+            status_code=403, detail="Insufficient rights on the cluster (required privilege: access.view)"
+        )
+
+
+@router.get("/review")
+def get_review(user: dict = Depends(get_current_user)):
+    """Every assignment with what helps decide on it, and the accounts and tokens that look forgotten."""
+    from app.core import access_review
+
+    _refuse_unless_reviewer(user)
+    return access_review.review()
+
+
+class KeepIn(BaseModel):
+    note: str = Field("", max_length=500)
+
+
+@router.post("/review/{acl_id}/keep")
+def keep_assignment(acl_id: int, payload: KeepIn, user: dict = Depends(get_current_user)):
+    """Note that the assignment was looked at and is still needed: it leaves the "to review" list for 90 days."""
+    from app.core import access_review
+
+    if not perm.has_scoped_privilege(user, "cluster", "*", "access.manage"):
+        raise HTTPException(
+            status_code=403, detail="Insufficient rights on the cluster (required privilege: access.manage)"
+        )
+    if acl_id not in {a["id"] for a in perm.list_acl()}:
+        raise HTTPException(status_code=404, detail=f"Assignment {acl_id} not found")
+    access_review.keep(acl_id, payload.note.strip(), user["username"])
+    log_action(user["username"], "access_review_keep", str(acl_id), "success", payload.note.strip())
+    return {"message": "Kept"}

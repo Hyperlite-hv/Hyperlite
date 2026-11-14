@@ -1574,6 +1574,18 @@ export async function askAccess(body) {
 export async function decideAccess(id, verb) {
   return realFetch(`/access/requests/${encodeURIComponent(id)}/${verb}`, { method: "POST" });
 }
+export async function fetchAccessReview() {
+  return realFetch("/access/review");
+}
+export async function keepAssignment(aclId, note) {
+  return realFetch(`/access/review/${aclId}/keep`, { method: "POST", ...jsonBody({ note }) });
+}
+export async function fetchVmDefinition(name, format = "json") {
+  if (format !== "terraform") return realFetch(`/vms/${encodeURIComponent(name)}/definition?format=${format}`);
+  const res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/definition?format=terraform`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.text();
+}
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

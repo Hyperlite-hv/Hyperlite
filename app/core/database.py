@@ -821,6 +821,15 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # The access review (docs/design/access-2.md, section 8): an assignment someone looked at and kept, and why.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS access_reviews (
+                acl_id TEXT PRIMARY KEY,
+                note TEXT,
+                reviewed_by TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL
+            )
+        """)
         # On-demand rights asked for (docs/design/access-2.md, section 6): the request, its decision, its end.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS access_requests (

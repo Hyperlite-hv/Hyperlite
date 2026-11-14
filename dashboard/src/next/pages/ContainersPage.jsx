@@ -19,7 +19,8 @@ import { NAME_RE } from "../lib/containerImages";
 import { openShell, renameContainerFlow } from "../lib/containerActions";
 import { Cmd, FilterPill, downloadCsv } from "../components/portal";
 import { PageHeader, Card, Empty, Loading, TableWrap, Chip, SideDrawer } from "../components/ui";
-import { Box, Download, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Box, Download, Play, Plus, RefreshCw, Search, Square, Trash2, X } from "lucide-react";
+import { nameList, runBulk } from "../lib/bulk";
 
 const backupWire = (s) => (s === "succeeded" ? "succeeded" : s === "failed" ? "failed" : "running");
 
@@ -88,6 +89,7 @@ export default function ContainersPage() {
     catch (err) { fail(t("ct.deleteFailed"))(err); }
   }
   const [logsOf, setLogsOf] = useState(null);
+  const [picked, setPicked] = useState(() => new Set());
   const [q, setQ] = useState("");
   const [kind, setKind] = useState("");
   const [stateF, setStateF] = useState("");
@@ -100,6 +102,21 @@ export default function ContainersPage() {
     && (!stateF || (stateF === "active" ? ct.state === "active" : ct.state !== "active"))
     && (!needle || `${ct.name} ${ct.image || ""} ${ct.ip || ""} ${ct.vmid ?? ""}`.toLowerCase().includes(needle)));
   const del = t("menu.delete").replace("…", "");
+  const pickedList = shown.filter((ct) => picked.has(ct.name));
+  const togglePick = (name) => setPicked((p) => { const n = new Set(p); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+  // One action on every selected container that can take it (started ones are not started again), three at a time;
+  // a failure never stops the others and the outcome says how many went through.
+  async function bulk(action) {
+    const apply = pickedList.filter((ct) => (action === "start" ? ct.state !== "active" : action === "stop" ? ct.state === "active" : ct.state !== "active"));
+    if (apply.length === 0) { pushToast({ kind: "info", title: t("bulkc.none") }); return; }
+    const more = (n) => t("bulk.andMore", { n });
+    if (!(await confirmAction({ title: t(`bulkc.${action}.title`, { n: apply.length }), message: `${nameList(apply, more)}${apply.length < pickedList.length ? `\n${t("bulkc.skipped", { n: pickedList.length - apply.length })}` : ""}`, confirmLabel: t(`bulkc.${action}`), danger: action !== "start" }))) return;
+    const fn = { start: (ct) => startContainer(ct.name), stop: (ct) => stopContainer(ct.name), delete: (ct) => deleteContainer(ct.name) }[action];
+    const { ok, failed } = await runBulk(apply, fn);
+    pushToast({ kind: failed.length ? "warning" : "success", title: t("bulkc.done", { ok: ok.length, n: apply.length }), message: failed.map((f) => `${f.item.name}: ${errorMessage(f.error)}`).join("\n") || undefined });
+    setPicked(new Set());
+    reload();
+  }
   const openWizard = () => window.dispatchEvent(new CustomEvent("nx:wizard", { detail: "container" }));
 
   return (
@@ -122,6 +139,15 @@ export default function ContainersPage() {
             <FilterPill label={t("list.stateIs")} value={stateF} onChange={setStateF} options={[{ value: "", label: t("list.all") }, { value: "active", label: t("state.running") }, { value: "stopped", label: t("state.stopped") }]} />
           </div>
           <p className="hc-count" role="status">{t("list.showing", { n: shown.length, total: list.length })}</p>
+          {caps.admin && pickedList.length > 0 && (
+            <div className="hc-bulkc" role="toolbar" aria-label={t("bulkc.bar", { n: pickedList.length })}>
+              <strong>{t("bulkc.bar", { n: pickedList.length })}</strong>
+              <button type="button" className="nx-btn nx-btn--sm" onClick={() => bulk("start")}><Play size={14} aria-hidden="true" /> {t("bulkc.start")}</button>
+              <button type="button" className="nx-btn nx-btn--sm" onClick={() => bulk("stop")}><Square size={14} aria-hidden="true" /> {t("bulkc.stop")}</button>
+              <button type="button" className="nx-btn nx-btn--sm nx-btn--ghost" onClick={() => bulk("delete")}><Trash2 size={14} aria-hidden="true" /> {t("bulkc.delete")}</button>
+              <button type="button" className="nx-btn nx-btn--sm nx-btn--ghost" aria-label={t("bulkc.clear")} onClick={() => setPicked(new Set())}><X size={14} aria-hidden="true" /></button>
+            </div>
+          )}
         </>
       )}
       {error && containers == null ? <ErrorState message={error} onRetry={reload} /> : (
@@ -131,13 +157,14 @@ export default function ContainersPage() {
           ) : (
             <TableWrap>
               <table className="nx-table hc-grid--list">
-                <thead><tr><th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col">{t("ct.type")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">IP</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
+                <thead><tr>{caps.admin && <th scope="col" className="hc-pick"><input type="checkbox" aria-label={t("bulkc.all")} checked={shown.length > 0 && pickedList.length === shown.length} onChange={(e) => setPicked(new Set(e.target.checked ? shown.map((ct) => ct.name) : []))} /></th>}<th scope="col">{t("ns.col.state")}</th><th scope="col">{t("ct.name")}</th><th scope="col">{t("ct.type")}</th><th scope="col" className="nx-num">vCPU</th><th scope="col" className="nx-num">{t("ct.memory")}</th><th scope="col">IP</th><th scope="col"><span className="nx-sr">{t("actions")}</span></th></tr></thead>
                 <tbody>
-                  {shown.length === 0 && <tr><td colSpan={7} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
+                  {shown.length === 0 && <tr><td colSpan={caps.admin ? 8 : 7} className="nx-muted">{t("act.noneFiltered")}</td></tr>}
                   {shown.map((ct) => {
                     const on = ct.state === "active";
                     return (
                       <tr key={ct.name} className={ctx.is("ct", ct.name) ? "is-ctx" : undefined} onContextMenu={ctx.open("ct", ct)}>
+                        {caps.admin && <td className="hc-pick"><input type="checkbox" aria-label={t("bulkc.pick", { name: ct.name })} checked={picked.has(ct.name)} onChange={() => togglePick(ct.name)} /></td>}
                         <td><StatusIndicator kind="vm" wire={on ? "active" : "stopped"} /></td>
                         <th scope="row" className="nx-mono"><button type="button" className="nx-lnk nx-mono" onClick={() => navigateTo("container", ct.name, "summary")}>{ct.vmid != null && <span className="nx-muted" title={t("vmid.title")}>{ct.vmid} </span>}{ct.name}</button></th>
                         <td>{ct.mode === "application"

@@ -13,6 +13,7 @@ import { formatDateTime } from "../lib/format";
 import { useAccess } from "../lib/access";
 import { localizeRoles } from "../lib/apiText";
 import { ErrorState } from "../components/States";
+import AccessReview from "./AccessReview";
 import { Card, Chip, Empty, Field, Loading, PageHeader, SideDrawer, TableWrap } from "../components/ui";
 
 const STATUS_TONE = { pending: "warning", granted: "success", refused: "danger", ended: undefined, cancelled: undefined };
@@ -75,6 +76,9 @@ export default function AccessPage() {
   const mine = data.eligibility.filter((e) => e.mine);
   const managed = data.eligibility.filter((e) => !e.mine || data.subjects);
   const delegate = !!data.subjects;
+  const onCluster = (priv) => !!me && (me.admin || (me.perimeters || []).some((p) => p.resource_type === "cluster" && p.privileges.includes(priv)));
+  const reviewer = onCluster("access.view");
+  const decider = onCluster("access.manage");
 
   return (
     <>
@@ -151,6 +155,8 @@ export default function AccessPage() {
           )}
         </Card>
       )}
+
+      {reviewer && <AccessReview roles={data.roles} canDecide={decider} />}
 
       <DelegatedToken roles={data.roles} pools={data.pools} nodes={me?.nodes || []} />
 
