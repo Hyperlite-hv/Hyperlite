@@ -17,6 +17,7 @@ export function capabilities(role) {
 // Explains why an action is unavailable instead of silently hiding/disabling it.
 export function vmActionState(action, vm, caps) {
   if (!caps.power && action !== "console") return { enabled: false, reason: "menu.reason.admin" };
+  if (vm?.prevState !== undefined) return { enabled: false, reason: "menu.reason.busy" }; // its own request runs
   const running = vm?.state === "active";
   switch (action) {
     case "start": return running ? { enabled: false, reason: "menu.reason.running" } : { enabled: true };

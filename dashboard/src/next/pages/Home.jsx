@@ -117,7 +117,7 @@ export default function Home() {
           <div className="hc-svcs">
             {caps.create && <button type="button" className="hc-svc" onClick={() => go("create")}><span className="hc-tile hc-tile--ghost" style={{ "--s": "2.6667rem" }}><Plus size={24} aria-hidden="true" /></span><span>{t("svc.create")}</span></button>}
             {HOME_SERVICES.filter((id) => allowed.has(id)).map((id) => (
-              <button key={id} type="button" className="hc-svc" onClick={() => go(id)}><ServiceTile id={id} size={40} /><span>{t(serviceLabel(id))}</span></button>
+              <button key={id} type="button" className="hc-svc" data-preload={`datacenter:${id}`} onClick={() => go(id)}><ServiceTile id={id} size={40} /><span>{t(serviceLabel(id))}</span></button>
             ))}
             <button type="button" className="hc-svc" onClick={() => go("services")}><span className="hc-tile hc-tile--ghost" style={{ "--s": "2.6667rem" }}><ArrowRight size={24} aria-hidden="true" /></span><span>{t("svc.services")}</span></button>
           </div>
@@ -137,7 +137,7 @@ export default function Home() {
               <tbody>
                 {rows.map(({ r, l }) => (
                   <tr key={`${r.type}:${r.id}`}>
-                    <td><span className="hc-nm"><ServiceTile id={LIST_OF[r.type]} size={18} /><button type="button" className="nx-lnk" onClick={() => navigateTo(r.type, r.id, "summary")}>{l.name}</button></span></td>
+                    <td><span className="hc-nm"><ServiceTile id={LIST_OF[r.type]} size={18} /><button type="button" className="nx-lnk" data-preload={`${r.type}:summary`} onClick={() => navigateTo(r.type, r.id, "summary")}>{l.name}</button></span></td>
                     <td>{t(`home.kind.${r.type}`)}</td>
                     <td><StatusIndicator kind={l.kind} wire={l.wire} /></td>
                     <td>{relativeTime(r.at, lang)}</td>

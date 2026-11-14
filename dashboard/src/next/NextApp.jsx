@@ -20,6 +20,7 @@ import Workspace from "./layout/Workspace";
 import Palette from "./layout/Palette";
 import SideMenu from "./layout/SideMenu";
 import Tray from "./layout/Tray";
+import { preloadCommon, preloadPage } from "./legacy/tabs";
 
 const SIDEBAR_KEY = "hyperlite-next-sidebar";
 function readSidebarCollapsed() { try { return localStorage.getItem(SIDEBAR_KEY) === "1"; } catch { return false; } }
@@ -79,6 +80,21 @@ export default function NextApp() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleSidebar]);
+
+  // Pages fetched before they are opened: links that name their page (data-preload="type:tab") when the pointer or
+  // the focus reaches them, the most used pages once the browser is idle.
+  useEffect(() => {
+    preloadCommon();
+    const on = (e) => {
+      const el = e.target?.closest?.("[data-preload]");
+      if (!el) return;
+      const [type, tab] = el.dataset.preload.split(":");
+      preloadPage(type, tab);
+    };
+    document.addEventListener("pointerover", on, { passive: true });
+    document.addEventListener("focusin", on);
+    return () => { document.removeEventListener("pointerover", on); document.removeEventListener("focusin", on); };
+  }, []);
 
   useEffect(() => {
     const open = () => setPaletteOpen(true);
