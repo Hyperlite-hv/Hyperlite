@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Pin, Plus } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
@@ -24,7 +24,7 @@ export function useApiDocsAccess(admin) {
 
 // The service menu on the left: create, home, every resource, the catalogue, then the services this person pinned.
 // Collapsed, it keeps the icons (each still named for assistive technology).
-export default function SideMenu({ collapsed, drawerOpen = false, onToggleCollapse }) {
+export default function SideMenu({ collapsed, drawerOpen = false, onToggleCollapse, menuMode = "pinned", onPin }) {
   const t = useT();
   const { selection, tab, navigateTo } = useInfraStore(useShallow((s) => ({ selection: s.selection, tab: s.activeTab, navigateTo: s.navigateTo })));
   const caps = capabilities(useAuthStore((s) => s.role));
@@ -74,10 +74,17 @@ export default function SideMenu({ collapsed, drawerOpen = false, onToggleCollap
         {favorites.filter((id) => allowed.has(id)).map(item)}
         {favorites.length === 0 && <p className="hc-side-empty">{t("svc.favoritesNone")}</p>}
       </div>
+      {menuMode === "hidden" ? (
+        <button type="button" className="hc-si hc-side-foot" onClick={onPin}>
+          <Pin size={18} aria-hidden="true" />
+          <span className="hc-si-lb">{t("nav.pin")}</span>
+        </button>
+      ) : (
       <button type="button" className="hc-si hc-side-foot" onClick={onToggleCollapse} aria-expanded={!collapsed} title={collapsed ? t("nav.expand") : undefined}>
         {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}
         <span className="hc-si-lb">{collapsed ? t("nav.expand") : t("nav.collapse")}</span>
       </button>
+      )}
     </nav>
   );
 }
