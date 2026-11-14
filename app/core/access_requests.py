@@ -186,6 +186,12 @@ def sweep():
 
 def _loop():
     stop = threading.Event()
+    try:
+        from app.core import workbench
+
+        workbench.adopt()  # at start: the Terminal boxes still running are kept, the others ended
+    except Exception:
+        logger.warning("Terminal sessions not re-adopted", exc_info=True)
     while not stop.wait(SWEEP_S):
         try:
             sweep()
@@ -203,7 +209,8 @@ def _loop():
             vm_identity.renew_due()
         except Exception:  # the next minute tries again; a token still has a week to run
             logger.warning("VM identities not renewed", exc_info=True)
-        for name, job in (("guest updates", "guest_updates.tick"), ("cost budgets", "costs.check_budgets_if_due")):
+        for name, job in (("guest updates", "guest_updates.tick"), ("cost budgets", "costs.check_budgets_if_due"),
+                          ("terminal sessions", "workbench.sweep")):  # fmt: skip
             try:
                 module, fn = job.split(".")
                 getattr(__import__(f"app.core.{module}", fromlist=[fn]), fn)()

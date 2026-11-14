@@ -938,6 +938,30 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # The Terminal (docs/design/workbench.md): each account's stable uid on this node (its home's owner), and the
+        # sessions. This node's own, never replicated: a session lives on the node that served the browser.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS workbench_uids (
+                account TEXT PRIMARY KEY,
+                uid INTEGER UNIQUE NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS workbench_sessions (
+                id TEXT PRIMARY KEY,
+                account TEXT NOT NULL,
+                uid INTEGER NOT NULL,
+                opened_at TEXT NOT NULL,
+                from_address TEXT,
+                token_id INTEGER,
+                as_role TEXT,
+                state TEXT NOT NULL CHECK(state IN ('open', 'ended')),
+                attached INTEGER NOT NULL DEFAULT 0,
+                detached_at TEXT,
+                ended_at TEXT,
+                ended_why TEXT
+            )
+        """)
         # Sign-in rules (docs/design/governance.md, section 4): where from, when, and with which factor an account may
         # sign in and use the API. Enforced, or only journaled ("watch").
         conn.execute("""

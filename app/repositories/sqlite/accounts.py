@@ -161,7 +161,7 @@ class SqliteAccountStore:
         return _write("DELETE FROM api_tokens WHERE username = ?", (username,)).rowcount
 
     def token_by_hash(self, token_hash):
-        return _one("SELECT id, username, expires_at FROM api_tokens WHERE token_hash = ?", (token_hash,))
+        return _one("SELECT id, username, expires_at, kind FROM api_tokens WHERE token_hash = ?", (token_hash,))
 
     @daemon_write("access.token_used")
     def touch_token(self, token_hash, at):
