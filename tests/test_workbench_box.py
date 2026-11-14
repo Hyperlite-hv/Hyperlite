@@ -29,7 +29,8 @@ def test_every_protection_is_set(wanted):
 
 def test_the_node_secrets_are_hidden():
     hidden = next(p for p in props() if p.startswith("InaccessiblePaths=")).split("=", 1)[1].split()
-    for path in ("/etc/hyperlite", "/var/lib/hyperlite", "/var/lib/libvirt", "/run/libvirt", "/etc/shadow"):
+    for path in ("/etc/hyperlite", "/var/lib/hyperlite", "/var/lib/libvirt", "/run/libvirt", "/etc/shadow",
+                 "/run/hyperlite-workbench"):  # fmt: skip
         assert f"-{path}" in hidden
     denied = next(p for p in props() if p.startswith("SystemCallFilter=~"))
     assert "@mount" in denied and "@privileged" in denied and "@module" in denied

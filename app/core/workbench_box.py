@@ -15,7 +15,9 @@ UID_MIN = (
 )
 UID_MAX = 799999
 SCRIPTS = paths.CODE / "scripts" / "workbench"
-RUN = paths.RUN / "workbench"  # /run/hyperlite/workbench/<sid>: the session's socket directory, bound into the box
+# /run/hyperlite-workbench/<sid>: the session's socket directory, bound into the box. Not under /run/hyperlite, which
+# systemd empties each time hyperlite-daemon stops (its RuntimeDirectory): the sessions outlive the daemon's restarts.
+RUN = paths.RUN.parent / "hyperlite-workbench"
 HOMES = paths.VAR / "workbench" / "homes"  # <uid>.img
 MOUNTS = paths.VAR / "workbench" / "mnt"  # <uid>: the mounted home
 
@@ -26,6 +28,7 @@ HIDDEN = (
     "/etc/libvirt",
     "/run/libvirt",
     "/run/hyperlite",
+    "/run/hyperlite-workbench",  # the other sessions' sockets; the box's own is bound on /run/workbench
     "/var/log",
     "/var/backups",
     "/srv",
