@@ -709,12 +709,12 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-choice { display: grid; gap: 0.2667rem; margin-bottom: 0.6667rem; }
 .hc-choice > span { font-size: var(--font-size-sm); }
 .hc-choice .nx-seg { flex-wrap: wrap; align-self: start; justify-self: start; }
-.hc-swatches { display: flex; flex-wrap: wrap; gap: 0.5333rem; }
-.hc-swatch { width: 1.8667rem; height: 1.8667rem; border-radius: 50%; border: 2px solid var(--color-bg-surface); box-shadow: 0 0 0 1px var(--color-border-strong); display: grid; place-items: center; color: #fff; cursor: pointer; }
-.hc-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text-primary); }
-.hc-swatch[data-swatch="cobalt"] { background: #2148D4; } .hc-swatch[data-swatch="teal"] { background: #0B6E78; }
-.hc-swatch[data-swatch="violet"] { background: #5B3FB0; } .hc-swatch[data-swatch="forest"] { background: #1F6B45; }
-.hc-swatch[data-swatch="graphite"] { background: #3B4556; } .hc-swatch[data-swatch="crimson"] { background: #A3303B; }
+.hc-accents { display: flex; flex-wrap: wrap; gap: 0.5333rem; }
+.hc-accent { width: 1.8667rem; height: 1.8667rem; border-radius: 50%; border: 2px solid var(--color-bg-surface); box-shadow: 0 0 0 1px var(--color-border-strong); display: grid; place-items: center; color: #fff; cursor: pointer; }
+.hc-accent[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--color-text-primary); }
+.hc-accent[data-accent-swatch="cobalt"] { background: #2148D4; } .hc-accent[data-accent-swatch="teal"] { background: #0B6E78; }
+.hc-accent[data-accent-swatch="violet"] { background: #5B3FB0; } .hc-accent[data-accent-swatch="forest"] { background: #1F6B45; }
+.hc-accent[data-accent-swatch="graphite"] { background: #3B4556; } .hc-accent[data-accent-swatch="crimson"] { background: #A3303B; }
 .hc-favs { list-style: none; margin: 0.4rem 0 0.6667rem; padding: 0; border: 1px solid var(--color-border-card); border-radius: var(--radius-md); }
 .hc-favs li { display: flex; align-items: center; gap: 0.5333rem; padding: 0.2667rem 0.5333rem; }
 .hc-favs li + li { border-top: 1px solid var(--color-border-card); }

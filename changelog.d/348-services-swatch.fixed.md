@@ -1,0 +1,1 @@
+- All services: the categories no longer show large empty circles before their names (the accent colours of the preferences had taken the same style name).
