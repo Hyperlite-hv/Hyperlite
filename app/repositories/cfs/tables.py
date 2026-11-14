@@ -54,6 +54,8 @@ TABLES = {
     "drs_rules": {},
     # Alert rules (app/core/alert_rules.py): written by administrators, their state by the leader on a change only.
     "alert_rules": {},
+    "alert_silences": {},
+    "account_expiry": {},
     # Protections, envelopes and guardrails (app/core/protections.py, app/core/guardrails.py): the same on every node.
     "resource_protections": {},
     "pool_envelopes": {},

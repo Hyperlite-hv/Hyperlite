@@ -278,8 +278,12 @@ def _transition(r, holding, now):
     for target in sorted(after - before):
         who = describe_target(target, scope)
         detail = f"{r['metric']} = {_format(holding[target], r['metric'])} {op} {threshold} over {r['window_min']} min"
-        log_action("system", "alert_rule_fired", who, "failed", f"{r['name']}: {detail}")
-        _send(r, f"[{r['severity']}] {r['name']}: {who}", detail, "failed")
+        quiet = silenced(r, target, scope, now)
+        log_action(
+            "system", "alert_rule_fired", who, "failed", f"{r['name']}: {detail}" + (" (silenced)" if quiet else "")
+        )
+        if not quiet:
+            _send(r, f"[{r['severity']}] {r['name']}: {who}", detail, "failed")
     for target in sorted(before - after):
         who = describe_target(target, scope)
         log_action(
@@ -289,6 +293,8 @@ def _transition(r, holding, now):
             "success",
             f"{r['name']}: back {'under' if op == '>' else 'over'} {threshold}",
         )
+        if silenced(r, target, scope, now):
+            continue
         _send(
             r,
             f"[resolved] {r['name']}: {who}",
@@ -301,3 +307,69 @@ def _transition(r, holding, now):
 def firing_view(r):
     """The targets a rule fires for, as a person reads them."""
     return [describe_target(t, _scope(r)) for t in r.get("firing") or []]
+
+
+# ---- Silences (a maintenance window: the rules still fire and the journal says so, nobody is notified) ----
+
+
+def silences(active_only=False, now=None):
+    from app.core.database import get_conn
+
+    with get_conn() as db:
+        rows = [dict(r) for r in db.execute("SELECT * FROM alert_silences ORDER BY starts_at DESC")]
+    if active_only:
+        stamp = (now or _now()).isoformat()
+        rows = [r for r in rows if r["starts_at"] <= stamp < r["ends_at"]]
+    return rows
+
+
+def add_silence(target_kind, target, starts_at, ends_at, reason, username):
+    import uuid
+
+    from app.core.database import get_conn
+
+    if target_kind not in ("all", "node", "vm", "pool", "rule"):
+        raise ValueError("A silence holds on all, a node, a VM, a pool or a rule")
+    if target_kind != "all" and not target:
+        raise ValueError("Name what the silence holds on")
+    if ends_at <= starts_at:
+        raise ValueError("A silence ends after it starts")
+    silence_id = uuid.uuid4().hex
+    with get_conn() as db:
+        db.execute(
+            "INSERT INTO alert_silences (id, target_kind, target, starts_at, ends_at, reason, created_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (silence_id, target_kind, None if target_kind == "all" else target, starts_at, ends_at, reason, username),
+        )
+        db.commit()
+    return next(r for r in silences() if r["id"] == silence_id)
+
+
+def remove_silence(silence_id):
+    from app.core.database import get_conn
+
+    with get_conn() as db:
+        cur = db.execute("DELETE FROM alert_silences WHERE id = ?", (silence_id,))
+        db.commit()
+    return cur.rowcount > 0
+
+
+def silenced(rule_row, target, scope, now=None):
+    """The silence that holds on this rule's target now, or None. `target`: a node's name, or "node:vm"."""
+    node, _, vm = (target, "", "") if scope == "host" else target.partition(":")
+    for s in silences(active_only=True, now=now):
+        kind = s["target_kind"]
+        if (
+            kind == "all"
+            or (kind == "rule" and s["target"] == rule_row["id"])
+            or (kind == "node" and s["target"] == node)
+        ):
+            return s
+        if kind == "vm" and vm and s["target"] == vm:
+            return s
+        if kind == "pool" and vm and s["target"].isdigit():
+            from app.core import permissions
+
+            if int(s["target"]) in permissions.get_vm_pools(vm):
+                return s
+    return None

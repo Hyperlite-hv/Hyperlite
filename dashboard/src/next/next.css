@@ -133,6 +133,34 @@
   :root[data-ui="next"] { --color-border-default: var(--color-border-strong); --color-border-subtle: var(--color-border-default); --color-border-card: var(--color-border-default); }
 }
 
+/* High contrast (Preferences > Contrast, or the system's "more contrast"): pure black or white surfaces, white or
+   black text, edges drawn as strongly as controls, a thick focus ring, links underlined. */
+:root[data-ui="next"][data-contrast="high"] {
+  --color-head-bg: #000000; --color-head-line: #FFFFFF;
+  --color-bg-app: #000000; --color-bg-sidebar: #000000; --color-bg-rail: #000000; --color-bg-workspace: #000000;
+  --color-bg-surface: #0A0A0A; --color-bg-surface-raised: #141414; --color-bg-hover: #242424; --color-bg-selected: #10204A;
+  --color-border-card: #A6A6A6; --color-border-subtle: #8C8C8C; --color-border-default: #D0D0D0;
+  --color-border-strong: #FFFFFF; --color-border-focus: #FFD400;
+  --color-text-primary: #FFFFFF; --color-text-secondary: #E6E6E6; --color-text-muted: #C8C8C8;
+  --color-text-disabled: #8A8A8A; --color-text-on-accent: #000000;
+  --color-accent: #A8C4FF; --color-accent-2: #4FE3EC; --color-info: #9CC4FF; --color-success: #5EE89F;
+  --color-warning: #FFD23F; --color-danger: #FF9E94; --color-offline: #C8C8C8; --color-unknown: #C8C8C8;
+}
+:root[data-ui="next"][data-theme="light"][data-contrast="high"] {
+  --color-head-bg: #000000; --color-head-line: #000000;
+  --color-bg-app: #FFFFFF; --color-bg-sidebar: #FFFFFF; --color-bg-rail: #000000; --color-bg-workspace: #FFFFFF;
+  --color-bg-surface: #FFFFFF; --color-bg-surface-raised: #F2F2F2; --color-bg-hover: #E6E6E6; --color-bg-selected: #DCE6FF;
+  --color-border-card: #595959; --color-border-subtle: #8C8C8C; --color-border-default: #3D3D3D;
+  --color-border-strong: #000000; --color-border-focus: #0030C0;
+  --color-text-primary: #000000; --color-text-secondary: #1F1F1F; --color-text-muted: #424242;
+  --color-text-disabled: #6E6E6E; --color-text-on-accent: #FFFFFF;
+  --color-accent: #0033B3; --color-accent-2: #005A61; --color-info: #0040A0; --color-success: #00552A;
+  --color-warning: #5E3A00; --color-danger: #8A0F07; --color-offline: #424242; --color-unknown: #424242;
+}
+:root[data-ui="next"][data-contrast="high"] .nx-root :focus-visible { outline-width: 3px; }
+:root[data-ui="next"][data-contrast="high"] .nx-root a:not([class*="btn"]) { text-decoration: underline; }
+:root[data-ui="next"][data-contrast="high"] .nx-btn--ghost { border-color: var(--color-border-default); }
+
 @media (prefers-reduced-motion: reduce) {
   :root[data-ui="next"] { --duration-fast: 0ms; --duration-base: 0ms; --duration-slow: 0ms; }
   :root[data-ui="next"] .nx-spin { animation: none !important; }

@@ -18,7 +18,10 @@ export const DEFAULT_HOME = {
 // The left menu: hidden (opened over the page with the top bar's menu button, closed once a page is chosen: the page
 // keeps the whole width) or pinned beside the page (and folded to icons or not, as before).
 export const MENUS = ["hidden", "pinned"];
-const DEFAULTS = { accent: "cobalt", density: "comfortable", scale: 1, startPage: "summary", menu: "hidden", home: DEFAULT_HOME };
+// Contrast: "auto" follows the system's "more contrast" setting, "high" always (pure black or white, strong edges,
+// underlined links, a thicker focus ring: next.css), "standard" never.
+export const CONTRASTS = ["auto", "high", "standard"];
+const DEFAULTS = { accent: "cobalt", density: "comfortable", scale: 1, startPage: "summary", menu: "hidden", contrast: "auto", home: DEFAULT_HOME };
 
 // A stored layout made whole again: unknown blocks dropped, every known block in exactly one column (a block added in a
 // later version lands at the end of its default column).
@@ -56,13 +59,17 @@ function load() {
       scale: SCALES.includes(raw.scale) ? raw.scale : DEFAULTS.scale,
       startPage: typeof raw.startPage === "string" && /^[a-z]{2,20}$/.test(raw.startPage) ? raw.startPage : DEFAULTS.startPage,
       menu: MENUS.includes(raw.menu) ? raw.menu : DEFAULTS.menu,
+      contrast: CONTRASTS.includes(raw.contrast) ? raw.contrast : DEFAULTS.contrast,
       home: normalizeHome(raw.home),
     };
   } catch { return { ...DEFAULTS, home: normalizeHome(DEFAULT_HOME) }; }
 }
 
-export function applyAppearance({ accent, density, scale }) {
+const systemMore = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-contrast: more)").matches;
+
+export function applyAppearance({ accent, density, scale, contrast = "auto" }) {
   const root = document.documentElement;
+  if (contrast === "high" || (contrast === "auto" && systemMore())) root.dataset.contrast = "high"; else delete root.dataset.contrast;
   if (accent === "cobalt") delete root.dataset.accent; else root.dataset.accent = accent;
   root.dataset.density = density;
   root.style.setProperty("--ui-scale", String(scale));
@@ -72,10 +79,17 @@ export const useAppearance = create((set, get) => ({
   ...load(),
   update(patch) {
     set(patch);
-    const { accent, density, scale, startPage, menu, home } = get();
-    applyAppearance({ accent, density, scale });
-    try { localStorage.setItem(KEY, JSON.stringify({ accent, density, scale, startPage, menu, home })); } catch { /* this session only */ }
+    const { accent, density, scale, startPage, menu, contrast, home } = get();
+    applyAppearance({ accent, density, scale, contrast });
+    try { localStorage.setItem(KEY, JSON.stringify({ accent, density, scale, startPage, menu, contrast, home })); } catch { /* this session only */ }
   },
   setHome(home) { get().update({ home: normalizeHome(home) }); },
   reset() { get().update({ ...DEFAULTS, home: normalizeHome(DEFAULT_HOME) }); },
 }));
+
+// "auto" follows the system setting while the console is open.
+if (typeof window !== "undefined" && window.matchMedia) {
+  window.matchMedia("(prefers-contrast: more)").addEventListener?.("change", () => {
+    if (document.documentElement.dataset.ui === "next") applyAppearance(useAppearance.getState());
+  });
+}

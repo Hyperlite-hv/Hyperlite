@@ -1,4 +1,5 @@
 import { useCached } from "../lib/useCached";
+import SilencesCard from "../components/SilencesCard";
 import { Fragment, useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { BellPlus, ChevronDown, ChevronRight, Pencil, RefreshCw, Siren, Trash2 } from "lucide-react";
@@ -193,6 +194,7 @@ export default function AlertRulesPage() {
               </TableWrap>
             )}
       </div>
+      <div style={{ marginTop: "var(--space-4)" }}><SilencesCard rules={rules || []} canEdit={caps.admin} /></div>
       <RuleDrawer open={!!drawer} rule={drawer?.rule || null} channels={channels} onClose={() => setDrawer(null)} onSaved={load} />
     </>
   );

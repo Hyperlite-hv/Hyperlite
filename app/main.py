@@ -49,6 +49,7 @@ from app.routers.access import router as access_router
 from app.routers.acl import router as acl_router
 from app.routers.admin_cli import router as admin_cli_router
 from app.routers.alert_rules import router as alert_rules_router
+from app.routers.alert_rules import silences_router as alert_silences_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
@@ -279,6 +280,7 @@ _API_ROUTERS = (
     notifications_router,
     reports_router,
     alert_rules_router,
+    alert_silences_router,
     access_router,
     protections_router,
     compliance_router,
