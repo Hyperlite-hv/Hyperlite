@@ -1634,6 +1634,20 @@ export async function cancelGuestUpdates(id) { return realFetch(`/guest-updates/
 export async function fetchVmGroups() { return realList("/vm-groups"); }
 export async function createVmGroup(body) { return realFetch("/vm-groups", { method: "POST", ...jsonBody(body) }); }
 export async function scaleVmGroup(id, count, force = false) { return realFetch(`/vm-groups/${id}/count`, { method: "PUT", ...jsonBody({ count, force }) }); }
+export async function setVmGroupScaling(id, body) { return realFetch(`/vm-groups/${id}/scaling`, { method: "PUT", ...jsonBody(body) }); }
+export async function stopVmGroupScaling(id) { return realFetch(`/vm-groups/${id}/scaling`, { method: "DELETE" }); }
+export async function fetchPatchPlans() { return realList("/guest-updates/plans"); }
+export async function savePatchPlan(body, id) { return realFetch(id ? `/guest-updates/plans/${id}` : "/guest-updates/plans", { method: id ? "PUT" : "POST", ...jsonBody(body) }); }
+export async function deletePatchPlan(id) { return realFetch(`/guest-updates/plans/${id}`, { method: "DELETE" }); }
+export async function fetchTriggers() { return realFetch("/job-triggers"); }
+export async function saveTrigger(body, id) { return realFetch(id ? `/job-triggers/${id}` : "/job-triggers", { method: id ? "PUT" : "POST", ...jsonBody(body) }); }
+export async function deleteTrigger(id) { return realFetch(`/job-triggers/${id}`, { method: "DELETE" }); }
+export async function fetchTriggerFirings() { return realList("/job-triggers/firings"); }
+export async function fetchGuestScripts() { return realList("/guest-scripts"); }
+export async function saveGuestScript(body, id) { return realFetch(id ? `/guest-scripts/${encodeURIComponent(id)}` : "/guest-scripts", { method: id ? "PUT" : "POST", ...jsonBody(body) }); }
+export async function deleteGuestScript(id) { return realFetch(`/guest-scripts/${encodeURIComponent(id)}`, { method: "DELETE" }); }
+export async function fetchGuestScriptRuns() { return realList("/guest-scripts/runs"); }
+export async function runGuestScript(body) { return realFetch("/guest-scripts/runs", { method: "POST", ...jsonBody(body) }); }
 export async function deleteVmGroup(id) { return realFetch(`/vm-groups/${id}`, { method: "DELETE" }); }
 export async function exportPool(id) {
   const res = await fetch(apiPath(`/pools/${id}/export`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });

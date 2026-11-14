@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import costs, guest_updates
+from app.core import costs, guest_scripts, guest_updates, patch_plans
 from app.core import permissions as perm
 from app.core.audit import log_action
 from app.core.listing import listing
@@ -120,3 +120,130 @@ def cancel_run(run_id: str, user: dict = Depends(require_area("node.manage"))):
     if not guest_updates.cancel(run_id):
         raise HTTPException(status_code=409, detail="Only a run that has not started can be cancelled")
     return {"message": "Run cancelled"}
+
+
+# ---- Patch plans (docs/design/console-2.md, section 4) ----
+
+
+class PlanIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    target_kind: str
+    target: list[str] | str
+    days: list[int] = Field(default_factory=list, max_length=7)
+    monthday: int | None = None
+    at_time: str
+    tz: str = "UTC"
+    duration_min: int = Field(120, ge=30, le=1440)
+    reboot: bool = False
+    enabled: bool = True
+
+
+def _plan(fn, *args):
+    try:
+        return fn(*args)
+    except patch_plans.PlanError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+
+
+@router.get("/guest-updates/plans")
+def list_plans(user: dict = Depends(require_area("node.view"))):
+    """Every patch plan of this node, with its next three starts."""
+    return listing(patch_plans.plans())
+
+
+@router.post("/guest-updates/plans", status_code=201)
+def create_plan(payload: PlanIn, user: dict = Depends(require_area("node.manage"))):
+    """A recurring window. It acts with its author's rights: at each start, only the VMs the author may run commands
+    in (vm.exec) are updated."""
+    if payload.target_kind == "vms":
+        _refuse_unless_exec(user, payload.target if isinstance(payload.target, list) else [payload.target])
+    plan = _plan(patch_plans.save, payload.model_dump(), user["username"])
+    log_action(user["username"], "patch_plan_create", plan["name"], "success")
+    return plan
+
+
+@router.put("/guest-updates/plans/{plan_id}")
+def update_plan(plan_id: str, payload: PlanIn, user: dict = Depends(require_area("node.manage"))):
+    if payload.target_kind == "vms":
+        _refuse_unless_exec(user, payload.target if isinstance(payload.target, list) else [payload.target])
+    plan = _plan(patch_plans.save, payload.model_dump(), user["username"], plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "patch_plan_change", plan["name"], "success")
+    return plan
+
+
+@router.delete("/guest-updates/plans/{plan_id}")
+def delete_plan(plan_id: str, user: dict = Depends(require_area("node.manage"))):
+    if not patch_plans.delete(plan_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "patch_plan_delete", plan_id, "success")
+    return {"message": "Plan deleted"}
+
+
+# ---- Script library (docs/design/console-2.md, section 7) ----
+
+
+class ScriptIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field("", max_length=500)
+    shell: str
+    body: str = Field(min_length=1, max_length=32000)
+    params: list[dict] = Field(default_factory=list, max_length=20)
+
+
+class ScriptRunIn(BaseModel):
+    script_id: str = Field(min_length=1, max_length=64)
+    vms: list[str] = Field(min_length=1, max_length=200)
+    params: dict[str, str] = Field(default_factory=dict)
+
+
+def _script(fn, *args):
+    try:
+        return fn(*args)
+    except guest_scripts.ScriptError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+
+
+@router.get("/guest-scripts")
+def list_scripts(user: dict = Depends(require_area("node.view"))):
+    """The built-in scripts and the administrators' own."""
+    return listing(guest_scripts.scripts())
+
+
+@router.post("/guest-scripts", status_code=201)
+def create_script(payload: ScriptIn, user: dict = Depends(require_role("admin"))):
+    s = _script(guest_scripts.save, payload.model_dump(), user["username"])
+    log_action(user["username"], "guest_script_create", s["name"], "success")
+    return s
+
+
+@router.put("/guest-scripts/{script_id}")
+def update_script(script_id: str, payload: ScriptIn, user: dict = Depends(require_role("admin"))):
+    if script_id.startswith("builtin:"):
+        raise HTTPException(status_code=409, detail="A built-in script is not changed: copy it to make your own")
+    s = _script(guest_scripts.save, payload.model_dump(), user["username"], script_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "guest_script_change", s["name"], "success")
+    return s
+
+
+@router.delete("/guest-scripts/{script_id}")
+def delete_script(script_id: str, user: dict = Depends(require_role("admin"))):
+    if script_id.startswith("builtin:") or not guest_scripts.delete(script_id):
+        raise HTTPException(status_code=404, detail="Not found")
+    log_action(user["username"], "guest_script_delete", script_id, "success")
+    return {"message": "Script deleted"}
+
+
+@router.get("/guest-scripts/runs")
+def list_script_runs(user: dict = Depends(require_area("node.view"))):
+    return listing(guest_scripts.runs())
+
+
+@router.post("/guest-scripts/runs", status_code=201)
+def run_script(payload: ScriptRunIn, user: dict = Depends(require_area("node.view"))):
+    """Run a script in each VM now (vm.exec on each: it runs as root in the guest), followed every minute."""
+    _refuse_unless_exec(user, payload.vms)
+    return _script(guest_scripts.run, payload.script_id, payload.vms, payload.params, user["username"])

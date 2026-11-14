@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core import vm_groups
+from app.core import vm_group_scaling, vm_groups
 from app.core.audit import log_action
 from app.core.listing import listing
 from app.core.security import require_role
@@ -36,7 +36,8 @@ class CountIn(BaseModel):
 
 @router.get("")
 def list_groups(user: dict = Depends(require_role("admin"))):
-    return listing(vm_groups.groups())
+    scaling = vm_group_scaling.all_settings()
+    return listing([{**g, "scaling": scaling.get(g["id"])} for g in vm_groups.groups()])
 
 
 @router.post("", status_code=201)
@@ -60,5 +61,38 @@ def delete_group(group_id: str, user: dict = Depends(require_role("admin"))):
     """The group is forgotten; its VMs stay, as ordinary VMs."""
     if not vm_groups.delete(group_id):
         raise HTTPException(status_code=404, detail="Not found")
+    vm_group_scaling.forget(group_id)
     log_action(user["username"], "vm_group_delete", group_id, "success")
     return {"message": "Group forgotten, its VMs kept"}
+
+
+class ScalingIn(BaseModel):
+    enabled: bool = True
+    min_count: int = Field(1, ge=0, le=100)
+    max_count: int = Field(3, ge=0, le=100)
+    up_pct: float = Field(75, gt=0, le=100)
+    down_pct: float = Field(25, gt=0, le=100)
+    window_min: int = Field(10, ge=5, le=120)
+    step: int = Field(1, ge=1, le=10)
+    cooldown_min: int = Field(15, ge=5, le=1440)
+
+
+@router.put("/{group_id}/scaling")
+def set_scaling(group_id: str, payload: ScalingIn, user: dict = Depends(require_role("admin"))):
+    """The group follows its load between min_count and max_count (docs/design/console-2.md, section 5)."""
+    if not any(g["id"] == group_id for g in vm_groups.groups()):
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        s = vm_group_scaling.save(group_id, payload.model_dump())
+    except vm_group_scaling.ScalingError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    log_action(user["username"], "vm_group_scaling", group_id, "success",
+               f"{'on' if s['enabled'] else 'off'} {s['min_count']}-{s['max_count']}")  # fmt: skip
+    return s
+
+
+@router.delete("/{group_id}/scaling")
+def stop_scaling(group_id: str, user: dict = Depends(require_role("admin"))):
+    vm_group_scaling.forget(group_id)
+    log_action(user["username"], "vm_group_scaling", group_id, "success", "removed")
+    return {"message": "The group keeps its count"}
