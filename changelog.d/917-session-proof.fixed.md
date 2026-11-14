@@ -1,2 +1,0 @@
-- Creating an API token, setting up a second factor and the other actions on one's own account from the console are no longer refused by hyperlite-daemon ("needs the proof of the account that asks") since the API runs as www-data: the session's own proof now goes with them.
-- A fresh installation starts: the directories of VM exports and container backups are made by the package, and the API no longer stops at start when one is missing.
