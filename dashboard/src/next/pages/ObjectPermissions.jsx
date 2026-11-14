@@ -74,7 +74,11 @@ function ObjectPermissions({ kind, name }) {
                 {data.acl.map((a) => (
                   <tr key={a.id}>
                     <th scope="row">{subject(a)}</th>
-                    <td><Chip tone={a.inherited_type ? undefined : "accent"}>{data.roles[a.role]?.label || a.role}</Chip></td>
+                    <td>
+                      <Chip tone={a.inherited_type ? undefined : "accent"}>{data.roles[a.role]?.label || a.role}</Chip>
+                      {a.expires_at && <Chip tone="warning" title={a.reason || undefined}>{t("acc.untilShort", { d: new Date(a.expires_at).toLocaleString() })}</Chip>}
+                      {a.tag && <Chip>{t("acc.onlyTag", { tag: a.tag })}</Chip>}
+                    </td>
                     <td>{source(a)}</td>
                     <td><div className="nx-ra">{!a.inherited_type && data.subjects && <button type="button" className="nx-btn nx-btn--ghost" aria-label={t("op.removeX", { who: subject(a) })} onClick={() => remove(a)}>{t("sec.remove")}</button>}</div></td>
                   </tr>
@@ -189,7 +193,7 @@ function AssignWizard({ kind, name, data, onDone }) {
   const t = useT();
   const pushToast = useInfraStore((s) => s.pushToast);
   const [step, setStep] = useState(1);
-  const [f, setF] = useState({ subjectType: "user", subjectId: "", role: "" });
+  const [f, setF] = useState({ subjectType: "user", subjectId: "", role: "", until: "", tag: "", reason: "" });
   const [busy, setBusy] = useState(false);
   const subjects = f.subjectType === "user" ? data.subjects.users.map((u) => [u.username, u.username]) : data.subjects.groups.map((g) => [String(g.id), g.name]);
   const wide = WIDE_KINDS.has(kind);
@@ -198,9 +202,10 @@ function AssignWizard({ kind, name, data, onDone }) {
   async function give() {
     setBusy(true);
     try {
-      await createAcl({ subject_type: f.subjectType, subject_id: f.subjectId, role: f.role, resource_type: kind, resource_id: name });
+      const terms = { ...(f.until ? { expires_at: new Date(f.until).toISOString() } : {}), ...(f.tag.trim() ? { tag: f.tag.trim() } : {}), ...(f.reason.trim() ? { reason: f.reason.trim() } : {}) };
+      await createAcl({ subject_type: f.subjectType, subject_id: f.subjectId, role: f.role, resource_type: kind, resource_id: name, ...terms });
       pushToast({ kind: "success", title: t("sec.assigned"), message: name });
-      setF({ subjectType: "user", subjectId: "", role: "" });
+      setF({ subjectType: "user", subjectId: "", role: "", until: "", tag: "", reason: "" });
       setStep(1);
       await onDone();
     } catch (e) { pushToast({ kind: "error", title: t("sec.assignFailed"), message: errorMessage(e) }); } finally { setBusy(false); }
@@ -227,7 +232,16 @@ function AssignWizard({ kind, name, data, onDone }) {
           ))}
         </fieldset>
       )}
-      {step === 3 && <p className="hc-recap">{t("acc.recap", { who, role: data.roles[f.role]?.label || f.role, what: `${t(`acc.kind.${kind}`)} ${name}` })}</p>}
+      {step === 3 && (
+        <>
+          <p className="hc-recap">{t("acc.recap", { who, role: data.roles[f.role]?.label || f.role, what: `${t(`acc.kind.${kind}`)} ${name}` })}</p>
+          <div className="nx-fg">
+            <Field label={t("acc.until")} hint={t("acc.untilHint")}>{(p) => <input {...p} type="datetime-local" className="nx-inp" value={f.until} onChange={(e) => setF((x) => ({ ...x, until: e.target.value }))} />}</Field>
+            {kind !== "vm" && kind !== "container" && <Field label={t("acc.tag")} hint={t("acc.tagHint")}>{(p) => <input {...p} className="nx-inp" maxLength={32} value={f.tag} onChange={(e) => setF((x) => ({ ...x, tag: e.target.value }))} placeholder="dev" />}</Field>}
+            <Field label={t("gr.reason")}>{(p) => <input {...p} className="nx-inp" maxLength={500} value={f.reason} onChange={(e) => setF((x) => ({ ...x, reason: e.target.value }))} />}</Field>
+          </div>
+        </>
+      )}
       <div className="nx-fa">
         {step > 1 && <button type="button" className="nx-btn nx-btn--ghost" onClick={() => setStep(step - 1)}>{t("acc.back")}</button>}
         {step === 1 && <button type="button" className="nx-btn nx-btn--primary" disabled={!f.subjectId} onClick={() => setStep(2)}>{t("acc.next")}</button>}
@@ -246,3 +260,4 @@ export function NodePermissionsPage({ resource }) {
   const name = resource.id === "local" ? here : resource.name;
   return name ? <ObjectPermissions kind="node" name={name} /> : <Loading />;
 }
+export function PoolPermissionsPanel({ poolId }) { return <ObjectPermissions kind="pool" name={String(poolId)} />; }

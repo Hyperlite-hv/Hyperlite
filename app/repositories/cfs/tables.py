@@ -25,6 +25,11 @@ TABLES = {
     "acl": {},
     "pools": {},
     "pool_members": {},
+    "access_terms": {},
+    "access_eligibility": {},
+    "api_token_scopes": {},
+    "access_requests": {},
+    "access_reviews": {},
     "sso_config": {"priv": True},
     "ldap_config": {"priv": True},
     # Nodes and the cluster

@@ -1556,6 +1556,36 @@ export async function putGuardrailRule(scope, rule) {
 export async function putPoolEnvelope(poolId, envelope) {
   return realFetch(`/guardrails/envelopes/${poolId}`, { method: "PUT", ...jsonBody(envelope) });
 }
+export async function fetchEligibility() {
+  return realList("/access/eligibility");
+}
+export async function createEligibility(body) {
+  return realFetch("/access/eligibility", { method: "POST", ...jsonBody(body) });
+}
+export async function deleteEligibility(id) {
+  return realFetch(`/access/eligibility/${id}`, { method: "DELETE" });
+}
+export async function fetchAccessRequests() {
+  return realList("/access/requests");
+}
+export async function askAccess(body) {
+  return realFetch("/access/requests", { method: "POST", ...jsonBody(body) });
+}
+export async function decideAccess(id, verb) {
+  return realFetch(`/access/requests/${encodeURIComponent(id)}/${verb}`, { method: "POST" });
+}
+export async function fetchAccessReview() {
+  return realFetch("/access/review");
+}
+export async function keepAssignment(aclId, note) {
+  return realFetch(`/access/review/${aclId}/keep`, { method: "POST", ...jsonBody({ note }) });
+}
+export async function fetchVmDefinition(name, format = "json") {
+  if (format !== "terraform") return realFetch(`/vms/${encodeURIComponent(name)}/definition?format=${format}`);
+  const res = await fetch(apiPath(`/vms/${encodeURIComponent(name)}/definition?format=terraform`), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  return res.text();
+}
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }
@@ -1777,8 +1807,8 @@ export async function fetchApiTokens() {
   return realList("/auth/tokens");
 }
 // expiresDays: null for a token that never expires (an explicit choice).
-export async function createApiToken(name, expiresDays = 90) {
-  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name, expires_days: expiresDays }) });
+export async function createApiToken(name, expiresDays = 90, scope = null) {
+  return realFetch("/auth/tokens", { method: "POST", ...jsonBody({ name, expires_days: expiresDays, ...(scope ? { scope } : {}) }) });
 }
 export async function deleteApiToken(id) {
   return realFetch(`/auth/tokens/${id}`, { method: "DELETE" });

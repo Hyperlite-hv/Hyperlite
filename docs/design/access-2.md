@@ -124,17 +124,22 @@ cloned; administrators are held by them too (an administrator can change them).
 ## 6. Dated rights and on-demand rights
 
 An assignment may end: `access_terms` (one row per assignment that has terms) holds its end, its reason and who gave
-it. An ended assignment grants nothing; the scheduler removes it and journals it.
+it. An ended assignment grants nothing from that second (the check reads its end); hyperlite-scheduler removes it
+within a minute and journals it.
 
 **On-demand rights**: an account may ask for a role on a perimeter for a time (up to a maximum the administrator
 sets), with a reason; with a second factor when it has one. The request is granted at once (self-service) or waits
-for an approval from an administrator or a delegate, as the perimeter's setting says. A granted request becomes a
+for an approval from an administrator or a delegate, as the eligibility says (`access_eligibility`: who, which role
+on which perimeter, for how long at most, at once or after approval). The daemon lets an account give itself a dated
+assignment only under such an eligibility, granted at once, within its longest time. A granted request becomes a
 dated assignment; requests, approvals and ends are journaled and notified.
 
 ## 7. Delegated tokens
 
 An API token may be **delegated**: it acts with only a subset of its owner's rights (a role on a perimeter), never
-more than the owner holds when it is used. A pipeline gets a token that creates VMs in one pool and nothing else.
+more than the owner holds when it is used. A pipeline gets a token that creates VMs in one pool and nothing else. Its
+global role reads as `delegated`: no route reserved to a global role (administrator, observer) accepts it, only those
+that check privileges.
 
 ## 8. Tag restrictions and the access review
 

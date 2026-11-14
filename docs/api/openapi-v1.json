@@ -21,6 +21,30 @@
    },
    "AclCreate": {
     "properties": {
+     "expires_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expires At"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
      "resource_id": {
       "title": "Resource Id",
       "type": "string"
@@ -40,6 +64,18 @@
      "subject_type": {
       "title": "Subject Type",
       "type": "string"
+     },
+     "tag": {
+      "anyOf": [
+       {
+        "maxLength": 32,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tag"
      }
     },
     "required": [
@@ -1553,6 +1589,67 @@
     "title": "DnsSettings",
     "type": "object"
    },
+   "EligibilityIn": {
+    "properties": {
+     "approval": {
+      "default": "approval",
+      "enum": [
+       "auto",
+       "approval"
+      ],
+      "title": "Approval",
+      "type": "string"
+     },
+     "max_minutes": {
+      "default": 60,
+      "maximum": 44640.0,
+      "minimum": 5.0,
+      "title": "Max Minutes",
+      "type": "integer"
+     },
+     "resource_id": {
+      "default": "*",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+     },
+     "resource_type": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Resource Type",
+      "type": "string"
+     },
+     "role": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Role",
+      "type": "string"
+     },
+     "subject_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Subject Id",
+      "type": "string"
+     },
+     "subject_type": {
+      "enum": [
+       "user",
+       "group"
+      ],
+      "title": "Subject Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "subject_type",
+     "subject_id",
+     "role",
+     "resource_type"
+    ],
+    "title": "EligibilityIn",
+    "type": "object"
+   },
    "EnableRequest": {
     "properties": {
      "monitoring": {
@@ -2347,6 +2444,18 @@
      "confirmation"
     ],
     "title": "JoinRequest",
+    "type": "object"
+   },
+   "KeepIn": {
+    "properties": {
+     "note": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Note",
+      "type": "string"
+     }
+    },
+    "title": "KeepIn",
     "type": "object"
    },
    "LdapSettings": {
@@ -3393,6 +3502,45 @@
     "title": "ReplicationJob",
     "type": "object"
    },
+   "RequestIn": {
+    "properties": {
+     "code": {
+      "anyOf": [
+       {
+        "maxLength": 16,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Code"
+     },
+     "eligibility_id": {
+      "title": "Eligibility Id",
+      "type": "integer"
+     },
+     "minutes": {
+      "maximum": 44640.0,
+      "minimum": 5.0,
+      "title": "Minutes",
+      "type": "integer"
+     },
+     "reason": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+     }
+    },
+    "required": [
+     "eligibility_id",
+     "minutes",
+     "reason"
+    ],
+    "title": "RequestIn",
+    "type": "object"
+   },
    "Reservation": {
     "properties": {
      "ip": {
@@ -4300,12 +4448,52 @@
      "name": {
       "title": "Name",
       "type": "string"
+     },
+     "scope": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/TokenScopeIn"
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "required": [
      "name"
     ],
     "title": "TokenCreate",
+    "type": "object"
+   },
+   "TokenScopeIn": {
+    "description": "A delegated token (docs/design/access-2.md, section 7): one role on one perimeter, within the owner's rights.",
+    "properties": {
+     "resource_id": {
+      "default": "*",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+     },
+     "resource_type": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Resource Type",
+      "type": "string"
+     },
+     "role": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Role",
+      "type": "string"
+     }
+    },
+    "required": [
+     "role",
+     "resource_type"
+    ],
+    "title": "TokenScopeIn",
     "type": "object"
    },
    "TwoFAConfirm": {
@@ -5419,6 +5607,118 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/api/v1/access/eligibility": {
+   "get": {
+    "description": "Every eligibility for an administrator; the account's own, and those on a perimeter it may read the access\nof, for anyone else.",
+    "operationId": "list_eligibility_api_v1_access_eligibility_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Eligibility",
+    "tags": [
+     "access"
+    ]
+   },
+   "post": {
+    "operationId": "create_eligibility_api_v1_access_eligibility_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EligibilityIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Eligibility",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/eligibility/{eligibility_id}": {
+   "delete": {
+    "operationId": "delete_eligibility_api_v1_access_eligibility__eligibility_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "eligibility_id",
+      "required": true,
+      "schema": {
+       "title": "Eligibility Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Eligibility",
+    "tags": [
+     "access"
+    ]
+   }
+  },
   "/api/v1/access/explain": {
    "get": {
     "description": "Each privilege `username` holds on that object and the assignments that grant it. An administrator, or\naccess.view on the object or a perimeter above it; any account may ask about itself.",
@@ -5503,6 +5803,288 @@
      }
     ],
     "summary": "My Access",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/requests": {
+   "get": {
+    "operationId": "list_requests_api_v1_access_requests_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Requests",
+    "tags": [
+     "access"
+    ]
+   },
+   "post": {
+    "operationId": "ask_api_v1_access_requests_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RequestIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Ask",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/requests/{request_id}/approve": {
+   "post": {
+    "operationId": "approve_api_v1_access_requests__request_id__approve_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Approve",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/requests/{request_id}/cancel": {
+   "post": {
+    "operationId": "cancel_api_v1_access_requests__request_id__cancel_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Cancel",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/requests/{request_id}/refuse": {
+   "post": {
+    "operationId": "refuse_api_v1_access_requests__request_id__refuse_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Refuse",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/review": {
+   "get": {
+    "description": "Every assignment with what helps decide on it, and the accounts and tokens that look forgotten.",
+    "operationId": "get_review_api_v1_access_review_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Review",
+    "tags": [
+     "access"
+    ]
+   }
+  },
+  "/api/v1/access/review/{acl_id}/keep": {
+   "post": {
+    "description": "Note that the assignment was looked at and is still needed: it leaves the \"to review\" list for 90 days.",
+    "operationId": "keep_assignment_api_v1_access_review__acl_id__keep_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "acl_id",
+      "required": true,
+      "schema": {
+       "title": "Acl Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/KeepIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Keep Assignment",
     "tags": [
      "access"
     ]
@@ -25190,6 +25772,85 @@
      }
     ],
     "summary": "Set Vm Cpu Pinning",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/definition": {
+   "get": {
+    "description": "format=json: what the VM is made of; create: a body for POST /vms; terraform: a `hyperlite_vm` resource.",
+    "operationId": "vm_definition_export_api_v1_vms__name__definition_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "format",
+      "required": false,
+      "schema": {
+       "default": "json",
+       "enum": [
+        "json",
+        "create",
+        "terraform"
+       ],
+       "title": "Format",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Vm Definition Export",
     "tags": [
      "vms"
     ]

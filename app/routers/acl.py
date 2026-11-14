@@ -1,5 +1,6 @@
 import re
 import sqlite3
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -22,6 +23,10 @@ class AclCreate(BaseModel):
     role: str  # a key of permissions.ROLES, or "custom:<id>"
     resource_type: str  # one of permissions.RESOURCE_TYPES: an object, a pool, a node or "cluster"
     resource_id: str  # VM/container/storage/network/store/node name, pool id (as text), "*" for the cluster
+    # Terms (docs/design/access-2.md, sections 6 and 8): the assignment ends then; grants only on objects with that tag.
+    expires_at: datetime | None = None
+    tag: str | None = Field(None, max_length=32)
+    reason: str | None = Field(None, max_length=500)
 
 
 class CustomRoleCreate(BaseModel):
@@ -169,13 +174,37 @@ def create_acl(payload: AclCreate, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=f"Group {payload.subject_id} not found")
     if payload.resource_type == "pool" and payload.resource_id not in {str(p["id"]) for p in perm.list_pools()}:
         raise HTTPException(status_code=404, detail=f"Pool {payload.resource_id} not found")
-    acl_id = perm.create_acl(
-        payload.subject_type,
-        payload.subject_id,
-        payload.role,
-        payload.resource_type,
-        payload.resource_id,
-    )
+    if payload.expires_at is not None or payload.tag or payload.reason:
+        from app.core import object_meta, statd
+
+        if statd.members_without("acl_terms"):
+            raise HTTPException(
+                status_code=409, detail="Update every node before giving rights that end or carry a tag"
+            )
+        expires_at = None
+        if payload.expires_at is not None:
+            end = payload.expires_at if payload.expires_at.tzinfo else payload.expires_at.replace(tzinfo=UTC)
+            if end <= datetime.now(UTC):
+                raise HTTPException(status_code=422, detail="The end of the assignment has already passed")
+            expires_at = end.astimezone(UTC).isoformat()
+        tag = None
+        if payload.tag:
+            try:
+                tag = object_meta.normalize_tags([payload.tag])[0]
+            except object_meta.MetaError as e:
+                raise HTTPException(status_code=422, detail=str(e)) from None
+        acl_id = perm.create_dated_acl(
+            payload.subject_type, payload.subject_id, payload.role, payload.resource_type, payload.resource_id,
+            expires_at, tag, payload.reason, user["username"], "manual",
+        )  # fmt: skip
+    else:
+        acl_id = perm.create_acl(
+            payload.subject_type,
+            payload.subject_id,
+            payload.role,
+            payload.resource_type,
+            payload.resource_id,
+        )
     log_action(
         user["username"],
         "create_acl",
@@ -188,7 +217,7 @@ def create_acl(payload: AclCreate, user: dict = Depends(get_current_user)):
 @router.delete("/{acl_id}")
 def delete_acl(acl_id: int, user: dict = Depends(get_current_user)):
     row = next((a for a in perm.list_acl() if a["id"] == acl_id), None)
-    if row is not None:
+    if row is not None and not (row["subject_type"] == "user" and row["subject_id"] == user["username"]):
         refusal = perm.grant_refusal(
             user, row["subject_type"], row["subject_id"], row["role"], row["resource_type"], row["resource_id"]
         )

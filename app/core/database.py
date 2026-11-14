@@ -26,6 +26,9 @@ ACCESS_TABLES = (
     "pool_members",
     "sso_config",
     "ldap_config",
+    "access_terms",
+    "access_eligibility",
+    "api_token_scopes",
 )
 ACCESS_PATH = os.environ.get("HYPERLITE_ACCESS_DB_PATH")
 
@@ -818,6 +821,34 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # The access review (docs/design/access-2.md, section 8): an assignment someone looked at and kept, and why.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS access_reviews (
+                acl_id TEXT PRIMARY KEY,
+                note TEXT,
+                reviewed_by TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL
+            )
+        """)
+        # On-demand rights asked for (docs/design/access-2.md, section 6): the request, its decision, its end.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS access_requests (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                eligibility_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                minutes INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'granted', 'refused', 'ended', 'cancelled')),
+                acl_id INTEGER,
+                expires_at TEXT,
+                decided_by TEXT,
+                decided_at TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
         # Protections, envelopes and guardrails (docs/design/access-2.md, sections 4 and 5): replicated, held by
         # every node the same. Text keys: nothing to reserve from the cluster.
         conn.execute("""
@@ -1391,6 +1422,43 @@ def _init_access(conn):
     # (reader/operator/manager), but the user chooses the privilege subset (see
     # ALL_PRIVILEGES in app/core/permissions.py). They are identified in acl.role by
     # "custom:<id>".
+    # Terms of an assignment (docs/design/access-2.md, sections 6 and 8): its end, the tag its rights are held on,
+    # why and by whom it was given. One row per assignment that has terms; an assignment without one never ends.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS access_terms (
+            acl_id INTEGER PRIMARY KEY,
+            expires_at TEXT,
+            tag TEXT,
+            reason TEXT,
+            granted_by TEXT,
+            granted_at TEXT,
+            origin TEXT NOT NULL DEFAULT 'manual'
+        )
+    """)
+    # Who may ask for a role on a perimeter for a while (on-demand rights), and whether it is given at once.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS access_eligibility (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
+            subject_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            max_minutes INTEGER NOT NULL,
+            approval TEXT NOT NULL CHECK(approval IN ('auto','approval')),
+            created_by TEXT,
+            created_at TEXT
+        )
+    """)
+    # A delegated API token acts with one role on one perimeter, never beyond what its owner holds.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_token_scopes (
+            token_id INTEGER PRIMARY KEY,
+            role TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS custom_roles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
