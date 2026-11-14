@@ -130,6 +130,8 @@ class VMCreate(BaseModel):
     # administrator, which creates VMs only in a pool where it holds vm.allocate:
     # the pool's assignments then give it its rights on the new VM.
     resource_pool: int | None = None
+    # Tags the VM is created with (a guardrail may require some, app/core/guardrails.py).
+    tags: list[str] = Field(default_factory=list, max_length=16)
     # A VM made from the cloud image only (no ISO, no imported disk): the account's SSH keys, and the rest of the
     # guest's customisation (host name, domain, a static address, resolvers, a cloud-config of the user's), written on
     # its cloud-init drive before its first boot, as PUT /vms/{name}/cloud-init writes them later.

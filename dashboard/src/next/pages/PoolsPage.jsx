@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Boxes, Plus, Trash2 } from "lucide-react";
-import { addPoolMember, createPool, deletePool, fetchGuardrails, fetchMetaList, fetchPools, fetchProtections, removePoolMember } from "../../api/client";
+import { addPoolMember, setPoolRule, createPool, deletePool, fetchGuardrails, fetchMetaList, fetchPools, fetchProtections, removePoolMember } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { confirmAction } from "../../store/useConfirmStore";
 import { useT } from "../i18n";
@@ -55,7 +55,7 @@ export default function PoolsPage() {
                 {data.map((p) => (
                   <tr key={p.id} className="is-clickable" onClick={() => setOpen(p.id)}>
                     <th scope="row"><button type="button" className="nx-lnk" onClick={(e) => { e.stopPropagation(); setOpen(p.id); }}>{p.name}</button>{p.description && <small className="nx-muted"> · {p.description}</small>}</th>
-                    <td>{p.vms.length}</td>
+                    <td>{p.vms.length + (p.dynamic_vms?.length || 0)}{p.rule && <> <Chip tone="accent">{t("pl.dynamic")}</Chip></>}</td>
                     <td>{p.guard?.envelope ? <Chip tone="accent">{t("pl.envelopeOn")}</Chip> : <span className="nx-muted">—</span>}</td>
                     <td>{p.protections.length ? p.protections.map((x) => <Chip key={x.id} tone={x.level === "freeze" ? "warning" : "accent"}>{t(`gr.level.${x.level}`)}</Chip>) : <span className="nx-muted">—</span>}</td>
                     <td><TagChips tags={p.tags} /></td>
@@ -85,6 +85,7 @@ export default function PoolsPage() {
               </TableWrap>
             )}
           </Card>
+          {(admin || pool.rule) && <PoolRule t={t} pool={pool} admin={admin} onSave={(rule) => run(() => setPoolRule(pool.id, rule), t("pl.ruleSaved"))} />}
           <NotesCard kind="pool" name={String(pool.id)} canEdit />
           <PoolPermissionsPanel poolId={pool.id} />
           {admin && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--danger" onClick={async () => { if (await confirmAction({ title: t("pl.deleteTitle"), message: t("pl.deleteMsg", { pool: pool.name }), confirmLabel: t("pl.delete"), danger: true }) && await run(() => deletePool(pool.id), t("pl.deleted"))) setOpen(null); }}><Trash2 size={14} aria-hidden="true" /> {t("pl.delete")}</button></div>}
@@ -112,5 +113,20 @@ function AddMember({ t, vms, onAdd }) {
       <select className="nx-inp" aria-label={t("pl.addVm")} value={vm} onChange={(e) => setVm(e.target.value)}><option value="">{t("pl.addVm")}</option>{vms.map((v) => <option key={`${v.node}/${v.name}`} value={v.name}>{v.name}</option>)}</select>
       <button type="button" className="nx-btn" disabled={!vm} onClick={() => { onAdd(vm); setVm(""); }}>{t("pl.add")}</button>
     </span>
+  );
+}
+
+// A dynamic pool: the VMs carrying a tag, or whose name matches a pattern, belong to it as its members do.
+function PoolRule({ t, pool, admin, onSave }) {
+  const [f, setF] = useState({ tag: pool.rule?.tag || "", name_pattern: pool.rule?.name_pattern || "" });
+  return (
+    <Card title={t("pl.rule")} note={t("pl.ruleNote")}>
+      <div className="nx-fg">
+        <Field label={t("pl.ruleTag")}>{(p) => <input {...p} className="nx-inp nx-mono" maxLength={32} value={f.tag} disabled={!admin} onChange={(e) => setF((x) => ({ ...x, tag: e.target.value }))} placeholder="prod" />}</Field>
+        <Field label={t("pl.ruleName")} hint={t("gr.namePatternHint")}>{(p) => <input {...p} className="nx-inp nx-mono" maxLength={200} value={f.name_pattern} disabled={!admin} onChange={(e) => setF((x) => ({ ...x, name_pattern: e.target.value }))} placeholder="web-.*" />}</Field>
+      </div>
+      {pool.dynamic_vms?.length > 0 && <p className="nx-muted">{t("pl.ruleTakes", { n: pool.dynamic_vms.length })} <span className="nx-mono">{pool.dynamic_vms.join(", ")}</span></p>}
+      {admin && <div className="nx-fa"><button type="button" className="nx-btn nx-btn--primary" onClick={() => onSave({ tag: f.tag.trim() || null, name_pattern: f.name_pattern.trim() || null })}>{t("gr.save")}</button></div>}
+    </Card>
   );
 }

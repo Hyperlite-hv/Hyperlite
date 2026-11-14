@@ -29,6 +29,7 @@ ACCESS_TABLES = (
     "access_terms",
     "access_eligibility",
     "api_token_scopes",
+    "pool_rules",
 )
 ACCESS_PATH = os.environ.get("HYPERLITE_ACCESS_DB_PATH")
 
@@ -830,6 +831,14 @@ def _init_db():
                 reviewed_at TEXT NOT NULL
             )
         """)
+        # Tags a guardrail requires on every new VM (app/core/guardrails.py): a table of its own, so that a node of an
+        # older version, which does not know it, keeps applying the rest of the guardrails.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guardrail_tags (
+                scope TEXT PRIMARY KEY,
+                required_tags TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
         # On-demand rights asked for (docs/design/access-2.md, section 6): the request, its decision, its end.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS access_requests (
@@ -1448,6 +1457,15 @@ def _init_access(conn):
             approval TEXT NOT NULL CHECK(approval IN ('auto','approval')),
             created_by TEXT,
             created_at TEXT
+        )
+    """)
+    # A pool whose members are also the VMs matching a rule (a tag, a name pattern): membership grants rights, so the
+    # rule is a permission, written by the daemon for an administrator only.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pool_rules (
+            pool_id INTEGER PRIMARY KEY,
+            tag TEXT,
+            name_pattern TEXT
         )
     """)
     # A delegated API token acts with one role on one perimeter, never beyond what its owner holds.

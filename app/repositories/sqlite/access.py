@@ -119,6 +119,7 @@ class SqliteAccessStore:
     def delete_pool(self, pool_id):
         _write_all(
             ("DELETE FROM pool_members WHERE pool_id = ?", (pool_id,)),
+            ("DELETE FROM pool_rules WHERE pool_id = ?", (pool_id,)),
             ("DELETE FROM acl WHERE resource_type = 'pool' AND resource_id = ?", (str(pool_id),)),
             ("DELETE FROM pools WHERE id = ?", (pool_id,)),
         )
@@ -136,6 +137,20 @@ class SqliteAccessStore:
         _write_all(
             ("UPDATE pool_members SET vm_name = ? WHERE vm_name = ?", (new_vm_name, old_vm_name)),
             ("DELETE FROM acl WHERE resource_type = 'vm' AND resource_id = ?", (old_vm_name,)),
+        )
+
+    def pool_rules(self):
+        return {r["pool_id"]: r for r in _rows("SELECT pool_id, tag, name_pattern FROM pool_rules")}
+
+    @daemon_write("access.pool_rule_set")
+    def set_pool_rule(self, pool_id, tag, name_pattern):
+        if tag is None and name_pattern is None:
+            _write("DELETE FROM pool_rules WHERE pool_id = ?", (pool_id,))
+            return
+        _write(
+            "INSERT INTO pool_rules (pool_id, tag, name_pattern) VALUES (?, ?, ?) ON CONFLICT(pool_id) DO UPDATE SET "
+            "tag = excluded.tag, name_pattern = excluded.name_pattern",
+            (pool_id, tag, name_pattern),
         )
 
     def pools_of(self, vm_name):

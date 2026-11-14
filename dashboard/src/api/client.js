@@ -1586,6 +1586,15 @@ export async function fetchVmDefinition(name, format = "json") {
   if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
   return res.text();
 }
+export async function setPoolRule(poolId, rule) {
+  return realFetch(`/pools/${poolId}/rule`, { method: "PUT", ...jsonBody(rule) });
+}
+export async function fetchCompliance() {
+  return realFetch("/compliance");
+}
+export async function fixCompliance(vms) {
+  return realFetch("/compliance/fix", { method: "POST", ...jsonBody({ vms }) });
+}
 export async function fetchMyAccess() {
   return realFetch("/access/me");
 }

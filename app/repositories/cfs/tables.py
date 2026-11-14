@@ -28,6 +28,7 @@ TABLES = {
     "access_terms": {},
     "access_eligibility": {},
     "api_token_scopes": {},
+    "pool_rules": {},
     "access_requests": {},
     "access_reviews": {},
     "sso_config": {"priv": True},
@@ -50,6 +51,7 @@ TABLES = {
     "resource_protections": {},
     "pool_envelopes": {},
     "guardrails": {},
+    "guardrail_tags": {},
     # VM schedules (app/core/vm_schedules.py): run by the node hosting the VM, which writes their outcome.
     "vm_schedules": {},
     "drs_vms": {},

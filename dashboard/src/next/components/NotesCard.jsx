@@ -82,6 +82,7 @@ export default function NotesCard({ kind, name, node = null, canEdit }) {
       ) : (
         <>
           {meta.tags.length > 0 && <div style={{ marginBottom: "var(--space-3)" }}><Tag size={14} aria-hidden="true" className="nx-muted" style={{ marginRight: "var(--space-2)", verticalAlign: "-2px" }} /><TagChips tags={meta.tags} /></div>}
+          {meta.inherited_tags?.length > 0 && <div className="nx-muted" style={{ marginBottom: "var(--space-3)", fontSize: "var(--fs-13)" }}>{t("notes.inherited")} <TagChips tags={meta.inherited_tags} /></div>}
           {meta.notes.trim() ? <p className="nx-notes">{meta.notes}</p> : <p className="nx-muted" style={{ margin: 0 }}>{canEdit ? t("notes.emptyEdit") : t("notes.empty")}</p>}
         </>
       )}
