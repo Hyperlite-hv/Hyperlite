@@ -21,6 +21,16 @@ export default function TerminalDock() {
   const [info, setInfo] = useState(null);
   const [menu, setMenu] = useState(false);
   const dragging = useRef(null);
+  const addRef = useRef(null);
+  // The menu closes on a click elsewhere or Escape.
+  useEffect(() => {
+    if (!menu) return undefined;
+    const away = (e) => { if (!addRef.current?.contains(e.target)) setMenu(false); };
+    const esc = (e) => { if (e.key === "Escape") setMenu(false); };
+    window.addEventListener("pointerdown", away);
+    window.addEventListener("keydown", esc);
+    return () => { window.removeEventListener("pointerdown", away); window.removeEventListener("keydown", esc); };
+  }, [menu]);
   const [now, setNow] = useState(0);
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -108,15 +118,16 @@ export default function TerminalDock() {
               <button type="button" className="hc-dock-x" aria-label={t("tm.closeX", { tab: tab.title })} onClick={() => closeTab(tab)}><X size={12} aria-hidden="true" /></button>
             </div>
           ))}
-          <div className="hc-dock-add">
-            <button type="button" className="hc-hb" aria-label={t("tm.new")} aria-haspopup="menu" aria-expanded={menu} onClick={() => (admin ? setMenu(!menu) : newTerminal())}><Plus size={15} aria-hidden="true" /></button>
-            {menu && (
-              <div className="hc-dock-menu" role="menu">
-                <button type="button" role="menuitem" onClick={newTerminal}>{t("tm.newTerminal")}</button>
-                <button type="button" role="menuitem" onClick={newRoot}>{t("tm.newRoot")}</button>
-              </div>
-            )}
-          </div>
+        </div>
+        {/* Outside the tabs' row: that row scrolls sideways and cut the menu off (it opened, invisible). */}
+        <div className="hc-dock-add" ref={addRef}>
+          <button type="button" className="hc-hb" aria-label={t("tm.new")} aria-haspopup="menu" aria-expanded={menu} onClick={() => (admin ? setMenu(!menu) : newTerminal())}><Plus size={15} aria-hidden="true" /></button>
+          {menu && (
+            <div className="hc-dock-menu" role="menu">
+              <button type="button" role="menuitem" onClick={newTerminal}>{t("tm.newTerminal")}</button>
+              <button type="button" role="menuitem" onClick={newRoot}>{t("tm.newRoot")}</button>
+            </div>
+          )}
         </div>
         <span className="hc-dock-info">
           {active.kind === "workbench" && !active.ended && t("tm.asYou")}
