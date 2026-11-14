@@ -1332,6 +1332,26 @@
     "title": "ConvertRequest",
     "type": "object"
    },
+   "CountIn": {
+    "properties": {
+     "count": {
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "force": {
+      "default": false,
+      "title": "Force",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "count"
+    ],
+    "title": "CountIn",
+    "type": "object"
+   },
    "CpuCheck": {
     "properties": {
      "cpu_xml": {
@@ -2111,6 +2131,78 @@
      "name"
     ],
     "title": "GroupCreate",
+    "type": "object"
+   },
+   "GroupIn": {
+    "properties": {
+     "count": {
+      "default": 0,
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Count",
+      "type": "integer"
+     },
+     "linked": {
+      "default": true,
+      "title": "Linked",
+      "type": "boolean"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "network": {
+      "anyOf": [
+       {
+        "maxLength": 256,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Network"
+     },
+     "pool_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pool Id"
+     },
+     "prefix": {
+      "maxLength": 41,
+      "minLength": 1,
+      "title": "Prefix",
+      "type": "string"
+     },
+     "tags": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 16,
+      "title": "Tags",
+      "type": "array"
+     },
+     "template": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Template",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "template",
+     "prefix"
+    ],
+    "title": "GroupIn",
     "type": "object"
    },
    "GroupJob": {
@@ -20439,6 +20531,52 @@
     ]
    }
   },
+  "/api/v1/pools/{pool_id}/export": {
+   "get": {
+    "description": "The pool, its VMs on this node, the networks and storage pools they use and its assignments, as one\nTerraform / OpenTofu file (app/core/vm_definition.py, pool_as_terraform).",
+    "operationId": "export_pool_api_v1_pools__pool_id__export_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pool_id",
+      "required": true,
+      "schema": {
+       "title": "Pool Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Export Pool",
+    "tags": [
+     "pools"
+    ]
+   }
+  },
   "/api/v1/pools/{pool_id}/members": {
    "post": {
     "operationId": "add_member_api_v1_pools__pool_id__members_post",
@@ -25745,6 +25883,173 @@
     "summary": "Create Download Ticket",
     "tags": [
      "vm-export"
+    ]
+   }
+  },
+  "/api/v1/vm-groups": {
+   "get": {
+    "operationId": "list_groups_api_v1_vm_groups_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Groups",
+    "tags": [
+     "vm-groups"
+    ]
+   },
+   "post": {
+    "operationId": "create_group_api_v1_vm_groups_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/GroupIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Group",
+    "tags": [
+     "vm-groups"
+    ]
+   }
+  },
+  "/api/v1/vm-groups/{group_id}": {
+   "delete": {
+    "description": "The group is forgotten; its VMs stay, as ordinary VMs.",
+    "operationId": "delete_group_api_v1_vm_groups__group_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "group_id",
+      "required": true,
+      "schema": {
+       "title": "Group Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Group",
+    "tags": [
+     "vm-groups"
+    ]
+   }
+  },
+  "/api/v1/vm-groups/{group_id}/count": {
+   "put": {
+    "operationId": "set_count_api_v1_vm_groups__group_id__count_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "group_id",
+      "required": true,
+      "schema": {
+       "title": "Group Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CountIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Count",
+    "tags": [
+     "vm-groups"
     ]
    }
   },

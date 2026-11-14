@@ -151,3 +151,31 @@ def put_pool_rule(pool_id: int, payload: PoolRuleIn, user: dict = Depends(requir
         user["username"], "set_pool_rule", str(pool_id), "success", f"tag={payload.tag} name={payload.name_pattern}"
     )
     return next(p for p in perm.list_pools() if p["id"] == pool_id)
+
+
+@router.get("/{pool_id}/export")
+def export_pool(pool_id: int, user: dict = Depends(require_role("admin"))):
+    """The pool, its VMs on this node, the networks and storage pools they use and its assignments, as one
+    Terraform / OpenTofu file (app/core/vm_definition.py, pool_as_terraform)."""
+    import libvirt
+    from fastapi.responses import PlainTextResponse
+
+    from app.core import vm_definition
+    from app.core.libvirt_utils import open_conn
+
+    pool = next((p for p in perm.list_pools() if p["id"] == pool_id), None)
+    if pool is None:
+        raise HTTPException(status_code=404, detail=f"Pool {pool_id} not found")
+    vms = []
+    conn = open_conn(readonly=True)
+    try:
+        for name in sorted(set(pool["vms"]) | set(pool["dynamic_vms"])):
+            try:
+                vms.append(vm_definition.read(conn, conn.lookupByName(name)))
+            except libvirt.libvirtError:
+                continue  # on another node: its own export holds it
+    finally:
+        conn.close()
+    assignments = [a for a in perm.list_acl() if a["resource_type"] == "pool" and a["resource_id"] == str(pool_id)]
+    groups = {g["id"]: g["name"] for g in perm.list_groups()}
+    return PlainTextResponse(vm_definition.pool_as_terraform(pool, vms, assignments, groups), media_type="text/plain")

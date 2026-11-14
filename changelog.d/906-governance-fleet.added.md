@@ -1,0 +1,3 @@
+- Export a whole pool as one Terraform / OpenTofu file: the pool, its VMs, the networks and storage pools they use and its assignments.
+- VM groups: N identical VMs from one template, named prefix-1, prefix-2…; raising the count deploys the missing ones, lowering it deletes the highest-numbered stopped ones (to the recycle bin), running ones only when asked.
+- Search by query over every VM, container and node (kind, state, tag, pool, node, os, ip, name, vcpu and memory comparisons, exclusions), on a Search page and from the command palette.
