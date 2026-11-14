@@ -1071,6 +1071,52 @@ def _init_db():
                 changed_at TEXT
             )
         """)
+        # Dashboards and saved queries (docs/design/console-2.md, sections 2 and 3): an account's, private or shared.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS dashboards (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                shared TEXT NOT NULL DEFAULT 'private',
+                tiles TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS saved_queries (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                query TEXT NOT NULL,
+                view TEXT NOT NULL DEFAULT 'list',
+                group_by TEXT,
+                owner TEXT NOT NULL,
+                shared TEXT NOT NULL DEFAULT 'private',
+                created_at TEXT
+            )
+        """)
+        # Availability (docs/design/console-2.md, section 1): each target's current state, and its periods. This node's
+        # own history, like the metrics.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS availability_state (
+                target TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                reason TEXT,
+                since TEXT NOT NULL,
+                last_seen TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS availability_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT NOT NULL,
+                state TEXT NOT NULL,
+                reason TEXT,
+                started_at TEXT NOT NULL,
+                ended_at TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_availability_events ON availability_events (target, started_at)")
         # Accounts that end (a contractor, an intern): refused at sign-in and on every request from that moment.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS account_expiry (

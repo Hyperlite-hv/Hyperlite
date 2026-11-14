@@ -56,6 +56,9 @@ TABLES = {
     "alert_rules": {},
     "alert_silences": {},
     "account_expiry": {},
+    # Dashboards and saved queries (app/core/dashboards.py): an account's, read on every node.
+    "dashboards": {},
+    "saved_queries": {},
     # Protections, envelopes and guardrails (app/core/protections.py, app/core/guardrails.py): the same on every node.
     "resource_protections": {},
     "pool_envelopes": {},
