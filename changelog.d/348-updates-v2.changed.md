@@ -1,8 +1,0 @@
-- Updates you can follow (docs/design/updates-2.md):
-  - a page of its own replaces the update dialog, with the installed and latest versions, the channel, the last check and its interval, the release notes, the checks before starting, the update in progress step by step, the history and each update's technical log;
-  - each update is recorded with its steps; only APT's own download and install measures give a percentage, and every other step shows an activity of unknown length;
-  - the outcome is the server's: the watchdog writes its verdict, and the next start closes the update as done, rolled back or failed, so closing or reloading the page loses nothing;
-  - packages are all downloaded before anything is installed, so a cut download installs nothing;
-  - checks before starting: free space, an interrupted dpkg, the package manager's lock, operations in progress, version order, a node in a cluster and a pending reboot; the blocking ones refuse the update;
-  - the automatic check runs every 1, 6 or 24 hours, or only by hand, keeps its last result and marks an update with security fixes as critical.
-- A notification centre: entries kept on the node, read and unread per account, mark all as read, archive, pinned until what they report is over, each leading to its page. It covers updates, reboots needed, alert rules, crashed VMs, failed backups and HA alerts, and each new entry appears once as a toast. Toasts of information and warnings no longer look like successes.
