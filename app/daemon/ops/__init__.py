@@ -18,4 +18,5 @@ from app.daemon.ops import (  # noqa: F401
     tls,
     transfer,
     vm,
+    workbench,
 )

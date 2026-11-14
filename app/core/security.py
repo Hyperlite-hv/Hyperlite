@@ -311,6 +311,12 @@ def _refuse_by_signin_rules(user):
     ip = request_ip.get()
     if ip is None:
         return  # not an HTTP request (hyperlite-daemon checking a proof, a thread): the request itself was checked
+    if user.get("api_token_kind") == "workbench":
+        # A Terminal's requests come through its relay, from 127.0.0.1: the address that counts is the one the session
+        # was opened from (app/core/workbench.py).
+        from app.core import workbench
+
+        ip = workbench.opened_from(user["api_token_id"]) or ip
     refusal = signin_rules.refusal(user, ip)
     if refusal:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=refusal)

@@ -1,6 +1,7 @@
 # Workbench: a terminal in the console, for every account, within its rights
 
-Status: analysis and design (#914), nothing implemented yet. To be decided by the maintainer (section 17).
+Status: design (#914); step 1 (the box, the daemon's operations, the sessions and their routes) implemented, not yet run
+on a real host: the escape tests of section 14 run in a disposable VM (section 17, decision 5).
 
 The console gains a `>_` button at the top right. It opens a panel docked at the bottom of every page: a terminal that
 stays open while you move between pages, with the `hyperlite` client already signed in as you, `ssh` to your VMs

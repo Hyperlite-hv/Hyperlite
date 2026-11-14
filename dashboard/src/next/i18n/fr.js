@@ -5206,6 +5206,7 @@ export default {
   "priv.cluster.manage": "Cluster : HA, équilibrage, réglages",
   "priv.access.view": "Accès : consulter les attributions",
   "priv.access.manage": "Accès : donner et retirer des attributions",
+  "priv.workbench.use": "Terminal : ouvrir un terminal dans la console, avec les droits du compte",
   "tab.guardrails": "Garde-fous",
   "svc.d.guardrails": "Règles de création, enveloppes des pools et protections",
   "gr.desc": "Les règles que suit chaque nouvelle VM, ce que chaque pool peut contenir, et les objets protégés contre la suppression ou gelés.",

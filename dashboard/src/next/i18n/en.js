@@ -5175,6 +5175,7 @@ export default {
   "priv.cluster.manage": "Cluster: HA, load balancing, settings",
   "priv.access.view": "Access: read assignments",
   "priv.access.manage": "Access: give and remove assignments",
+  "priv.workbench.use": "Terminal: open a terminal in the console with the account's own rights",
   "tab.guardrails": "Guardrails",
   "svc.d.guardrails": "Creation rules, pool envelopes and protections",
   "gr.desc": "Rules every new VM follows, what each pool may hold, and the objects kept from deletion or frozen.",
