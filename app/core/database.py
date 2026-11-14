@@ -26,6 +26,9 @@ ACCESS_TABLES = (
     "pool_members",
     "sso_config",
     "ldap_config",
+    "access_terms",
+    "access_eligibility",
+    "api_token_scopes",
 )
 ACCESS_PATH = os.environ.get("HYPERLITE_ACCESS_DB_PATH")
 
@@ -818,6 +821,71 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # The access review (docs/design/access-2.md, section 8): an assignment someone looked at and kept, and why.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS access_reviews (
+                acl_id TEXT PRIMARY KEY,
+                note TEXT,
+                reviewed_by TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL
+            )
+        """)
+        # On-demand rights asked for (docs/design/access-2.md, section 6): the request, its decision, its end.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS access_requests (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                eligibility_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                minutes INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending', 'granted', 'refused', 'ended', 'cancelled')),
+                acl_id INTEGER,
+                expires_at TEXT,
+                decided_by TEXT,
+                decided_at TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        # Protections, envelopes and guardrails (docs/design/access-2.md, sections 4 and 5): replicated, held by
+        # every node the same. Text keys: nothing to reserve from the cluster.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS resource_protections (
+                id TEXT PRIMARY KEY,
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm', 'container', 'pool', 'node')),
+                resource_id TEXT NOT NULL,
+                level TEXT NOT NULL CHECK(level IN ('keep', 'freeze')),
+                reason TEXT,
+                set_by TEXT,
+                set_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pool_envelopes (
+                pool_id TEXT PRIMARY KEY,
+                max_vms INTEGER,
+                max_vcpus INTEGER,
+                max_memory_mb INTEGER,
+                max_disk_gb INTEGER,
+                changed_by TEXT,
+                changed_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guardrails (
+                scope TEXT PRIMARY KEY,
+                name_pattern TEXT,
+                max_vcpu INTEGER,
+                max_memory_mb INTEGER,
+                max_disk_gb INTEGER,
+                storage_pools TEXT,
+                networks TEXT,
+                changed_by TEXT,
+                changed_at TEXT
+            )
+        """)
         # Alert rules (#348): a metric of a node or a VM above or below a threshold for a few minutes, evaluated by the
         # leader (app/core/alert_rules.py). Replicated, their state too: every node shows which rules fire.
         conn.execute("""
@@ -1318,16 +1386,16 @@ def _init_access(conn):
             subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
             subject_id TEXT NOT NULL,
             role TEXT NOT NULL,
-            resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store')),
+            resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store','node','cluster')),
             resource_id TEXT NOT NULL
         )
     """)
     # Migration: existing databases were created with an older CHECK (resource_type IN ('vm','pool'), then
-    # ('vm','pool','container'), then without 'backup_store'). CREATE TABLE IF NOT EXISTS above is a no-op on a
+    # ('vm','pool','container'), then without 'backup_store', then without the 'node' and 'cluster' perimeters). CREATE TABLE IF NOT EXISTS above is a no-op on a
     # table that already exists, and SQLite cannot modify an existing CHECK through ALTER TABLE. The table is rebuilt (idempotent: does nothing if already
     # migrated).
     existing_acl_sql = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='acl'").fetchone()
-    if existing_acl_sql and "'backup_store'" not in existing_acl_sql["sql"]:
+    if existing_acl_sql and "'cluster'" not in existing_acl_sql["sql"]:
         conn.execute("ALTER TABLE acl RENAME TO acl_pre_container_migration")
         conn.execute("""
             CREATE TABLE acl (
@@ -1335,7 +1403,7 @@ def _init_access(conn):
                 subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
                 subject_id TEXT NOT NULL,
                 role TEXT NOT NULL,
-                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store')),
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('vm','pool','container','storage','network','backup_store','node','cluster')),
                 resource_id TEXT NOT NULL
             )
         """)
@@ -1354,6 +1422,43 @@ def _init_access(conn):
     # (reader/operator/manager), but the user chooses the privilege subset (see
     # ALL_PRIVILEGES in app/core/permissions.py). They are identified in acl.role by
     # "custom:<id>".
+    # Terms of an assignment (docs/design/access-2.md, sections 6 and 8): its end, the tag its rights are held on,
+    # why and by whom it was given. One row per assignment that has terms; an assignment without one never ends.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS access_terms (
+            acl_id INTEGER PRIMARY KEY,
+            expires_at TEXT,
+            tag TEXT,
+            reason TEXT,
+            granted_by TEXT,
+            granted_at TEXT,
+            origin TEXT NOT NULL DEFAULT 'manual'
+        )
+    """)
+    # Who may ask for a role on a perimeter for a while (on-demand rights), and whether it is given at once.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS access_eligibility (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
+            subject_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            max_minutes INTEGER NOT NULL,
+            approval TEXT NOT NULL CHECK(approval IN ('auto','approval')),
+            created_by TEXT,
+            created_at TEXT
+        )
+    """)
+    # A delegated API token acts with one role on one perimeter, never beyond what its owner holds.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_token_scopes (
+            token_id INTEGER PRIMARY KEY,
+            role TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL
+        )
+    """)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS custom_roles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

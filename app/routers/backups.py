@@ -24,7 +24,7 @@ from app.core.backups import (
 )
 from app.core.libvirt_utils import open_conn
 from app.core.listing import listing
-from app.core.security import get_current_user, require_role, require_vm_privilege
+from app.core.security import get_current_user, require_area, require_vm_privilege
 from app.core.tasks import create_task, finish_task, start_thread
 from app.core.vm_builder import validate_name
 from app.services import backup_service
@@ -67,7 +67,7 @@ class RecoveryRequest(BaseModel):
 
 
 @router.get("/backups/site-recovery/scan")
-def scan_foreign_backups(path: str, user: dict = Depends(require_role("admin"))):
+def scan_foreign_backups(path: str, user: dict = Depends(require_area("backup.view"))):
     """The backups another site wrote under `path` (an NFS share of this site, for instance), per VM."""
     try:
         return listing(site_recovery.scan(path))
@@ -76,7 +76,7 @@ def scan_foreign_backups(path: str, user: dict = Depends(require_role("admin")))
 
 
 @router.post("/backups/site-recovery", status_code=202)
-def start_site_recovery(payload: RecoveryRequest, user: dict = Depends(require_role("admin"))):
+def start_site_recovery(payload: RecoveryRequest, user: dict = Depends(require_area("backup.manage"))):
     """Restore the chosen backups as new VMs of this node, one after another, in one task."""
     try:
         task_id = site_recovery.recover(
@@ -176,7 +176,10 @@ def create_backup(
 
 @router.delete("/backups/{backup_id}")
 def delete_backup(
-    backup_id: int, confirm: bool = False, user: dict = Depends(require_role("admin")), _: None = Depends(_on_holder)
+    backup_id: int,
+    confirm: bool = False,
+    user: dict = Depends(require_area("backup.manage")),
+    _: None = Depends(_on_holder),
 ):
     if not backup_service.find(backup_id):
         raise HTTPException(status_code=404, detail="Backup not found")
@@ -196,7 +199,9 @@ def delete_backup(
 
 
 @router.post("/backups/{backup_id}/verify", status_code=202)
-def verify_backup_endpoint(backup_id: int, user: dict = Depends(require_role("admin")), _: None = Depends(_on_holder)):
+def verify_backup_endpoint(
+    backup_id: int, user: dict = Depends(require_area("backup.manage")), _: None = Depends(_on_holder)
+):
     """Recompute every checksum and check the images now, as a task (a large backup takes a while to read)."""
     row = backup_service.find(backup_id)
     if not row:
@@ -231,7 +236,7 @@ class RestoreRequest(BaseModel):
 def restore_backup_endpoint(
     backup_id: int,
     payload: RestoreRequest,
-    user: dict = Depends(require_role("admin")),
+    user: dict = Depends(require_area("backup.manage")),
     _: None = Depends(_on_holder),
 ):
     maintenance.refuse_if_in_maintenance("local", "Restoring a backup")
@@ -394,7 +399,7 @@ def get_backup_store(name: str, user: dict = Depends(get_current_user)):
 
 
 @router.post("/backup-stores", status_code=201)
-def create_backup_store(payload: StoreCreate, user: dict = Depends(require_role("admin"))):
+def create_backup_store(payload: StoreCreate, user: dict = Depends(require_area("backup.manage"))):
     """Make a store in a directory of a storage pool, or take over the store already there. An encrypted store's key,
     and a master recovery key made here, are in this answer only: Hyperlite never shows them again."""
     private = None
@@ -431,7 +436,7 @@ def create_backup_store(payload: StoreCreate, user: dict = Depends(require_role(
 
 
 @router.delete("/backup-stores/{name}")
-def delete_backup_store(name: str, user: dict = Depends(require_role("admin"))):
+def delete_backup_store(name: str, user: dict = Depends(require_area("backup.manage"))):
     """Forget a store no job uses; its directory and backups stay on the pool."""
     try:
         backup_stores.remove(name)
@@ -442,7 +447,7 @@ def delete_backup_store(name: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/backup-stores/{name}/gc", status_code=202)
-def collect_store_garbage(name: str, user: dict = Depends(require_role("admin"))):
+def collect_store_garbage(name: str, user: dict = Depends(require_area("backup.manage"))):
     """Free the chunks no backup uses any more, in the background (a large store takes a while)."""
     try:
         backup_stores.check(name)
@@ -486,14 +491,14 @@ def _sync_error(e):
 
 
 @router.get("/backup-store-syncs")
-def list_store_syncs(user: dict = Depends(require_role("admin"))):
+def list_store_syncs(user: dict = Depends(require_area("backup.view"))):
     from app.core import backup_store_sync
 
     return listing(backup_store_sync.list_jobs())
 
 
 @router.get("/backup-store-syncs/{job_id}")
-def get_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
+def get_store_sync(job_id: int, user: dict = Depends(require_area("backup.view"))):
     from app.core import backup_store_sync
 
     job = backup_store_sync.get_job(job_id)
@@ -503,7 +508,7 @@ def get_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/backup-store-syncs", status_code=201)
-def create_store_sync(payload: StoreSync, user: dict = Depends(require_role("admin"))):
+def create_store_sync(payload: StoreSync, user: dict = Depends(require_area("backup.manage"))):
     """A copy of a store into another, pulled on its own schedule, with its own retention."""
     from app.core import backup_store_sync
 
@@ -518,7 +523,7 @@ def create_store_sync(payload: StoreSync, user: dict = Depends(require_role("adm
 
 
 @router.put("/backup-store-syncs/{job_id}")
-def update_store_sync(job_id: int, payload: StoreSync, user: dict = Depends(require_role("admin"))):
+def update_store_sync(job_id: int, payload: StoreSync, user: dict = Depends(require_area("backup.manage"))):
     from app.core import backup_store_sync
 
     if not backup_store_sync.get_job(job_id):
@@ -532,7 +537,7 @@ def update_store_sync(job_id: int, payload: StoreSync, user: dict = Depends(requ
 
 
 @router.delete("/backup-store-syncs/{job_id}")
-def delete_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
+def delete_store_sync(job_id: int, user: dict = Depends(require_area("backup.manage"))):
     """The job only: the copies it made stay in the target store."""
     from app.core import backup_store_sync
 
@@ -544,7 +549,7 @@ def delete_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/backup-store-syncs/{job_id}/run", status_code=202)
-def run_store_sync(job_id: int, user: dict = Depends(require_role("admin"))):
+def run_store_sync(job_id: int, user: dict = Depends(require_area("backup.manage"))):
     """Run a copy job now, in the background (a task)."""
     from app.core import backup_store_sync
 
@@ -656,7 +661,7 @@ def _remote_error(e):
 
 
 @router.get("/backup-remotes/this-node")
-def this_node_certificate(user: dict = Depends(require_role("admin"))):
+def this_node_certificate(user: dict = Depends(require_area("backup.view"))):
     """What another cluster pins to copy this one's stores: this node's HTTPS certificate fingerprint."""
     from app.core import peer_https
 
@@ -667,7 +672,7 @@ def this_node_certificate(user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/backup-remotes/probe")
-def probe_remote(payload: RemoteProbe, user: dict = Depends(require_role("admin"))):
+def probe_remote(payload: RemoteProbe, user: dict = Depends(require_area("backup.manage"))):
     """The certificate fingerprint an address presents, to be compared with the one its dashboard shows."""
     from app.core import backup_remotes
 
@@ -678,14 +683,14 @@ def probe_remote(payload: RemoteProbe, user: dict = Depends(require_role("admin"
 
 
 @router.get("/backup-remotes")
-def list_remotes(user: dict = Depends(require_role("admin"))):
+def list_remotes(user: dict = Depends(require_area("backup.view"))):
     from app.core import backup_remotes
 
     return listing([backup_remotes.describe(r) for r in backup_service.list_remotes()])
 
 
 @router.post("/backup-remotes", status_code=201)
-def create_remote(payload: RemoteCreate, user: dict = Depends(require_role("admin"))):
+def create_remote(payload: RemoteCreate, user: dict = Depends(require_area("backup.manage"))):
     """Record another cluster once its certificate matches the fingerprint and its token is accepted."""
     from app.core import backup_remotes
 
@@ -701,7 +706,7 @@ def create_remote(payload: RemoteCreate, user: dict = Depends(require_role("admi
 
 
 @router.get("/backup-remotes/{name}/stores")
-def remote_stores(name: str, user: dict = Depends(require_role("admin"))):
+def remote_stores(name: str, user: dict = Depends(require_area("backup.view"))):
     """The remote's backup stores, to make a copy of one here."""
     from app.core import backup_remotes
 
@@ -712,7 +717,7 @@ def remote_stores(name: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.delete("/backup-remotes/{name}")
-def delete_remote(name: str, user: dict = Depends(require_role("admin"))):
+def delete_remote(name: str, user: dict = Depends(require_area("backup.manage"))):
     from app.core import backup_remotes
 
     try:
@@ -724,7 +729,7 @@ def delete_remote(name: str, user: dict = Depends(require_role("admin"))):
 
 
 @router.post("/backup-stores/{name}/unlock")
-def unlock_store(name: str, payload: StoreUnlock, user: dict = Depends(require_role("admin"))):
+def unlock_store(name: str, payload: StoreUnlock, user: dict = Depends(require_area("backup.manage"))):
     """Give an encrypted copy its key, the day its backups are restored here (it kept none until then)."""
     try:
         row = backup_stores.unlock(name, payload.key, user["username"])
@@ -741,7 +746,10 @@ class StoreImport(BaseModel):
 
 @router.post("/backups/{backup_id}/import", status_code=202)
 def import_backup_into_store(
-    backup_id: int, payload: StoreImport, user: dict = Depends(require_role("admin")), _: None = Depends(_on_holder)
+    backup_id: int,
+    payload: StoreImport,
+    user: dict = Depends(require_area("backup.manage")),
+    _: None = Depends(_on_holder),
 ):
     """Copy a backup of today's format into a backup store, in the background (a task); the backup stays as it is."""
     from app.core.backups import import_into_store

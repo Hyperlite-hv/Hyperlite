@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import DefinitionCard from "../components/DefinitionCard";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { fetchVMHardwareOptions, setVMDiskOptions, setVMBootOrder, setVMBalloon, setVMMachine, fetchVMHookscript, setVMHookscript } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
@@ -258,6 +259,7 @@ export default function VmAdvancedPage({ resource: vm }) {
       </div>
       <MachineCard vm={vm} state={state} admin={admin} onSaved={onSaved} />
       <HookScriptCard vm={vm} admin={admin} />
+      <DefinitionCard vm={vm} />
     </>
   );
 }
