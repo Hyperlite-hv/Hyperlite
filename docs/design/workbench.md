@@ -5,7 +5,7 @@ Status: analysis and design (#914), nothing implemented yet. To be decided by th
 The console gains a `>_` button at the top right. It opens a panel docked at the bottom of every page: a terminal that
 stays open while you move between pages, with the `hyperlite` client already signed in as you, `ssh` to your VMs
 through Hyperlite, and the usual tools. An administrator also gets the node's root shell in the same panel. The name in
-the interface is **Workbench** (French: **Atelier**).
+the interface is **Terminal** (section 17).
 
 ## 1. What a person does with it
 
@@ -274,10 +274,15 @@ These tests run on a lab node (an end-to-end script, `lab/workbench-escape.sh`),
 
 Each step ships alone; the panel shows only what exists.
 
-## 17. Questions for the maintainer
+## 17. Decisions (Antho, 2026-11-14)
 
-1. The name: Workbench / Atelier, or another?
-2. Who gets it by default: administrators only, the roles listed in section 13, or everyone signed in?
-3. Recording of sessions: offered (off by default), or not at all?
-4. OpenTofu in the box: offered as an install on demand, or not?
-5. The escape tests need a lab node; which one may run them (not antho)?
+1. **Name**: "Terminal" in the interface, in English and French. The code, routes and units keep the identifier
+   `workbench` (`/workbench/…`, `hyperlite-workbench-<sid>`), apart from the existing `/host/terminal` and
+   `/vms/{name}/terminal-ticket`.
+2. **Who by default**: administrators, and the privilege `workbench.use` in the roles Steward, Builder and Maintainer;
+   a switch opens it to every account signed in.
+3. **Recording**: offered, off by default, announced in the panel when on.
+4. **OpenTofu**: offered as an install on demand (a pinned, checksummed release, downloaded by the node, installed into
+   the account's home).
+5. **Escape tests**: in a disposable VM on antho (Debian 13 with Hyperlite installed inside), made for the tests and
+   deleted after; the tests run inside that VM, never on antho itself.
