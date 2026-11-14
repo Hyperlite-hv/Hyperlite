@@ -1,0 +1,1 @@
+- Terminal: the `+` of the panel opens its menu again (it was cut off by the row of tabs); the prompt shows the Hyperlite account's name; a session attaches at the browser's own size from the start, without the stray cursor left by the first draw.

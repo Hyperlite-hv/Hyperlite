@@ -3,6 +3,9 @@
 [ -f /etc/bash.bashrc ] && . /etc/bash.bashrc
 export PATH="$HOME/.local/bin:/usr/lib/hyperlite/scripts/workbench/bin:/usr/lib/hyperlite/cli/dist/linux-amd64:/usr/local/bin:/usr/bin:/bin"
 export HYPERLITE_CONFIG=/run/workbench/hyperlite.json
+# The prompt names the Hyperlite account, not the box's own system account (hl-term-<uid>).
+HL_ACCOUNT=$(jq -r '.servers.local.username // empty' "$HYPERLITE_CONFIG" 2>/dev/null | tr -cd 'A-Za-z0-9@._-')
+PS1="\[\e[1;32m\]${HL_ACCOUNT:-\u}@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ "
 [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
 if [ -z "${HL_TERMINAL_WELCOMED:-}" ]; then
     export HL_TERMINAL_WELCOMED=1
