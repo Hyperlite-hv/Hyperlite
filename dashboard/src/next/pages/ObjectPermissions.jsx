@@ -260,3 +260,4 @@ export function NodePermissionsPage({ resource }) {
   const name = resource.id === "local" ? here : resource.name;
   return name ? <ObjectPermissions kind="node" name={name} /> : <Loading />;
 }
+export function PoolPermissionsPanel({ poolId }) { return <ObjectPermissions kind="pool" name={String(poolId)} />; }
