@@ -210,7 +210,9 @@ def _loop():
         except Exception:  # the next minute tries again; a token still has a week to run
             logger.warning("VM identities not renewed", exc_info=True)
         for name, job in (("guest updates", "guest_updates.tick"), ("cost budgets", "costs.check_budgets_if_due"),
-                          ("terminal sessions", "workbench.sweep")):  # fmt: skip
+                          ("terminal sessions", "workbench.sweep"), ("patch plans", "patch_plans.tick"),
+                          ("VM group autoscaling", "vm_group_scaling.tick"),
+                          ("guest scripts", "guest_scripts.tick")):  # fmt: skip
             try:
                 module, fn = job.split(".")
                 getattr(__import__(f"app.core.{module}", fromlist=[fn]), fn)()

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { Activity, ArrowDownToLine, BellRing, Box, Boxes, Braces, BrickWall, Camera, ChartColumn, ChartLine, ClipboardCheck, Clock, Copy, Database, DatabaseBackup, Disc3, DoorOpen, Gauge, Globe, HeartPulse, House, KeyRound, Layers, LayoutDashboard, LayoutGrid, Lightbulb, ListChecks, Monitor, Network, PackageCheck, PackageOpen, Plus, Scale, ScrollText, Server, Share2, ShieldCheck, ShipWheel, Siren, SquareTerminal, Tags, TextSearch, Trash2, Users, Vault, Wallet, Waypoints, Workflow } from "lucide-react";
+import { Activity, ArrowDownToLine, BellRing, Box, Boxes, Braces, BrickWall, Camera, ChartColumn, ChartLine, ClipboardCheck, Clock, Copy, Database, DatabaseBackup, Disc3, DoorOpen, FileCode, Gauge, Globe, HeartPulse, House, KeyRound, Layers, LayoutDashboard, LayoutGrid, Lightbulb, ListChecks, Monitor, Network, PackageCheck, PackageOpen, Plus, Scale, ScrollText, Server, Share2, ShieldCheck, ShipWheel, Siren, SquareTerminal, Tags, TextSearch, Trash2, Users, Vault, Wallet, Waypoints, Workflow } from "lucide-react";
 
 // The services of the console: one per datacenter page, under its historical `?tab=` id so every existing link
 // keeps working. `cat` is the family that colours its tile; `admin` pages are reserved to administrators by the
@@ -37,6 +37,7 @@ export const SERVICES = [
   { id: "updates", icon: ArrowDownToLine, cat: "monitor", admin: true },
   { id: "costs", icon: Wallet, cat: "monitor" },
   { id: "guestupdates", icon: PackageCheck, cat: "auto" },
+  { id: "scripts", icon: FileCode, cat: "auto" },
   { id: "search", icon: TextSearch, cat: "monitor" },
   { id: "tags", icon: Tags, cat: "identity" },
   { id: "terminal", icon: SquareTerminal, cat: "auto", admin: true },

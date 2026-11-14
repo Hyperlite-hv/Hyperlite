@@ -1071,6 +1071,96 @@ def _init_db():
                 changed_at TEXT
             )
         """)
+        # Patch plans, autoscaling, triggers and the script library (docs/design/console-2.md, sections 4 to 7).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_update_plans (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                target_kind TEXT NOT NULL CHECK(target_kind IN ('vms', 'pool', 'tag')),
+                target TEXT NOT NULL,
+                days TEXT NOT NULL DEFAULT '[]',
+                monthday INTEGER,
+                at_time TEXT NOT NULL,
+                tz TEXT NOT NULL DEFAULT 'UTC',
+                duration_min INTEGER NOT NULL,
+                reboot INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_occurrence TEXT,
+                last_run TEXT,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_group_scaling (
+                group_id TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                min_count INTEGER NOT NULL,
+                max_count INTEGER NOT NULL,
+                up_pct REAL NOT NULL,
+                down_pct REAL NOT NULL,
+                window_min INTEGER NOT NULL,
+                step INTEGER NOT NULL DEFAULT 1,
+                cooldown_min INTEGER NOT NULL,
+                last_action TEXT,
+                last_action_at TEXT,
+                last_reason TEXT,
+                pending TEXT NOT NULL DEFAULT '[]',
+                draining TEXT,
+                draining_since TEXT,
+                history TEXT NOT NULL DEFAULT '[]'
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS job_triggers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                event TEXT NOT NULL,
+                filter TEXT,
+                job_id INTEGER NOT NULL,
+                pass_target INTEGER NOT NULL DEFAULT 1,
+                cooldown_min INTEGER NOT NULL DEFAULT 30,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_fired_at TEXT,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trigger_firings (
+                id TEXT PRIMARY KEY,
+                trigger_id TEXT NOT NULL,
+                at TEXT NOT NULL,
+                subject TEXT,
+                run_id TEXT,
+                outcome TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_scripts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                shell TEXT NOT NULL CHECK(shell IN ('sh', 'powershell')),
+                body TEXT NOT NULL,
+                params TEXT NOT NULL DEFAULT '[]',
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_script_runs (
+                id TEXT PRIMARY KEY,
+                script_id TEXT NOT NULL,
+                script_name TEXT,
+                vms TEXT NOT NULL,
+                params TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL,
+                results TEXT NOT NULL DEFAULT '{}',
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
         # Dashboards and saved queries (docs/design/console-2.md, sections 2 and 3): an account's, private or shared.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS dashboards (

@@ -59,6 +59,8 @@ TABLES = {
     # Dashboards and saved queries (app/core/dashboards.py): an account's, read on every node.
     "dashboards": {},
     "saved_queries": {},
+    # The script library's own scripts (app/core/guest_scripts.py): the same on every node; their runs stay local.
+    "guest_scripts": {},
     # Protections, envelopes and guardrails (app/core/protections.py, app/core/guardrails.py): the same on every node.
     "resource_protections": {},
     "pool_envelopes": {},
