@@ -1,0 +1,2 @@
+- Costs: prices per vCPU, GB of memory and GB of disk; the month's estimate per VM (compute while it runs, disk always), per pool, per tag and in total, on a new Costs page; budgets on the cluster, a pool or a tag alert once at their threshold and once when exceeded.
+- Guest patches: what each running guest has pending (apt, dnf, zypper, Windows Update), checked through its agent, and installations planned in a window, run in the background in each guest, followed every minute, with a reboot at the end when needed and asked.

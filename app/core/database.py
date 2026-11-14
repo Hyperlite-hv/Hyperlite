@@ -30,6 +30,7 @@ ACCESS_TABLES = (
     "access_eligibility",
     "api_token_scopes",
     "pool_rules",
+    "access_exclusions",
 )
 ACCESS_PATH = os.environ.get("HYPERLITE_ACCESS_DB_PATH")
 
@@ -831,6 +832,157 @@ def _init_db():
                 reviewed_at TEXT NOT NULL
             )
         """)
+        # The recycle bin (docs/design/governance.md, section 7): VMs deleted but kept until purge_at; their definition
+        # is root's (paths.RECYCLE_BIN), their disks stay where they were. Each node's own: a VM is binned where it ran.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS recycle_bin (
+                vm_name TEXT PRIMARY KEY,
+                deleted_by TEXT NOT NULL,
+                deleted_at TEXT NOT NULL,
+                purge_at TEXT NOT NULL,
+                disks TEXT NOT NULL DEFAULT '[]',
+                vcpu INTEGER,
+                memory_mb INTEGER
+            )
+        """)
+        # The secrets vault (docs/design/governance.md, section 8): values sealed with the node's key
+        # (app/core/secrets_crypto.py), read by the accounts given access; `vault_grants` says who.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vault_secrets (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                value TEXT NOT NULL,
+                created_by TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vault_grants (
+                id TEXT PRIMARY KEY,
+                secret_id TEXT NOT NULL,
+                subject_type TEXT NOT NULL CHECK(subject_type IN ('user', 'group')),
+                subject_id TEXT NOT NULL
+            )
+        """)
+        # VM identities (docs/design/governance.md, section 9): a delegated API token the guest holds, renewed.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_identities (
+                vm_name TEXT PRIMARY KEY,
+                token_id INTEGER NOT NULL,
+                owner TEXT NOT NULL,
+                role TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                shell TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                delivered_at TEXT,
+                last_error TEXT
+            )
+        """)
+        # Costs (docs/design/governance.md, section 10): budgets on the cluster, a pool or a tag, and the last alert
+        # each sent this month (so an alert goes out once per threshold).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cost_budgets (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                monthly REAL NOT NULL,
+                alert_percent INTEGER NOT NULL DEFAULT 80,
+                alerted_month TEXT,
+                alerted_level INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT
+            )
+        """)
+        # Guest updates (docs/design/governance.md, section 11): what each guest has pending, and the runs that
+        # install it within a window.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_updates (
+                vm_name TEXT PRIMARY KEY,
+                checked_at TEXT NOT NULL,
+                family TEXT,
+                pending INTEGER,
+                security INTEGER,
+                packages TEXT NOT NULL DEFAULT '[]',
+                error TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS guest_update_runs (
+                id TEXT PRIMARY KEY,
+                vms TEXT NOT NULL,
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                reboot INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL CHECK(status IN ('scheduled', 'running', 'done', 'cancelled')),
+                results TEXT NOT NULL DEFAULT '{}',
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # VM groups (docs/design/governance.md, section 13): N identical VMs made from one template, named
+        # <prefix>-<n>, their number raised or lowered. Each node's own: its VMs are made where it answers.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS vm_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                template TEXT NOT NULL,
+                network TEXT,
+                linked INTEGER NOT NULL DEFAULT 1,
+                pool_id INTEGER,
+                tags TEXT NOT NULL DEFAULT '[]',
+                prefix TEXT UNIQUE NOT NULL,
+                count INTEGER NOT NULL,
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # Sign-in rules (docs/design/governance.md, section 4): where from, when, and with which factor an account may
+        # sign in and use the API. Enforced, or only journaled ("watch").
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS signin_rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                subject_type TEXT NOT NULL CHECK(subject_type IN ('all', 'role', 'group', 'user')),
+                subject_id TEXT,
+                networks TEXT,
+                require_2fa INTEGER NOT NULL DEFAULT 0,
+                days TEXT,
+                hours TEXT,
+                mode TEXT NOT NULL DEFAULT 'watch' CHECK(mode IN ('watch', 'enforce')),
+                created_by TEXT,
+                created_at TEXT
+            )
+        """)
+        # Scheduled access reviews (docs/design/governance.md, section 5): a campaign every N days, its reviewers, its
+        # deadline; each round lists the assignments to decide on.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS review_campaigns (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                every_days INTEGER NOT NULL,
+                deadline_days INTEGER NOT NULL,
+                reviewers TEXT NOT NULL DEFAULT '[]',
+                remove_undecided INTEGER NOT NULL DEFAULT 0,
+                next_at TEXT NOT NULL,
+                round_started_at TEXT,
+                round_due_at TEXT,
+                created_by TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS review_items (
+                id TEXT PRIMARY KEY,
+                campaign_id TEXT NOT NULL,
+                round_started_at TEXT NOT NULL,
+                acl_id INTEGER NOT NULL,
+                summary TEXT NOT NULL,
+                decision TEXT CHECK(decision IN ('keep', 'remove', 'removed_undecided')),
+                decided_by TEXT,
+                decided_at TEXT
+            )
+        """)
         # Tags a guardrail requires on every new VM (app/core/guardrails.py): a table of its own, so that a node of an
         # older version, which does not know it, keeps applying the rest of the guardrails.
         conn.execute("""
@@ -1466,6 +1618,21 @@ def _init_access(conn):
             pool_id INTEGER PRIMARY KEY,
             tag TEXT,
             name_pattern TEXT
+        )
+    """)
+    # An exclusion takes privileges away from an account or a group on a perimeter and below it, whatever the
+    # assignments give (docs/design/governance.md, section 6). Administrators are not held.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS access_exclusions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_type TEXT NOT NULL CHECK(subject_type IN ('user','group')),
+            subject_id TEXT NOT NULL,
+            privilege TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_id TEXT NOT NULL,
+            reason TEXT,
+            created_by TEXT,
+            created_at TEXT
         )
     """)
     # A delegated API token acts with one role on one perimeter, never beyond what its owner holds.

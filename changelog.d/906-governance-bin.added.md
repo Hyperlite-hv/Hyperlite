@@ -1,0 +1,3 @@
+- Recycle bin: a deleted VM (by hand or by the automatic deletion of inactive VMs) is kept 7 days by default with its disks, snapshots, pools and rights, then deleted for good; it is restored as it was from the Recycle bin page, and its name stays taken meanwhile. 0 days turns it off.
+- Secrets vault: passwords, keys and tokens sealed by the node, revealed one at a time to the accounts and groups given access (journaled), and named as `vault:<name>` instead of copied (a VM's password at creation).
+- VM identities: a VM gets a token of its own, with one role on one perimeter, written into the guest by its agent, renewed a week before its 30 days end and revoked with the VM.

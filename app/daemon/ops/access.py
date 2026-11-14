@@ -499,3 +499,22 @@ def totp_check(args, ctx):
     if row is None:
         raise DaemonError("not_found", f"User '{args.username}' not found")
     return {"valid": twofa.verify_code(args.username, row["totp_secret"], args.code)}
+
+
+class ExclusionCreate(Args):
+    subject_type: Literal["user", "group"]
+    subject_id: Name
+    privilege: Role
+    resource_type: Literal["vm", "pool", "container", "storage", "network", "backup_store", "node", "cluster"]
+    resource_id: Name
+    reason: Text
+    created_by: Name
+    created_at: Time
+
+
+class ExclusionId(Args):
+    exclusion_id: Id
+
+
+_register("exclusion_create", "access", "create_exclusion", ExclusionCreate, needs=ADMIN)
+_register("exclusion_delete", "access", "delete_exclusion", ExclusionId, needs=ADMIN)
