@@ -32,12 +32,80 @@ def _store():
     return registry.settings().sync
 
 
-CHECK_INTERVAL_S = (
-    3600  # same cadence as vm_cleanup.py: version drift is counted in hours or days, no need to check more often
-)
+# How often the node looks for a new version, as an administrator chose (app_settings): off, or every 1, 6 or 24 hours.
+INTERVALS_H = (0, 1, 6, 24)
+DEFAULT_INTERVAL_H = 6
+INTERVAL_KEY = "update_check_interval_h"
+LAST_KEY = "update_last_check"
+TICK_S = 60  # the loop wakes often, checks only when the chosen interval has passed
 
 
 SOURCE_PROBLEM_MARKER = "apt-source-problem"
+
+
+def interval_h():
+    try:
+        value = int(_store().app_setting(INTERVAL_KEY) or DEFAULT_INTERVAL_H)
+    except ValueError:
+        return DEFAULT_INTERVAL_H
+    return value if value in INTERVALS_H else DEFAULT_INTERVAL_H
+
+
+def set_interval_h(hours):
+    if hours not in INTERVALS_H:
+        raise ValueError(f"The interval is one of {', '.join(map(str, INTERVALS_H))} hours (0: never)")
+    _store().set_app_setting(INTERVAL_KEY, str(hours))
+    return hours
+
+
+def last_result():
+    """What the last check found (kept, so a page shows it without contacting the mirror), or None."""
+    import json
+
+    try:
+        return json.loads(_store().app_setting(LAST_KEY) or "null")
+    except ValueError:
+        return None
+
+
+def is_critical(result):
+    """A critical update: Debian security packages, or a release note with a security section."""
+    if ((result.get("system") or {}).get("security") or 0) > 0:
+        return True
+    for note in result.get("notes") or []:
+        text = (note.get("text") or "").lower()
+        if "### security" in text or "### sécurité" in text or "### securite" in text:
+            return True
+    return False
+
+
+def remember(result):
+    """The summary of a check kept for the Updates page, and the notification centre told."""
+    import json
+
+    from app.core import notification_feed
+
+    critical = bool(result.get("verifiable")) and not result.get("up_to_date") and is_critical(result)
+    summary = {
+        "at": datetime.now(UTC).isoformat(),
+        "verifiable": bool(result.get("verifiable")),
+        "error": result.get("error"),
+        "installed": result.get("commit_local"),
+        "candidate": result.get("remote_commit"),
+        "up_to_date": bool(result.get("up_to_date")),
+        "critical": critical,
+        "rolled_back": bool(result.get("rolled_back")),
+        "system": result.get("system"),
+        "channel": result.get("channel"),
+        "previous": result.get("previous"),
+        "notes": result.get("notes") or [],
+    }
+    _store().set_app_setting(LAST_KEY, json.dumps(summary))
+    if summary["verifiable"] and summary["up_to_date"] and not (summary["system"] or {}).get("packages"):
+        notification_feed.up_to_date()
+    elif summary["verifiable"] and summary["candidate"] and not summary["up_to_date"]:
+        notification_feed.update_available(summary["candidate"], critical)
+    return summary
 
 
 def _get_last_notified():
@@ -62,6 +130,9 @@ def check_reboot_needed():
     from app.core import host_system
 
     if not host_system.REBOOT_REQUIRED.exists():
+        from app.core import notification_feed
+
+        notification_feed.resolve("reboot_required")  # rebooted since: the pinned entry is over
         return False
     try:
         boot = BOOT_ID.read_text().strip()
@@ -83,6 +154,7 @@ def check_once():
 
     result = check_update(user={"role": "admin"})
     _touch_checked_at()
+    remember(result)
 
     # The APT source is missing or outdated: no new version can ever be seen, which is exactly how a node
     # stays behind silently. Alert once (the marker is replaced by the next real version notification).
@@ -104,13 +176,29 @@ def check_once():
     _mark_notified(remote)
 
 
+def due(now, hours, last_at):
+    """Whether a check is due at `now`: never with 0 hours, at once when none was made."""
+    if not hours:
+        return False
+    if not last_at:
+        return True
+    try:
+        return (now - datetime.fromisoformat(last_at)).total_seconds() >= hours * 3600
+    except ValueError:
+        return True
+
+
 def _loop():
     while True:
         try:
-            check_once()
+            last = last_result()
+            if due(datetime.now(UTC), interval_h(), last and last.get("at")):
+                check_once()
+            else:
+                check_reboot_needed()
         except Exception as e:
             print(f"[update_check] cycle failed: {e!r}", flush=True)
-        time.sleep(CHECK_INTERVAL_S)
+        time.sleep(TICK_S)
 
 
 def start_update_check_scheduler():

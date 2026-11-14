@@ -183,3 +183,15 @@ def log_action(
         outcome = "succeeded" if result == "success" else "failed"
         message = f"{NOTIFY_EVENTS[action]} of '{resource}' {outcome}" + (f": {error_message}" if error_message else "")
         threading.Thread(target=send, args=(action, title, message, result), daemon=True).start()
+    if (notify and action in NOTIFY_EVENTS) or action in (
+        "alert_rule_fired",
+        "alert_rule_resolved",
+        "update_check_blocked",
+        "backup_job_failed",
+    ):
+        # The same events in the console's notification centre (app/core/notification_feed.py), off the request too.
+        from app.core import notification_feed
+
+        threading.Thread(
+            target=notification_feed.from_journal, args=(action, resource, result, error_message), daemon=True
+        ).start()
