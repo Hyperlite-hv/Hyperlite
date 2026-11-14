@@ -173,6 +173,7 @@ def test_the_daemon_starts_and_stops_a_box(database, make_user, daemon, monkeypa
         monkeypatch.setattr(workbench_box, name, tmp_path / name.lower())
     monkeypatch.setattr(ops.os, "chown", lambda *a: None)
     monkeypatch.setattr(ops, "_fingerprint", lambda: "ab" * 32)
+    monkeypatch.setattr(ops, "_ensure_user", lambda uid: None)
     ran = []
 
     class Done:

@@ -74,6 +74,22 @@ def _fingerprint():
     return hashlib.sha256(base64.b64decode("".join(body.split()))).hexdigest()
 
 
+def _ensure_user(uid):
+    """The host account the box runs as (`hl-term-<uid>`, a system account without a password or a home on the
+    host), made the first time: systemd runs a unit only as a user the system knows."""
+    import pwd
+
+    try:
+        pwd.getpwuid(uid)
+        return
+    except KeyError:
+        pass
+    r = _run(["useradd", "--system", "--uid", str(uid), "--user-group", "--no-create-home", "--home-dir",
+              "/home/workbench", "--shell", "/bin/bash", f"hl-term-{uid}"])  # fmt: skip
+    if r.returncode != 0:
+        raise DaemonError("failed", f"The Terminal's account was not made: {r.stderr.strip()[-200:]}")
+
+
 def _home(uid):
     """The account's home image made (the first time), checked and mounted; its mount point."""
     from app.core import workbench_box
@@ -128,6 +144,7 @@ def open_box(args, ctx):
     uid = row["uid"]
     run = workbench_box.RUN / args.sid
     try:
+        _ensure_user(uid)
         _home(uid)
         run.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chown(run, uid, uid)
