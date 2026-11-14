@@ -4,7 +4,7 @@ import { useInfraStore } from "../../store/useInfraStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useT } from "../i18n";
 import { poolKey, TERM_FONTS, TERM_SIZES, usePrefs } from "../lib/prefs";
-import { ACCENTS, DENSITIES, SCALES, useAppearance } from "../lib/appearance";
+import { ACCENTS, DENSITIES, MENUS, SCALES, useAppearance } from "../lib/appearance";
 import { allowedServices, serviceLabel, useConsoleStore } from "../lib/services";
 import { capabilities } from "../lib/capabilities";
 import { useApiDocsAccess } from "../layout/SideMenu";
@@ -62,6 +62,7 @@ export default function PreferencesDrawer({ open, onClose }) {
         </div>
         <Choice label={t("prefs.density")} value={look.density} onChange={(density) => look.update({ density })} options={DENSITIES.map((d) => [d, t(`prefs.density.${d}`)])} />
         <Choice label={t("prefs.scale")} value={look.scale} onChange={(scale) => look.update({ scale })} options={SCALES.map((x) => [x, `${Math.round(x * 100)} %`])} />
+        <Choice label={t("prefs.menuShow")} value={look.menu} onChange={(menu) => look.update({ menu })} options={MENUS.map((m) => [m, t(`prefs.menuShow.${m}`)])} />
       </fieldset>
       <fieldset className="nx-fs">
         <legend>{t("prefs.start")}</legend>

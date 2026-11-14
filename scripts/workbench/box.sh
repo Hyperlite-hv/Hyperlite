@@ -10,5 +10,5 @@ python3 -I /usr/lib/hyperlite/scripts/workbench/relay.py tcp-to-unix 127.0.0.1 8
 /usr/bin/tmux -D -S "$SOCK" -f "$CONF" &
 SERVER=$!
 for _ in $(seq 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
-/usr/bin/tmux -S "$SOCK" new-session -d -s main -x 200 -y 50
+/usr/bin/tmux -S "$SOCK" new-session -d -s main
 wait "$SERVER"

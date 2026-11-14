@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.23.1] - 2026-11-14
+
+### Changed
+
+- The left menu is hidden by default: the page keeps the whole width, the top bar's ☰ opens the menu over the page and choosing a page closes it. "My preferences" brings back the pinned menu (folded to icons or not, as before); "Keep the menu open" at its foot does the same.
+
+### Fixed
+
+- Terminal: the `+` of the panel opens its menu again (it was cut off by the row of tabs); the prompt shows the Hyperlite account's name; a session attaches at the browser's own size from the start, without the stray cursor left by the first draw.
+
 ## [1.23.0] - 2026-11-14
 
 ### Added
