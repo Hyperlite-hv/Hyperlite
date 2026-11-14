@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-11-14
+
+### Fixed
+
+- All services: the categories no longer show large empty circles before their names (the accent colours of the preferences had taken the same style name).
+
 ## [1.20.0] - 2026-11-14
 
 ### Added
