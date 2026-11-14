@@ -1,1 +1,0 @@
-- The left menu is hidden by default: the page keeps the whole width, the top bar's ☰ opens the menu over the page and choosing a page closes it. "My preferences" brings back the pinned menu (folded to icons or not, as before); "Keep the menu open" at its foot does the same.
