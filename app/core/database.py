@@ -95,16 +95,33 @@ def get_conn():
     # default rollback-journal mode, which locks the whole file). The PRAGMA is a
     # no-op when already applied, so repeating it on every connection costs nothing.
     # ids.Connection: in a cluster, a new row of a replicated table gets an id no other node hands out.
-    conn = sqlite3.connect(Path(DB_PATH).absolute().as_uri(), timeout=30, factory=_ids.Connection, uri=True)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.row_factory = sqlite3.Row
+    conn = _open()
     try:
-        _attach_access(conn)
         conn.schemas = dict.fromkeys(ACCESS_TABLES, ACCESS)  # where ids.Connection finds their sqlite_sequence
         conn.set_authorizer(_only_from_the_access_file)
         yield conn
     finally:
         conn.close()
+
+
+def _open():
+    """A connection with the permission tables' file attached. Another service bringing the schema up to date at that
+    moment (each one replaces the replication triggers at its start, so every update does) makes SQLite answer
+    "database schema has changed" while the triggers are being read: a new connection, a moment later, reads the new
+    schema."""
+    for attempt in range(5):
+        conn = sqlite3.connect(Path(DB_PATH).absolute().as_uri(), timeout=30, factory=_ids.Connection, uri=True)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.row_factory = sqlite3.Row
+            _attach_access(conn)
+            return conn
+        except sqlite3.OperationalError as e:
+            conn.close()
+            if "schema has changed" not in str(e) or attempt == 4:
+                raise
+            time.sleep(0.2 * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 _ACCESS_NAMES = frozenset(ACCESS_TABLES)
