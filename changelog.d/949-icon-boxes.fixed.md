@@ -1,1 +1,0 @@
-- The icons of the left menu and of Home's cards sit in their box again: the dashboards' tiles (1.25) had reused the class name of the icon boxes, which pushed every icon to the bottom right of an empty frame.
