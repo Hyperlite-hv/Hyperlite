@@ -18,6 +18,7 @@ import EnclaveMark from "../../components/EnclaveMark";
 import { useEnvironmentLabel } from "../lib/environment";
 import NotificationsPanel from "./NotificationsPanel";
 import { TerminalButton } from "./TerminalDock";
+import { AssistantButton } from "../components/AssistantPanel";
 import { useFeed } from "../lib/feed";
 import { usePolling } from "../lib/polling";
 
@@ -129,6 +130,7 @@ export default function TopBar({ onOpenPalette, onToggleNavigator, wizards, setW
           <span className="hc-kbd" aria-hidden="true">/</span>
         </button>
       </div>
+      <AssistantButton />
       <TerminalButton />
       <button ref={bellBtn} type="button" className="hc-hb" onClick={() => setPanel(true)} aria-haspopup="dialog" aria-expanded={panel}
         aria-label={`${t("notif.title")} — ${t("nf.unreadLabel", { n: unread })}, ${t("top.opsLabel", { n: ops.length })}, ${t("top.alertsLabel", { n: health.total })}`} title={t("notif.title")}>
