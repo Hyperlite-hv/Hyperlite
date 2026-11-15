@@ -64,7 +64,7 @@ export default function DiagnosePage() {
             </ol>
           </Card>
           <Card title={t("dg.where")}>
-            <dl className="hc-tile-kv">
+            <dl className="hc-dcard-kv">
               <div><dt>{result.place.from.vm}</dt><dd className="nx-mono">{result.place.from.ip || t("dg.noIp")} · {result.place.from.networks.join(", ") || "—"}</dd></div>
               <div><dt>{result.place.to.vm || t("dg.anAddress")}</dt><dd className="nx-mono">{result.place.to.ip || t("dg.noIp")}{result.place.to.networks.length ? ` · ${result.place.to.networks.join(", ")}` : ""}</dd></div>
               <div><dt>{t("dg.sameNet")}</dt><dd>{result.place.same_network ? t("dg.yes") : t("dg.no")}</dd></div>

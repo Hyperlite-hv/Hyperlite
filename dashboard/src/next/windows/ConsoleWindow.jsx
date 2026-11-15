@@ -10,10 +10,10 @@ import StandaloneWindow from "./StandaloneWindow";
 
 // /console/:name?node=<node>&mode=vnc|terminal: the console of a VM in a window of its own, the same one as the VM
 // page, full height and connected by itself. `node` is absent for a VM of the local host.
-export default function ConsoleWindow() {
+export default function ConsoleWindow({ mode = null }) {
   const { name } = useParams();
   const [params] = useSearchParams();
-  const initialMode = ["terminal", "serial"].includes(params.get("mode")) ? params.get("mode") : "vnc";
+  const initialMode = mode || (["terminal", "serial", "rdp"].includes(params.get("mode")) ? params.get("mode") : "vnc");
   const node = params.get("node") || null;
   const status = useAuthStore((s) => s.status);
   const [vm, setVm] = useState(null);
