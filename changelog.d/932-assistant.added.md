@@ -1,0 +1,1 @@
+- Assistant: questions in plain words answered from Hyperlite's data, read with each person's own rights and never changing anything; off until an administrator turns it on, with a local model server (Ollama, vLLM...) or the Anthropic API.

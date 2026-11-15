@@ -52,6 +52,7 @@ from app.routers.alert_rules import router as alert_rules_router
 from app.routers.alert_rules import silences_router as alert_silences_router
 from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
+from app.routers.assistant import router as assistant_router
 from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
 from app.routers.availability import router as availability_router
@@ -66,6 +67,7 @@ from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.dashboards import queries_router as saved_queries_router
 from app.routers.dashboards import router as dashboards_router
+from app.routers.diagnose import router as diagnose_router
 from app.routers.drs import router as drs_router
 from app.routers.file_restore import router as file_restore_router
 from app.routers.fleet import router as fleet_router
@@ -289,6 +291,8 @@ _API_ROUTERS = (
     dashboards_router,
     saved_queries_router,
     triggers_router,
+    diagnose_router,
+    assistant_router,
     access_router,
     protections_router,
     compliance_router,
