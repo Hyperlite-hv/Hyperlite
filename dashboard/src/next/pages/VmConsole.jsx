@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { termOptions } from "../lib/prefs";
-import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Info, Keyboard, Laptop, Maximize, MonitorDown, TriangleAlert, X } from "lucide-react";
+import { ChevronDown, ClipboardPaste, Copy, ExternalLink, Info, Keyboard, Laptop, Maximize, MonitorDown, MonitorSmartphone, TriangleAlert, X } from "lucide-react";
 import { addSpiceDisplay, createConsoleTicket, createSerialTicket, createTerminalTicket, downloadSpiceFile } from "../../api/client";
 import { ensureXtermLoaded, keepFitted, loadTerminalFont, wsUrl } from "../../utils/loadXterm";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -209,6 +209,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
               <MenuItem disabled={!caps.admin} reason={t("menu.reason.admin")} onSelect={addSpice}>{t("vc.spiceAdd")}</MenuItem>
             </Menu>
           </span>
+          <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" disabled={!running} title={t("rdp.buttonHint")} onClick={() => window.open(`/rdp/${encodeURIComponent(name)}${apiNode(node) ? `?node=${encodeURIComponent(node)}` : ""}`, `hyperlite-rdp-${vmKey(vm)}`, "width=1280,height=860,noopener")}><MonitorSmartphone size={14} aria-hidden="true" />{t("rdp.button")}</button>
           <button type="button" className="nx-btn nx-btn--ghost nx-btn--sm" onClick={() => setWsOpen(true)}><Laptop size={14} aria-hidden="true" />{t("ws.button")}</button>
           {standalone
             ? <button type="button" className="nx-btn nx-btn--sm" onClick={() => window.close()}><X size={14} aria-hidden="true" />{t("vc.closeWindow")}</button>
