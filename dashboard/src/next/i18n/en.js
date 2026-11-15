@@ -5285,6 +5285,7 @@ export default {
   "dg.try.OPEN": "the connection opened",
   "dg.try.TIMEOUT": "no answer within 5 seconds",
   "dg.try.REFUSED": "refused: nothing listens on that port",
+  "dg.try.FILTERED": "rejected by a firewall (\"no route to host\"): usually the target's own",
   "dg.try.ERROR": "the try failed: {detail}",
   "dg.try.NOTOOL": "the guest has neither bash nor nc to try with",
   "dg.try.NORIGHT": "not tried: you may not run commands in this VM",

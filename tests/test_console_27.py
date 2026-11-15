@@ -44,6 +44,7 @@ def test_the_verdict_names_what_stops_it():
     assert net_diagnose.verdict(ok, "REFUSED", None) == "nothing_listening"
     assert net_diagnose.verdict(ok, "TIMEOUT", "YES") == "guest_firewall"
     assert net_diagnose.verdict(ok, "TIMEOUT", None) == "no_answer"
+    assert net_diagnose.verdict(ok, "FILTERED", "NO") == "guest_firewall"
     assert net_diagnose.verdict([{"layer": "state", "verdict": "block"}], None, None) == "not_running"
 
 
