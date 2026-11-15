@@ -1661,6 +1661,21 @@ export async function retag(tag, next) { return realFetch(`/meta/tags/${encodeUR
 export async function fetchSilences() { return realList("/alert-silences"); }
 export async function addSilence(body) { return realFetch("/alert-silences", { method: "POST", ...jsonBody(body) }); }
 export async function removeSilence(id) { return realFetch(`/alert-silences/${id}`, { method: "DELETE" }); }
+export async function fetchAvailability(kind, name, node, days = 7) {
+  const q = new URLSearchParams({ days: String(days) });
+  if (node && node !== "local") q.set("node", node);
+  return realFetch(`/availability/${kind}/${encodeURIComponent(name)}?${q}`);
+}
+export async function fetchAvailabilitySummary(days = 7) { return realList(`/availability/summary?days=${days}`); }
+export async function fetchDashboards() { return realList("/dashboards"); }
+export async function createDashboard(body) { return realFetch("/dashboards", { method: "POST", ...jsonBody(body) }); }
+export async function updateDashboard(id, body) { return realFetch(`/dashboards/${id}`, { method: "PATCH", ...jsonBody(body) }); }
+export async function deleteDashboard(id) { return realFetch(`/dashboards/${id}`, { method: "DELETE" }); }
+export async function copyDashboard(id, name) { return realFetch(`/dashboards/${id}/copy`, { method: "POST", ...jsonBody({ name: name || null }) }); }
+export async function fetchSavedQueries() { return realList("/saved-queries"); }
+export async function saveQuery(body) { return realFetch("/saved-queries", { method: "POST", ...jsonBody(body) }); }
+export async function updateSavedQuery(id, body) { return realFetch(`/saved-queries/${id}`, { method: "PATCH", ...jsonBody(body) }); }
+export async function deleteSavedQuery(id) { return realFetch(`/saved-queries/${id}`, { method: "DELETE" }); }
 export async function fetchAccountEnds() { return realFetch("/auth/account-expiry"); }
 export async function setAccountEnd(username, expiresAt) { return realFetch(`/auth/account-expiry/${encodeURIComponent(username)}`, { method: "PUT", ...jsonBody({ expires_at: expiresAt }) }); }
 export async function fetchMyAccess() {

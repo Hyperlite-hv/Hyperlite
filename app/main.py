@@ -54,6 +54,7 @@ from app.routers.api_docs import pages as api_docs_pages
 from app.routers.api_docs import router as api_docs_router
 from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
+from app.routers.availability import router as availability_router
 from app.routers.backup_groups import router as backup_groups_router
 from app.routers.backups import router as backups_router
 from app.routers.certificate import router as certificate_router
@@ -63,6 +64,8 @@ from app.routers.cluster_update import router as cluster_update_router
 from app.routers.compliance import router as compliance_router
 from app.routers.containers import router as containers_router
 from app.routers.dashboard import router as dashboard_router
+from app.routers.dashboards import queries_router as saved_queries_router
+from app.routers.dashboards import router as dashboards_router
 from app.routers.drs import router as drs_router
 from app.routers.file_restore import router as file_restore_router
 from app.routers.fleet import router as fleet_router
@@ -281,6 +284,9 @@ _API_ROUTERS = (
     reports_router,
     alert_rules_router,
     alert_silences_router,
+    availability_router,
+    dashboards_router,
+    saved_queries_router,
     access_router,
     protections_router,
     compliance_router,

@@ -256,7 +256,18 @@ def _node_live_row(name, ts, raw, load, conn, reachable=True):
     )
 
 
-def _sample_remote_node(node, ts, now):
+def _observe(domain, target, observations):
+    """The VM's state for its availability (app/core/availability.py)."""
+    from app.core import availability
+
+    try:
+        state, reason = domain.state()
+    except libvirt.libvirtError:
+        return  # deleted during the round
+    observations.append((target, *availability.from_libvirt(state, reason)))
+
+
+def _sample_remote_node(node, ts, now, observations=None):
     """Load of one registered remote node (SSH probe) and of its VMs (libvirt over SSH).
     Returns (metric rows, pool rows, node_live row); an unreachable node only
     updates its node_live row, so the UI can tell "no data" from "0 %"."""
@@ -289,6 +300,8 @@ def _sample_remote_node(node, ts, now):
         for domain in conn.listAllDomains():
             target = f"{name}:{domain.name()}"
             config_history.observe(domain, target)
+            if observations is not None:
+                _observe(domain, target, observations)
             s = _sample_vm(domain, target, now)
             if s is not None:
                 rows.append(_vm_row(target, s))
@@ -414,12 +427,14 @@ def _collect_tick():
 
     conn = open_conn(readonly=True)
     vm_loads = {}
+    observations = [("host", "running", "")]
     try:
         from app.core import config_history
 
         for domain in conn.listAllDomains():
             name = domain.name()
             config_history.observe(domain, name)
+            _observe(domain, name, observations)
             s = _sample_vm(domain, name, now)
             if s is None:
                 continue
@@ -442,13 +457,27 @@ def _collect_tick():
 
     nodes = [n.to_wire() for n in registry.nodes().sync.list_online()]
     for node in nodes:
-        r, p, live = _sample_remote_node(node, ts, now)
+        r, p, live = _sample_remote_node(node, ts, now, observations)
         rows += r
         pool_rows += p
         live_rows.append(live)
+        # live[2]: whether the node answered its probe (_node_live_row).
+        observations.append(
+            (f"node:{node['name']}", "running", "") if live[2] else (f"node:{node['name']}", "unreachable", "probe")
+        )
+    online = {n["name"] for n in nodes}
+    for n in registry.nodes().sync.list():
+        if n.spec.name not in online:
+            observations.append((f"node:{n.spec.name}", "unreachable", "offline"))
 
     registry.metrics().sync.write_samples(ts, rows, pool_rows)
     registry.nodes().sync.write_live(live_rows)
+    try:
+        from app.core import availability
+
+        availability.observe_round(observations)
+    except Exception:  # availability is said "unknown" for this round rather than stopping the metrics
+        logger.warning("Availability not recorded this round", exc_info=True)
 
     from app.core import metric_export
 
@@ -467,6 +496,9 @@ def _rollup_and_prune():
     from app.repositories import registry
 
     registry.metrics().sync.rollup_and_prune(now.isoformat(), hour_ago, raw_cutoff, hourly_cutoff)
+    from app.core import availability
+
+    availability.prune(now)
 
 
 def get_node_live(name=None):
