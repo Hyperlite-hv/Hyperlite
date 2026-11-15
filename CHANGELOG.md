@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.27.3] - 2026-11-15
+
+### Fixed
+
+- Connection diagnosis: a connection rejected with "no route to host" (an ICMP rejection from a firewall, often the target's own) is said so, instead of an undecided verdict.
+- hyperlite-scheduler no longer stops at its start after an update: when another service brings the schema up to date at that moment, its connection waits and opens again instead of failing with "database schema has changed".
+
 ## [1.27.2] - 2026-11-15
 
 ### Fixed

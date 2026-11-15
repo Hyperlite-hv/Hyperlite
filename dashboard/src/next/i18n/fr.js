@@ -5316,6 +5316,7 @@ export default {
   "dg.try.OPEN": "la connexion s’est ouverte",
   "dg.try.TIMEOUT": "pas de réponse en 5 secondes",
   "dg.try.REFUSED": "refusée : rien n’écoute sur ce port",
+  "dg.try.FILTERED": "rejetée par un pare-feu (« no route to host ») : en général celui de la cible",
   "dg.try.ERROR": "l’essai a échoué : {detail}",
   "dg.try.NOTOOL": "l’invité n’a ni bash ni nc pour essayer",
   "dg.try.NORIGHT": "pas d’essai : vous ne pouvez pas lancer de commandes dans cette VM",

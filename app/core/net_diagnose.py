@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 TRY_SH = r"""
 if command -v bash >/dev/null 2>&1; then
   out=$(timeout 5 bash -c "</dev/tcp/{ip}/{port}" 2>&1); rc=$?
-  if [ $rc -eq 0 ]; then echo OPEN; elif [ $rc -eq 124 ]; then echo TIMEOUT; elif echo "$out" | grep -qi refused; then echo REFUSED; else echo "ERROR $out"; fi
+  if [ $rc -eq 0 ]; then echo OPEN; elif [ $rc -eq 124 ]; then echo TIMEOUT; elif echo "$out" | grep -qi refused; then echo REFUSED; elif echo "$out" | grep -qiE 'no route to host|prohibited'; then echo FILTERED; else echo "ERROR $out"; fi
 elif command -v nc >/dev/null 2>&1; then
   out=$(nc -z -v -w 5 {ip} {port} 2>&1); rc=$?
-  if [ $rc -eq 0 ]; then echo OPEN; elif echo "$out" | grep -qi refused; then echo REFUSED; elif echo "$out" | grep -qi 'timed out'; then echo TIMEOUT; else echo "ERROR $out"; fi
+  if [ $rc -eq 0 ]; then echo OPEN; elif echo "$out" | grep -qi refused; then echo REFUSED; elif echo "$out" | grep -qi 'timed out'; then echo TIMEOUT; elif echo "$out" | grep -qiE 'no route to host|prohibited'; then echo FILTERED; else echo "ERROR $out"; fi
 else echo NOTOOL; fi
 """
 TRY_PS = (
@@ -298,6 +298,8 @@ def verdict(checks, live, listening):
         return "blocked_by_rule"
     if live == "OPEN":
         return "reachable"
+    if live == "FILTERED":  # an ICMP "host prohibited" answer: a firewall rejected it first, usually the target's own
+        return "guest_firewall"
     if live == "REFUSED" or listening == "NO":
         return "nothing_listening"
     if live == "TIMEOUT":
