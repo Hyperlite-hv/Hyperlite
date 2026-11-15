@@ -11,6 +11,7 @@ import StatusIndicator from "../components/StatusIndicator";
 import { ErrorState } from "../components/States";
 import { PageHeader, Card, Empty, SideDrawer, Field, Chip, Loading } from "../components/ui";
 import { Clock, PencilLine, Play, Plus, Trash2, Zap } from "lucide-react";
+import TriggersCard from "../components/TriggersCard";
 
 const newStep = () => ({ target_type: "host", target: "", command: "", condition_type: "exit_code", condition_value: "0" });
 const runWire = (s) => (s === "success" ? "succeeded" : s === "failed" ? "failed" : "running");
@@ -215,6 +216,7 @@ export default function AutomationPage() {
           );
         })}
       </SideDrawer>
+      {caps.admin && jobs && <TriggersCard jobs={jobs} />}
     </>
   );
 }

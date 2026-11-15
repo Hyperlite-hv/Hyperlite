@@ -1,0 +1,1 @@
+- Autoscaling of VM groups: between a minimum and a maximum, VMs are added from the template when the group's average CPU stays high and removed gracefully when it stays low, with a cool-down; each decision is kept with its reason.

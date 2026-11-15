@@ -1,0 +1,1 @@
+- Patch plans: recurring windows for guest updates (every week or every month, at a time in a time zone) on chosen VMs, a pool or a tag; at each start the running VMs get an update run, with their author's rights.

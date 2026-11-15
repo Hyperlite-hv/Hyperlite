@@ -195,3 +195,19 @@ def log_action(
         threading.Thread(
             target=notification_feed.from_journal, args=(action, resource, result, error_message), daemon=True
         ).start()
+    # Triggers (app/core/triggers.py): a job that runs when one of these entries is journaled, off the request too.
+    from app.core.triggers import ACTIONS as TRIGGER_ACTIONS
+
+    if action in TRIGGER_ACTIONS:
+        from app.core import triggers
+
+        threading.Thread(
+            target=_fire_triggers, args=(triggers, action, resource, result, error_message), daemon=True
+        ).start()
+
+
+def _fire_triggers(triggers, action, resource, result, error_message):
+    try:
+        triggers.on_journal(action, resource, result, error_message)
+    except Exception:  # a trigger that fails is said in the service log; the entry itself is kept
+        logger.warning("Triggers not run for %s", action, exc_info=True)
