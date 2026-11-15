@@ -146,3 +146,40 @@ def test_the_assistant_reads_with_the_accounts_rights(client, auth_headers, monk
     assert seen["journal"][1] is True and "403" in seen["journal"][0]  # the journal is not eve's to read
     assert client.get("/assistant/settings", headers=viewer).status_code == 403
     assert client.get("/assistant/status", headers=viewer).json()["enabled"] is True
+
+
+def test_the_schema_update_waits_out_a_busy_database(database, monkeypatch):
+    import sqlite3
+
+    from app.core import database as db
+
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(db, "_init_db", flaky)
+    monkeypatch.setattr(db.time, "sleep", lambda s: None)
+    db.init_db()
+    assert len(calls) == 2
+
+
+def test_an_address_comes_from_the_lease_when_the_agent_cannot_answer(monkeypatch):
+    import libvirt
+
+    from app.core import guest_agent
+
+    class Dom:
+        def UUIDString(self):
+            return "u"
+
+        def name(self):
+            return "web"
+
+        def interfaceAddresses(self, source):
+            return {"vnet0": {"addrs": [{"type": libvirt.VIR_IP_ADDR_TYPE_IPV4, "addr": "192.168.122.9"}]}}
+
+    monkeypatch.setattr(guest_agent, "connected", lambda d: False)
+    assert guest_agent.address_now(Dom()) == "192.168.122.9"
