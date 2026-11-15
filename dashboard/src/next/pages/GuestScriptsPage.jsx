@@ -39,8 +39,8 @@ export default function GuestScriptsPage() {
       <PageHeader title={t("tab.scripts")} desc={t("gs.desc")} actions={caps.admin && <button type="button" className="nx-btn nx-btn--primary" onClick={() => setEditing({ name: "", description: "", shell: "sh", body: "", params: [] })}><Plus size={14} aria-hidden="true" /> {t("gs.new")}</button>} />
       <div className="hc-gs">
         {scripts.map((s) => (
-          <article key={s.id} className="hc-tile">
-            <header className="hc-tile-h">
+          <article key={s.id} className="hc-dcard">
+            <header className="hc-dcard-h">
               <h3>{s.name}</h3>
               <Chip>{s.shell === "powershell" ? "Windows" : "Linux"}</Chip>
               {s.builtin ? <Chip tone="info">{t("gs.builtin")}</Chip> : <Chip>{t("gs.custom")}</Chip>}
