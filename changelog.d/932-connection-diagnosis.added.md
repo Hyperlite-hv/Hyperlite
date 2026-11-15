@@ -1,1 +1,0 @@
-- Connection diagnosis: can a VM reach another VM or an address on a port? Hyperlite's firewalls on the path, where both machines are, a real try from inside the VM and whether the target listens, with a verdict saying what stops it.
