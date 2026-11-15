@@ -1,11 +1,15 @@
 import contextlib
+import logging
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
 from app.core import paths
 from app.repositories.cfs import ids as _ids
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = Path(os.environ.get("HYPERLITE_DB_PATH") or paths.DB)
 
@@ -147,7 +151,18 @@ def init_db():
         fcntl.flock(fd, fcntl.LOCK_EX)
         _init_main_file()
         _init_access_file()
-        _init_db()
+        # The schema lock keeps the services apart, not the running ones' own writes (the API's journal, the metrics):
+        # replacing a trigger needs the database alone, and SQLite refuses at once instead of waiting when a read
+        # transaction would have to become a write. Every step here can run again, so it does, a moment later.
+        for attempt in range(6):
+            try:
+                _init_db()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e) or attempt == 5:
+                    raise
+                logger.warning("Database busy while bringing the schema up to date: trying again (%s)", e)
+                time.sleep(1 + attempt)
     finally:
         os.close(fd)
 

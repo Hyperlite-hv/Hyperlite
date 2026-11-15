@@ -241,3 +241,16 @@ def test_custom_scripts_through_the_api(client, auth_headers):
     viewer = auth_headers("eve", role="viewer")
     r = client.post("/guest-scripts/runs", json={"script_id": "builtin:free_disk", "vms": ["web"]}, headers=viewer)
     assert r.status_code == 403
+
+
+def test_a_plan_made_by_root_of_the_node_runs(database, monkeypatch):
+    from app.core import guest_updates, security, self_node
+
+    root = security.local_root_name(self_node.name())
+    monkeypatch.setattr(patch_plans, "_now", lambda: NOW - timedelta(hours=1))
+    patch_plans.save(_plan(), root)
+    monkeypatch.setattr(patch_plans, "_local_running", lambda: {"web"})
+    runs = []
+    monkeypatch.setattr(guest_updates, "schedule", lambda vms, *a: runs.append(vms) or {"id": "r"})
+    patch_plans.tick(NOW + timedelta(minutes=1))
+    assert runs == [["web"]]

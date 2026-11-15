@@ -164,7 +164,7 @@ def diagnose(user, from_vm, to, port, protocol="tcp", from_node=None, to_node=No
         except libvirt.libvirtError:
             raise DiagnoseError(404, f"VM '{from_vm}' not found") from None
         a_running = bool(dom_a.isActive())
-        a_ip = guest_agent.ipv4(dom_a) if a_running else None
+        a_ip = guest_agent.address_now(dom_a) if a_running else None
         a_ifaces = _interfaces(dom_a)
         fw_a = _vm_firewall(conn_a, from_vm)
     finally:
@@ -187,7 +187,7 @@ def diagnose(user, from_vm, to, port, protocol="tcp", from_node=None, to_node=No
                 raise DiagnoseError(404, f"VM '{to}' not found") from None
             b_vm = to
             b_running = bool(dom_b.isActive())
-            b_ip = guest_agent.ipv4(dom_b) if b_running else None
+            b_ip = guest_agent.address_now(dom_b) if b_running else None
             b_ifaces = _interfaces(dom_b)
             fw_b = _vm_firewall(conn_b, to)
         finally:
