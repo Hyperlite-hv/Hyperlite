@@ -1,1 +1,0 @@
-- Connection diagnosis: a connection rejected with "no route to host" (an ICMP rejection from a firewall, often the target's own) is said so, instead of an undecided verdict.
