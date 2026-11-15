@@ -183,3 +183,24 @@ def test_an_address_comes_from_the_lease_when_the_agent_cannot_answer(monkeypatc
 
     monkeypatch.setattr(guest_agent, "connected", lambda d: False)
     assert guest_agent.address_now(Dom()) == "192.168.122.9"
+
+
+def test_a_connection_waits_out_a_schema_change_of_another_service(database, monkeypatch):
+    import sqlite3
+
+    from app.core import database as db
+
+    real = db._attach_access
+    calls = []
+
+    def flaky(conn):
+        calls.append(1)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError("database schema has changed")
+        return real(conn)
+
+    monkeypatch.setattr(db, "_attach_access", flaky)
+    monkeypatch.setattr(db.time, "sleep", lambda s: None)
+    with db.get_conn() as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+    assert len(calls) == 2
