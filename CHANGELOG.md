@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-11-15
+
+### Added
+
+- Autoscaling of VM groups: between a minimum and a maximum, VMs are added from the template when the group's average CPU stays high and removed gracefully when it stays low, with a cool-down; each decision is kept with its reason.
+- Patch plans: recurring windows for guest updates (every week or every month, at a time in a time zone) on chosen VMs, a pool or a tag; at each start the running VMs get an update run, with their author's rights.
+- Script library: ready-made scripts (Docker, Prometheus node exporter, SSH hardening, automatic security updates, time zone, free disk space, Windows remote desktop and OpenSSH Server) and your own, run inside guests in the background and followed until each ends.
+- Triggers: an automation job runs by itself when an alert fires, a VM crashes, a backup or a guest update fails, or a node stops answering, on the VM concerned, with a filter and a cool-down.
+
 ## [1.25.0] - 2026-11-15
 
 ### Added

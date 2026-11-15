@@ -1,1 +1,0 @@
-- Triggers: an automation job runs by itself when an alert fires, a VM crashes, a backup or a guest update fails, or a node stops answering, on the VM concerned, with a filter and a cool-down.
