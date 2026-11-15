@@ -1,36 +1,28 @@
-import { useShallow } from "zustand/react/shallow";
-import { ArrowDown, ArrowUp, ChartLine, X } from "lucide-react";
+import { useEffect } from "react";
+import { LayoutDashboard } from "lucide-react";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useT } from "../i18n";
+import { moveOldPins, useDashboards } from "../lib/dashboards";
 import { useExplorerStore } from "../lib/useExplorer";
-import ExplorerChart from "./ExplorerChart";
+import { DashboardGrid } from "../pages/DashboardsPage";
 
-// Home ▸ Dashboard: the charts pinned from the metrics explorer, in the order chosen; one opens back in the explorer.
+// Home ▸ Dashboard: the dashboard chosen to show on Home ("Show on Home" on the Dashboards page). The charts pinned
+// here before dashboards existed move once to a first private dashboard.
 export default function HomePins() {
   const t = useT();
   const navigateTo = useInfraStore((s) => s.navigateTo);
-  const { pins, unpin, move, setChart } = useExplorerStore(useShallow((s) => ({ pins: s.pins, unpin: s.unpin, move: s.move, setChart: s.setChart })));
-  if (!pins.length) return null;
-  const open = (p) => { setChart({ series: p.series, range: p.range }); navigateTo("datacenter", null, "explorer"); };
+  const { list, load, home } = useDashboards();
+  const pins = useExplorerStore((s) => s.pins);
+  useEffect(() => { load().then(() => moveOldPins(pins, t("dsh.mine")).catch(() => {})); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dash = (list || []).find((d) => d.id === home);
+  if (!dash) return null;
   return (
     <section>
-      <h2>{t("home.dashboard")}</h2>
-      <div className="hc-pins">
-        {pins.map((p, i) => (
-          <article key={p.id} className="hc-pin" aria-labelledby={`pin-${p.id}`}>
-            <div className="hc-pin-h">
-              <div className="hc-pin-t"><h3 id={`pin-${p.id}`}>{p.title}</h3><small>{t(`mxp.r.${p.range}`)}</small></div>
-              <button type="button" className="hc-ibtn" aria-label={t("mxp.openIn", { name: p.title })} title={t("mxp.openShort")} onClick={() => open(p)}><ChartLine size={15} aria-hidden="true" /></button>
-              {pins.length > 1 && <>
-                <button type="button" className="hc-ibtn" aria-label={t("mxp.moveUp", { name: p.title })} title={t("mxp.moveUpShort")} disabled={i === 0} onClick={() => move(p.id, -1)}><ArrowUp size={15} aria-hidden="true" /></button>
-                <button type="button" className="hc-ibtn" aria-label={t("mxp.moveDown", { name: p.title })} title={t("mxp.moveDownShort")} disabled={i === pins.length - 1} onClick={() => move(p.id, 1)}><ArrowDown size={15} aria-hidden="true" /></button>
-              </>}
-              <button type="button" className="hc-ibtn" aria-label={t("mxp.unpin", { name: p.title })} title={t("mxp.unpinShort")} onClick={() => unpin(p.id)}><X size={15} aria-hidden="true" /></button>
-            </div>
-            <ExplorerChart chart={p} height={170} label={p.title} />
-          </article>
-        ))}
+      <div className="hc-home-dash-h">
+        <h2>{dash.name}</h2>
+        <button type="button" className="nx-lnk" onClick={() => navigateTo("datacenter", null, "dashboards")}><LayoutDashboard size={14} aria-hidden="true" /> {t("dsh.openAll")}</button>
       </div>
+      <DashboardGrid dash={dash} editing={false} onChange={() => {}} />
     </section>
   );
 }
