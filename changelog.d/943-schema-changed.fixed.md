@@ -1,0 +1,1 @@
+- hyperlite-scheduler no longer stops at its start after an update: when another service brings the schema up to date at that moment, its connection waits and opens again instead of failing with "database schema has changed".
