@@ -877,3 +877,11 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-sq { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); font-size: var(--fs-13); }
 .hc-sq-item { display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border-default); border-radius: 999px; padding: 0 0.25rem 0 0.6rem; }
 .hc-sq-item[data-on] { border-color: var(--color-accent); }
+
+/* ---------- Script library (pages/GuestScriptsPage.jsx) ---------- */
+.hc-gs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: 1.0667rem; margin-bottom: var(--space-4); }
+.hc-gs .hc-tile-h { align-items: center; flex-wrap: wrap; }
+.hc-gs .hc-def { max-height: 20rem; overflow: auto; margin-top: var(--space-2); }
+.hc-gs-res summary { cursor: pointer; padding: 0.15rem 0; }
+.hc-gs-res pre { max-height: 14rem; overflow: auto; }
+.hc-days { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }

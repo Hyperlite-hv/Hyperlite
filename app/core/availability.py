@@ -65,6 +65,7 @@ def observe_round(observations, now=None):
             for r in db.execute("SELECT target, state, reason, since, last_seen FROM availability_state")
         }
         seen = []
+        newly_unreachable = []
         for target, state, reason in observations:
             reason = reason or ""
             cur = current.get(target)
@@ -83,6 +84,8 @@ def observe_round(observations, now=None):
                     "VALUES (?, 'unknown', 'not watched', ?, ?)",
                     (target, cur["last_seen"], stamp),
                 )
+            if target.startswith("node:") and state == "unreachable" and cur["state"] != "unreachable":
+                newly_unreachable.append(target[5:])
             if gap or state != cur["state"] or (state != UP and reason != (cur["reason"] or "")):
                 if not gap:
                     _close(db, target, stamp)
@@ -96,6 +99,11 @@ def observe_round(observations, now=None):
         if seen:
             db.executemany("UPDATE availability_state SET last_seen = ? WHERE target = ?", [(stamp, t) for t in seen])
         db.commit()
+    if newly_unreachable:
+        from app.core.audit import log_action
+
+        for name in newly_unreachable:
+            log_action("system", "node_unreachable", name, "failed", "the node stopped answering")
 
 
 def _open(db, target, state, reason, at):

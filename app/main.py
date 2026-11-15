@@ -98,6 +98,7 @@ from app.routers.sso import router as sso_router
 from app.routers.storage import router as storage_router
 from app.routers.tasks import router as tasks_router
 from app.routers.templates import router as templates_router
+from app.routers.triggers import router as triggers_router
 from app.routers.update import router as update_router
 from app.routers.vault import router as vault_router
 from app.routers.vm_disks import router as vm_disks_router
@@ -287,6 +288,7 @@ _API_ROUTERS = (
     availability_router,
     dashboards_router,
     saved_queries_router,
+    triggers_router,
     access_router,
     protections_router,
     compliance_router,

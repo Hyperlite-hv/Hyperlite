@@ -7,6 +7,7 @@ import { errorMessage } from "../lib/errors";
 import { formatDateTime } from "../lib/format";
 import { ErrorState } from "../components/States";
 import { Card, Chip, Field, Loading, PageHeader, SideDrawer, TableWrap } from "../components/ui";
+import PatchPlansCard from "../components/PatchPlansCard";
 
 const local = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
@@ -79,6 +80,7 @@ export default function GuestUpdatesPage() {
           </TableWrap>
         )}
       </Card>
+      <PatchPlansCard vmNames={names} />
       {planning && (
         <SideDrawer open title={t("gu.plan")} onClose={() => setPlanning(null)} footer={<>
           <button type="button" className="nx-btn nx-btn--ghost" onClick={() => setPlanning(null)}>{t("action.cancel")}</button>
