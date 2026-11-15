@@ -23,13 +23,13 @@ export function DashboardGrid({ dash, editing, onChange }) {
   return (
     <div className="hc-dash">
       {tiles.map((tile, i) => (
-        <article key={tile.id} className="hc-tile" data-size={tile.size} aria-labelledby={`tile-${tile.id}`}>
-          <header className="hc-tile-h">
+        <article key={tile.id} className="hc-dcard" data-size={tile.size} aria-labelledby={`tile-${tile.id}`}>
+          <header className="hc-dcard-h">
             <h3 id={`tile-${tile.id}`}>{tile.title || t(`dsh.type.${tile.type}`)}</h3>
-            {editing && <div className="hc-tile-tools">
+            {editing && <div className="hc-dcard-tools">
               <button type="button" className="hc-ibtn" aria-label={t("dsh.moveBack", { name: tile.title })} disabled={i === 0} onClick={() => move(i, -1)}><ArrowLeft size={14} aria-hidden="true" /></button>
               <button type="button" className="hc-ibtn" aria-label={t("dsh.moveOn", { name: tile.title })} disabled={i === tiles.length - 1} onClick={() => move(i, 1)}><ArrowRight size={14} aria-hidden="true" /></button>
-              <button type="button" className="hc-ibtn hc-tile-size" aria-label={t("dsh.resize", { name: tile.title, n: tile.size })} onClick={() => resize(i)}>{tile.size}×</button>
+              <button type="button" className="hc-ibtn hc-dcard-size" aria-label={t("dsh.resize", { name: tile.title, n: tile.size })} onClick={() => resize(i)}>{tile.size}×</button>
               <button type="button" className="hc-ibtn" aria-label={t("dsh.retitle", { name: tile.title })} onClick={() => retitle(i)}><PencilLine size={14} aria-hidden="true" /></button>
               <button type="button" className="hc-ibtn" aria-label={t("dsh.removeTile", { name: tile.title })} onClick={() => remove(i)}><X size={14} aria-hidden="true" /></button>
             </div>}
