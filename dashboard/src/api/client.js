@@ -1680,6 +1680,13 @@ export async function fetchAvailability(kind, name, node, days = 7) {
   if (node && node !== "local") q.set("node", node);
   return realFetch(`/availability/${kind}/${encodeURIComponent(name)}?${q}`);
 }
+export async function fetchRdpAvailable(name, node) { return realFetch(`/vms/${encodeURIComponent(name)}/rdp${node && node !== "local" ? `?node=${encodeURIComponent(node)}` : ""}`); }
+export async function createRdpTicket(name, node, body) { return realFetch(`/vms/${encodeURIComponent(name)}/rdp-ticket${node && node !== "local" ? `?node=${encodeURIComponent(node)}` : ""}`, { method: "POST", ...jsonBody(body) }); }
+export async function diagnoseConnection(body) { return realFetch("/network/diagnose", { method: "POST", ...jsonBody(body) }); }
+export async function fetchAssistantStatus() { return realFetch("/assistant/status"); }
+export async function fetchAssistantSettings() { return realFetch("/assistant/settings"); }
+export async function saveAssistantSettings(body) { return realFetch("/assistant/settings", { method: "PUT", ...jsonBody(body) }); }
+export async function askAssistant(question, history) { return realFetch("/assistant/ask", { method: "POST", ...jsonBody({ question, history }) }); }
 export async function fetchAvailabilitySummary(days = 7) { return realList(`/availability/summary?days=${days}`); }
 export async function fetchDashboards() { return realList("/dashboards"); }
 export async function createDashboard(body) { return realFetch("/dashboards", { method: "POST", ...jsonBody(body) }); }

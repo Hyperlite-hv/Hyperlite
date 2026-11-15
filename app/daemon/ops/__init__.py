@@ -13,6 +13,7 @@ from app.daemon.ops import (  # noqa: F401
     hyperlite,
     job,
     network,
+    rdp,
     storage,
     system,
     tls,

@@ -8,6 +8,7 @@ const NextLogin = lazyRetry(() => import("./next/NextLogin"));
 const NextPasswordRequired = lazyRetry(() => import("./next/NextPasswordRequired"));
 const NextCliLogin = lazyRetry(() => import("./next/NextCliLogin"));
 const ConsoleWindow = lazyRetry(() => import("./next/windows/ConsoleWindow"));
+const RdpWindow = lazyRetry(() => import("./next/windows/RdpWindow"));
 const HostShellWindow = lazyRetry(() => import("./next/windows/HostShellWindow"));
 const ContainerTerminalWindow = lazyRetry(() => import("./next/windows/ContainerTerminalWindow"));
 
@@ -19,6 +20,7 @@ export default function App() {
       <Suspense fallback={null}>
         <Routes>
           <Route path="/console/:name" element={<ConsoleWindow />} />
+          <Route path="/rdp/:name" element={<RdpWindow />} />
           <Route path="/host-shell" element={<HostShellWindow />} />
           <Route path="/container-terminal/:name" element={<ContainerTerminalWindow />} />
           <Route path="/cli-login" element={<NextCliLogin />} />
