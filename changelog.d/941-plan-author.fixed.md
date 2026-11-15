@@ -1,1 +1,0 @@
-- A patch plan made by root of the node (hyperlite-admin) runs: it was skipped at each start as if its author had been deleted.
