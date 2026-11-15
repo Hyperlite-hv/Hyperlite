@@ -1,0 +1,1 @@
+- Connection diagnosis and remote desktop find a VM's address even when its guest agent cannot be asked from the API: the DHCP lease is used, and the remote desktop waits for the agent's answer.

@@ -40,7 +40,7 @@ def _guest_address(vm, node):
             raise DaemonError("not_found", f"VM '{vm}' not found") from None
         if not domain.isActive():
             raise DaemonError("in_use", f"VM '{vm}' is stopped")
-        ip = guest_agent.ipv4(domain)
+        ip = guest_agent.address_now(domain)
     if not ip:
         raise DaemonError("refused", f"VM '{vm}' reports no address: its guest agent must be running")
     return ip

@@ -133,6 +133,26 @@ def ipv4_many(domains, wait=LIST_WAIT_S):
         return {uuid: _known.get(uuid) for uuid in uuids}
 
 
+def address_now(domain):
+    """A running VM's IPv4 address for a connection about to be made (remote desktop, a connection diagnosis): its
+    agent's answer, waited for (a list may return before it), else the DHCP lease libvirt holds. None when neither
+    knows one."""
+    import libvirt
+
+    if connected(domain):
+        ip = ipv4_many([domain], wait=AGENT_TIMEOUT_S + 1).get(domain.UUIDString())
+        if ip:
+            return ip
+    try:
+        for iface in (domain.interfaceAddresses(libvirt.VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE) or {}).values():
+            for addr in iface.get("addrs") or []:
+                if addr.get("type") == libvirt.VIR_IP_ADDR_TYPE_IPV4 and addr.get("addr"):
+                    return addr["addr"]
+    except libvirt.libvirtError:
+        logger.debug("No DHCP lease read for %s", domain.name(), exc_info=True)
+    return None
+
+
 def forget():
     """Drop the addresses known so far (tests)."""
     with _lock:
