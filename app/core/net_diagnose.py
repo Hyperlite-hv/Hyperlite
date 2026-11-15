@@ -298,10 +298,10 @@ def verdict(checks, live, listening):
         return "blocked_by_rule"
     if live == "OPEN":
         return "reachable"
+    if live == "FILTERED":  # an ICMP "host prohibited" answer: a firewall rejected it first, usually the target's own
+        return "guest_firewall"
     if live == "REFUSED" or listening == "NO":
         return "nothing_listening"
-    if live == "FILTERED":  # an ICMP "host prohibited" answer: a firewall rejected it, usually the target's own
-        return "guest_firewall"
     if live == "TIMEOUT":
         return "guest_firewall" if listening == "YES" else "no_answer"
     return "unknown"
