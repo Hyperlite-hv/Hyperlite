@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import "../next.css";
 import "../refonte.css";
+import "../console.css";
 import { useAuthStore } from "../../store/useAuthStore";
 import { useLangStore } from "../i18n";
 import { useThemeStore } from "../tokens/theme";
