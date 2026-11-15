@@ -230,11 +230,22 @@ def resolve(plan, running=None):
     return sorted(wanted & running)
 
 
+def _author(name):
+    """The plan's author as an account: a users row, or root of this node (hyperlite-admin), which has none."""
+    from app.core import security, self_node
+    from app.services import account_service
+
+    if not name:
+        return None
+    if name == security.local_root_name(self_node.name()):
+        return {"username": name, "role": "admin"}
+    return account_service.get(name)
+
+
 def tick(now=None):
     """Schedule the runs of the plans whose occurrence came (every minute)."""
     from app.core import guest_updates, permissions
     from app.core.audit import log_action
-    from app.services import account_service
 
     now = now or _now()
     for plan in plans():
@@ -250,7 +261,7 @@ def tick(now=None):
         if now >= end:
             log_action("system", "patch_plan", plan["name"], "failed", f"window of {occ.isoformat()} missed")
             continue
-        author = account_service.get(plan["created_by"]) if plan["created_by"] else None
+        author = _author(plan["created_by"])
         if author is None:
             log_action("system", "patch_plan", plan["name"], "failed", "its author no longer exists: plan skipped")
             continue
