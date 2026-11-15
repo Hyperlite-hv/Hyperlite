@@ -1,1 +1,0 @@
-- Remote desktop in the browser: a Windows VM's desktop (or any guest with an RDP server) in a browser window, the node speaking RDP to the guest in an isolated session; the password is used once and never kept. The package now recommends tigervnc-standalone-server and freerdp3-x11.
