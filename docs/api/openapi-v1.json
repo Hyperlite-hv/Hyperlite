@@ -3648,6 +3648,87 @@
     "title": "PasswordConfirm",
     "type": "object"
    },
+   "PlanIn": {
+    "properties": {
+     "at_time": {
+      "title": "At Time",
+      "type": "string"
+     },
+     "days": {
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 7,
+      "title": "Days",
+      "type": "array"
+     },
+     "duration_min": {
+      "default": 120,
+      "maximum": 1440.0,
+      "minimum": 30.0,
+      "title": "Duration Min",
+      "type": "integer"
+     },
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "monthday": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthday"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "reboot": {
+      "default": false,
+      "title": "Reboot",
+      "type": "boolean"
+     },
+     "target": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       }
+      ],
+      "title": "Target"
+     },
+     "target_kind": {
+      "title": "Target Kind",
+      "type": "string"
+     },
+     "tz": {
+      "default": "UTC",
+      "title": "Tz",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "target_kind",
+     "target",
+     "at_time"
+    ],
+    "title": "PlanIn",
+    "type": "object"
+   },
    "PolicyRequest": {
     "properties": {
      "preferred_nodes": {
@@ -4460,6 +4541,66 @@
     "title": "SSOConfigIn",
     "type": "object"
    },
+   "ScalingIn": {
+    "properties": {
+     "cooldown_min": {
+      "default": 15,
+      "maximum": 1440.0,
+      "minimum": 5.0,
+      "title": "Cooldown Min",
+      "type": "integer"
+     },
+     "down_pct": {
+      "default": 25,
+      "exclusiveMinimum": 0.0,
+      "maximum": 100.0,
+      "title": "Down Pct",
+      "type": "number"
+     },
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "max_count": {
+      "default": 3,
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Max Count",
+      "type": "integer"
+     },
+     "min_count": {
+      "default": 1,
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Min Count",
+      "type": "integer"
+     },
+     "step": {
+      "default": 1,
+      "maximum": 10.0,
+      "minimum": 1.0,
+      "title": "Step",
+      "type": "integer"
+     },
+     "up_pct": {
+      "default": 75,
+      "exclusiveMinimum": 0.0,
+      "maximum": 100.0,
+      "title": "Up Pct",
+      "type": "number"
+     },
+     "window_min": {
+      "default": 10,
+      "maximum": 120.0,
+      "minimum": 5.0,
+      "title": "Window Min",
+      "type": "integer"
+     }
+    },
+    "title": "ScalingIn",
+    "type": "object"
+   },
    "ScanIn": {
     "properties": {
      "vms": {
@@ -4564,6 +4705,80 @@
      "time"
     ],
     "title": "ScheduleRequest",
+    "type": "object"
+   },
+   "ScriptIn": {
+    "properties": {
+     "body": {
+      "maxLength": 32000,
+      "minLength": 1,
+      "title": "Body",
+      "type": "string"
+     },
+     "description": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Description",
+      "type": "string"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "params": {
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "maxItems": 20,
+      "title": "Params",
+      "type": "array"
+     },
+     "shell": {
+      "title": "Shell",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "shell",
+     "body"
+    ],
+    "title": "ScriptIn",
+    "type": "object"
+   },
+   "ScriptRunIn": {
+    "properties": {
+     "params": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Params",
+      "type": "object"
+     },
+     "script_id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Script Id",
+      "type": "string"
+     },
+     "vms": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Vms",
+      "type": "array"
+     }
+    },
+    "required": [
+     "script_id",
+     "vms"
+    ],
+    "title": "ScriptRunIn",
     "type": "object"
    },
    "SecretIn": {
@@ -5489,6 +5704,60 @@
      "resource_type"
     ],
     "title": "TokenScopeIn",
+    "type": "object"
+   },
+   "TriggerIn": {
+    "properties": {
+     "cooldown_min": {
+      "default": 30,
+      "maximum": 10080.0,
+      "minimum": 1.0,
+      "title": "Cooldown Min",
+      "type": "integer"
+     },
+     "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "event": {
+      "title": "Event",
+      "type": "string"
+     },
+     "filter": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Filter"
+     },
+     "job_id": {
+      "title": "Job Id",
+      "type": "integer"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "pass_target": {
+      "default": true,
+      "title": "Pass Target",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "name",
+     "event",
+     "job_id"
+    ],
+    "title": "TriggerIn",
     "type": "object"
    },
    "TwoFAConfirm": {
@@ -15621,6 +15890,238 @@
     ]
    }
   },
+  "/api/v1/guest-scripts": {
+   "get": {
+    "description": "The built-in scripts and the administrators' own.",
+    "operationId": "list_scripts_api_v1_guest_scripts_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Scripts",
+    "tags": [
+     "fleet"
+    ]
+   },
+   "post": {
+    "operationId": "create_script_api_v1_guest_scripts_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScriptIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Script",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-scripts/runs": {
+   "get": {
+    "operationId": "list_script_runs_api_v1_guest_scripts_runs_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Script Runs",
+    "tags": [
+     "fleet"
+    ]
+   },
+   "post": {
+    "description": "Run a script in each VM now (vm.exec on each: it runs as root in the guest), followed every minute.",
+    "operationId": "run_script_api_v1_guest_scripts_runs_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScriptRunIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Run Script",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-scripts/{script_id}": {
+   "delete": {
+    "operationId": "delete_script_api_v1_guest_scripts__script_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "script_id",
+      "required": true,
+      "schema": {
+       "title": "Script Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Script",
+    "tags": [
+     "fleet"
+    ]
+   },
+   "put": {
+    "operationId": "update_script_api_v1_guest_scripts__script_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "script_id",
+      "required": true,
+      "schema": {
+       "title": "Script Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScriptIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Script",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
   "/api/v1/guest-updates": {
    "get": {
     "operationId": "list_guest_updates_api_v1_guest_updates_get",
@@ -15640,6 +16141,172 @@
      }
     ],
     "summary": "List Guest Updates",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/plans": {
+   "get": {
+    "description": "Every patch plan of this node, with its next three starts.",
+    "operationId": "list_plans_api_v1_guest_updates_plans_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Plans",
+    "tags": [
+     "fleet"
+    ]
+   },
+   "post": {
+    "description": "A recurring window. It acts with its author's rights: at each start, only the VMs the author may run commands\nin (vm.exec) are updated.",
+    "operationId": "create_plan_api_v1_guest_updates_plans_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PlanIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Plan",
+    "tags": [
+     "fleet"
+    ]
+   }
+  },
+  "/api/v1/guest-updates/plans/{plan_id}": {
+   "delete": {
+    "operationId": "delete_plan_api_v1_guest_updates_plans__plan_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "plan_id",
+      "required": true,
+      "schema": {
+       "title": "Plan Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Plan",
+    "tags": [
+     "fleet"
+    ]
+   },
+   "put": {
+    "operationId": "update_plan_api_v1_guest_updates_plans__plan_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "plan_id",
+      "required": true,
+      "schema": {
+       "title": "Plan Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PlanIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Plan",
     "tags": [
      "fleet"
     ]
@@ -18037,6 +18704,223 @@
     "summary": "Rename Iso",
     "tags": [
      "isos"
+    ]
+   }
+  },
+  "/api/v1/job-triggers": {
+   "get": {
+    "description": "Every trigger with its last firing, and the events a trigger may follow.",
+    "operationId": "list_triggers_api_v1_job_triggers_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Triggers",
+    "tags": [
+     "jobs"
+    ]
+   },
+   "post": {
+    "operationId": "create_trigger_api_v1_job_triggers_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TriggerIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Trigger",
+    "tags": [
+     "jobs"
+    ]
+   }
+  },
+  "/api/v1/job-triggers/firings": {
+   "get": {
+    "operationId": "list_firings_api_v1_job_triggers_firings_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "trigger_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Trigger Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "List Firings",
+    "tags": [
+     "jobs"
+    ]
+   }
+  },
+  "/api/v1/job-triggers/{trigger_id}": {
+   "delete": {
+    "operationId": "delete_trigger_api_v1_job_triggers__trigger_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "trigger_id",
+      "required": true,
+      "schema": {
+       "title": "Trigger Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Delete Trigger",
+    "tags": [
+     "jobs"
+    ]
+   },
+   "put": {
+    "operationId": "update_trigger_api_v1_job_triggers__trigger_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "trigger_id",
+      "required": true,
+      "schema": {
+       "title": "Trigger Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TriggerIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Update Trigger",
+    "tags": [
+     "jobs"
     ]
    }
   },
@@ -27328,6 +28212,105 @@
      }
     ],
     "summary": "Set Count",
+    "tags": [
+     "vm-groups"
+    ]
+   }
+  },
+  "/api/v1/vm-groups/{group_id}/scaling": {
+   "delete": {
+    "operationId": "stop_scaling_api_v1_vm_groups__group_id__scaling_delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "group_id",
+      "required": true,
+      "schema": {
+       "title": "Group Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Stop Scaling",
+    "tags": [
+     "vm-groups"
+    ]
+   },
+   "put": {
+    "description": "The group follows its load between min_count and max_count (docs/design/console-2.md, section 5).",
+    "operationId": "set_scaling_api_v1_vm_groups__group_id__scaling_put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "group_id",
+      "required": true,
+      "schema": {
+       "title": "Group Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ScalingIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Set Scaling",
     "tags": [
      "vm-groups"
     ]
