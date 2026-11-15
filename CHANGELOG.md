@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-11-15
+
+### Changed
+
+- The VM console is rebuilt: one toolbar on one row (how to connect, the connection's state with the guest's resolution, then send keys, clipboard, display, screenshot, full screen, window, more), the screen in all the room left and scaled to fit, states drawn on the screen (stopped VM with Start, connecting, connection lost with its reason and Reconnect), the keyboard visibly captured, and the remote desktop inside the console instead of a window of its own.
+
 ## [1.27.3] - 2026-11-15
 
 ### Fixed
