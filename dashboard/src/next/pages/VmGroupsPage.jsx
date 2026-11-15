@@ -125,7 +125,7 @@ function ScalingDrawer({ t, group, onClose, onDone }) {
       {s0?.history?.length > 0 && (
         <fieldset className="nx-fs">
           <legend>{t("as.history")}</legend>
-          <ul className="hc-tile-list">{s0.history.map((h) => <li key={h.at}><span className="nx-mono">{h.action}</span><small>{new Date(h.at).toLocaleString()} · {h.reason}</small></li>)}</ul>
+          <ul className="hc-dcard-list">{s0.history.map((h) => <li key={h.at}><span className="nx-mono">{h.action}</span><small>{new Date(h.at).toLocaleString()} · {h.reason}</small></li>)}</ul>
         </fieldset>
       )}
     </SideDrawer>
