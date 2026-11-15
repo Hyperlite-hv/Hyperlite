@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.28.1] - 2026-11-15
+
+### Fixed
+
+- The icons of the left menu and of Home's cards sit in their box again: the dashboards' tiles (1.25) had reused the class name of the icon boxes, which pushed every icon to the bottom right of an empty frame.
+
 ## [1.28.0] - 2026-11-15
 
 ### Changed
