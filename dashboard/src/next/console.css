@@ -885,3 +885,31 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-gs-res summary { cursor: pointer; padding: 0.15rem 0; }
 .hc-gs-res pre { max-height: 14rem; overflow: auto; }
 .hc-days { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
+
+/* ---------- Remote desktop window (windows/RdpWindow.jsx) ---------- */
+.hc-rdp { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--color-bg-app); }
+.hc-rdp-form { width: min(26rem, calc(100% - 2rem)); margin: 3rem auto; display: grid; gap: var(--space-3); }
+.hc-rdp-form h2 { margin: 0; font-size: var(--fs-17); }
+.hc-rdp-screen { flex: 1; min-height: 0; background: #000; }
+.hc-rdp-screen[hidden] { display: none; }
+.hc-rdp-wait { position: absolute; inset: auto 0 50% 0; text-align: center; color: var(--color-text-secondary); }
+
+/* ---------- Connection diagnosis (pages/DiagnosePage.jsx) ---------- */
+.hc-dg-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--space-3); align-items: end; }
+.hc-dg-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.hc-dg-checks li { display: flex; gap: var(--space-2); align-items: flex-start; }
+.hc-dg-checks li > svg { flex: none; margin-top: 0.15rem; color: var(--color-text-muted); }
+.hc-dg-checks li[data-tone="success"] > svg { color: var(--color-success); }
+.hc-dg-checks li[data-tone="danger"] > svg { color: var(--color-danger); }
+.hc-dg-checks li[data-tone="warning"] > svg { color: var(--color-warning); }
+
+/* ---------- Assistant (components/AssistantPanel.jsx) ---------- */
+.hc-as-log { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-3); }
+.hc-as-msg { border-radius: var(--radius-md); padding: 0.6rem 0.8rem; background: var(--color-bg-surface-raised); overflow-wrap: anywhere; }
+.hc-as-msg[data-role="user"] { background: var(--color-accent-subtle); margin-left: 2rem; }
+.hc-as-msg[data-error] { background: var(--color-danger-subtle); }
+.hc-as-msg p { margin: 0 0 0.4rem; }
+.hc-as-msg p:last-child { margin-bottom: 0; }
+.hc-as-answer ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; }
+.hc-as-ask { display: flex; gap: var(--space-2); align-items: flex-end; width: 100%; }
+.hc-as-ask textarea { flex: 1; resize: vertical; }

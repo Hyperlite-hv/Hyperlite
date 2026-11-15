@@ -307,6 +307,29 @@
     "title": "AsScope",
     "type": "object"
    },
+   "AskIn": {
+    "properties": {
+     "history": {
+      "items": {
+       "$ref": "#/components/schemas/Turn"
+      },
+      "maxItems": 40,
+      "title": "History",
+      "type": "array"
+     },
+     "question": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+     }
+    },
+    "required": [
+     "question"
+    ],
+    "title": "AskIn",
+    "type": "object"
+   },
    "AutoCleanupConfig": {
     "properties": {
      "inactive_days": {
@@ -1666,6 +1689,64 @@
      "end"
     ],
     "title": "DhcpRange",
+    "type": "object"
+   },
+   "DiagnoseIn": {
+    "properties": {
+     "from_node": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "From Node"
+     },
+     "from_vm": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "From Vm",
+      "type": "string"
+     },
+     "port": {
+      "maximum": 65535.0,
+      "minimum": 1.0,
+      "title": "Port",
+      "type": "integer"
+     },
+     "protocol": {
+      "default": "tcp",
+      "title": "Protocol",
+      "type": "string"
+     },
+     "to": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "To",
+      "type": "string"
+     },
+     "to_node": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "To Node"
+     }
+    },
+    "required": [
+     "from_vm",
+     "to",
+     "port"
+    ],
+    "title": "DiagnoseIn",
     "type": "object"
    },
    "DiskAttach": {
@@ -3993,6 +4074,54 @@
     "title": "QueryPatch",
     "type": "object"
    },
+   "RdpTicketIn": {
+    "properties": {
+     "domain": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Domain",
+      "type": "string"
+     },
+     "height": {
+      "default": 800,
+      "maximum": 4320.0,
+      "minimum": 200.0,
+      "title": "Height",
+      "type": "integer"
+     },
+     "password": {
+      "maxLength": 256,
+      "title": "Password",
+      "type": "string"
+     },
+     "port": {
+      "default": 3389,
+      "maximum": 65535.0,
+      "minimum": 1.0,
+      "title": "Port",
+      "type": "integer"
+     },
+     "username": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Username",
+      "type": "string"
+     },
+     "width": {
+      "default": 1280,
+      "maximum": 7680.0,
+      "minimum": 320.0,
+      "title": "Width",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "username",
+     "password"
+    ],
+    "title": "RdpTicketIn",
+    "type": "object"
+   },
    "RecoverRequest": {
     "properties": {
      "target_node": {
@@ -4842,122 +4971,6 @@
     "title": "Settings",
     "type": "object"
    },
-   "SettingsIn": {
-    "properties": {
-     "cpu_percent": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Cpu Percent"
-     },
-     "everyone": {
-      "anyOf": [
-       {
-        "type": "boolean"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Everyone"
-     },
-     "home_mb": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Home Mb"
-     },
-     "idle_min": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Idle Min"
-     },
-     "max_hours": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Max Hours"
-     },
-     "memory_mb": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Memory Mb"
-     },
-     "per_account": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Per Account"
-     },
-     "per_node": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Per Node"
-     },
-     "recording": {
-      "anyOf": [
-       {
-        "type": "boolean"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Recording"
-     },
-     "tasks": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Tasks"
-     }
-    },
-    "title": "SettingsIn",
-    "type": "object"
-   },
    "SigninRuleIn": {
     "properties": {
      "days": {
@@ -5760,6 +5773,25 @@
     "title": "TriggerIn",
     "type": "object"
    },
+   "Turn": {
+    "properties": {
+     "content": {
+      "maxLength": 16000,
+      "title": "Content",
+      "type": "string"
+     },
+     "role": {
+      "title": "Role",
+      "type": "string"
+     }
+    },
+    "required": [
+     "role",
+     "content"
+    ],
+    "title": "Turn",
+    "type": "object"
+   },
    "TwoFAConfirm": {
     "properties": {
      "code": {
@@ -6391,6 +6423,81 @@
     "title": "ZfsScrub",
     "type": "object"
    },
+   "app__routers__assistant__SettingsIn": {
+    "properties": {
+     "api_key": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Api Key"
+     },
+     "base_url": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Base Url"
+     },
+     "enabled": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Enabled"
+     },
+     "log_text": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Log Text"
+     },
+     "model": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provider"
+     }
+    },
+    "title": "SettingsIn",
+    "type": "object"
+   },
    "app__routers__drs__Rule": {
     "properties": {
      "enabled": {
@@ -6877,6 +6984,122 @@
      "new_name"
     ],
     "title": "PoolRename",
+    "type": "object"
+   },
+   "app__routers__workbench__SettingsIn": {
+    "properties": {
+     "cpu_percent": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cpu Percent"
+     },
+     "everyone": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Everyone"
+     },
+     "home_mb": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Home Mb"
+     },
+     "idle_min": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Idle Min"
+     },
+     "max_hours": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Hours"
+     },
+     "memory_mb": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Memory Mb"
+     },
+     "per_account": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Per Account"
+     },
+     "per_node": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Per Node"
+     },
+     "recording": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Recording"
+     },
+     "tasks": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tasks"
+     }
+    },
+    "title": "SettingsIn",
     "type": "object"
    }
   },
@@ -8763,6 +8986,142 @@
     "summary": "Create Ticket",
     "tags": [
      "api-docs"
+    ]
+   }
+  },
+  "/api/v1/assistant/ask": {
+   "post": {
+    "description": "An answer built from Hyperlite's data, read with this account's own rights (each tool is a GET on this API made\nwith the request's credentials).",
+    "operationId": "ask_api_v1_assistant_ask_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AskIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Ask",
+    "tags": [
+     "assistant"
+    ]
+   }
+  },
+  "/api/v1/assistant/settings": {
+   "get": {
+    "operationId": "get_settings_api_v1_assistant_settings_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Get Settings",
+    "tags": [
+     "assistant"
+    ]
+   },
+   "put": {
+    "operationId": "put_settings_api_v1_assistant_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/app__routers__assistant__SettingsIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Put Settings",
+    "tags": [
+     "assistant"
+    ]
+   }
+  },
+  "/api/v1/assistant/status": {
+   "get": {
+    "description": "Whether the assistant is on, for the console's button.",
+    "operationId": "assistant_status_api_v1_assistant_status_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Assistant Status",
+    "tags": [
+     "assistant"
     ]
    }
   },
@@ -20073,6 +20432,51 @@
     "summary": "Prometheus Metrics",
     "tags": [
      "metrics"
+    ]
+   }
+  },
+  "/api/v1/network/diagnose": {
+   "post": {
+    "description": "Can `from_vm` reach `to` (a VM or an IPv4 address) on `port`? Hyperlite's firewalls on the path, where both are,\na real try from inside the VM (vm.exec on it) and whether the target listens (vm.exec on it).",
+    "operationId": "diagnose_api_v1_network_diagnose_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DiagnoseIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Diagnose",
+    "tags": [
+     "network"
     ]
    }
   },
@@ -32513,6 +32917,143 @@
     ]
    }
   },
+  "/api/v1/vms/{name}/rdp": {
+   "get": {
+    "description": "Whether this node can open a remote desktop (its tools installed).",
+    "operationId": "rdp_available_api_v1_vms__name__rdp_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Rdp Available",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
+  "/api/v1/vms/{name}/rdp-ticket": {
+   "post": {
+    "operationId": "create_rdp_ticket_api_v1_vms__name__rdp_ticket_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "name",
+      "required": true,
+      "schema": {
+       "title": "Name",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RdpTicketIn"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "OAuth2PasswordBearer": []
+     }
+    ],
+    "summary": "Create Rdp Ticket",
+    "tags": [
+     "vms"
+    ]
+   }
+  },
   "/api/v1/vms/{name}/rename": {
    "post": {
     "operationId": "rename_vm_api_v1_vms__name__rename_post",
@@ -34147,7 +34688,7 @@
      "content": {
       "application/json": {
        "schema": {
-        "$ref": "#/components/schemas/SettingsIn"
+        "$ref": "#/components/schemas/app__routers__workbench__SettingsIn"
        }
       }
      },
