@@ -1,1 +1,0 @@
-- hyperlite-scheduler no longer fails at start after an update that adds replicated tables: when the database is busy (the API already writing), the schema update waits and tries again.
