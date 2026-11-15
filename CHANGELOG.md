@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.27.2] - 2026-11-15
+
+### Fixed
+
+- A patch plan made by root of the node (hyperlite-admin) runs: it was skipped at each start as if its author had been deleted.
+
+## [1.27.1] - 2026-11-15
+
+### Fixed
+
+- hyperlite-scheduler no longer fails at start after an update that adds replicated tables: when the database is busy (the API already writing), the schema update waits and tries again.
+- Connection diagnosis and remote desktop find a VM's address even when its guest agent cannot be asked from the API: the DHCP lease is used, and the remote desktop waits for the agent's answer.
+
 ## [1.27.0] - 2026-11-15
 
 ### Added
