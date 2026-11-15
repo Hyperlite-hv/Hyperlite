@@ -886,14 +886,6 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-gs-res pre { max-height: 14rem; overflow: auto; }
 .hc-days { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
 
-/* ---------- Remote desktop window (windows/RdpWindow.jsx) ---------- */
-.hc-rdp { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--color-bg-app); }
-.hc-rdp-form { width: min(26rem, calc(100% - 2rem)); margin: 3rem auto; display: grid; gap: var(--space-3); }
-.hc-rdp-form h2 { margin: 0; font-size: var(--fs-17); }
-.hc-rdp-screen { flex: 1; min-height: 0; background: #000; }
-.hc-rdp-screen[hidden] { display: none; }
-.hc-rdp-wait { position: absolute; inset: auto 0 50% 0; text-align: center; color: var(--color-text-secondary); }
-
 /* ---------- Connection diagnosis (pages/DiagnosePage.jsx) ---------- */
 .hc-dg-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: var(--space-3); align-items: end; }
 .hc-dg-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
@@ -913,3 +905,63 @@ th[aria-sort="ascending"] .hc-sort, th[aria-sort="descending"] .hc-sort, th:hove
 .hc-as-answer ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; }
 .hc-as-ask { display: flex; gap: var(--space-2); align-items: flex-end; width: 100%; }
 .hc-as-ask textarea { flex: 1; resize: vertical; }
+
+/* ---------- VM console (pages/VmConsole.jsx, docs/design/vm-console.md) ---------- */
+.hc-cs { display: flex; flex-direction: column; min-width: 0; }
+.hc-cs-frame { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--color-border-card); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-bg-surface); }
+.hc-cs-frame[data-full] { border: 0; border-radius: 0; height: 100vh; }
+.hc-cs-bar { display: flex; align-items: center; gap: var(--space-3); padding: 0.4rem 0.5333rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-surface-raised); min-width: 0; }
+.hc-cs-modes { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-md); background: var(--color-bg-surface); border: 1px solid var(--color-border-subtle); flex: none; }
+.hc-cs-modes button { display: inline-flex; align-items: center; gap: 0.35rem; height: 1.8667rem; padding: 0 0.6667rem; border: 0; border-radius: calc(var(--radius-md) - 2px); background: none; color: var(--color-text-secondary); font: inherit; font-size: var(--fs-13); cursor: pointer; white-space: nowrap; }
+.hc-cs-modes button:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
+.hc-cs-modes button[aria-selected="true"] { background: var(--color-accent-subtle); color: var(--color-accent); font-weight: 600; }
+.hc-cs-state { display: inline-flex; align-items: center; gap: 0.4rem; min-width: 0; font-size: var(--fs-13); color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hc-cs-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.hc-cs-tool { width: 2rem; height: 2rem; display: inline-grid; place-items: center; border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text-secondary); cursor: pointer; }
+.hc-cs-tool:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.hc-cs-tool[aria-expanded="true"], .hc-cs-tool[aria-pressed="true"] { background: var(--color-accent-subtle); color: var(--color-accent); }
+.hc-cs-tool:disabled { opacity: 0.4; cursor: not-allowed; }
+.hc-cs-check { display: inline-flex; flex: none; width: 1.1rem; margin-right: 0.4rem; color: var(--color-accent); }
+.hc-cs-tools .nx-menu [role="menuitem"] { white-space: nowrap; display: flex; align-items: center; }
+.hc-cs-hint { display: flex; align-items: center; gap: var(--space-2); padding: 0.35rem 0.6667rem; font-size: var(--fs-125); color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-surface); }
+.hc-cs-hint[data-tone="warning"] { color: color-mix(in oklab, var(--color-warning) 80%, var(--color-text-primary)); background: var(--color-warning-subtle); }
+.hc-cs-hint > svg { flex: none; }
+.hc-cs-hint > span { flex: 1; min-width: 0; }
+.hc-cs-x { border: 0; background: none; color: inherit; cursor: pointer; display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: var(--radius-sm); flex: none; }
+.hc-cs-x:hover { background: var(--color-bg-hover); }
+.hc-cs-clip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: var(--space-4); padding: 0.6667rem; border-bottom: 1px solid var(--color-border-subtle); background: var(--color-bg-surface); }
+.hc-cs-label { display: block; font-size: var(--fs-12); font-weight: 600; color: var(--color-text-secondary); margin-bottom: 0.3rem; }
+.hc-cs-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: 0.4rem; }
+.hc-cs-muted { color: var(--color-text-muted); font-size: var(--fs-125); margin: 0; }
+.hc-cs-guestclip { display: block; max-height: 4.5rem; overflow: auto; padding: 0.4rem 0.5rem; border-radius: var(--radius-sm); background: var(--color-bg-surface-raised); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-125); }
+/* The stage: dark whatever the theme (a guest's screen), the picture scaled to fit and centred, states drawn over it. */
+.hc-cs-stage { position: relative; min-height: 20rem; background: #0b0d12; color: #e8ebf2; display: flex; outline: none; }
+.hc-cs-stage[data-focus] { box-shadow: inset 0 0 0 2px var(--color-border-focus); }
+.hc-cs-frame[data-full] .hc-cs-stage { flex: 1; height: auto !important; }
+.hc-cs-screen { flex: 1; min-width: 0; min-height: 0; display: flex; }
+.hc-cs-screen[hidden] { display: none; }
+.hc-cs-screen > div { flex: 1; background: transparent !important; }
+.hc-cs-stage[data-scale="real"] .hc-cs-screen > div { overflow: auto !important; }
+.hc-cs-stage[data-mode="serial"] .hc-cs-screen, .hc-cs-stage[data-mode="terminal"] .hc-cs-screen { padding: 0.5333rem; }
+.hc-cs-screen .xterm { width: 100%; height: 100%; }
+.hc-cs-over { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6rem; padding: var(--space-5); text-align: center; color: #c9cfdb; overflow: auto; }
+.hc-cs-over h3 { margin: 0; font-size: var(--fs-16); color: #f2f4f8; }
+.hc-cs-over p { margin: 0; max-width: 34rem; }
+.hc-cs-over .hc-cs-muted { color: #9aa3b5; }
+.hc-cs-over > svg { color: #8b94a8; }
+.hc-cs-spin { width: 1.6rem; height: 1.6rem; border-radius: 50%; border: 2px solid #3a4152; border-top-color: #8fabff; display: inline-block; }
+/* The remote desktop's sign-in, on the stage: the form in the console's own colours. */
+.hc-cs-form { position: absolute; inset: 0; margin: auto; width: min(24rem, calc(100% - 2rem)); height: fit-content; max-height: calc(100% - 2rem); padding: var(--space-5); border-radius: var(--radius-lg); background: var(--color-bg-surface); color: var(--color-text-primary); text-align: left; align-items: stretch; justify-content: flex-start; box-shadow: var(--shadow-float); }
+.hc-cs-form h3 { color: var(--color-text-primary); }
+.hc-cs-form > svg { color: var(--color-accent); align-self: center; }
+.hc-cs-form .hc-cs-muted { color: var(--color-text-muted); }
+.hc-cs-focus { position: absolute; left: 50%; bottom: 0.6rem; transform: translateX(-50%); margin: 0; padding: 0.2rem 0.6rem; border-radius: 999px; background: rgba(11, 13, 18, 0.72); color: #c9cfdb; font-size: var(--fs-12); pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+.hc-cs-stage:hover .hc-cs-focus { opacity: 1; }
+.hc-cs--window { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.hc-cs--window .hc-cs-frame { flex: 1; min-height: 0; }
+.hc-cs--window .hc-cs-stage { flex: 1; min-height: 0; }
+@media (max-width: 760px) {
+  .hc-cs-bar { flex-wrap: wrap; }
+  .hc-cs-modes button span { display: none; }
+}
+.nx-console-window:has(.hc-cs--window) { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
