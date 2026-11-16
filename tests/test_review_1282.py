@@ -330,3 +330,16 @@ def test_every_remote_desktop_has_a_display_of_its_own():
 
     script = (Path(__file__).parent.parent / "scripts/rdp/session.sh").read_text()
     assert "-nolisten local" in script and "MaxDisconnectionTime" in script
+
+
+def test_an_offline_update_reads_the_candidate_from_its_own_lists(monkeypatch):
+    from app.routers import update
+
+    seen = []
+
+    class Out:
+        stdout = "hyperlite:\n  Installed: 1.28.1\n  Candidate: 1.29.0\n"
+
+    monkeypatch.setattr(update, "_run_c", lambda argv: seen.append(argv) or Out())
+    assert update._raw_candidate_version(("-o", "Dir::Etc::sourcelist=/x")) == "1.29.0"
+    assert seen[0][:3] == ["apt-cache", "-o", "Dir::Etc::sourcelist=/x"]
