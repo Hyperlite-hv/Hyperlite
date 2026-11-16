@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import struct
 import threading
@@ -275,7 +276,7 @@ class Store:
     # ---- Backups ----
 
     def backup_dir(self, vm_uuid, stamp):
-        return self.root / "vm" / str(uuid.UUID(vm_uuid)) / stamp
+        return self.root / "vm" / str(uuid.UUID(vm_uuid)) / check_stamp(stamp)
 
     def write_backup(self, vm_uuid, stamp, indexes, manifest, files=None):
         """Record a backup once its chunks are stored: one index per disk ({name: Index}), small files kept whole
@@ -533,6 +534,23 @@ def _sweep(path, cutoff):
         return None
     doomed.unlink()
     return st.st_size
+
+
+STAMP = re.compile(r"^[0-9A-Za-z:._+-]{1,40}$")
+
+
+def check_stamp(stamp):
+    """A backup's time as the one directory name it is: what another store sends (a remote's export) is never a path."""
+    if not isinstance(stamp, str) or not STAMP.match(stamp) or ".." in stamp:
+        raise ValueError(f"invalid backup time: {stamp!r}")
+    return stamp
+
+
+def check_vm_uuid(vm_uuid):
+    """A VM's UUID in its canonical form, or ValueError."""
+    if not isinstance(vm_uuid, str) or str(uuid.UUID(vm_uuid)) != vm_uuid:
+        raise ValueError(f"invalid VM UUID: {vm_uuid!r}")
+    return vm_uuid
 
 
 def _safe(name):
