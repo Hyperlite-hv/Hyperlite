@@ -94,7 +94,11 @@ def set_readers(secret_id, readers):
 
 
 def may_read(user, secret):
-    if user["role"] == "admin" and not user.get("token_scope"):
+    if user.get("token_scope"):
+        # A delegated token acts with one role on one perimeter: the vault's secrets are not in it, whatever its owner
+        # may read.
+        return False
+    if user["role"] == "admin":
         return True
     from app.core import permissions
 
