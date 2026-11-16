@@ -110,6 +110,15 @@ func cmdLogin(rawURL string, yes bool) error {
 	body := map[string]string{"hostname": workstationName(), "client_version": version}
 	err = call(s, "POST", "/auth/cli/start", body, &start)
 	var certErr *untrustedCertError
+	if errors.As(err, &certErr) && s.Fingerprint != "" {
+		// A server already pinned presents another certificate: not a first contact. As an SSH client does for a
+		// changed host key, nothing is offered: the old pin stays until the person removes it on purpose.
+		fmt.Fprintf(os.Stderr, "WARNING: the certificate of %s has CHANGED since this computer trusted it.\n", u)
+		fmt.Fprintf(os.Stderr, "Trusted SHA-256 fingerprint: %s\nPresented now:               %s\n", s.Fingerprint, certErr.Fingerprint)
+		fmt.Fprintln(os.Stderr, "Someone may be intercepting the connection. If the administrator renewed it, run")
+		fmt.Fprintf(os.Stderr, "\"hyperlite forget %s\", revoke the old token in the web interface, and sign in again.\n", u)
+		return errors.New("certificate changed: sign-in refused")
+	}
 	if errors.As(err, &certErr) {
 		// First contact with an internal certificate: the same trust-on-first-use
 		// decision as an SSH host key, made once and remembered for this server.
@@ -214,6 +223,32 @@ func cmdLogout(flag string) error {
 		return err
 	}
 	fmt.Println("Signed out of", s.URL)
+	return nil
+}
+
+// cmdForget removes a server from this workstation without calling it (its certificate changed, or it is gone): the
+// token it held stays valid on the server until revoked there.
+func cmdForget(rawURL string) error {
+	u, err := normalizeURL(rawURL)
+	if err != nil {
+		return err
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	if _, ok := cfg.Servers[u]; !ok {
+		return fmt.Errorf("%s is not known on this workstation", u)
+	}
+	delete(cfg.Servers, u)
+	if cfg.Default == u {
+		cfg.Default = ""
+	}
+	if err := cfg.save(); err != nil {
+		return err
+	}
+	fmt.Println("Forgotten:", u)
+	fmt.Fprintln(os.Stderr, "Its token is still valid on the server: revoke it in the web interface (Account security > API tokens).")
 	return nil
 }
 

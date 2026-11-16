@@ -188,3 +188,16 @@ func TestAPIPrintsWhatARouteTakes(t *testing.T) {
 		t.Errorf("a missing description: exit %d: %s", code, errOut.String())
 	}
 }
+
+func TestServerAddressMustBeHTTPSOrLoopback(t *testing.T) {
+	for _, ok := range []string{"https://127.0.0.1:8000", "https://node-a:8000", "http://127.0.0.1:8000", "http://localhost:8000"} {
+		if err := checkServer(ok); err != nil {
+			t.Errorf("%s refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"http://10.0.0.7:8000", "ftp://node-a", "node-a"} {
+		if checkServer(bad) == nil {
+			t.Errorf("%s accepted: a ticket would travel in clear", bad)
+		}
+	}
+}

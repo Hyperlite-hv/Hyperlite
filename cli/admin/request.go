@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -158,6 +159,9 @@ func newSession(o options) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkServer(o.server); err != nil {
+		return nil, err
+	}
 	c := &hyperlite.Client{
 		URL:         strings.TrimRight(o.server, "/"),
 		Fingerprint: pinnedFingerprint(o.cert),
@@ -275,4 +279,19 @@ func (s *session) printLog(ctx context.Context, path string, printed int, w io.W
 		fmt.Fprintln(w, l.At, l.Message)
 	}
 	return max(printed, len(log.Items))
+}
+
+// checkServer refuses plain HTTP to anything but this very computer: the root ticket or token would travel in clear.
+func checkServer(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return fmt.Errorf("invalid server address %q", raw)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if ip := net.ParseIP(u.Hostname()); u.Scheme == "http" && (strings.EqualFold(u.Hostname(), "localhost") || (ip != nil && ip.IsLoopback())) {
+		return nil
+	}
+	return fmt.Errorf("the server address must start with https:// (plain HTTP only to this computer): %s", raw)
 }
