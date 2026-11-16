@@ -22,6 +22,10 @@ _VM_COLUMNS = (
     ("backup_jobs", "vm_name"),
     ("backups", "vm_name"),
     ("ha_protected_vms", "vm_name"),
+    ("ha_policies", "vm_name"),
+    ("ha_monitoring", "vm_name"),
+    ("drs_vms", "vm_name"),
+    ("vm_schedules", "vm_name"),
 )
 # A VM's resource pools and ACLs follow it too, written by hyperlite-daemon (SqliteAccessStore.move_vm, step 4b).
 
@@ -97,6 +101,24 @@ class SqliteRenameStore:
                         "UPDATE ha_protected_vms SET domain_xml = ? WHERE vm_name = ?",
                         (renamed_xml(row["domain_xml"], new), new),
                     )
+            if "resource_protections" in tables:
+                # Its id names the object (app/core/protections.py, _key): rewritten with it, or a "keep" would stay on
+                # the old name and the renamed VM could be deleted.
+                db.execute("PRAGMA recursive_triggers = ON")
+                try:
+                    db.execute(
+                        "UPDATE OR REPLACE resource_protections SET id = 'vm:' || ? || ':' || level, resource_id = ? "
+                        "WHERE resource_type = 'vm' AND resource_id = ?",
+                        (new, new, old),
+                    )
+                finally:
+                    db.execute("PRAGMA recursive_triggers = OFF")
+            if "drs_rules" in tables:
+                for row in db.execute("SELECT name, vms FROM drs_rules").fetchall():
+                    vms = json.loads(row["vms"] or "[]")
+                    if old in vms:
+                        renamed = [new if v == old else v for v in vms]
+                        db.execute("UPDATE drs_rules SET vms = ? WHERE name = ?", (json.dumps(renamed), row["name"]))
             if "backup_group_jobs" in tables:
                 for row in db.execute("SELECT id, excluded FROM backup_group_jobs").fetchall():
                     excluded = json.loads(row["excluded"] or "[]")

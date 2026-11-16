@@ -179,16 +179,31 @@ def install_triggers(db):
     # goes out only if the entry is still at that version, so a change made here never overwrites a newer one made by
     # the others (a node cut off from the cluster, or the 2 s before a change goes out). Each node keeps its own.
     db.execute("CREATE TABLE IF NOT EXISTS cfs_base (path TEXT PRIMARY KEY, version INTEGER NOT NULL)")
-    for (name,) in db.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'cfs!_%' ESCAPE '!'"
-    ):
-        db.execute(f'DROP TRIGGER main."{name}"')
+    # Only the triggers that differ are replaced, all in one savepoint: the other services write meanwhile, and a write
+    # landing between a table's DROP and its CREATE would have left no outbox row, its change never sent out.
     main = {r[0] for r in db.execute("SELECT name FROM main.sqlite_master WHERE type = 'table'")}
+    wanted = {}
     for name, (columns, pk) in _schema(db).items():
         if name not in main:
             continue  # the permission tables' file: TEMP triggers of each writer's connection (access_triggers)
         for sql in _trigger_sql(_Table(name, TABLES[name], columns, pk), name):
-            db.execute(sql)
+            wanted[sql.split('"', 2)[1]] = sql
+    have = dict(
+        db.execute("SELECT name, sql FROM main.sqlite_master WHERE type = 'trigger' AND name LIKE 'cfs!_%' ESCAPE '!'")
+    )
+    db.execute("SAVEPOINT cfs_triggers")
+    try:
+        for name, sql in have.items():
+            if wanted.get(name) != sql:
+                db.execute(f'DROP TRIGGER main."{name}"')
+        for name, sql in wanted.items():
+            if have.get(name) != sql:
+                db.execute(sql)
+    except BaseException:
+        db.execute("ROLLBACK TO cfs_triggers")
+        db.execute("RELEASE cfs_triggers")
+        raise
+    db.execute("RELEASE cfs_triggers")
 
 
 def _trigger_sql(table, name, temp=False, schema=None):
