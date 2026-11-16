@@ -369,3 +369,15 @@ def test_the_old_process_answering_is_not_taken_for_the_new_version(cluster, dat
     fake = cluster(old_answers=3)
     assert _run(database, [])[0] == "succeeded"
     assert fake.old_answers == 0  # waited through every old answer
+
+
+def test_this_nodes_update_that_could_not_start_leaves_no_pending_marker(cluster, database):
+    """The marker says a restart ends this node's own update: an update that did not start never ends that way."""
+    cluster()
+    task_id = create_task("cluster_update", "cluster", username="alice")
+
+    def start_local(username):
+        raise rolling_update.RollingError("preflight: not enough room")
+
+    rolling_update.run(task_id, "alice", False, start_local, lambda: True)
+    assert not rolling_update._settings().app_setting(rolling_update.SELF_PENDING)

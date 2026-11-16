@@ -559,7 +559,13 @@ def run(task_id, username, stop_blocked, start_local_update, restarts_after_upda
                 if local_check is None or not crosses_1_0(local_check()[0]):
                     _drain(task_id, username, maintenance.LOCAL, ready[-1] if ready else None)
                 _settings().set_app_setting(SELF_PENDING, json.dumps({"task": task_id, "user": username}))
-                local_task = start_local_update(username)
+                try:
+                    local_task = start_local_update(username)
+                except Exception:
+                    # Not started: nothing to finish after a restart, which would take the node out of maintenance
+                    # and record an update that never ran.
+                    _settings().set_app_setting(SELF_PENDING, "")
+                    raise
                 task_log(task_id, f"{name}: updating (task {local_task}); it leaves maintenance once it runs again")
     except Exception as e:
         logger.exception("Rolling update stopped")

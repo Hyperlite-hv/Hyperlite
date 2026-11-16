@@ -182,6 +182,10 @@ def test_the_api(node, client, auth_headers, monkeypatch):
     r = client.post("/update/offline/apply", json={"system": True}, headers=admin)
     assert r.status_code == 202 and r.json()["version"] == "1.0.1"
     assert started[0][1:] == ("root", True, True)  # (task, user, system, offline)
+    # While it runs, its file is what it installs from: neither replaced nor removed.
+    assert client.post("/update/offline", files={"file": ("u.tar", b"junk")}, headers=admin).status_code == 409
+    assert client.delete("/update/offline", headers=admin).status_code == 409
+    monkeypatch.setattr(update, "_update_in_progress", lambda: None)  # it ended
     # A refused file leaves the node as it was, and says why.
     r = client.post("/update/offline", files={"file": ("u.tar", b"junk")}, headers=admin)
     assert r.status_code == 422 and "not a Hyperlite update file" in r.json()["detail"]

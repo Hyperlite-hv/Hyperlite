@@ -69,7 +69,13 @@ def start_rolling_update(payload: RollingRequest, user: dict = Depends(require_r
         task_id = create_task("cluster_update", "cluster", node=None, username=user["username"])
 
     def start_local(username):
-        return update._start_update({"username": username}, True)["task_id"]
+        # The single-update guard of /update/apply holds here too: an update started by hand on this node meanwhile
+        # would race this one on dpkg, and could restart the service under the run.
+        with update._apply_lock:
+            running = update._update_in_progress()
+            if running:
+                raise rolling_update.RollingError(f"an update started by {running} is running on this node")
+            return update._start_update({"username": username}, True)["task_id"]
 
     def restarts():
         return update._dpkg_installed_version() != version.STARTUP_VERSION
