@@ -61,7 +61,10 @@ def env(database, tmp_path, monkeypatch, daemon_libvirt):
     monkeypatch.setattr(vm_clone, "generate_mac", lambda conn: "52:54:00:00:00:02")
     monkeypatch.setattr(vm_clone, "allocate_static_ip", lambda *a: None)
 
+    commands = []
+
     def copy(cmd, **kwargs):
+        commands.append(cmd)
         Path(cmd[-1]).write_bytes(b"QFI\xfb")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
@@ -72,7 +75,7 @@ def env(database, tmp_path, monkeypatch, daemon_libvirt):
         with database.get_conn() as db:
             return dict(db.execute("SELECT status, error FROM tasks WHERE type = 'clone_vm'").fetchone())
 
-    return {"conn": conn, "images": images, "task": task}
+    return {"conn": conn, "images": images, "task": task, "commands": commands}
 
 
 def test_the_clone_of_a_raw_disk_is_defined_as_qcow2(env, client, auth_headers):
@@ -121,3 +124,12 @@ def test_a_clone_that_would_not_fit_is_refused_before_any_copy(env, client, auth
     assert r.status_code == 409 and "Not enough space for this clone" in r.json()["detail"]
     assert list(env["images"].iterdir()) == [] and env["conn"].defined == []
     assert env["task"]()["status"] == "failed"
+
+
+def test_the_source_is_read_in_the_format_its_definition_names(env, client, auth_headers):
+    """A raw disk is the guest's to write: a qcow2 header written there must not make qemu-img, as root, read the
+    host file it names into the copy. The copy names the format instead of letting qemu-img guess it."""
+    r = client.post("/vms/old/clone", json={"new_name": "copy"}, headers=auth_headers("root"))
+    assert r.status_code == 201, r.text
+    converts = [c for c in env["commands"] if c[1] == "convert"]
+    assert converts[0][:6] == ["qemu-img", "convert", "-f", "raw", "-O", "qcow2"]

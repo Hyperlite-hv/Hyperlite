@@ -25,7 +25,8 @@ class _Domain:
     def XMLDesc(self, flags=0):
         return (
             "<domain type='kvm'><name>web</name><vcpu>2</vcpu><memory>2097152</memory><os><type>hvm</type></os>"
-            f"<devices><disk type='file' device='disk'><source file='{self.disk}'/></disk></devices></domain>"
+            "<devices><disk type='file' device='disk'><driver name='qemu' type='qcow2'/>"
+            f"<source file='{self.disk}'/></disk></devices></domain>"
         )
 
     def undefineFlags(self, flags):
@@ -54,9 +55,9 @@ def node(database, tmp_path, monkeypatch, daemon_libvirt):
     copies = []
 
     def qemu_img(cmd, **k):
-        assert cmd[:4] == ["qemu-img", "convert", "-O", "qcow2"]
+        assert cmd[:6] == ["qemu-img", "convert", "-f", "qcow2", "-O", "qcow2"]
         copies.append(cmd)
-        shutil.copyfile(cmd[4], cmd[5])
+        shutil.copyfile(cmd[6], cmd[7])
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(templates_store, "TEMPLATES_DIR", tpl_dir)

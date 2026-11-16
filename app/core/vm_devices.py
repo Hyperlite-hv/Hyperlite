@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 import libvirt
 
-from app.core import bridge_vlan, disk_images, network_edit, passthrough
+from app.core import bridge_vlan, disk_images, linked_disks, network_edit, passthrough
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import get_disk_paths_in_use, lookup_pool, lookup_volume
 
@@ -60,6 +60,10 @@ def attach_disk(conn, domain, pool_name, volume_name, target_dev):
     if path in get_disk_paths_in_use(conn):
         raise DeviceError("in_use", f"Volume '{volume_name}' is already used by a VM")
     kind = vol.info()[0]
+    if kind == libvirt.VIR_STORAGE_VOL_FILE:
+        why = linked_disks.refusal(path, conn)
+        if why:
+            raise DeviceError("in_use", f"Volume '{volume_name}' cannot be attached: {why}")
     if kind == libvirt.VIR_STORAGE_VOL_BLOCK:
         disk_type, source, fmt = "block", "dev", "raw"  # a logical volume, a LUN, a zvol
     elif kind == libvirt.VIR_STORAGE_VOL_FILE:
