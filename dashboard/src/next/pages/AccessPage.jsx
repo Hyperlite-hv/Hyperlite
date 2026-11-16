@@ -172,13 +172,13 @@ AccessPage.ownHeader = true;
 
 function AskDrawer({ eligibility, role, totp, onClose, onDone }) {
   const t = useT();
-  const [f, setF] = useState({ minutes: Math.min(60, eligibility.max_minutes), reason: "", code: "" });
+  const [f, setF] = useState({ minutes: Math.min(60, eligibility.max_minutes), reason: "", code: "", password: "" });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   async function submit() {
     setBusy(true);
     try {
-      const r = await askAccess({ eligibility_id: eligibility.id, minutes: Number(f.minutes), reason: f.reason.trim(), code: f.code || null });
+      const r = await askAccess({ eligibility_id: eligibility.id, minutes: Number(f.minutes), reason: f.reason.trim(), code: f.code || null, password: f.password || null });
       onDone(r.status === "granted");
     } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
   }
@@ -190,6 +190,7 @@ function AskDrawer({ eligibility, role, totp, onClose, onDone }) {
       <p className="nx-muted" style={{ marginTop: 0 }}>{t(eligibility.approval === "auto" ? "ac.autoHelp" : "ac.approvalHelp")}</p>
       <Field label={t("ac.forMinutes")} hint={t("ac.minutesMax", { n: eligibility.max_minutes })}>{(p) => <input {...p} type="number" min="5" max={eligibility.max_minutes} className="nx-inp" value={f.minutes} onChange={(e) => setF((x) => ({ ...x, minutes: e.target.value }))} />}</Field>
       <Field label={t("gr.reason")}>{(p) => <input {...p} className="nx-inp" maxLength={500} value={f.reason} onChange={(e) => setF((x) => ({ ...x, reason: e.target.value }))} />}</Field>
+      {!totp && <Field label={t("ac.password")} hint={t("ac.passwordHint")}>{(p) => <input {...p} type="password" className="nx-inp" autoComplete="current-password" value={f.password} onChange={(e) => setF((x) => ({ ...x, password: e.target.value }))} />}</Field>}
       {totp && <Field label={t("ac.code")}>{(p) => <input {...p} className="nx-inp nx-mono" inputMode="numeric" autoComplete="one-time-code" value={f.code} onChange={(e) => setF((x) => ({ ...x, code: e.target.value.trim() }))} />}</Field>}
       {error && <p className="nx-err" role="alert">{error}</p>}
     </SideDrawer>

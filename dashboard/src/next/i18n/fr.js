@@ -5751,6 +5751,8 @@ export default {
   "ac.forMinutes": "Pour (minutes)",
   "ac.minutesMax": "Au plus {n} minutes",
   "ac.code": "Code de votre second facteur",
+  "ac.password": "Votre mot de passe",
+  "ac.passwordHint": "Redemandé avant qu’un droit soit donné",
   "ac.requests": "Demandes",
   "ac.noRequests": "Aucune demande pour l’instant.",
   "ac.status": "État",

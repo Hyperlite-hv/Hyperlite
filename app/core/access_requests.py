@@ -78,9 +78,8 @@ def _may_decide(user, request):
     )
 
 
-def ask(user, eligibility_id, minutes, reason, code=None):
+def ask(user, eligibility_id, minutes, reason, code=None, password=None):
     """A request from `user` under one of its eligibilities; granted at once when the eligibility says so."""
-    from app.services import account_service
 
     eligibility = next((e for e in perm.list_eligibility() if e["id"] == eligibility_id), None)
     if eligibility is None or eligibility not in perm.eligible_for(
@@ -91,12 +90,7 @@ def ask(user, eligibility_id, minutes, reason, code=None):
         raise RequestError(422, f"At most {eligibility['max_minutes']} minutes for this right")
     if not reason.strip():
         raise RequestError(422, "Say why you need it")
-    account = account_service.get(user["username"]) or {}
-    if account.get("totp_enabled"):
-        if not code:
-            raise RequestError(422, "Enter the code of your second factor")
-        if not account_service.check_totp(user["username"], code):
-            raise RequestError(403, "Wrong code")
+    _step_up(user, code, password)
     request = {
         "id": uuid.uuid4().hex,
         "username": user["username"],
@@ -119,6 +113,47 @@ def ask(user, eligibility_id, minutes, reason, code=None):
         return _grant(request, user["username"])
     _say(user["username"], request, "asked for")
     return _row(request["id"])
+
+
+STEP_UP_MAX_FAILURES = 5
+STEP_UP_WINDOW_S = 300
+
+
+def _step_up(user, code, password):
+    """Taking a right asks the person again: the code of their TOTP, or their password for an account without one (a
+    session alone is not enough, a security key cannot sign here). Repeated failures lock it for a while, as every
+    re-authentication does. An SSO account without TOTP is its identity provider's to check."""
+    from app.core import login_guard
+    from app.core.security import verify_password
+    from app.services import account_service
+
+    name = user["username"]
+    if login_guard.recent_failures("reauth", name, STEP_UP_WINDOW_S) >= STEP_UP_MAX_FAILURES:
+        raise RequestError(429, f"Too many failed attempts, try again in {STEP_UP_WINDOW_S // 60} minutes")
+    account = account_service.get(name) or {}
+    if account.get("totp_enabled"):
+        if not code:
+            raise RequestError(422, "Enter the code of your second factor")
+        ok = account_service.check_totp(name, code)
+    elif account.get("auth_source") == "sso":
+        return
+    elif account.get("auth_source") == "ldap":
+        from app.core import ldap_auth
+
+        if not password:
+            raise RequestError(422, "Enter your password")
+        try:
+            ok = ldap_auth.authenticate(name, password) is not None
+        except (ldap_auth.LdapError, ldap_auth.LocalAccountConflict) as e:
+            raise RequestError(502, f"The directory could not check the password: {e}") from None
+    else:
+        if not password:
+            raise RequestError(422, "Enter your password")
+        ok = verify_password(password, account.get("hashed_password") or "")
+    if not ok:
+        login_guard.record_failure("reauth", name)
+        raise RequestError(403, "Wrong code" if account.get("totp_enabled") else "Wrong password")
+    login_guard.clear_failures("reauth", name)
 
 
 def _grant(request, by):
@@ -147,6 +182,24 @@ def decide(user, request_id, approve):
     if refusal:
         raise RequestError(403, refusal)
     if approve:
+        # What made the request valid is read again at the decision: the account still there and not ended, still
+        # covered by the eligibility it asked under.
+        from app.core import account_expiry
+        from app.services import account_service
+
+        account = account_service.get(request["username"])
+        eligibility = next((e for e in perm.list_eligibility() if e["id"] == request["eligibility_id"]), None)
+        if (
+            account is None
+            or account_expiry.expired(request["username"])
+            or eligibility is None
+            or eligibility
+            not in perm.eligible_for(
+                account, eligibility["role"], eligibility["resource_type"], eligibility["resource_id"]
+            )
+        ):
+            _update(request_id, status="refused", decided_by=user["username"], decided_at=_now().isoformat())
+            raise RequestError(409, "The account is no longer eligible for this right: the request is closed")
         return _grant(request, user["username"])
     _update(request_id, status="refused", decided_by=user["username"], decided_at=_now().isoformat())
     _say(user["username"], request, "refused")
@@ -222,3 +275,17 @@ def _loop():
 
 def start_access_sweep():
     threading.Thread(target=_loop, daemon=True, name="access-sweep").start()
+
+
+def forget_account(username):
+    """A deleted account's eligibilities go, and its requests close (its dated rights went with its assignments): none
+    is handed to the next account created under that name."""
+    for e in perm.list_eligibility():
+        if e["subject_type"] == "user" and e["subject_id"] == username:
+            perm.delete_eligibility(e["id"])
+    with get_conn() as db:
+        db.execute(
+            "UPDATE access_requests SET status = 'ended' WHERE username = ? AND status IN ('pending', 'granted')",
+            (username,),
+        )
+        db.commit()

@@ -148,6 +148,7 @@ class RequestIn(BaseModel):
     minutes: int = Field(ge=5, le=60 * 24 * 31)
     reason: str = Field(min_length=1, max_length=500)
     code: str | None = Field(None, max_length=16)
+    password: str | None = Field(None, max_length=1024, description="Asked of an account without TOTP")
 
 
 def _answer(fn, *args):
@@ -164,7 +165,10 @@ def list_requests(user: dict = Depends(get_current_user)):
 
 @router.post("/requests", status_code=201)
 def ask(payload: RequestIn, user: dict = Depends(get_current_user)):
-    return _answer(access_requests.ask, user, payload.eligibility_id, payload.minutes, payload.reason, payload.code)
+    return _answer(
+        access_requests.ask, user, payload.eligibility_id, payload.minutes, payload.reason, payload.code,
+        payload.password,
+    )  # fmt: skip
 
 
 @router.post("/requests/{request_id}/approve")

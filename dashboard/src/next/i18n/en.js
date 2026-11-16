@@ -5720,6 +5720,8 @@ export default {
   "ac.forMinutes": "For (minutes)",
   "ac.minutesMax": "At most {n} minutes",
   "ac.code": "Code of your second factor",
+  "ac.password": "Your password",
+  "ac.passwordHint": "Asked again before a right is given",
   "ac.requests": "Requests",
   "ac.noRequests": "No request yet.",
   "ac.status": "Status",
