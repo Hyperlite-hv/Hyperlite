@@ -970,6 +970,10 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # The VMs a group made (JSON list): only they are its members. NULL for a group made before this was
+        # recorded, adopted once from the VMs named <prefix>-<n> then (app/core/vm_groups.py, members).
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+            conn.execute("ALTER TABLE vm_groups ADD COLUMN made TEXT")
         # The Terminal (docs/design/workbench.md): each account's stable uid on this node (its home's owner), and the
         # sessions. This node's own, never replicated: a session lives on the node that served the browser.
         conn.execute("""

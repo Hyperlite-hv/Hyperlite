@@ -64,9 +64,19 @@ def _counted(chunks, task_id, done, total, every_s=2.0):
             update_task_progress(task_id, min(99, int(done[0] * 100 / max(1, total))))
 
 
+def _refuse_protected(vm):
+    """A move ends with the VM deleted here: a frozen or kept VM does not move (app/core/protections.py)."""
+    from app.core import protections
+
+    why = protections.refusal("vm", vm, deleting=True)
+    if why:
+        raise MoveError(why)
+
+
 def move(task_id, username, vm, remote, node, pools, networks, start=False, limit_mib=None, name=None):
     """The whole move, in the task `task_id`: {"name", "remote", "node", "started", "kept"}. Raises MoveError or
     SiteError with what failed; the VM here is then untouched."""
+    _refuse_protected(vm)
     described = describe(vm, username)
     spec = dict(described["spec"])
     if name:
@@ -161,6 +171,7 @@ def move_live(task_id, username, vm, remote, node, pools, networks, limit_mib=No
     """The running VM moved to the remote's node, in the task `task_id`: the target's CPU checked, the VM prepared
     there, then libvirt's live migration through the pinned tunnel, and the VM defined there from what it runs.
     {"name", "remote", "node", "started": True}. Raises MoveError or SiteError; the VM keeps running here."""
+    _refuse_protected(vm)
     described = privileged.run("transfer.describe", user=username, vm=vm, live=True)
     spec = described["spec"]
     devs = [d["dev"] for d in spec["disks"]]

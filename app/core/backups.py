@@ -942,6 +942,14 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
     if mode not in ("overwrite", "new"):
         raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
     target_name = row["vm_name"] if mode == "overwrite" else new_name
+    if mode == "overwrite":
+        # Protections hold on the operation, not only on the URLs about the VM (app/core/protections.py): a restore
+        # that replaces a frozen or kept VM's disks is refused here, whoever asks and by whatever route.
+        from app.core import protections
+
+        why = protections.refusal("vm", target_name, deleting=True)
+        if why:
+            raise RuntimeError(why)
     if claim is None:
         claim = vm_locks.claim(target_name or "", "a backup restore")
 

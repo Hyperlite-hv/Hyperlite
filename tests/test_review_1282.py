@@ -123,3 +123,23 @@ def test_whoever_changes_a_patch_plan_becomes_its_author(database):
     assert plan["created_by"] == "admin1"
     changed = patch_plans.save({**fields, "target_kind": "tag", "target": "prod", "reboot": True}, "bob", plan["id"])
     assert changed["created_by"] == "bob", "the plan acts with the rights of who chose its new targets"
+
+
+def test_protections_hold_on_restore_move_and_delete_whatever_the_url(database, monkeypatch):
+    """The protections were checked on the URLs about the VM only: a restore over it, a move to another site and the
+    deletions VM groups make went through. They are checked by the operations themselves."""
+    from fastapi import HTTPException
+
+    from app.core import backups, protections, site_move
+    from app.routers.vms import lifecycle
+
+    protections.put("vm", "db1", "keep", "the billing database", "root")
+    with pytest.raises(site_move.MoveError, match="kept from deletion"):
+        site_move._refuse_protected("db1")
+    monkeypatch.setattr(backups, "_store", lambda: type("S", (), {"get": lambda self, i: {
+        "status": "succeeded", "vm_name": "db1"}})())  # fmt: skip
+    with pytest.raises(RuntimeError, match="kept from deletion"):
+        backups._restore_backup(1, "overwrite")
+    with pytest.raises(HTTPException) as e:
+        lifecycle._delete_vm("db1", True, None, {"username": "root", "role": "admin"})
+    assert e.value.status_code == 409
