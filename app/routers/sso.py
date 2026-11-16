@@ -208,6 +208,17 @@ def sso_exchange(request: Request):
         return response
     user = answer["user"]
     username = user["username"]
+    # The sign-in rules hold for an SSO sign-in as for a password's: one that requires a second factor refuses an
+    # account without a local one (the identity provider's own is not known here).
+    from app.core import signin_rules
+    from app.core.client_address import client_address
+
+    refused = signin_rules.refusal(user, client_address(request), has_second_factor=answer["result"] == "second_factor")
+    if refused:
+        log_action(username, "login", "auth", "failed", refused)
+        response = JSONResponse(status_code=403, content={"detail": refused, "code": "forbidden"})
+        response.delete_cookie(HANDOFF_COOKIE, path=HANDOFF_PATH)
+        return response
     if answer["result"] == "second_factor":
         body = {"require_2fa": True, "preauth_token": answer["preauth_token"], "methods": answer["methods"]}
         log_action(username, "login", "auth", "success", "SSO validated, second factor required")

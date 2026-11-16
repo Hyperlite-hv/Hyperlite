@@ -268,13 +268,52 @@ def _home_path(row, relative):
     return root, root.joinpath(*parts)
 
 
-def _inside(row, root, target):
-    """Refuse a path that resolves outside the home (a link to the host's own files): resolved as the session's account,
-    so a world-readable file of the host hidden in the box is not handed out either."""
-    real = _as_user(row["uid"], ["realpath", "-m", "--", str(target)]).decode().strip()
-    base = _as_user(row["uid"], ["realpath", "--", str(root)]).decode().strip()
-    if real != base and not real.startswith(base + "/"):
-        raise DaemonError("refused", "That path leads out of your home")
+# Run as the session's account: the path walked from the home one component at a time, never through a link
+# (O_NOFOLLOW at each step), then the file read or written through the descriptor so found. The check and the use are
+# one open: a link swapped in between cannot lead out of the home.
+_BENEATH = r"""
+import os, stat, sys
+root, rel, mode, limit = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+parts = [p for p in rel.split("/") if p not in ("", ".")]
+if not parts or ".." in parts:
+    sys.exit("A path inside your home, such as notes/plan.txt")
+fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+for name in parts[:-1]:
+    try:
+        nxt = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    except FileNotFoundError:
+        if mode != "put":
+            raise
+        os.mkdir(name, 0o700, dir_fd=fd)
+        nxt = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    os.close(fd)
+    fd = nxt
+if mode == "get":
+    f = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    st = os.fstat(f)
+    if not stat.S_ISREG(st.st_mode):
+        sys.exit("Not a regular file")
+    if st.st_size > limit:
+        sys.exit("At most 20 MB per file")
+    with os.fdopen(f, "rb") as h:
+        sys.stdout.buffer.write(h.read(limit + 1)[:limit])
+else:
+    f = os.open(parts[-1], os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+    if not stat.S_ISREG(os.fstat(f).st_mode):
+        sys.exit("Not a regular file")
+    with os.fdopen(f, "wb") as h:
+        h.write(sys.stdin.buffer.read(limit + 1)[:limit])
+"""
+
+
+def _beneath(row, root, relative, mode, data=None):
+    try:
+        return _as_user(row["uid"], ["/usr/bin/python3", "-I", "-c", _BENEATH, str(root), relative, mode,
+                                     str(FILE_MAX)], data=data)  # fmt: skip
+    except DaemonError as e:
+        if "ELOOP" in e.detail or "Too many levels of symbolic links" in e.detail or "Not a directory" in e.detail:
+            raise DaemonError("refused", "That path leads out of your home") from None
+        raise
 
 
 def _as_user(uid, argv, data=None, timeout=120):
@@ -323,9 +362,7 @@ def file_put(args, ctx):
     content = base64.b64decode(args.data)
     if len(content) > FILE_MAX:
         raise DaemonError("refused", "At most 20 MB per file")
-    _inside(row, root, target)
-    _as_user(row["uid"], ["mkdir", "-p", str(target.parent)])
-    _as_user(row["uid"], ["/usr/bin/dd", f"of={target}", "status=none"], data=content)
+    _beneath(row, root, args.path, "put", data=content)
     return {"path": str(target.relative_to(root)), "size": len(content)}
 
 
@@ -341,12 +378,5 @@ def file_get(args, ctx):
 
     row = _session(args.sid)
     root, target = _home_path(row, args.path)
-    _inside(row, root, target)
-    size = _as_user(row["uid"], ["stat", "-L", "-c", "%F %s", str(target)]).decode().strip()
-    kind, _, length = size.rpartition(" ")
-    if kind != "regular file" and kind != "regular empty file":
-        raise DaemonError("refused", "Not a regular file")
-    if int(length) > FILE_MAX:
-        raise DaemonError("refused", "At most 20 MB per file")
-    data = _as_user(row["uid"], ["cat", str(target)])
+    data = _beneath(row, root, args.path, "get")
     return {"name": target.name, "data": base64.b64encode(data).decode()}

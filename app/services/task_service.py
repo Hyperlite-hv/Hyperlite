@@ -25,13 +25,16 @@ async def list_tasks(filters, sort, order, limit):
     return [_with_cancel(t) for t in await registry.tasks().list(filters, sort, order, limit)]
 
 
-async def get_task(task_id):
+async def get_task(task_id, user=None):
     task = await registry.tasks().get(task_id)
     if not task:
         raise TaskNotFound(task_id)
     # The audit entries of the same target, so the detail view shows the full story on click (exact failure
-    # reason, related actions...).
-    task["logs"] = await registry.audit().for_resource(task["target"])
+    # reason, related actions...): for who may read the audit log only, as /audit itself.
+    from app.core import permissions
+
+    may_audit = user is None or permissions.has_area_privilege(user, "audit.view")
+    task["logs"] = await registry.audit().for_resource(task["target"]) if may_audit else []
     return _with_cancel(task)
 
 

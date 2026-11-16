@@ -961,7 +961,13 @@ def withdraw_member(name, token):
             del _withdrawals[name]
     if not valid:
         raise PermissionError("Unknown or expired withdrawal: remove the node by hand")
-    conf = _take_out(name)
+    try:
+        conf = _take_out(name)
+    except Exception:
+        # Not taken out (no quorum for a moment, hyperlite-cfs restarting): the secret stays, so the node may ask again.
+        with _withdrawals_lock:
+            _withdrawals.setdefault(name, entry)
+        raise
     log_action("system", "cluster_join_withdrawn", name, "success", f"{name} gave up joining {conf['cluster']}")
     return {"withdrawn": name}
 
