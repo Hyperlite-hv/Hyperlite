@@ -278,6 +278,11 @@ def _nft(script, check=False):
         raise FirewallError(f"nftables refused the ruleset: {(r.stderr or r.stdout).strip()[-400:]}")
 
 
+def _table_present():
+    r = subprocess.run(["nft", "list", "table", "inet", TABLE], capture_output=True, text=True, timeout=30)
+    return r.returncode == 0
+
+
 def _current_script():
     """What is in place now, as a script that puts it back."""
     r = subprocess.run(["nft", "list", "table", "inet", TABLE], capture_output=True, text=True, timeout=30)
@@ -607,7 +612,9 @@ def follow_once():
     script = ruleset(doc)
     digest = hashlib.sha256(script.encode()).hexdigest()
     try:
-        if _applied_path().read_text() == digest:
+        # What was applied is also checked in the kernel: its tables do not survive a reboot (or an `nft flush`), and
+        # a firewall that is on must come back then, even unchanged.
+        if _applied_path().read_text() == digest and (not doc["enabled"] or _table_present()):
             return False
     except FileNotFoundError:
         if not doc["enabled"]:
@@ -627,10 +634,12 @@ def follow_once():
 
 
 def finish_interrupted():
-    """At the daemon's start: a change past its deadline (the node rebooted before the timer fired) is rolled back;
-    at boot the table is empty anyway, and `follow` brings back the saved document."""
+    """At the daemon's start: a change past its deadline is rolled back; one still within it gets its timer back (a
+    reboot took it), so it is undone in time unless confirmed. `follow` brings back the saved document."""
     waiting = pending()
-    if waiting and waiting["deadline"] < time.time():
+    if waiting and rollback_timer.rearm_or_due(
+        ROLLBACK_UNIT, "app.core.host_firewall", waiting["id"], waiting["deadline"], time.time()
+    ):
         logger.warning("Host firewall change %s was not confirmed before the restart: dropped", waiting["id"])
         rollback(waiting["id"])
 

@@ -85,7 +85,9 @@ def _portable_xml(raw_xml):
         # The machine's family is kept (q35 stays q35: a UEFI guest, its PCIe controllers and SATA drives, cannot start
         # on i440fx), only its version is left to the target's QEMU.
         machine = type_el.get("machine")
-        type_el.set("machine", "q35" if "q35" in machine else "pc" if "i440fx" in machine or machine == "pc" else machine)
+        type_el.set(
+            "machine", "q35" if "q35" in machine else "pc" if "i440fx" in machine or machine == "pc" else machine
+        )
 
     cpu_el = root.find("cpu")
     topology = cpu_el.find("topology") if cpu_el is not None else None
