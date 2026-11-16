@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 TICK_S = 10
 LOST_S = 60
 WATCHDOG_MARGIN_S = 30
+BMC_IN_ROUND_S = 5  # how long a round waits for a BMC before going on without its answer
 LOCK_WAIT_S = 120
 RESTARTS_PER_HOUR = 3
 BMC_ATTEMPTS = 3
@@ -145,11 +146,17 @@ def _running(vms):
     return {v.get("name") for v in vms if v.get("state") in ("active", "running")}
 
 
+def _alive(vms):
+    """The VMs whose QEMU still exists (running, paused, shutting down, blocked, crashed but not torn down): a paused
+    guest on an I/O error is not a stopped one, and starting it elsewhere would give its disk two writers."""
+    return {v.get("name") for v in vms if v.get("state") not in (None, "stopped", "shutoff", "shut off", "off")}
+
+
 def _running_on(member):
-    """The VMs `member`'s own status says are running there now."""
+    """The VMs `member`'s own status says still exist there now (_alive)."""
     from app.core import statd
 
-    return _running((statd.table().get(member) or {}).get("vms") or [])
+    return _alive((statd.table().get(member) or {}).get("vms") or [])
 
 
 def _ran_when_lost(member):
@@ -174,11 +181,28 @@ def _fenced(member, entry):
     if method in ha_fencing.AGENTS:
         tries = entry.setdefault("bmc_tries", 0)
         failed = entry.get("bmc") is not None and not entry["bmc"]["fenced"]
-        if entry.get("bmc") is None or (
-            failed and tries < BMC_ATTEMPTS and time.monotonic() - entry["bmc_at"] >= BMC_RETRY_S
+        if entry.get("bmc_asking") is None and (
+            entry.get("bmc") is None
+            or (failed and tries < BMC_ATTEMPTS and time.monotonic() - entry["bmc_at"] >= BMC_RETRY_S)
         ):  # a BMC busy or slow to answer once is asked again, BMC_RETRY_S later
-            entry["bmc"] = ha_fencing.power_off(member)
+
+            def ask():
+                entry["bmc"] = ha_fencing.power_off(member)
+
+            entry["bmc"] = None
             entry["bmc_tries"], entry["bmc_at"] = tries + 1, time.monotonic()
+            entry["bmc_asking"] = threading.Thread(target=ask, name=f"ha-fence-{member}", daemon=True)
+            entry["bmc_asking"].start()
+            entry["bmc_asking"].join(BMC_IN_ROUND_S)  # a BMC that answers at once is done within this round
+        asking = entry.get("bmc_asking")
+        if asking is not None and asking.is_alive():
+            # The BMC is asked on a thread of its own: an unreachable one takes minutes, and a round that long would
+            # lose the HA lead (its health is the round's age), with it the recovery and the watchdog's way.
+            return False, f"waiting for its {method} to answer"
+        if asking is not None:
+            entry["bmc_asking"] = None
+            if entry.get("bmc") is None:  # the thread ended without an answer (it raised)
+                entry["bmc"] = {"fenced": False, "detail": "the power-off could not be asked"}
             log_action(
                 "system", "ha_fence", member, "success" if entry["bmc"]["fenced"] else "failed", entry["bmc"]["detail"]
             )
@@ -189,8 +213,12 @@ def _fenced(member, entry):
     retry = method in ha_fencing.AGENTS and entry["bmc_tries"] < BMC_ATTEMPTS
     reset_within = published.get("reset_within_s")
     if published.get("armed") and reset_within:
+        from app.core.ha_selffence import HEARTBEAT_STALE_S
+
         waited = time.monotonic() - entry["last_seen"]
-        wait = reset_within + WATCHDOG_MARGIN_S
+        # A member whose status stopped may still feed its watchdog until its own heartbeat is HEARTBEAT_STALE_S old:
+        # the reset comes that much later than its last status.
+        wait = HEARTBEAT_STALE_S + reset_within + WATCHDOG_MARGIN_S
         if waited >= wait:
             return (
                 True,
@@ -245,12 +273,13 @@ def _restart(row, entry, online, lost, where=None):
     from app.core import ha
 
     vm = row["vm_name"]
-    where = _running_elsewhere(row, [n for n in online if n not in lost])
-    if where is not None:
-        ha.adopt(row, where)
-        _record(vm, OK, f"runs on {where}, where an earlier attempt started it after {row['node']} was lost")
-        log_action("system", "ha_restarted", vm, "success", f"{row['node']} -> {where} (found running there)")
-        return where
+    # `where` is the placement map of the round (its "must" rules); the node this VM may already run on is another name.
+    found = _running_elsewhere(row, [n for n in online if n not in lost])
+    if found is not None:
+        ha.adopt(row, found)
+        _record(vm, OK, f"runs on {found}, where an earlier attempt started it after {row['node']} was lost")
+        log_action("system", "ha_restarted", vm, "success", f"{row['node']} -> {found} (found running there)")
+        return found
     policy = _store().policy(vm)
     recent = _recent_restarts(policy)
     if len(recent) >= RESTARTS_PER_HOUR:
