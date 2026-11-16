@@ -412,3 +412,34 @@ def test_a_task_shows_its_targets_audit_trail_only_to_who_may_read_the_audit(dat
     assert viewer["logs"] == []
     admin = asyncio.run(task_service.get_task(task_id, {"username": "root", "role": "admin"}))
     assert isinstance(admin["logs"], list)
+
+
+def test_a_renamed_vm_takes_all_its_settings_with_it(database):
+    """HA policy and monitoring, load balancing, schedules, protections and rules followed the old name: the VM lost
+    them, and a new VM of the old name would have got them (a schedule stopping it at 02:00)."""
+    from app.core import protections
+    from app.repositories.sqlite.renames import SqliteRenameStore
+
+    with database.get_conn() as db:
+        db.execute("INSERT INTO ha_policies (vm_name, priority) VALUES ('web', 'high')")
+        db.execute("INSERT INTO drs_vms (vm_name, behaviour) VALUES ('web', 'excluded')")
+        db.execute("INSERT INTO drs_rules (name, kind, vms) VALUES ('r', 'apart', ?)", ('["web", "db"]',))
+        db.commit()
+    protections.put("vm", "web", "keep", "", "root")
+    SqliteRenameStore().vm_records("web", "web2", "local", "", lambda xml, new: xml)
+    with database.get_conn() as db:
+        assert db.execute("SELECT vm_name FROM ha_policies").fetchone()[0] == "web2"
+        assert db.execute("SELECT vm_name FROM drs_vms").fetchone()[0] == "web2"
+        assert "web2" in db.execute("SELECT vms FROM drs_rules").fetchone()[0]
+    assert protections.refusal("vm", "web2", deleting=True)
+    assert protections.refusal("vm", "web", deleting=True) is None
+
+
+def test_the_replication_triggers_are_replaced_only_when_they_change(database):
+    from app.repositories.cfs import shadow
+
+    with database.get_conn() as db:
+        before = dict(db.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").fetchall())
+        shadow.install_triggers(db)
+        after = dict(db.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").fetchall())
+    assert before == after and any(n.startswith("cfs_") for n in after)
