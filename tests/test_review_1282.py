@@ -157,3 +157,42 @@ def test_ha_keeps_the_machine_family_a_vm_was_installed_on(machine, family):
     assert root.find("os/type").get("machine") == family
     assert root.find("cpu").get("mode") == "host-model"
     assert root.find("cpu/topology").get("cores") == "4"
+
+
+def test_the_daemon_refuses_an_api_token_what_an_account_does_to_itself():
+    """hyperlite-daemon holds even when the API is not to be trusted: a token, an administrator's included, never mints
+    tokens, changes the password or the second factors of its own account; it revokes only itself."""
+    from types import SimpleNamespace
+
+    from app.daemon import needs
+    from app.daemon.ops import access
+
+    admin_token = {"username": "ana", "role": "admin", "api_token_id": 7}
+    session = {"username": "ana", "role": "admin"}
+    own = needs.own()
+    assert own.refusal(admin_token, SimpleNamespace(username="ana"))
+    assert own.refusal(session, SimpleNamespace(username="ana")) is None
+    assert own.refusal(admin_token, SimpleNamespace(username="bob")) is None, "an admin's token on other accounts"
+    password = needs.by_rule(access._own_password)
+    assert password.refusal(admin_token, SimpleNamespace(username="ana", role=None))
+    revoke = needs.by_rule(access._own_token_revoke)
+    assert revoke.refusal(admin_token, SimpleNamespace(username="ana", token_id=7)) is None
+    assert revoke.refusal(admin_token, SimpleNamespace(username="ana", token_id=8))
+
+
+def test_the_daemon_puts_a_vm_in_a_pool_only_for_who_may_or_just_made_it(database, make_user, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.core import permissions
+    from app.daemon.ops import access
+
+    make_user("alice", "viewer")
+    alice = {"username": "alice", "role": "viewer", "id": 2}
+    monkeypatch.setattr(permissions, "has_scoped_privilege", lambda *a: True)
+    monkeypatch.setattr(permissions, "has_privilege", lambda *a: False)
+    monkeypatch.setattr(permissions, "get_vm_pools", lambda vm: [])
+    assert "bob-db" in access._may_allocate_in_pool(alice, SimpleNamespace(pool_id=7, vm_name="bob-db"))
+    from app.core.tasks import create_task
+
+    create_task("create_vm", "alice-web", node=None, username="alice")
+    assert access._may_allocate_in_pool(alice, SimpleNamespace(pool_id=7, vm_name="alice-web")) is None
