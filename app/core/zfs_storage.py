@@ -27,6 +27,7 @@ real block device (`/dev/sdX`) when moving to a real disk changes nothing else.
 """
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -36,6 +37,8 @@ import time
 from pathlib import Path
 
 from app.core.safe_paths import safe_child
+
+logger = logging.getLogger(__name__)
 
 LOOPBACK_DIR = Path("/var/lib/hyperlite-zfs")
 ZFS_MODULE = Path("/sys/module/zfs")
@@ -267,7 +270,10 @@ def delete_pool(name):
     for leaf in leaves:
         _run("zpool", "labelclear", "-f", leaf, check=False)
     for disk in disks:
-        _run("wipefs", "-a", disk, check=False)
+        if _given_whole(disk, leaves):
+            _run("wipefs", "-a", disk, check=False)
+        else:
+            logger.warning("Disk %s holds other partitions than the pool's: its partition table is kept", disk)
 
 
 def list_zvols(pool_name):
@@ -590,6 +596,30 @@ def replace_disk(name, old, disk, free):
         raise ZfsError(f"'{old}' is not a disk of pool '{name}'")
     _run("zpool", "replace", name, old, disk)
     return pool_status(name)
+
+
+RESERVED_MAX_BYTES = 64 << 20  # the small partition 9 ZFS adds on a whole disk it was given
+
+
+def _given_whole(disk, leaves):
+    """Whether `disk` held only the pool: its partitions are the pool's or the small one ZFS reserves. A pool built on
+    one partition of a disk (made outside Hyperlite, or by hand) must not have the whole disk wiped with it."""
+    import os
+
+    mine = {os.path.realpath(leaf) for leaf in leaves}
+    try:
+        out = subprocess.run(
+            ["lsblk", "-bnrpo", "NAME,TYPE,SIZE", os.path.realpath(disk)], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if out.returncode != 0:
+        return False
+    for line in out.stdout.splitlines():
+        name, kind, size = [*line.split(), "", "", "0"][:3]
+        if kind == "part" and name not in mine and int(size or 0) > RESERVED_MAX_BYTES:
+            return False
+    return True
 
 
 def disks_of(name):

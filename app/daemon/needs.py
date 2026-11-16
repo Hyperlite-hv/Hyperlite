@@ -165,6 +165,11 @@ def on_area(privilege):
     return Need("area", privilege)
 
 
+def all_of(*needs):
+    """Every one of `needs` (the first refusal is said)."""
+    return by_rule(lambda user, args: next((why for n in needs if (why := n.refusal(user, args))), None))
+
+
 def own(arg="username"):
     return Need("own", arg=arg)
 

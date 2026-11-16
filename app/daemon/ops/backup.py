@@ -59,8 +59,24 @@ class RunArgs(Args):
     task_id: str = Field(min_length=1, max_length=TASK_ID)
 
 
+def _may_back_up(user, args):
+    """vm.snapshot on the VM, and a directory an operator may write into as root: the default one, or the one an
+    administrator set in the VM's schedule (another directory is an administrator's, as the routes say)."""
+    from app.core.backups import DEFAULT_BACKUP_DIR
+    from app.core.database import get_conn
+
+    refusal = on_vm("vm.snapshot").refusal(user, args)
+    if refusal or args.target in (None, "", str(DEFAULT_BACKUP_DIR)):
+        return refusal
+    with get_conn() as db:
+        row = db.execute("SELECT target_dir FROM backup_jobs WHERE vm_name = ?", (args.vm,)).fetchone()
+    if row is not None and row["target_dir"] == args.target:
+        return None
+    return "Only an administrator chooses the backup directory"
+
+
 # One call that waits: a backup copies for as long as its disks take.
-@operation("backup.run", RunArgs, needs=on_vm("vm.snapshot"))
+@operation("backup.run", RunArgs, needs=by_rule(_may_back_up))
 def run(args, ctx):
     """A directory backup of a VM of this node, cold or live, under a target backups.backup_target accepts: {"path",
     "mode", "size", "checksum"}, the API records them."""

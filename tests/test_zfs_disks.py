@@ -159,6 +159,7 @@ def test_a_destroyed_pool_gives_its_disks_back_blank(zpool, monkeypatch):
     state.update(exists=True, status=_status())
     monkeypatch.setattr(zfs_storage, "list_zvols", lambda name: [])
     monkeypatch.setattr(zfs_storage, "_backing_file_of", lambda name: None)
+    monkeypatch.setattr(zfs_storage, "_given_whole", lambda disk, leaves: True)
     zfs_storage.delete_pool("tank")
     after = calls[calls.index(("zpool", "destroy", "tank")) :]
     assert ("zpool", "labelclear", "-f", "/dev/disk/by-id/ata-D1-part1") in after
@@ -228,3 +229,16 @@ def test_the_routes_create_on_disks_and_read_the_health(client, auth_headers, mo
     )
     assert r.status_code == 200 and asked[-1][0] == "storage.zfs_pool_disks"
     assert client.post("/storage/tank/zfs/scrub", json={}, headers=headers).status_code == 200
+
+
+def test_a_disk_that_holds_other_partitions_is_never_wiped(monkeypatch):
+    """A pool built on one partition of a disk (by hand, or outside Hyperlite): its other partitions stay."""
+
+    class Out:
+        returncode = 0
+        stdout = "/dev/sdb disk 1000204886016\n/dev/sdb1 part 500000000000\n/dev/sdb2 part 500000000000\n"
+
+    monkeypatch.setattr(zfs_storage.subprocess, "run", lambda *a, **k: Out())
+    assert not zfs_storage._given_whole("/dev/sdb", ["/dev/sdb2"])
+    Out.stdout = "/dev/sdb disk 1000204886016\n/dev/sdb1 part 1000195000000\n/dev/sdb9 part 8388608\n"
+    assert zfs_storage._given_whole("/dev/sdb", ["/dev/sdb1"])
