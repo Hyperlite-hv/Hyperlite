@@ -19,6 +19,7 @@ class FakeIptables:
 
         class R:
             returncode = 0
+            stdout = ""
             stderr = ""
 
         r = R()
@@ -38,6 +39,8 @@ class FakeIptables:
             r.returncode = 0 if rest in self.chains.get(chain, []) else 1
         elif op == "-D":
             self.chains[chain].remove(rest)
+        elif op == "-S":
+            r.stdout = "".join(f"-A {chain} {' '.join(rule)}\n" for rule in self.chains.get(chain, []))
         return r
 
 
@@ -114,9 +117,12 @@ def test_a_rule_iptables_refuses_is_an_error(iptables, database, monkeypatch):
             r.returncode, r.stderr = 2, "bad port"
         return r
 
+    fw.apply_network_firewall("lab", {**CONFIG, "rules": []})  # a firewall in place, its default policy last
+    before = {c: list(r) for c, r in iptables.chains.items()}
     monkeypatch.setattr(fw, "_run", refuse_port)
     with pytest.raises(RuntimeError, match="refused a rule"):
         fw.apply_network_firewall("lab", CONFIG)
+    assert iptables.chains == before, "a refused rule leaves the rules that were in place, not half a chain"
 
 
 def test_removal_leaves_no_chain_nor_jump(iptables, database):

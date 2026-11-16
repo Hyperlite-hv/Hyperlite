@@ -25,6 +25,7 @@ remove_network_firewall, reapply_all)."""
 import hashlib
 import json
 import logging
+import shlex
 import subprocess
 import xml.etree.ElementTree as ET
 
@@ -159,11 +160,19 @@ def apply_rules(network_name: str, config: dict):
     _ensure_umbrella_chain()
     if not _chain_exists(chain):
         _run("-N", chain)
+    # The rules in place are kept to be put back: a rule iptables refuses half-way would leave the chain without its
+    # last rules (its default DROP among them), and the network open while the page says it is protected.
+    previous = [line for line in _run("-S", chain).stdout.splitlines() if line.startswith(f"-A {chain} ")]
     _run("-F", chain)
     for spec in _build_rule_specs(bridge, config):
         result = _run("-A", chain, *spec)
         if result.returncode != 0:
-            raise RuntimeError(f"iptables refused a rule ({' '.join(spec)}): {result.stderr.strip()}")
+            _run("-F", chain)
+            for line in previous:
+                _run(*shlex.split(line))
+            raise RuntimeError(
+                f"iptables refused a rule ({' '.join(spec)}): {result.stderr.strip()}; the previous rules are back"
+            )
     _ensure_network_jump(bridge, chain)
     return {"bridge": bridge}
 

@@ -503,3 +503,48 @@ def test_a_backup_that_cannot_be_read_is_recorded_and_the_next_one_comes(databas
     monkeypatch.setattr(backups, "verify_backup", unreadable)
     assert backups._verify_due_backup() is None
     assert recorded == [(7, "unverifiable", "Input/output error")]
+
+
+def test_a_node_file_is_written_on_disk_when_the_tree_is_not_mounted(tmp_path, monkeypatch):
+    from app.core import node_files, paths
+
+    monkeypatch.setattr(paths, "ETC", tmp_path)
+    monkeypatch.setattr(node_files, "in_tree", lambda: False)
+    (tmp_path / "priv").mkdir()
+    (tmp_path / "priv" / "env").write_text("old")
+    node_files.write(tmp_path / "priv" / "env", "new")
+    assert (tmp_path / "priv" / "env").read_text() == "new"
+
+
+def test_a_rename_whose_files_cannot_move_leaves_the_vm_as_it_was(monkeypatch):
+    import libvirt
+
+    from app.core import vm_rename
+
+    names = {"cur": "web"}
+
+    class Dom:
+        def isActive(self):
+            return False
+
+        def snapshotNum(self, flags):
+            return 0
+
+        def rename(self, new, flags):
+            names["cur"] = new
+
+    class Conn:
+        def lookupByName(self, name):
+            if name != names["cur"]:
+                raise libvirt.libvirtError("not found")
+            return Dom()
+
+    def no_room(*a):
+        raise OSError("Read-only file system")
+
+    monkeypatch.setattr(vm_rename, "rename_own_files", no_room)
+    monkeypatch.setattr("app.core.checkpoints.drop", lambda d: 0)
+    monkeypatch.setattr("app.core.recycle_bin.holds", lambda name: False)
+    with pytest.raises(vm_rename.RenameError):
+        vm_rename.rename(Conn(), Dom(), "web", "web2")
+    assert names["cur"] == "web", "libvirt names it as Hyperlite's records do"

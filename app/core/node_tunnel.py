@@ -49,7 +49,7 @@ def ensure(node):
         if running is not None and running.poll() is None and path.exists():
             return path
         if running is not None and running.poll() is None:
-            running.terminate()
+            _stop(running)
         DIR.mkdir(mode=0o750, parents=True, exist_ok=True)
         # setgid, the API's group: every socket ssh makes there is that group's, for the API's read-only libvirt.
         api_group.share(DIR, 0o2750)
@@ -91,12 +91,30 @@ def ensure(node):
             if process.poll() is not None:
                 raise OSError(f"ssh to {node['name']} ended: {(process.stderr.read() or '').strip()[-300:]}")
             if time.monotonic() > deadline:
-                process.terminate()
+                _stop(process)
                 raise OSError(f"ssh to {node['name']} opened no socket within {OPEN_WAIT_S} s")
             time.sleep(0.1)
+        # From now on what ssh says goes to the log, read on a thread: a pipe nobody read filled up after a few hundred
+        # "channel open failed" lines, and ssh stopped forwarding.
+        threading.Thread(target=_drain, args=(node["name"], process), daemon=True).start()
         _tunnels[node["name"]] = process
         logger.info("Tunnel to %s's read-only libvirt opened at %s", node["name"], path)
         return path
+
+
+def _drain(name, process):
+    for line in process.stderr:
+        logger.debug("ssh to %s: %s", name, line.rstrip())
+
+
+def _stop(process):
+    """Ended and waited for: no zombie left."""
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
 
 
 def close(name):
@@ -104,7 +122,7 @@ def close(name):
     with _lock:
         process = _tunnels.pop(name, None)
     if process is not None and process.poll() is None:
-        process.terminate()
+        _stop(process)
     try:
         socket_path(name).unlink(missing_ok=True)
     except (ValueError, OSError) as e:
