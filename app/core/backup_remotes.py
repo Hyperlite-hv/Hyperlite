@@ -10,6 +10,7 @@ their files and their chunks, as they are (encrypted ones stay sealed: this side
 import hashlib
 import http.client
 import json
+import logging
 import re
 import socket
 import ssl
@@ -17,6 +18,8 @@ import urllib.parse
 from datetime import UTC, datetime
 
 from app.core import backup_store
+
+logger = logging.getLogger(__name__)
 
 NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$")
 HOST = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$|^\[?[0-9A-Fa-f:]+\]?$")
@@ -243,7 +246,21 @@ class RemoteStore:
         self._base = f"/backup-stores/{urllib.parse.quote(store_name, safe='')}/export"
         export = self._client.json(self._base)
         self.config = export["config"]
-        self._backups = [(b["vm_uuid"], b["time"], b["manifest"]) for b in export["backups"]]
+        self._backups = []
+        for b in export["backups"]:
+            # What a remote sends is checked before anything here uses it as a path: a backup's time and VM name its
+            # directory, its disks and files name files in it. A remote that sends a bad entry has it skipped, not the
+            # whole job stopped.
+            try:
+                vm_uuid = backup_store.check_vm_uuid(b["vm_uuid"])
+                stamp = backup_store.check_stamp(b["time"])
+                manifest = b["manifest"]
+                for name in [*(manifest.get("disks") or {}), *(manifest.get("files") or {})]:
+                    backup_store._safe(name)
+            except (KeyError, TypeError, ValueError, AttributeError) as e:
+                logger.warning("Remote %s, store %s: a backup entry was skipped: %s", remote_name, store_name, e)
+                continue
+            self._backups.append((vm_uuid, stamp, manifest))
         self.chunk_size = int(self.config["chunk_size"])
         self.encrypted = bool(self.config.get("encrypted"))
 

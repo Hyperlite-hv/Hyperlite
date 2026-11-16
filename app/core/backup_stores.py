@@ -146,7 +146,17 @@ def open_store(name, raw=False):
         raise StoreError(
             f"{path} holds another backup store than '{name}': the pool is not the same share on this node", 409
         )
+    _refuse_downgrade(store, row)
     return store
+
+
+def _refuse_downgrade(store, row):
+    """The store on the share says itself whether it is encrypted (.store.json): whoever can write the share could
+    say no, and every later backup would be written in clear. The cluster's own record decides."""
+    if row is not None and bool(row["encrypted"]) and not store.encrypted:
+        raise StoreError(
+            f"Backup store '{row['name']}' is recorded as encrypted but its directory says it is not: refused", 409
+        )
 
 
 def open_root(root):
@@ -158,9 +168,11 @@ def open_root(root):
         raise StoreError(f"{root} is not a backup store: {e}", 409) from None
     row = next((r for r in _repo().list_stores() if r["store_id"] == store_id), None)
     try:
-        return backup_store.Store(root, _key_of(row) if row else None)
+        store = backup_store.Store(root, _key_of(row) if row else None)
     except backup_store.StoreError as e:
         raise StoreError(e.message, 409) from None
+    _refuse_downgrade(store, row)
+    return store
 
 
 def create(

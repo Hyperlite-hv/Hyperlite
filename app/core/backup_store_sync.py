@@ -14,7 +14,7 @@ A job runs on the node that leads the cluster's work (cluster_lead), which must 
 import logging
 import re
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.core import backup_retention, backup_stores
 
@@ -124,6 +124,18 @@ def _created(stamp, manifest):
     return manifest.get("time") or stamp
 
 
+def _plausible(manifest, stamp, now):
+    """A source's backup the copy may rank: dated no later than now (an hour of clock drift allowed). A source that
+    sends backups from the future would push the copy's own older ones out of "the last N" and have them deleted."""
+    try:
+        when = datetime.fromisoformat(str(_created(stamp, manifest)).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return when <= now + timedelta(hours=1)
+
+
 def run_job(job):
     """Copy what the target's policy keeps and the target lacks, then let go what the policy no longer keeps. The
     policy is applied, per VM, to the backups of both stores together: a backup the target would delete at once is
@@ -144,8 +156,9 @@ def run_job(job):
         except (backup_stores.StoreError, backup_remotes.RemoteError) as e:
             raise SyncError(e.message, e.status) from None
         policy = backup_retention.policy_of(job)
+        now = datetime.now(UTC)
         here = {(vm, stamp): manifest for vm, stamp, manifest in target.backups()}
-        there = {(vm, stamp): manifest for vm, stamp, manifest in source.backups()}
+        there = {(vm, stamp): m for vm, stamp, m in source.backups() if _plausible(m, stamp, now)}
         copied = chunks = removed = 0
         for vm in sorted({vm for vm, _ in here} | {vm for vm, _ in there}):
             candidates = {k: m for k, m in {**there, **here}.items() if k[0] == vm}
@@ -153,10 +166,19 @@ def run_job(job):
                 [(k, _created(k[1], m)) for k, m in candidates.items()],
                 policy["last"], policy["daily"], policy["weekly"], policy["monthly"],
             )  # fmt: skip
+            copies = {}
             for key in sorted(keep - here.keys()):
                 chunks += target.copy_backup_from(source, *key)
                 copied += 1
-            for key in sorted(here.keys() - keep):
+                copies[key] = there[key]
+            # The copy's own backups go only by the policy over what the copy holds now (its own and what this run
+            # copied): an entry the source merely lists, dated in the future or not copied, never ranks here.
+            own = {k: m for k, m in {**here, **copies}.items() if k[0] == vm}
+            own_keep = backup_retention.kept(
+                [(k, _created(k[1], m)) for k, m in own.items()],
+                policy["last"], policy["daily"], policy["weekly"], policy["monthly"],
+            )  # fmt: skip
+            for key in sorted(own.keys() - own_keep):
                 target.delete_backup(*key)
                 removed += 1
         if remote:

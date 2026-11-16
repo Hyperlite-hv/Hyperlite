@@ -26,6 +26,15 @@ class LiveRestoreError(RuntimeError):
 def overlay(backup_image, dest):
     """A new qcow2 file at `dest` reading through to `backup_image` (never written: QEMU opens a backing file read-only)."""
     backup_image = Path(backup_image).resolve()
+    # The backup's image is read through, as the copy of a restore reads it: checked first that it names no other file
+    # (a backing file, a data file) outside its backup (app/core/disk_images.py), since a backup may come from another
+    # site's share.
+    from app.core import disk_images
+
+    try:
+        disk_images.check(backup_image, within=backup_image.parent.parent)
+    except disk_images.UnsafeImage as e:
+        raise LiveRestoreError(str(e)) from None
     info = image_info(backup_image)
     if info.get("format") != "qcow2":
         raise LiveRestoreError(f"{backup_image.name} is not a qcow2 image: a live restore needs one")
