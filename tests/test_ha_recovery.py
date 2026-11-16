@@ -490,3 +490,37 @@ def test_a_member_without_status_is_not_lost_while_a_new_leader_waits(cluster, d
     del cluster["ages"]["n2"]
     monkeypatch.setattr(ha_recovery, "_leading_since", time.monotonic())
     assert ha_recovery.tick() == {"n2": "ok"} and cluster["started"] == []
+
+
+def test_a_slow_bmc_never_holds_the_round(cluster, database, monkeypatch):
+    """An unreachable BMC takes minutes: the round goes on (the lead's health is its age), and the answer is read at a
+    later round."""
+    import threading
+
+    protect(database, "web")
+    cluster["ages"]["n2"] = 70.0
+    cluster["fencing"] = "ipmi"
+    release = threading.Event()
+
+    def slow(node):
+        release.wait(10)
+        return {"fenced": True, "detail": "off"}
+
+    monkeypatch.setattr(ha_fencing, "power_off", slow)
+    monkeypatch.setattr(ha_recovery, "BMC_IN_ROUND_S", 0.05)
+    started = time.monotonic()
+    assert ha_recovery.tick() == {"n2": "fencing"}
+    assert time.monotonic() - started < 5 and cluster["started"] == []
+    release.set()
+    ha_recovery._lost["n2"]["bmc_asking"].join(5)
+    assert ha_recovery.tick() == {"n2": "recovering"}
+
+
+def test_a_paused_vm_on_a_member_back_is_not_started_elsewhere(cluster, database, monkeypatch):
+    protect(database, "web")
+    cluster["ages"]["n2"] = 70.0
+    cluster["watchdog"] = {"armed": True, "reset_within_s": 120}
+    assert ha_recovery.tick() == {"n2": "fencing"}
+    cluster["ages"]["n2"] = 1.0  # back before it was proven stopped, its guest paused on an I/O error
+    monkeypatch.setattr(statd, "table", lambda: {"n2": {"vms": [{"name": "web", "state": "paused"}]}})
+    assert ha_recovery.tick() == {"n2": "ok"} and cluster["started"] == []
