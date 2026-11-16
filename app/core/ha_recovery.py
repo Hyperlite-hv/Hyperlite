@@ -50,6 +50,7 @@ OK, LOST, FENCING, RECOVERING, MANUAL = "ok", "lost", "fencing", "recovering", "
 # "recovering": the names of the VMs it was fenced for, restarted elsewhere}:
 # the leader's own view, rebuilt from the statuses within a round after it starts.
 _lost = {}
+_leading_since = None  # when this node, as the leader, first read the members' statuses
 _lock = threading.Lock()
 
 
@@ -307,12 +308,23 @@ def tick():
     """One round. Returns {member: state} of the members watched, for the API and the tests."""
     from app.core import cluster_lead, ha, statd
 
+    global _leading_since
     if not cluster_lead.in_cluster() or not cluster_lead.is_leader() or cluster_lead.read_only_reason():
         with _lock:
             _lost.clear()  # another node acts, or none may: start again from what is seen when this one may
+            _leading_since = None
         return {}
     rows = [r for r in ha.list_protected() if r["node"] not in (None, "local")]
-    ages = statd.ages()
+    try:
+        ages = statd.ages(strict=True)
+    except statd.StatusesUnread as e:
+        # No status read is not every member lost: nothing is decided this round.
+        logger.warning("HA: the members' statuses could not be read, nothing decided this round: %s", e)
+        return {}
+    with _lock:
+        if _leading_since is None:
+            _leading_since = time.monotonic()
+        leading_for = time.monotonic() - _leading_since
     members = set(_members())
     watched = sorted({r["node"] for r in rows if r["node"] in members})
     now = time.monotonic()
@@ -327,6 +339,11 @@ def tick():
             key=lambda r: (PRIORITY.get(_store().policy(r["vm_name"])["priority"], 1), r.get("enabled_at") or ""),
         )
         age = ages.get(member)
+        if age is None and leading_for <= LOST_S:
+            # A member with no status yet, seen by a leader that just took the lead or whose hyperlite-cfs just came
+            # back: its status may simply not have arrived. Lost only once this leader waited as long as for any other.
+            states[member] = OK
+            continue
         if age is not None and age <= LOST_S:
             with _lock:
                 entry = _lost.get(member)

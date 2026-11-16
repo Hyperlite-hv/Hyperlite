@@ -143,3 +143,17 @@ def test_protections_hold_on_restore_move_and_delete_whatever_the_url(database, 
     with pytest.raises(HTTPException) as e:
         lifecycle._delete_vm("db1", True, None, {"username": "root", "role": "admin"})
     assert e.value.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("machine", "family"), [("pc-q35-9.2", "q35"), ("q35", "q35"), ("pc-i440fx-8.2", "pc"), ("pc", "pc")]
+)
+def test_ha_keeps_the_machine_family_a_vm_was_installed_on(machine, family):
+    from app.core import ha
+
+    xml = (f"<domain><os><type machine='{machine}'>hvm</type></os><cpu mode='host-passthrough'>"
+           "<topology sockets='1' cores='4' threads='2'/></cpu></domain>")  # fmt: skip
+    root = ET.fromstring(ha._portable_xml(xml))
+    assert root.find("os/type").get("machine") == family
+    assert root.find("cpu").get("mode") == "host-model"
+    assert root.find("cpu/topology").get("cores") == "4"
