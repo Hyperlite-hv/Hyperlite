@@ -99,7 +99,7 @@ def test_average_cpu_needs_the_whole_window():
     assert vm_group_scaling.average_cpu({"g-1"}, 10, NOW, [s("g-1", 2, 99)]) is None
 
 
-def test_decisions():
+def test_decisions(database):
     members = [(1, "g-1", True), (2, "g-2", True)]
     d = vm_group_scaling.decide
     assert d({}, _settings(), members, 90, NOW)[0] == ("up", 2)

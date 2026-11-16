@@ -61,3 +61,32 @@ def test_scale_up_and_down(database, fleet, monkeypatch):
     assert deployed == ["run-1", "run-3", "run-4"] and deleted == ["run-3"]
     with pytest.raises(vm_groups.GroupError):
         vm_groups.create({"name": "x", "template": "deb", "prefix": "Bad Prefix"}, "root")
+
+
+def test_a_vm_the_group_did_not_make_is_never_one_of_its_members(database, fleet):
+    """Membership was a name pattern: a VM named <prefix>-<n> by someone else was counted, and deleted when the count
+    went down. Only the VMs the group made are its own; a prefix an existing VM already has is refused."""
+    domains, _deployed, deleted = fleet
+    domains["db-1"] = True  # someone's production VM
+    with pytest.raises(vm_groups.GroupError, match="db-1 already has this prefix"):
+        vm_groups.create({"name": "dbs", "template": "deb", "prefix": "db"}, "root")
+    g = vm_groups.create({"name": "webs", "template": "deb", "prefix": "web"}, "root")
+    user = {"username": "root", "role": "admin"}
+    assert vm_groups.scale(g["id"], 1, user)["made"] == ["web-1"]
+    domains["web-2"] = False  # made by hand afterwards, under the group's pattern
+    assert [m["name"] for m in vm_groups.groups()[0]["members"]] == ["web-1"]
+    assert vm_groups.scale(g["id"], 0, user)["removed"] == ["web-1"] and deleted == ["web-1"]
+    assert "web-2" in domains
+
+
+def test_a_protected_member_is_never_removed(database, fleet):
+    from app.core import protections
+
+    _domains, _deployed, deleted = fleet
+    g = vm_groups.create({"name": "webs", "template": "deb", "prefix": "web"}, "root")
+    user = {"username": "root", "role": "admin"}
+    vm_groups.scale(g["id"], 2, user)
+    protections.put("vm", "web-2", "keep", "", "root")
+    with pytest.raises(vm_groups.GroupError, match="kept from deletion"):
+        vm_groups.scale(g["id"], 1, user)
+    assert deleted == []
