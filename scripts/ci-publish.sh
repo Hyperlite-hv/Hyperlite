@@ -76,9 +76,18 @@ mkdir -p installer/apt-repo
 rsync -a --exclude=.git "$WORK/mirror/" installer/apt-repo/
 # A semver version is published once: a second publication of 1.0.1 with other content would reach some nodes and
 # not others. The release PR bumps VERSION.
+# A run that stopped after its push (the release, the ISO or the verification failed) is resumed: the same version from
+# the same commit skips the push and does the rest.
+RESUME=0
 if [[ "$VERSION" =~ $SEMVER_RE ]] && [ -e "installer/apt-repo/$POOL/h/hyperlite/hyperlite_${VERSION}_amd64.deb" ]; then
-    echo "[ci-publish] version $VERSION is already published: bump VERSION in the release PR" >&2
-    exit 1
+    git -C "$WORK/mirror" fetch -q --deepen=200 origin gh-pages 2>/dev/null || true
+    if git -C "$WORK/mirror" log --format=%s | grep -qxF "Automatic publication ${VERSION} (commit ${SOURCE_COMMIT:0:8})"; then
+        RESUME=1
+        log "version $VERSION was pushed from this commit already: resuming after the push"
+    else
+        echo "[ci-publish] version $VERSION is already published: bump VERSION in the release PR" >&2
+        exit 1
+    fi
 fi
 # The release notes the update dialog shows (GET /update/check), next to the repository.
 bash scripts/release-notes.sh "$VERSION" installer/apt-repo/notes
@@ -99,6 +108,8 @@ cp docs/roadmap.json installer/apt-repo/roadmap/
 # 3. Publish the repository to the mirror (verified by the script itself).
 if [ "$DRY_RUN" = "1" ]; then
     log "dry run: the mirror is not updated"
+elif [ "$RESUME" = "1" ]; then
+    log "resumed: the mirror already has this version"
 else
     # The clone of step 1: the mirror is downloaded once.
     bash scripts/publish-gh-pages.sh installer/apt-repo "$HYPERLITE_MIRROR_REPO" "$VERSION" "${SOURCE_COMMIT:0:8}" \
