@@ -464,8 +464,8 @@ def _init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, created_at)")
-        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verified' or 'corrupted'
-        # with the date and what was wrong.
+        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verified', 'corrupted' or
+        # 'unverifiable' (it could not be read), with the date and what was wrong.
         for ddl in (
             "ALTER TABLE backups ADD COLUMN verification TEXT",
             "ALTER TABLE backups ADD COLUMN verified_at TEXT",

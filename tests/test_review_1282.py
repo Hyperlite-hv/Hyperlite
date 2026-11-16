@@ -481,3 +481,25 @@ def datetime_now():
     from datetime import UTC, datetime
 
     return datetime.now(UTC).isoformat()
+
+
+def test_a_backup_that_cannot_be_read_is_recorded_and_the_next_one_comes(database, monkeypatch):
+    from app.core import backups
+
+    recorded = []
+
+    class Store:
+        def next_to_verify(self, limit):
+            return 7
+
+        def set_verification(self, backup_id, status, at, detail):
+            recorded.append((backup_id, status, detail))
+
+    monkeypatch.setattr(backups, "_store", lambda: Store())
+
+    def unreadable(backup_id, username=None):
+        raise RuntimeError("Input/output error")
+
+    monkeypatch.setattr(backups, "verify_backup", unreadable)
+    assert backups._verify_due_backup() is None
+    assert recorded == [(7, "unverifiable", "Input/output error")]

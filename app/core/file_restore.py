@@ -38,6 +38,7 @@ _sessions = {}
 _lock = threading.Lock()
 _interpreter = []  # cached [path or None] once looked up
 _reaper = []
+_starting = []  # (backup id, account) of the sessions whose appliance is starting
 
 
 class RestoreError(RuntimeError):
@@ -61,7 +62,8 @@ def interpreter():
         if ok:
             found = path
             break
-    _interpreter.append(found)
+    if found:
+        _interpreter.append(found)  # only a success is kept: libguestfs installed afterwards is found at the next look
     return found
 
 
@@ -121,20 +123,25 @@ class Session:
         self.lock = threading.Lock()
         self.last = time.monotonic()
         self.workdir = Path(tempfile.mkdtemp(prefix="hyperlite-filerestore-"))
-        self.errlog = open(self.workdir / "helper.log", "w+")  # noqa: SIM115 -- kept open for the helper's lifetime
-        self.proc = subprocess.Popen(
-            [interpreter(), str(HELPER), *disks],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=self.errlog,
-            text=True,
-            env={**os.environ, "LIBGUESTFS_BACKEND": "direct"},
-        )
-        first = self._read(START_TIMEOUT_S)
-        if not first.get("ready"):
+        self.proc = None
+        try:
+            self.errlog = open(self.workdir / "helper.log", "w+")  # noqa: SIM115 -- kept open for the helper's lifetime
+            self.proc = subprocess.Popen(
+                [interpreter(), str(HELPER), *disks],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=self.errlog,
+                text=True,
+                env={**os.environ, "LIBGUESTFS_BACKEND": "direct"},
+            )
+            first = self._read(START_TIMEOUT_S)
+            if not first.get("ready"):
+                raise RestoreError(first.get("error") or "The backup's disks could not be opened")
+            self.filesystems = self.request({"op": "filesystems"})["filesystems"]
+        except BaseException:
+            # A start that failed or took too long: its helper stopped and its directory removed, never left behind.
             self.close()
-            raise RestoreError(first.get("error") or "The backup's disks could not be opened")
-        self.filesystems = self.request({"op": "filesystems"})["filesystems"]
+            raise
 
     def _stderr_tail(self):
         with contextlib.suppress(OSError):
@@ -164,13 +171,22 @@ class Session:
             self.last = time.monotonic()
             self.proc.stdin.write(json.dumps(req) + "\n")
             self.proc.stdin.flush()
-            res = self._read(timeout)
+            try:
+                res = self._read(timeout)
+            except (RestoreError, ValueError):
+                # A reply that did not come in time comes later: the next request would read it as its own. The
+                # session ends; opening the backup again starts a fresh one.
+                self.proc.kill()
+                raise
             self.last = time.monotonic()
         if "error" in res:
             raise RestoreError(res["error"])
         return res
 
     def close(self):
+        if self.proc is None:
+            shutil.rmtree(self.workdir, ignore_errors=True)
+            return
         with contextlib.suppress(OSError, ValueError, BrokenPipeError):
             self.proc.stdin.write(json.dumps({"op": "close"}) + "\n")
             self.proc.stdin.flush()
@@ -214,7 +230,9 @@ def open_here(backup_id, path, username):
             if s.backup_id == backup_id and s.username == username and s.proc.poll() is None:
                 s.last = time.monotonic()
                 return s
-        if len(_sessions) >= MAX_SESSIONS:
+        if (backup_id, username) in _starting:
+            raise RestoreError("This backup is being opened already: wait a moment")
+        if len(_sessions) + len(_starting) >= MAX_SESSIONS:
             raise RestoreError(
                 f"{MAX_SESSIONS} backups are being browsed already: close one first (or wait for it to time out)"
             )
@@ -222,7 +240,13 @@ def open_here(backup_id, path, username):
             t = threading.Thread(target=_reap, name="file-restore-reaper", daemon=True)
             t.start()
             _reaper.append(t)
-    session = Session(backup_id, None, disks, username)
+        # The slot is taken now, before the appliance starts (up to minutes): two opens at once never both pass.
+        _starting.append((backup_id, username))
+    try:
+        session = Session(backup_id, None, disks, username)
+    finally:
+        with _lock:
+            _starting.remove((backup_id, username))
     with _lock:
         _sessions[session.id] = session
     return session
