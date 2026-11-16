@@ -39,6 +39,10 @@ struct cfs_mount {
      * for an inode it looked up long ago); the tree is bounded, so is this table. */
     char **paths;
     size_t npaths, cap;
+    /* An open-addressing index of paths (slot: position + 1, 0 empty), so finding a path's inode is not a scan of
+     * every path ever seen. */
+    size_t *slots;
+    size_t nslots;
 };
 
 /* ---- Paths and inodes ---- */
@@ -52,14 +56,49 @@ static const char *path_of(const cfs_mount *m, fuse_ino_t ino)
     return m->paths[ino - 2];
 }
 
+static size_t hash_path(const char *path)
+{
+    size_t h = 1469598103934665603ULL; /* FNV-1a */
+    for (const unsigned char *p = (const unsigned char *)path; *p; p++)
+        h = (h ^ *p) * 1099511628211ULL;
+    return h;
+}
+
+static void index_put(cfs_mount *m, size_t pos)
+{
+    size_t i = hash_path(m->paths[pos]) & (m->nslots - 1);
+    while (m->slots[i])
+        i = (i + 1) & (m->nslots - 1);
+    m->slots[i] = pos + 1;
+}
+
+/* Keeps the index at most half full: grown (and rebuilt) before an insertion would pass that. */
+static int index_room(cfs_mount *m)
+{
+    if ((m->npaths + 1) * 2 <= m->nslots)
+        return 0;
+    size_t n = m->nslots ? m->nslots * 2 : 1024;
+    size_t *slots = calloc(n, sizeof(*slots));
+    if (!slots)
+        return -1;
+    free(m->slots);
+    m->slots = slots;
+    m->nslots = n;
+    for (size_t pos = 0; pos < m->npaths; pos++)
+        index_put(m, pos);
+    return 0;
+}
+
 static fuse_ino_t ino_of(cfs_mount *m, const char *path)
 {
     if (strcmp(path, "/") == 0)
         return FUSE_ROOT_ID;
-    for (size_t i = 0; i < m->npaths; i++)
-        if (strcmp(m->paths[i], path) == 0)
-            return i + 2;
-    if (m->npaths >= INODES_MAX)
+    if (m->nslots) {
+        for (size_t i = hash_path(path) & (m->nslots - 1); m->slots[i]; i = (i + 1) & (m->nslots - 1))
+            if (strcmp(m->paths[m->slots[i] - 1], path) == 0)
+                return m->slots[i] + 1;
+    }
+    if (m->npaths >= INODES_MAX || index_room(m) != 0)
         return 0;
     if (m->npaths == m->cap) {
         size_t cap = m->cap ? m->cap * 2 : 256;
@@ -72,7 +111,9 @@ static fuse_ino_t ino_of(cfs_mount *m, const char *path)
     char *copy = strdup(path);
     if (!copy)
         return 0;
-    m->paths[m->npaths++] = copy;
+    m->paths[m->npaths] = copy;
+    index_put(m, m->npaths);
+    m->npaths++;
     return m->npaths + 1;
 }
 
@@ -143,25 +184,6 @@ int cfs_mount_virtual(cfs_mount *m, const char *name, char **text, size_t *len)
 
 /* ---- Attributes ---- */
 
-typedef struct {
-    const char *want;
-    bool found, is_dir;
-    int64_t size;
-} find_child;
-
-static int find_cb(void *ctx, const char *name, size_t name_len, bool is_dir, int64_t version, int64_t size)
-{
-    (void)version;
-    find_child *f = ctx;
-    if (strlen(f->want) == name_len && memcmp(f->want, name, name_len) == 0) {
-        f->found = true;
-        f->is_dir = is_dir;
-        f->size = size;
-        return 1;
-    }
-    return 0;
-}
-
 static void fill(const cfs_mount *m, struct stat *st, const char *path, mode_t type, off_t size, time_t mtime)
 {
     bool priv = cfs_path_is_private(path);
@@ -203,28 +225,17 @@ int cfs_mount_attr_of(cfs_mount *m, const char *path, struct stat *st)
     }
     if (!cfs_path_valid(path, false))
         return -ENOENT;
-    char parent[CFS_PATH_MAX + 1], name[CFS_PATH_MAX + 1];
-    snprintf(parent, sizeof(parent), "%s", path);
-    char *slash = strrchr(parent, '/');
-    snprintf(name, sizeof(name), "%s", slash + 1); /* before the parent is cut, which may overwrite it */
-    find_child f = {.want = name};
-    if (slash == parent)
-        parent[1] = '\0';
-    else
-        *slash = '\0';
-    if (cfs_store_list(m->node->ctx.store, parent, find_cb, &f) < 0 || !f.found)
+    /* Two point lookups, never a listing of the parent: a stat of a name that does not exist must not read a whole
+     * subtree on the event loop the cluster's messages share. */
+    bool is_dir = false;
+    int64_t size = 0, mtime = 0;
+    if (cfs_store_stat(m->node->ctx.store, path, &is_dir, &size, &mtime) != CFS_OK)
         return -ENOENT;
-    if (f.is_dir) {
+    if (is_dir) {
         fill(m, st, path, S_IFDIR, 0, 0);
         return 0;
     }
-    int64_t version = 0, mtime = 0;
-    uint8_t *data = NULL;
-    size_t len = 0;
-    if (cfs_store_get(m->node->ctx.store, path, &version, &mtime, &data, &len) != CFS_OK)
-        return -ENOENT;
-    free(data);
-    fill(m, st, path, S_IFREG, (off_t)len, (time_t)mtime);
+    fill(m, st, path, S_IFREG, (off_t)size, (time_t)mtime);
     return 0;
 }
 
@@ -335,6 +346,11 @@ static int list_cb(void *ctx, const char *name, size_t name_len, bool is_dir, in
         return 0;
     memcpy(copy, name, name_len);
     copy[name_len] = '\0';
+    /* At the root, the link and the virtual files are listed already: a tree entry of the same name is not shown twice
+     * (it cannot be reached through the mount; cfs_check refuses to write one). */
+    if (strcmp(l->dir, "/") == 0 && (strcmp(copy, LOCAL_LINK) == 0 || strcmp(copy, VIRTUAL_MEMBERS) == 0 ||
+                                     strcmp(copy, VIRTUAL_QUORUM) == 0 || strcmp(copy, VIRTUAL_VERSION) == 0))
+        return 0;
     add_entry(l, copy, is_dir ? S_IFDIR : S_IFREG);
     return l->failed ? 1 : 0;
 }
@@ -527,6 +543,7 @@ void cfs_mount_close(cfs_mount *m)
     for (size_t i = 0; i < m->npaths; i++)
         free(m->paths[i]);
     free(m->paths);
+    free(m->slots);
     free(m->mountpoint);
     free(m);
 }

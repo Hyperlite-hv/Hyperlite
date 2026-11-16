@@ -166,6 +166,38 @@ static int has_children(cfs_store *s, const char *dir)
     return -1;
 }
 
+int cfs_store_stat(cfs_store *s, const char *path, bool *is_dir, int64_t *size, int64_t *mtime)
+{
+    sqlite3_stmt *st;
+    if (sqlite3_prepare_v2(s->db, "SELECT length(data), mtime FROM tree WHERE path = ?", -1, &st, NULL) != SQLITE_OK) {
+        set_error(s, "stat");
+        return CFS_INTERNAL;
+    }
+    sqlite3_bind_text(st, 1, path, -1, SQLITE_STATIC);
+    int rc = sqlite3_step(st);
+    if (rc == SQLITE_ROW) {
+        *is_dir = false;
+        *size = sqlite3_column_int64(st, 0);
+        *mtime = sqlite3_column_int64(st, 1);
+        sqlite3_finalize(st);
+        return CFS_OK;
+    }
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) {
+        set_error(s, "stat");
+        return CFS_INTERNAL;
+    }
+    int children = has_children(s, path);
+    if (children < 0)
+        return CFS_INTERNAL;
+    if (!children)
+        return CFS_NOT_FOUND;
+    *is_dir = true;
+    *size = 0;
+    *mtime = 0;
+    return CFS_OK;
+}
+
 /* A file may not sit where a directory is (an entry below it) nor below another file. */
 static int check_shape(cfs_store *s, const char *path)
 {

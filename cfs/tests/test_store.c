@@ -108,6 +108,22 @@ static void test_files_and_directories_do_not_overlap(cfs_store *s)
     CHECK_EQ(cfs_store_list(s, "/nodes/node1/config", collect, &none), CFS_INVALID);
 }
 
+/* What a path is, by point lookups: the mount's stat (never a listing of its parent). */
+static void test_stat(cfs_store *s)
+{
+    CHECK_EQ(put(s, "/st/dir/file", "abc", -1, NULL), CFS_OK);
+    bool is_dir = true;
+    int64_t size = -1, mtime = -1;
+    CHECK_EQ(cfs_store_stat(s, "/st/dir/file", &is_dir, &size, &mtime), CFS_OK);
+    CHECK(!is_dir);
+    CHECK_EQ(size, 3);
+    CHECK_EQ(mtime, 1000);
+    CHECK_EQ(cfs_store_stat(s, "/st/dir", &is_dir, &size, &mtime), CFS_OK);
+    CHECK(is_dir);
+    CHECK_EQ(cfs_store_stat(s, "/st/nope", &is_dir, &size, &mtime), CFS_NOT_FOUND);
+    CHECK_EQ(cfs_store_stat(s, "/st/di", &is_dir, &size, &mtime), CFS_NOT_FOUND);
+}
+
 static void test_rename(cfs_store *s)
 {
     int64_t v, nv, version, mtime;
@@ -245,6 +261,7 @@ int main(void)
     test_versions_and_compare_and_set(s);
     test_files_and_directories_do_not_overlap(s);
     test_rename(s);
+    test_stat(s);
     test_limits(s);
     test_locks(s);
     cfs_store_close(s);
