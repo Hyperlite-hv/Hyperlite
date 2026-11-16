@@ -5,11 +5,11 @@ applied with a rollback timer, then confirmed or rolled back. hyperlite-daemon d
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.core import privileged
+from app.core import cluster_view, privileged
 from app.core.audit import log_action
 from app.core.security import require_role
 
-router = APIRouter(prefix="/host/network", tags=["host"])
+router = APIRouter(prefix="/host/network", tags=["host"], dependencies=[Depends(cluster_view.on_node)])
 
 
 class NetworkChange(BaseModel):

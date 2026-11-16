@@ -359,3 +359,17 @@ def test_keys_the_cluster_refused_are_published_again_soon(monkeypatch):
         time.sleep(0.01)
     stop.set()
     assert len(rounds) >= 2
+
+
+def test_a_delegated_token_keeps_its_perimeter_on_the_member_it_is_sent_to(client, make_user, cfs, monkeypatch):
+    """A delegated token acts with one role on one perimeter: a ticket made for it carries that perimeter, and the
+    member called puts it back, instead of acting with all of the owner's rights."""
+    make_user("ana", "admin")
+    scope = {"role": "viewer", "kind": "vm", "id": "web1"}
+    scoped = {**security.get_user("ana"), "role": "delegated", "owner_role": "admin", "token_scope": scope}
+    monkeypatch.setattr(peer_auth, "_account", lambda credential: scoped)
+    token = peer_auth.peer("a delegated token", ["node-a"])["node-a"]
+    assert jwt.decode(token, options={"verify_signature": False})["token_scope"] == scope
+    a = Member(cfs, "node-a")
+    r = _me(client, a.ticket("ana", token_scope=scope))
+    assert r.status_code == 200 and r.json()["role"] == "delegated"
