@@ -623,6 +623,11 @@ def volume_delete(conn, pool_name, volume_name):
         raise PoolError("not_found", f"Volume '{volume_name}' not found") from None
     if vol.path() in get_disk_paths_in_use(conn):
         raise PoolError("in_use", f"Volume '{volume_name}' is used by a VM, deletion refused")
+    from app.core import linked_disks
+
+    why = linked_disks.refusal(vol.path(), conn) if vol.info()[0] == libvirt.VIR_STORAGE_VOL_FILE else None
+    if why:
+        raise PoolError("in_use", f"Volume '{volume_name}' is not deleted: {why}")
     try:
         vol.delete(0)
     except libvirt.libvirtError as e:

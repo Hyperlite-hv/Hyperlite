@@ -37,6 +37,20 @@ def _info(path):
         raise UnsafeImage(f"The disk image {Path(path).name} could not be read") from e
 
 
+FORMATS = ("qcow2", "raw")
+
+
+def declared_format(disk):
+    """The format a libvirt <disk> element tells QEMU to read (its driver type; raw when it names none). A copy names
+    it to qemu-img instead of letting it guess from the first bytes: a raw disk is the guest's to write, and a guest
+    that wrote a qcow2 header naming a host file there would have that file read into the copy, as root."""
+    driver = disk.find("driver")
+    fmt = (driver.get("type") if driver is not None else None) or "raw"
+    if fmt not in FORMATS:
+        raise UnsafeImage(f"A disk in the {fmt} format is not copied: convert it to qcow2 first")
+    return fmt
+
+
 def check(path, within=None):
     """The image's format, once neither it nor its backing chain names another file: none at all, or with `within`
     (a directory), backing files inside it only. Raises UnsafeImage."""

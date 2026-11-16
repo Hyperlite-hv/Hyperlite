@@ -112,3 +112,16 @@ def domain_disks(conn):
 def dependents(base, conn):
     """Names of the VMs on `conn` with a disk that reads through `base`, sorted."""
     return sorted({name for name, path in domain_disks(conn) if depends_on(path, base)})
+
+
+def refusal(path, conn):
+    """Why the volume file at `path` must not be given to a VM or deleted, or None: other VMs read through it (a base
+    image, a template's disk), or it is the disk of a VM in the recycle bin."""
+    from app.core import recycle_bin
+
+    readers = dependents(path, conn)
+    if readers:
+        return f"it is the base of the linked disks of VM {', '.join(readers)}"
+    if str(path) in recycle_bin.binned_paths():
+        return "it is the disk of a VM in the recycle bin"
+    return None

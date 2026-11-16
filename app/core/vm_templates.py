@@ -17,7 +17,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import disk_space, firmware, linked_disks, templates_store, vm_records
+from app.core import disk_images, disk_space, firmware, linked_disks, templates_store, vm_records
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import refresh_pools_for_paths
 from app.core.safe_paths import safe_child
@@ -35,16 +35,27 @@ class TemplateError(Exception):
         self.detail = detail
 
 
-def _copy(source, dest):
-    """`source` (with its backing chain, flattened) written as the qcow2 image `dest`; nothing left when it fails."""
+def _copy(source, dest, fmt="qcow2"):
+    """`source`, read as `fmt` (never guessed: app/core/disk_images.py, declared_format), with its backing chain
+    flattened, written as the qcow2 image `dest`; nothing left when it fails."""
     try:
         subprocess.run(
-            ["qemu-img", "convert", "-O", "qcow2", str(source), str(dest)], check=True, capture_output=True, text=True
+            ["qemu-img", "convert", "-f", fmt, "-O", "qcow2", str(source), str(dest)],
+            check=True,
+            capture_output=True,
+            text=True,
         )
     except subprocess.CalledProcessError as e:
         Path(dest).unlink(missing_ok=True)
         logger.warning("Copy of %s to %s failed: %s", source, dest, (e.stderr or "").strip()[:300])
         raise TemplateError("failed", "Disk copy failed") from e
+
+
+def _same_filesystem(path, directory):
+    try:
+        return os.stat(path).st_dev == os.stat(directory).st_dev
+    except OSError:
+        return False
 
 
 def check_name(name):
@@ -92,14 +103,25 @@ def make(conn, vm, template, keep_vm, created_by, ssh_user=None, os_label=None, 
     root = ET.fromstring(xml)
     vcpu = int((root.findtext("vcpu") or "1").strip())
     memory_mb = int((root.findtext("memory") or "0").strip()) // 1024
-    first = root.find("./devices/disk[@device='disk']")
+    disks = root.findall("./devices/disk[@device='disk']")
+    if len(disks) > 1:
+        # A template holds one disk: the others would be left behind, listed nowhere, and every deployment would get
+        # its one disk under each of them.
+        raise TemplateError("refused", "A template is made from a VM with one disk: detach the others first")
+    first = disks[0] if disks else None
     disk_source = first.find("source").get("file") if first is not None and first.find("source") is not None else None
     if not disk_source:
         raise TemplateError("failed", "Source disk not found")
+    try:
+        fmt = disk_images.declared_format(first)
+    except disk_images.UnsafeImage as e:
+        raise TemplateError("refused", str(e)) from None
     # A linked clone made into a template gets a disk of its own: a template that read through another one would stop
-    # working when that one is removed, and nothing would protect it.
-    linked = linked_disks.backing_file(disk_source) is not None
-    if keep_vm or linked:
+    # working when that one is removed, and nothing would protect it. A raw disk is copied as qcow2 too: the template's
+    # disk is always qcow2, which is how every deployment reads it.
+    linked = fmt != "qcow2" or linked_disks.backing_file(disk_source) is not None
+    if keep_vm or linked or not _same_filesystem(disk_source, templates_store.TEMPLATES_DIR):
+        # A move to another filesystem is a copy too: checked before the VM is undefined, not after.
         try:
             disk_space.ensure_room(
                 templates_store.TEMPLATES_DIR, disk_space.allocated_bytes(disk_source), "this template's disk"
@@ -114,7 +136,7 @@ def make(conn, vm, template, keep_vm, created_by, ssh_user=None, os_label=None, 
         # Written aside first and described last: a template being copied never shows in the list, nor one whose copy
         # failed.
         partial = templates_store.partial_disk_path(template)
-        _copy(disk_source, partial)
+        _copy(disk_source, partial, fmt)
         try:
             os.replace(partial, templates_store.disk_path(template))
             templates_store.save_template(template, xml, vcpu, memory_mb, vm, created_by, **meta)
@@ -128,7 +150,7 @@ def make(conn, vm, template, keep_vm, created_by, ssh_user=None, os_label=None, 
     if linked:
         # Written aside before anything changes: a copy that fails leaves the VM as it was.
         flat = templates_store.partial_disk_path(template)
-        _copy(disk_source, flat)
+        _copy(disk_source, flat, fmt)
     target_disk = templates_store.save_template(template, xml, vcpu, memory_mb, vm, created_by, **meta)
     try:
         # A UEFI VM's NVRAM and TPM state go with it: each deployment gets fresh ones.
