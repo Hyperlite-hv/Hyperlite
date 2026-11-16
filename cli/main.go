@@ -19,6 +19,7 @@ const usage = `hyperlite: connect to Hyperlite virtual machines from this workst
 Usage:
   hyperlite login <server-url>        Sign in (approved in the web interface)
   hyperlite logout [--server URL]     Sign out and revoke this workstation's token
+  hyperlite forget <server-url>       Remove a server without calling it (its certificate changed)
   hyperlite status                    Show the servers this workstation is signed in to
   hyperlite vms [--server URL]        List the virtual machines
   hyperlite ssh <vm> [ssh options]    Open an SSH session (user@vm to choose the user)
@@ -138,6 +139,11 @@ func run(args []string) error {
 		return cmdLogin(f.rest[0], f.yes)
 	case "logout":
 		return cmdLogout(f.server)
+	case "forget":
+		if len(f.rest) != 1 {
+			return errors.New("usage: hyperlite forget <server-url>")
+		}
+		return cmdForget(f.rest[0])
 	case "status":
 		return cmdStatus()
 	case "vms":
