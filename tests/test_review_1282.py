@@ -211,3 +211,56 @@ def test_the_terminal_box_sees_no_process_outside_it(monkeypatch):
     assert "PrivatePIDs=yes" not in workbench_box.box_properties("0123456789abcdef", 700001, {})
     relay = (Path(__file__).parent.parent / "scripts/workbench/relay.py").read_text()
     assert "PR_SET_DUMPABLE" in relay and "_not_dumpable()" in relay
+
+
+def test_the_assistants_tools_take_plain_names_only():
+    import asyncio
+
+    from app.core import assistant
+
+    async def get(path, params):
+        return {"path": path}
+
+    for bad in ({"name": "x/identity"}, {"name": "../../auth/tokens"}, {"name": "web", "node": "a/b"}):
+        with pytest.raises(assistant.AssistantError):
+            asyncio.run(assistant.run_tool(get, "get_vm", bad))
+    with pytest.raises(assistant.AssistantError):
+        asyncio.run(assistant.run_tool(get, "availability", {"kind": "vms/x", "name": "web"}))
+    assert asyncio.run(assistant.run_tool(get, "get_vm", {"name": "web-1"})) == {"path": "/vms/web-1"}
+
+
+def test_the_assistants_key_never_goes_to_another_service(database, monkeypatch):
+    from app.core import assistant, http_safety
+
+    monkeypatch.setattr(http_safety, "refuse_link_local", lambda url: url)
+    assistant.set_settings({"provider": "openai", "base_url": "http://10.0.0.5:11434/v1", "api_key": "k1"})
+    assert assistant.settings(with_secret=True)["api_key"]
+    assistant.set_settings({"base_url": "http://elsewhere.example:8080/v1"})
+    assert assistant.settings(with_secret=True)["api_key"] == "", "the key is given again for a new service"
+
+
+def test_a_metadata_address_is_never_an_endpoint():
+    from app.core import http_safety
+
+    with pytest.raises(ValueError, match="link-local"):
+        http_safety.refuse_link_local("http://169.254.169.254/latest/meta-data/")
+    assert http_safety.refuse_link_local("http://127.0.0.1:11434/v1")
+
+
+def test_a_delegated_token_reads_no_secret_of_the_vault():
+    from app.core import vault
+
+    secret = {"readers": ["user:ana"]}
+    assert not vault.may_read({"username": "ana", "role": "delegated", "token_scope": {"role": "viewer"}}, secret)
+    assert not vault.may_read({"username": "ana", "role": "admin", "token_scope": {"role": "viewer"}}, secret)
+
+
+def test_a_replicated_row_names_only_columns_the_table_has(database):
+    import sqlite3
+    from types import SimpleNamespace
+
+    from app.repositories.cfs import inbound
+
+    table = SimpleNamespace(name="dashboards", pk=("id",))
+    with database.get_conn() as db, pytest.raises(sqlite3.OperationalError, match="no column"):
+        inbound._upsert(db, table, {"id": "x", 'name" = 1; DROP TABLE users; --': 1})
