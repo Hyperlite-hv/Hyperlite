@@ -19,7 +19,7 @@ def test_in_a_cluster_the_status_says_automatic_and_each_members_state(client, a
     monkeypatch.setattr(cluster_lead, "is_leader", lambda: True)
     monkeypatch.setattr(self_node, "name", lambda: "n1")
     monkeypatch.setattr(ha_recovery, "_members", lambda: ["n2", "n3"])
-    monkeypatch.setattr(statd, "ages", lambda: {"n1": 1.0, "n2": 2.0, "n3": 90.0})
+    monkeypatch.setattr(statd, "ages", lambda strict=False: {"n1": 1.0, "n2": 2.0, "n3": 90.0})
     monkeypatch.setattr(statd, "table", lambda: {"n1": {"mem_free_mb": 4000}, "n2": {"mem_free_mb": 2000}})
     published = {"n2": {"armed": True, "reset_within_s": 125, "at": "t"}, "n3": {"armed": False, "stopped": True}}
     monkeypatch.setattr(ha_selffence, "published", lambda name: published.get(name))
