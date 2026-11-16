@@ -1973,6 +1973,7 @@ export default {
   "task.type.restore_snapshot": "Restore snapshot",
   "task.type.delete_snapshot": "Delete snapshot",
   "task.type.clone_vm": "Clone VM",
+  "task.type.terminal": "Terminal session",
   "task.type.deploy_template": "Deploy template",
   "task.type.clone_to_template": "Create template (copy)",
   "task.type.convert_to_template": "Convert to template",

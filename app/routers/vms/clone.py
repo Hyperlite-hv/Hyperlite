@@ -1,7 +1,7 @@
 """Cloning a VM of this node (POST /vms/{name}/clone): the checks and the copy are hyperlite-daemon's
 (app/core/vm_clone.py); the permissions, the locks, the task and the records are the API's."""
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core import maintenance, privileged, vm_locks
@@ -21,6 +21,33 @@ class CloneRequest(BaseModel):
     new_name: str
 
 
+def _refuse_by_guardrails(name, new_name):
+    """A clone is a new VM: the cluster's guardrails hold for it as for one made from scratch (its name pattern, its
+    size, its networks, the tags it must carry, which it takes from its source)."""
+    import xml.etree.ElementTree as ET
+
+    import libvirt
+
+    from app.core import guardrails, object_meta
+    from app.core.libvirt_utils import open_conn
+
+    conn = open_conn(readonly=True)
+    try:
+        try:
+            root = ET.fromstring(conn.lookupByName(name).XMLDesc(0))
+        except libvirt.libvirtError:
+            return  # not found: said by the clone itself
+    finally:
+        conn.close()
+    vcpu = int((root.findtext("vcpu") or "1").strip())
+    memory_mb = int((root.findtext("memory") or "0").strip()) // 1024
+    networks = [s.get("network") for s in root.findall("./devices/interface/source") if s.get("network")]
+    tags = object_meta.get("vm", name).get("tags") or []
+    broken = guardrails.creation_refusal(new_name, vcpu, memory_mb, 0, ["default"], networks, None, tags)
+    if broken:
+        raise HTTPException(status_code=422, detail=broken)
+
+
 @router.post("/{name}/clone", status_code=201)
 def clone_vm(
     name: str, payload: CloneRequest, user: dict = Depends(require_vm_privilege("vm.clone")), wait: bool = True
@@ -32,6 +59,7 @@ def clone_vm(
         user, "storage", "default", "storage.allocate", "storage pool 'default' (where a clone is copied)"
     )
     maintenance.refuse_if_in_maintenance("local", "Cloning")
+    _refuse_by_guardrails(name, payload.new_name)
     # The source's disks are read: no restore, move or deletion may change them meanwhile.
     source = vm_locks.claim_or_409(name, "a clone")
     try:

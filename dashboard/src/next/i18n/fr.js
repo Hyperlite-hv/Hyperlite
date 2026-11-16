@@ -2004,6 +2004,7 @@ export default {
   "task.type.restore_snapshot": "Restaurer un snapshot",
   "task.type.delete_snapshot": "Supprimer un snapshot",
   "task.type.clone_vm": "Cloner la VM",
+  "task.type.terminal": "Session de Terminal",
   "task.type.deploy_template": "Déployer le modèle",
   "task.type.clone_to_template": "Créer un modèle (copie)",
   "task.type.convert_to_template": "Convertir en modèle",

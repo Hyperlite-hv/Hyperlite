@@ -343,3 +343,72 @@ def test_an_offline_update_reads_the_candidate_from_its_own_lists(monkeypatch):
     monkeypatch.setattr(update, "_run_c", lambda argv: seen.append(argv) or Out())
     assert update._raw_candidate_version(("-o", "Dir::Etc::sourcelist=/x")) == "1.29.0"
     assert seen[0][:3] == ["apt-cache", "-o", "Dir::Etc::sourcelist=/x"]
+
+
+def test_a_terminal_file_is_reached_without_following_any_link(tmp_path):
+    """The home is walked and the file opened in one process, never through a link: a link swapped in after a check
+    cannot lead out of the home."""
+    import subprocess
+    import sys
+
+    from app.daemon.ops import workbench
+
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "notes").mkdir()
+    (home / "notes" / "plan.txt").write_text("ok")
+    secret = tmp_path / "secret"
+    secret.write_text("host file")
+    (home / "x").symlink_to(secret)
+    (home / "d").symlink_to(tmp_path)
+
+    def run(rel, mode, data=None):
+        argv = [sys.executable, "-I", "-c", workbench._BENEATH, str(home), rel, mode, str(workbench.FILE_MAX)]
+        return subprocess.run(argv, input=data, capture_output=True)
+
+    assert run("notes/plan.txt", "get").stdout == b"ok"
+    assert run("x", "get").returncode != 0
+    assert run("d/secret", "get").returncode != 0
+    assert run("new/dir/f.txt", "put", b"hello").returncode == 0
+    assert (home / "new" / "dir" / "f.txt").read_bytes() == b"hello"
+    assert run("x", "put", b"overwrite").returncode != 0
+    assert secret.read_text() == "host file"
+
+
+def test_libvirts_and_the_systems_state_is_no_pool_directory():
+    from app.core import storage_pools
+
+    for path in ("/var/lib/libvirt/secrets", "/var/lib/libvirt/qemu/nvram", "/var/lib/corosync", "/var/spool/cron"):
+        assert storage_pools.dir_path_error(path), path
+    assert storage_pools.dir_path_error("/var/lib/libvirt/images") is None
+
+
+def test_a_withdrawal_that_failed_can_be_asked_again(monkeypatch):
+    from app.core import cluster_setup
+
+    monkeypatch.setattr(cluster_setup, "_node_name", lambda n: n)
+    token = cluster_setup._issue_withdrawal("node-c")
+
+    def no_quorum(name):
+        raise RuntimeError("no quorum")
+
+    monkeypatch.setattr(cluster_setup, "_take_out", no_quorum)
+    with pytest.raises(RuntimeError):
+        cluster_setup.withdraw_member("node-c", token)
+    monkeypatch.setattr(cluster_setup, "_take_out", lambda name: {"cluster": "lab"})
+    assert cluster_setup.withdraw_member("node-c", token) == {"withdrawn": "node-c"}
+
+
+def test_a_task_shows_its_targets_audit_trail_only_to_who_may_read_the_audit(database, monkeypatch):
+    import asyncio
+
+    from app.core import permissions
+    from app.core.tasks import create_task
+    from app.services import task_service
+
+    task_id = create_task("clone_vm", "web", node=None, username="root")
+    monkeypatch.setattr(permissions, "has_area_privilege", lambda user, p: user["role"] == "admin")
+    viewer = asyncio.run(task_service.get_task(task_id, {"username": "eve", "role": "viewer"}))
+    assert viewer["logs"] == []
+    admin = asyncio.run(task_service.get_task(task_id, {"username": "root", "role": "admin"}))
+    assert isinstance(admin["logs"], list)
