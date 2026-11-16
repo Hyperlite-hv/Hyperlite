@@ -51,5 +51,17 @@ async def main(argv):
         await server.serve_forever()
 
 
+def _not_dumpable():
+    """The relay outside the box runs as the box's own uid: made not dumpable, a process of the box cannot open its
+    memory (/proc/<pid>/mem) and use its way out of the box's network."""
+    import ctypes
+
+    PR_SET_DUMPABLE = 4
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+        raise SystemExit(f"prctl(PR_SET_DUMPABLE) failed: {os.strerror(ctypes.get_errno())}")
+
+
 if __name__ == "__main__":
+    _not_dumpable()
     asyncio.run(main(sys.argv[1:]))

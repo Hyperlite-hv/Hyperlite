@@ -196,3 +196,18 @@ def test_the_daemon_puts_a_vm_in_a_pool_only_for_who_may_or_just_made_it(databas
 
     create_task("create_vm", "alice-web", node=None, username="alice")
     assert access._may_allocate_in_pool(alice, SimpleNamespace(pool_id=7, vm_name="alice-web")) is None
+
+
+def test_the_terminal_box_sees_no_process_outside_it(monkeypatch):
+    """The relay and the tmux clients run outside the box as its own uid: the box gets its own PID namespace (systemd
+    257 and later), and the relay is not dumpable (scripts/workbench/relay.py)."""
+    from pathlib import Path
+
+    from app.core import workbench_box
+
+    monkeypatch.setattr(workbench_box, "_systemd_version", lambda: 257)
+    assert "PrivatePIDs=yes" in workbench_box.box_properties("0123456789abcdef", 700001, {})
+    monkeypatch.setattr(workbench_box, "_systemd_version", lambda: 252)
+    assert "PrivatePIDs=yes" not in workbench_box.box_properties("0123456789abcdef", 700001, {})
+    relay = (Path(__file__).parent.parent / "scripts/workbench/relay.py").read_text()
+    assert "PR_SET_DUMPABLE" in relay and "_not_dumpable()" in relay
