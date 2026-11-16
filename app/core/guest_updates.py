@@ -187,6 +187,26 @@ def cancel(run_id):
     return cur.rowcount > 0
 
 
+def _account(created_by):
+    """The account a run acts for: the one that asked, or a patch plan's author (created_by "plan:<name>"); None when
+    it is gone."""
+    from app.core import patch_plans
+
+    name = created_by or ""
+    if name.startswith("plan:"):
+        plan = next((p for p in patch_plans.plans() if p["name"] == name[len("plan:") :]), None)
+        name = plan["created_by"] if plan else None
+    return patch_plans._author(name) if name else None
+
+
+def _may(account, vm, privilege):
+    from app.core import account_expiry, permissions
+
+    if account is None or account_expiry.expired(account["username"]):
+        return False
+    return permissions.has_privilege(account, vm, privilege)
+
+
 def _save(run):
     with get_conn() as db:
         db.execute(
@@ -237,9 +257,15 @@ def tick(now=None):
             if now < start:
                 continue
             run["status"] = "running"
+            account = _account(run["created_by"])
             for vm in run["vms"]:
                 if now >= end:
                     run["results"][vm] = {"state": "skipped", "error": "The window closed before it started"}
+                    continue
+                if not _may(account, vm, "vm.exec"):
+                    # Rights are read when the run opens, not only when it was asked for: an assignment removed, an
+                    # account ended or deleted since then stops it.
+                    run["results"][vm] = {"state": "skipped", "error": "Its author may no longer run commands in it"}
                     continue
                 try:
                     run["results"][vm] = _start(vm)
@@ -255,6 +281,10 @@ def tick(now=None):
             except DaemonError as e:
                 res = {**res, "error": e.detail}  # the guest rebooting or busy: followed again next minute
             if res["state"] == "done" and run["reboot"] and res.get("needs_reboot"):
+                if not _may(_account(run["created_by"]), vm, "vm.power"):
+                    res = {**res, "error": "not rebooted: its author may not restart it"}
+                    run["results"][vm] = res
+                    continue
                 try:
                     privileged.run("vm.power", user="system", vm=vm, action="reboot")
                     res["rebooted"] = True
