@@ -12,7 +12,7 @@ import time
 
 from pydantic import Field
 
-from app.daemon.needs import ADMIN, by_rule
+from app.daemon.needs import ADMIN, by_rule, own_account
 from app.daemon.registry import Args, DaemonError, Handover, operation
 
 SID = Field(min_length=16, max_length=16, pattern=r"^[a-f0-9]{16}$")
@@ -33,11 +33,14 @@ def _session(sid):
     return dict(row) if row else None
 
 
+@own_account
 def _owner(user, args):
     """The session is the caller's (an administrator: any) and still open."""
     row = _session(args.sid)
     if row is None or row["state"] != "open":
         return "No such Terminal session"
+    if user.get("api_token_id") is not None or user.get("token_scope"):
+        return "A Terminal session is opened from a signed-in session, not with an API token"
     if user["role"] != "admin" and row["account"] != user["username"]:
         return "This Terminal session is another account's"
     return None

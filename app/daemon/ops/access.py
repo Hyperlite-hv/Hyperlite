@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from app.daemon.needs import ADMIN, ANYONE, by_rule, on_vm, own
+from app.daemon.needs import ADMIN, ANYONE, by_rule, on_vm, own, own_account
 from app.daemon.registry import Args, DaemonError, operation
 
 Name = Annotated[str, Field(min_length=1, max_length=256)]  # an account, a group, a pool, a VM
@@ -54,20 +54,54 @@ def _write(kind, method, args):
 # --- What a person needs for each (section 14, 4d): an administrator, unless the account acts on itself ---
 
 
+@own_account
 def _own_password(user, args):
-    """A new password for the account itself; a role is an administrator's to change."""
+    """A new password for the account itself, from a signed-in session; a role is an administrator's to change."""
+    from app.daemon.needs import own_refusal
+
     if args.role is not None:
         return "Only an administrator changes a role"
-    return None if args.username == user["username"] else "Only the account itself or an administrator may do this"
+    return own_refusal(user, args.username)
+
+
+@own_account
+def _own_token_revoke(user, args):
+    """A token revokes itself; any other revocation is the account's, from a signed-in session."""
+    from app.daemon.needs import own_refusal
+
+    if user.get("api_token_id") is not None and args.username == user["username"]:
+        return None if str(args.token_id) == str(user["api_token_id"]) else "An API token revokes only itself"
+    return own_refusal(user, args.username)
 
 
 def _may_allocate_in_pool(user, args):
     """A VM put in a resource pool by the account that made it there (vm.allocate on that pool)."""
     from app.core import permissions
 
-    if permissions.has_scoped_privilege(user, "pool", args.pool_id, "vm.allocate"):
+    if not permissions.has_scoped_privilege(user, "pool", args.pool_id, "vm.allocate"):
+        return f"Insufficient rights on pool {args.pool_id} (required privilege: vm.allocate)"
+    # The pool's holders get their roles on what it holds: a VM goes in only from someone with vm.allocate on it
+    # already, or right after they made it, in no pool yet.
+    if permissions.has_privilege(user, args.vm_name, "vm.allocate"):
         return None
-    return f"Insufficient rights on pool {args.pool_id} (required privilege: vm.allocate)"
+    if not permissions.get_vm_pools(args.vm_name) and _just_made(user["username"], args.vm_name):
+        return None
+    return f"Insufficient rights on VM '{args.vm_name}' (required privilege: vm.allocate)"
+
+
+def _just_made(username, vm):
+    """Whether `username` created the VM `vm` within the last hour (its create_vm task)."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.database import get_conn
+
+    since = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    with get_conn() as db:
+        row = db.execute(
+            "SELECT 1 FROM tasks WHERE type = 'create_vm' AND target = ? AND username = ? AND created_at >= ?",
+            (vm, username, since),
+        ).fetchone()
+    return row is not None
 
 
 def _own_token_label(user, args):
@@ -166,7 +200,7 @@ _register("totp_disable", "accounts", "disable_totp", User, needs=own())
 _register("totp_step", "accounts", "claim_totp_step", TotpStep, needs=own())
 _register("totp_reseal", "accounts", "replace_totp_secret", TotpSecret, needs=ADMIN)
 _register("token_create", "accounts", "create_token", TokenCreate, needs=own())
-_register("token_revoke", "accounts", "revoke_token", TokenRevoke, needs=own())
+_register("token_revoke", "accounts", "revoke_token", TokenRevoke, needs=by_rule(_own_token_revoke))
 _register("token_revoke_all", "accounts", "revoke_all_tokens", User, needs=own())
 _register("token_used", "accounts", "touch_token", TokenUsed, needs=ANYONE)
 _register("session_revoke", "accounts", "revoke_session", SessionRevoke, needs=ANYONE)
@@ -190,6 +224,17 @@ class KeyAdd(Args):
     created_at: Time
 
 
+@own_account
+def _own_key(user, args):
+    """A security key's counter is recorded for the account that signed in with it, never another's: a counter set too
+    high would refuse its owner's next sign-in."""
+    from app.core.database import get_conn
+
+    with get_conn() as db:
+        row = db.execute("SELECT username FROM webauthn_credentials WHERE id = ?", (args.key_id,)).fetchone()
+    return None if row is not None and row["username"] == user["username"] else "Not a security key of this account"
+
+
 class KeyUsed(Args):
     key_id: Id
     sign_count: Seconds
@@ -211,7 +256,7 @@ class ProvisionLdap(Args):
 _register("key_delete", "identity", "delete_key", KeyDelete, needs=own())
 _register("key_delete_all", "identity", "delete_all_keys", User, needs=own())
 _register("key_add", "identity", "add_credential", KeyAdd, needs=own())
-_register("key_used", "identity", "record_key_use", KeyUsed, needs=ANYONE)
+_register("key_used", "identity", "record_key_use", KeyUsed, needs=by_rule(_own_key))
 _register("provision_sso", "identity", "provision_sso_user", ProvisionSso, needs=ADMIN)
 _register("provision_ldap", "identity", "provision_ldap_user", ProvisionLdap, needs=ADMIN)
 
