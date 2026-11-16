@@ -8,6 +8,7 @@ carries each connection through the pinned tunnel; at the target the daemon conn
 QEMU binds and opens `memory` and `disks` itself: RUN/<incoming>/ is owned by its user, and AppArmor lets it
 (scripts/ensure-backup-apparmor.sh's rule for /run/hyperlite/migration)."""
 
+import contextlib
 import grp
 import logging
 import os
@@ -142,6 +143,48 @@ def connect(incoming, kind):
     state["touched_at"] = time.time()
     site_transfer._save(state)
     return sock
+
+
+def filtered_libvirt(incoming, expected):
+    """A socket whose other end reaches this host's libvirt through the migration's call filter, run here, in
+    hyperlite-daemon (site_relay.CallFilter): the API, which carries the bytes, never holds an unfiltered connection to
+    the root libvirt socket. Its answers come back as they are."""
+    import threading
+
+    upstream = connect(incoming, "libvirt")
+    api_end, ours = socket.socketpair()
+    flt = site_relay.CallFilter(expected)
+
+    def close_all():
+        for s in (ours, upstream):
+            with contextlib.suppress(OSError):
+                s.shutdown(socket.SHUT_RDWR)
+            with contextlib.suppress(OSError):
+                s.close()
+
+    def calls():
+        try:
+            while data := ours.recv(65536):
+                upstream.sendall(flt.feed(data))
+        except site_relay.Refused as e:
+            logger.warning("Incoming %s: a call refused by the relay: %s", incoming[:8], e)
+        except OSError:
+            pass
+        finally:
+            close_all()
+
+    def answers():
+        try:
+            while data := upstream.recv(65536):
+                ours.sendall(data)
+        except OSError:
+            pass
+        finally:
+            close_all()
+
+    threading.Thread(target=calls, name=f"relay-{incoming[:8]}-calls", daemon=True).start()
+    threading.Thread(target=answers, name=f"relay-{incoming[:8]}-answers", daemon=True).start()
+    return api_end
 
 
 def define(conn, incoming):

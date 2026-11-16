@@ -65,7 +65,12 @@ def migrate(procedure, params, cookie=b"", flags=0):
 def prepare(xml=RUNNING, **extra):
     return migrate(
         site_relay.PREPARE3_PARAMS,
-        {"destination_xml": xml, "migrate_uri": "unix:///run/hyperlite/migration/abc/memory.sock", **extra},
+        {
+            "destination_xml": xml,
+            "migrate_uri": "unix:///run/hyperlite/migration/abc/memory.sock",
+            "disks_uri": "unix:///run/hyperlite/migration/abc/disks.sock",
+            **extra,
+        },
     )
 
 
@@ -189,11 +194,26 @@ def test_the_parameters_and_the_cookie_are_checked():
             migrate(site_relay.PREPARE3_PARAMS, {"destination_xml": RUNNING}, flags=site_relay.PERSIST_DEST),
             "define the VM",
         ),
-        (migrate(site_relay.PREPARE3_PARAMS, {"migrate_uri": "unix:///run/hyperlite/migration/abc/m"}), "missing"),
         (
             migrate(
                 site_relay.PREPARE3_PARAMS,
-                {"destination_xml": RUNNING},
+                {
+                    "migrate_uri": "unix:///run/hyperlite/migration/abc/m",
+                    "disks_uri": "unix:///run/hyperlite/migration/abc/d",
+                },
+            ),
+            "missing",
+        ),
+        (migrate(site_relay.PREPARE3_PARAMS, {"destination_xml": RUNNING}), "channels"),
+        (prepare(listen_address="192.0.2.1"), "not allowed"),
+        (
+            migrate(
+                site_relay.PREPARE3_PARAMS,
+                {
+                    "destination_xml": RUNNING,
+                    "migrate_uri": "unix:///run/hyperlite/migration/abc/memory.sock",
+                    "disks_uri": "unix:///run/hyperlite/migration/abc/disks.sock",
+                },
                 cookie=b"<qemu-migration><persistent/></qemu-migration>",
             ),
             "cookie",
@@ -202,3 +222,39 @@ def test_the_parameters_and_the_cookie_are_checked():
     ):
         with pytest.raises(Refused, match=message):
             site_relay.CallFilter(EXPECTED).feed(bad)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/../../var/lib/libvirt/images/x.qcow2", "firmware"),
+        ("<nvram>", "<nvram template='/var/lib/libvirt/images/x.qcow2'>", "template"),
+        ("</devices>", "<graphics type='vnc' socket='/var/lib/libvirt/qemu/x.sock'/></devices>", "socket"),
+        (
+            "</devices>",
+            "<channel type='unix'><source mode='connect' path='/var/lib/libvirt/qemu/domain-1-db/monitor.sock'/>"
+            "<target type='virtio' name='x'/></channel></devices>",
+            "connecting",
+        ),
+    ],
+)
+def test_the_destination_names_nothing_of_this_host_by_a_detour(old, new, message):
+    with pytest.raises(Refused, match=message):
+        site_relay.check_destination_xml(RUNNING.replace(old, new, 1), EXPECTED)
+
+
+def test_the_daemon_hands_over_libvirt_only_through_the_filter(monkeypatch):
+    """The API carries the bytes but never holds the root libvirt socket: hyperlite-daemon puts the filter between."""
+    import socket
+
+    from app.core import site_live
+
+    upstream, libvirt_side = socket.socketpair()
+    monkeypatch.setattr(site_live, "connect", lambda incoming, kind: upstream)
+    api = site_live.filtered_libvirt("abc", EXPECTED)
+    api.sendall(prepare())
+    libvirt_side.settimeout(5)
+    assert libvirt_side.recv(1 << 20)  # a migration's call passes
+    api.sendall(call(1, program=0x1234))  # not a migration's: the channel closes
+    libvirt_side.settimeout(5)
+    assert libvirt_side.recv(1 << 20) == b""

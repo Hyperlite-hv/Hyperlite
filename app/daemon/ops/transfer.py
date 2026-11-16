@@ -176,11 +176,14 @@ class ChannelArgs(IncomingArgs):
 @operation("transfer.live_connect", ChannelArgs)
 @_transfer
 def live_connect(args, conn):
-    """A socket connected to this host's end of a channel: its libvirt (the API puts the relay between), or the
-    target QEMU's migration stream or NBD server."""
+    """A socket connected to this host's end of a channel: its libvirt, through the migration's call filter run here
+    (never the root socket itself), or the target QEMU's migration stream or NBD server."""
     from app.core import site_live
 
-    sock = site_live.connect(args.incoming, args.kind)
+    if args.kind == "libvirt":
+        sock = site_live.filtered_libvirt(args.incoming, site_live.expected(conn, args.incoming))
+    else:
+        sock = site_live.connect(args.incoming, args.kind)
     return Handover({}, [sock.detach()])
 
 
