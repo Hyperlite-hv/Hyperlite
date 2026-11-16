@@ -443,3 +443,41 @@ def test_the_replication_triggers_are_replaced_only_when_they_change(database):
         shadow.install_triggers(db)
         after = dict(db.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger'").fetchall())
     assert before == after and any(n.startswith("cfs_") for n in after)
+
+
+def test_a_schedule_runs_once_on_the_day_summer_time_ends(monkeypatch):
+    import os
+    import time as clock
+    from datetime import UTC, datetime
+
+    from app.core import vm_schedules
+
+    monkeypatch.setenv("TZ", "Europe/Paris")
+    clock.tzset()
+    try:
+        # Saturday's run at 03:00 (+02:00), then on Sunday 25 October 2026 the clocks go back at 03:00.
+        saturday = datetime(2026, 10, 24, 1, 0, 30, tzinfo=UTC)
+        sunday = vm_schedules.next_run(list(range(7)), "03:00", saturday)
+        assert sunday == datetime(2026, 10, 25, 2, 0, tzinfo=UTC)  # 03:00 local, now +01:00
+        assert vm_schedules.next_run(list(range(7)), "03:00", sunday) == datetime(2026, 10, 26, 2, 0, tzinfo=UTC)
+    finally:
+        os.environ.pop("TZ", None)
+        clock.tzset()
+
+
+def test_a_cluster_budget_counts_every_nodes_vms(database, monkeypatch):
+    from app.core import costs
+
+    with database.get_conn() as db:
+        db.execute("INSERT INTO cost_budgets (id, name, scope, monthly) VALUES ('b', 'all', 'cluster', 300)")
+        for node, spent in (("n1", 150), ("n2", 150), ("n3", 150)):
+            db.execute("INSERT INTO cost_spend (node, budget_id, spent, at) VALUES (?, 'b', ?, ?)",
+                       (node, spent, datetime_now()))  # fmt: skip
+        db.commit()
+    assert costs.cluster_spend("b") == 450
+
+
+def datetime_now():
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat()

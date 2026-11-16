@@ -4899,6 +4899,7 @@ export default {
   "cfs.domainName.vault_secrets": "Secrets vault",
   "cfs.domainName.vault_grants": "Who reads the secrets",
   "cfs.domainName.cost_budgets": "Cost budgets",
+  "cfs.domainName.cost_spend": "Cost of each node's VMs",
   "cfs.domainName.guardrail_tags": "Tags required by guardrails",
   "cfs.domainName.access_terms": "Terms of assignments",
   "cfs.domainName.access_eligibility": "On-demand rights",
