@@ -6,6 +6,7 @@ account's uid (allocated by the API, checked against its range). Unit-tested pro
 """
 
 import re
+import subprocess
 
 from app.core import paths
 
@@ -62,6 +63,20 @@ def _check(sid, uid=None):
         raise ValueError("A Terminal uid is in its own range")
 
 
+def _systemd_version():
+    try:
+        out = subprocess.run(["systemctl", "--version"], capture_output=True, text=True, timeout=10).stdout
+        return int(out.split()[1])
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        return 0
+
+
+def _private_pids():
+    """The box's own PID namespace (systemd 257 and later): it sees none of the host's processes, not even those of its
+    own uid outside it (the relay, the tmux clients the daemon starts), whose memory it could otherwise open."""
+    return ["PrivatePIDs=yes"] if _systemd_version() >= 257 else []
+
+
 def box_properties(sid, uid, limits):
     """The transient unit's properties, each a `Name=value` string (section 6)."""
     _check(sid, uid)
@@ -90,6 +105,7 @@ def box_properties(sid, uid, limits):
         "ProtectHostname=yes",
         "ProtectProc=invisible",
         "ProcSubset=pid",
+        *_private_pids(),
         "RestrictNamespaces=yes",
         "LockPersonality=yes",
         "RestrictRealtime=yes",
