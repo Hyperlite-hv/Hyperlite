@@ -301,6 +301,13 @@ def _session_user(payload: dict, pending_ok: bool = False):
     if user.get("must_change_password") and not pending_ok:
         raise _password_change_required()
     _refuse_if_ended(user)
+    scope = payload.get("token_scope")
+    if scope:
+        # A ticket made for a delegated token (app/core/peer_auth.py, _scope_claim): its one role on one perimeter,
+        # as app/core/api_tokens.py gives it, never the owner's own rights.
+        if not isinstance(scope, dict):
+            raise _credentials_exception()
+        user = {**user, "role": "delegated", "owner_role": user["role"], "token_scope": dict(scope)}
     return user
 
 

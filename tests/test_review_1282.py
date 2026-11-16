@@ -29,3 +29,12 @@ def test_a_base_image_or_a_binned_disk_is_never_given_to_a_vm(monkeypatch):
     assert "web1, web2" in linked_disks.refusal("/p/base", None)
     assert "recycle bin" in linked_disks.refusal("/p/old.qcow2", None)
     assert linked_disks.refusal("/p/free.qcow2", None) is None
+
+
+def test_the_host_network_routes_go_to_the_member_named_by_node():
+    """The dashboard sends ?node= to manage another member's interfaces: without the forwarding, the node the browser
+    is connected to applied the change to its own network, and reported it as the other's."""
+    from app.core import cluster_view
+    from app.routers.host_network import router
+
+    assert any(d.dependency is cluster_view.on_node for d in router.dependencies)
