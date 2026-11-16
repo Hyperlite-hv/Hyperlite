@@ -60,8 +60,9 @@ def guest(monkeypatch):
     return calls, state
 
 
-def test_scan_and_run(database, guest):
+def test_scan_and_run(database, guest, make_user):
     calls, state = guest
+    make_user("root")
     assert guest_updates.scan("web-1")["pending"] == 1
     now = datetime.now(UTC)
     run = guest_updates.schedule(["web-1"], now.isoformat(), (now + timedelta(hours=2)).isoformat(), True, "root")
@@ -91,3 +92,14 @@ def test_routes(client, auth_headers):
     body = {"vms": ["x"], "window_start": now.isoformat(), "window_end": (now - timedelta(hours=1)).isoformat()}
     assert client.post("/guest-updates/runs", json=body, headers=admin).status_code == 422
     assert client.post("/guest-updates/scan", json={"vms": ["x"]}, headers=viewer).status_code == 403
+
+
+def test_a_run_opens_only_for_what_its_author_may_still_do(database, guest, make_user):
+    """Rights are read when the window opens: an account deleted since, or without vm.exec there any more, updates
+    nothing."""
+    make_user("ana", "viewer")
+    now = datetime.now(UTC)
+    guest_updates.schedule(["web-1"], now.isoformat(), (now + timedelta(hours=2)).isoformat(), True, "ana")
+    guest_updates.tick(now)
+    result = guest_updates.runs()[0]["results"]["web-1"]
+    assert result["state"] == "skipped" and "no longer" in result["error"]

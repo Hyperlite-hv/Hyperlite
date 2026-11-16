@@ -112,3 +112,14 @@ def test_an_encrypted_store_whose_directory_says_otherwise_is_refused():
         backup_stores._refuse_downgrade(Plain(), {"name": "main", "encrypted": 1})
     backup_stores._refuse_downgrade(Plain(), {"name": "main", "encrypted": 0})
     backup_stores._refuse_downgrade(Plain(), None)
+
+
+def test_whoever_changes_a_patch_plan_becomes_its_author(database):
+    from app.core import patch_plans
+
+    fields = {"name": "nightly", "target_kind": "vms", "target": ["db1"], "days": [0], "at_time": "03:00",
+              "duration_min": 60}  # fmt: skip
+    plan = patch_plans.save(fields, "admin1")
+    assert plan["created_by"] == "admin1"
+    changed = patch_plans.save({**fields, "target_kind": "tag", "target": "prod", "reboot": True}, "bob", plan["id"])
+    assert changed["created_by"] == "bob", "the plan acts with the rights of who chose its new targets"
