@@ -264,3 +264,31 @@ def test_a_replicated_row_names_only_columns_the_table_has(database):
     table = SimpleNamespace(name="dashboards", pk=("id",))
     with database.get_conn() as db, pytest.raises(sqlite3.OperationalError, match="no column"):
         inbound._upsert(db, table, {"id": "x", 'name" = 1; DROP TABLE users; --': 1})
+
+
+def test_the_daemon_checks_the_pool_the_network_and_the_backup_directory_too(database, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.core import permissions
+    from app.daemon import registry
+    from app.daemon.ops import (
+        backup,  # noqa: F401  (registers its operations)
+        vm,  # noqa: F401
+    )
+
+    def can(user, name, privilege):
+        return privilege == "vm.hardware" or privilege == "vm.snapshot"
+
+    monkeypatch.setattr(permissions, "has_privilege", can)
+    monkeypatch.setattr(permissions, "has_scoped_privilege", lambda *a: False)
+    ana = {"username": "ana", "role": "operator"}
+    attach = registry.NEEDS["vm.attach_disk"]
+    assert attach.refusal(ana, SimpleNamespace(vm="web", pool="secret-pool"))
+    nic = registry.NEEDS["vm.attach_interface"]
+    assert nic.refusal(ana, SimpleNamespace(vm="web", network="admin-net"))
+    run = registry.NEEDS["backup.run"]
+    assert run.refusal(ana, SimpleNamespace(vm="web", target=None)) is None
+    assert (
+        run.refusal(ana, SimpleNamespace(vm="web", target="/etc"))
+        == "Only an administrator chooses the backup directory"
+    )
