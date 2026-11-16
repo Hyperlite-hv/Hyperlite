@@ -5,6 +5,7 @@ node's over its own libvirt and SSH, until the cluster domain.
 
 libvirt renames only a stopped VM without snapshots."""
 
+import logging
 import os
 import shlex
 import xml.etree.ElementTree as ET
@@ -20,6 +21,8 @@ from app.core.vm_builder import GENERATED_ISO_SUFFIXES
 
 # -oemdrv and -autoinstall: the Kickstart/autoinstall answers of VMs created before 1.0.
 NVRAM_DIR = "/var/lib/libvirt/qemu/nvram"
+
+logger = logging.getLogger(__name__)
 
 
 class RenameError(Exception):
@@ -69,30 +72,41 @@ class Files:
             raise OSError(f"mv {path} {target} on node '{self.node['name']}': {result.stderr.strip()}")
 
 
+def _put_back(files, moved):
+    for path, target in reversed(moved):
+        try:
+            files.rename(target, path)
+        except OSError:
+            logger.error("VM rename undone: %s could not be moved back to %s", target, path)
+
+
 def rename_own_files(conn, domain, old, new, node):
     """Rename the files named after the VM and point its definition at them; undone if the definition is refused."""
     root = ET.fromstring(domain.XMLDesc(libvirt.VIR_DOMAIN_XML_INACTIVE))
     files = Files(node)
     moved, changed = [], False
-    for element, attribute, path, target in own_files(root, old, new):
-        if files.exists(target):
-            continue  # another file already has that name: keep this one where it is
-        if files.exists(path):
-            files.rename(path, target)
-            moved.append((path, target))
-        # A file not created yet (NVRAM before the first start) only changes in the definition.
-        if attribute:
-            element.set(attribute, str(target))
-        else:
-            element.text = str(target)
-        changed = True
+    try:
+        for element, attribute, path, target in own_files(root, old, new):
+            if files.exists(target):
+                continue  # another file already has that name: keep this one where it is
+            if files.exists(path):
+                files.rename(path, target)
+                moved.append((path, target))
+            # A file not created yet (NVRAM before the first start) only changes in the definition.
+            if attribute:
+                element.set(attribute, str(target))
+            else:
+                element.text = str(target)
+            changed = True
+    except BaseException:
+        _put_back(files, moved)  # a file that could not be moved: those moved before it go back
+        raise
     if not changed:
         return
     try:
         conn.defineXML(ET.tostring(root, encoding="unicode"))
-    except libvirt.libvirtError:
-        for path, target in moved:
-            files.rename(target, path)
+    except BaseException:
+        _put_back(files, moved)
         raise
     if node is None:
         refresh_pools_for_paths(conn, [t for _p, t in moved])
@@ -120,7 +134,19 @@ def rename(conn, domain, old, new, node=None):
     try:
         dropped = checkpoints.drop(domain)
         domain.rename(new, 0)
+    except (libvirt.libvirtError, OSError) as e:
+        raise RenameError("failed", f"Rename failed: {describe_exception(e)}") from e
+    try:
         rename_own_files(conn, conn.lookupByName(new), old, new, node)
     except (libvirt.libvirtError, OSError) as e:
+        # Its files are back where they were: the VM takes its old name back too, so that libvirt and Hyperlite's
+        # records (its pools, rights, backups) keep naming the same VM.
+        try:
+            conn.lookupByName(new).rename(old, 0)
+        except libvirt.libvirtError:
+            # It keeps its new name, with its files under their old names (its definition names them so): a working
+            # VM, and the caller moves its records to the name libvirt knows it by.
+            logger.error("VM %s kept its new name %s, its files their old ones: %s", old, new, describe_exception(e))
+            return dropped
         raise RenameError("failed", f"Rename failed: {describe_exception(e)}") from e
     return dropped

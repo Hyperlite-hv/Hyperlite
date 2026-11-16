@@ -120,9 +120,11 @@ def _mode(rel):
     return 0o640 if rel.endswith(".key") else 0o644
 
 
-def _write(etc, rel, data, mode=None):
+def _write(etc, rel, data, mode=None, replace=False):
+    """`rel` written under `etc` atomically; an existing file is kept (False) unless `replace` (write(): a change of
+    the file, as on the tree)."""
     dest = Path(etc) / rel
-    if dest.exists() or dest.is_symlink():
+    if dest.is_symlink() or (dest.exists() and not replace):
         return False
     for parent in reversed(dest.relative_to(etc).parents[:-1]):
         d = Path(etc) / parent
