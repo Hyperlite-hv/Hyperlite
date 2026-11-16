@@ -292,3 +292,41 @@ def test_the_daemon_checks_the_pool_the_network_and_the_backup_directory_too(dat
         run.refusal(ana, SimpleNamespace(vm="web", target="/etc"))
         == "Only an administrator chooses the backup directory"
     )
+
+
+def test_a_remote_desktop_never_connects_to_an_address_of_this_node(monkeypatch):
+    from contextlib import contextmanager
+
+    from app.core import guest_agent, libvirt_utils
+    from app.daemon.ops import rdp
+    from app.daemon.registry import DaemonError
+
+    class Dom:
+        def isActive(self):
+            return True
+
+    class Conn:
+        def lookupByName(self, name):
+            return Dom()
+
+    @contextmanager
+    def conn(node):
+        yield Conn()
+
+    class Out:
+        stdout = '[{"addr_info": [{"local": "127.0.0.1"}, {"local": "192.168.122.1"}]}]'
+
+    monkeypatch.setattr(libvirt_utils, "node_conn", conn)
+    monkeypatch.setattr(rdp, "_run", lambda argv, timeout=60: Out())
+    monkeypatch.setattr(guest_agent, "address_now", lambda d: "192.168.122.1")  # the guest names the host's bridge
+    with pytest.raises(DaemonError, match="address of this node"):
+        rdp._guest_address("win", None)
+    monkeypatch.setattr(guest_agent, "address_now", lambda d: "192.168.122.40")
+    assert rdp._guest_address("win", None) == "192.168.122.40"
+
+
+def test_every_remote_desktop_has_a_display_of_its_own():
+    from pathlib import Path
+
+    script = (Path(__file__).parent.parent / "scripts/rdp/session.sh").read_text()
+    assert "-nolisten local" in script and "MaxDisconnectionTime" in script
