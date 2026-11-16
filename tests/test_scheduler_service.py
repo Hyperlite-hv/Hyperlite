@@ -30,7 +30,8 @@ def test_the_scheduler_starts_every_scheduler(monkeypatch):
     vlans = []
     monkeypatch.setattr("app.core.privileged.run", lambda op, **k: vlans.append(op))
     scheduler.start()
-    assert len(started) == 8 and vlans == ["network.vlan_boot"]
+    # Other loops started here may already ask the daemon (the Terminal sweep): only the network's call is looked at.
+    assert len(started) == 8 and [op for op in vlans if op.startswith("network.")] == ["network.vlan_boot"]
 
 
 def test_the_network_at_start_survives_a_daemon_that_refuses(monkeypatch, caplog):

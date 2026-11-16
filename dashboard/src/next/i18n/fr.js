@@ -4930,6 +4930,7 @@ export default {
   "cfs.domainName.vault_secrets": "Coffre à secrets",
   "cfs.domainName.vault_grants": "Qui lit les secrets",
   "cfs.domainName.cost_budgets": "Budgets de coûts",
+  "cfs.domainName.cost_spend": "Coût des VM de chaque nœud",
   "cfs.domainName.guardrail_tags": "Étiquettes imposées",
   "cfs.domainName.access_terms": "Conditions des attributions",
   "cfs.domainName.access_eligibility": "Droits à la demande",
