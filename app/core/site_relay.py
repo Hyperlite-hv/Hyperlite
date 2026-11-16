@@ -9,6 +9,7 @@ checked (check_destination_xml: the domain the source asks this host to run must
 volumes and chosen networks, with nothing of this host's). Anything else closes the channel. What this host's libvirt
 answers goes back as it is."""
 
+import posixpath
 import re
 import struct
 import xml.etree.ElementTree as ET
@@ -38,7 +39,7 @@ PERSIST_DEST = 1 << 3  # VIR_MIGRATE_PERSIST_DEST: this host defines the VM itse
 # The migration's parameters the source may give (VIR_MIGRATE_PARAM_*); "persistent_xml" is not one of them.
 PARAMS = {
     "destination_xml", "destination_name", "migrate_uri", "disks_uri", "migrate_disks", "bandwidth",
-    "bandwidth.postcopy", "listen_address", "disks_port", "graphics_uri", "compression",
+    "bandwidth.postcopy", "graphics_uri", "compression",
     "compression.mt.level", "compression.mt.threads", "compression.mt.dthreads", "compression.xbzrle.cache",
     "compression.zlib.level", "compression.zstd.level", "auto_converge.initial", "auto_converge.increment",
     "parallel.connections", "tls.destination", "migrate_disks_detect_zeroes",
@@ -150,8 +151,11 @@ def check_call(params, cookie, flags, expected, prepare):
     for name in params.get("destination_name", []):
         if name != expected["name"]:
             raise Refused(f"Another name than the incoming VM's: {name}")
+    if prepare and (not params.get("migrate_uri") or not params.get("disks_uri")):
+        # Without them libvirt would listen on TCP, reachable by anyone on the network for the migration's time.
+        raise Refused("The migration's channels must be this incoming VM's sockets")
     for uri in params.get("migrate_uri", []) + params.get("disks_uri", []):
-        if not str(uri).startswith("unix://" + expected["sockets"]):
+        if not str(uri).startswith("unix://" + expected["sockets"]) or ".." in str(uri):
             raise Refused("A migration channel outside this incoming VM's sockets")
     xmls = params.get("destination_xml", [])
     if prepare and len(xmls) != 1:
@@ -213,8 +217,14 @@ def check_destination_xml(xml, expected):
     os_el = root.find("os")
     if os_el is not None:
         loader, nvram = os_el.find("loader"), os_el.find("nvram")
-        if loader is not None and loader.text and not loader.text.strip().startswith("/usr/share/"):
+        if (
+            loader is not None
+            and loader.text
+            and (not posixpath.normpath(loader.text.strip()).startswith("/usr/share/") or ".." in loader.text)
+        ):
             raise Refused("A firmware outside /usr/share")
+        if nvram is not None and nvram.get("template") is not None:
+            raise Refused("A UEFI variables template of the source's choosing")
         if nvram is not None and (nvram.text or nvram.find("source") is not None):
             path = (nvram.text or "").strip()
             if nvram.find("source") is not None or not path.startswith(QEMU_DIR + "nvram/") or ".." in path:
@@ -260,8 +270,14 @@ def check_destination_xml(xml, expected):
             # A pty's path is the source's terminal, which this host's libvirt allocates again.
             if chardev.get("type") == "unix" and path and (not path.startswith(QEMU_DIR) or ".." in path):
                 raise Refused(f"A {chardev.tag} socket outside this host's own")
+            # Connecting to a socket of this host's (another VM's monitor or agent) is never the source's to ask: the
+            # incoming VM listens on its own sockets only.
+            if chardev.get("type") == "unix" and source.get("mode") not in (None, "bind"):
+                raise Refused(f"A {chardev.tag} connecting to a socket of this host")
             checked.add(id(source))
     for graphics in devices.findall("graphics"):
+        if graphics.get("socket") is not None or any(gl.get("rendernode") for gl in graphics.iter("gl")):
+            raise Refused("A console socket or a render node of the source's choosing")
         for listen in graphics.findall("listen"):
             if listen.get("type") == "address" and listen.get("address") not in (None, "127.0.0.1", "::1"):
                 raise Refused("A console listening on another address than this host's own")
