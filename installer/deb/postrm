@@ -4,7 +4,8 @@
 #
 # remove, purge: what postinst made under /usr/lib/hyperlite (the Python environment, the bytecode) goes with the
 # package, and on purge the systemd units it copied. The node's data (/var/lib/hyperlite) and secrets (/etc/hyperlite)
-# stay: VM backups, ISO images, keys.
+# stay: VM backups, ISO images, keys (from 1.14 in hyperlite-cfs's database, /var/lib/hyperlite-cfs, back in /etc/hyperlite
+# once it runs again).
 #
 # upgrade, to a version that runs from /root/hyperlite (the return to 1.0.2: the update watchdog, or "return to the
 # previous version"): that version's postinst moves the files back (scripts/migrate_layout.sh back), but knows nothing
