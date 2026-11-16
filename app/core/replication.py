@@ -200,10 +200,11 @@ def _create_incremental_targets(disks, point_dir, previous):
             raise ReplicationError(f"Cannot prepare the copy of {dev}: {proc.stderr.strip()[:200]}")
 
 
-def _cold_copy(disks, point_dir):
+def _cold_copy(disks, point_dir, formats=None):
     for dev, path in disks:
+        fmt = (formats or {}).get(path, "raw")  # as the definition names it, never guessed from the guest's bytes
         proc = subprocess.run(
-            ["qemu-img", "convert", "-O", "qcow2", path, str(point_dir / f"{dev}.qcow2")],
+            ["qemu-img", "convert", "-f", fmt, "-O", "qcow2", path, str(point_dir / f"{dev}.qcow2")],
             capture_output=True,
             text=True,
             timeout=JOB_TIMEOUT_S,
@@ -370,7 +371,9 @@ def make_point(vm_name, target_dir, previous_target, previous, last_checkpoint, 
                 if running or paused:
                     _run_backup_job(domain, disks, point_dir, new_checkpoint, None)
                 else:
-                    _cold_copy(disks, point_dir)
+                    from app.core import disk_images
+
+                    _cold_copy(disks, point_dir, disk_images.formats_of(domain))
                     new_checkpoint = None
                 kind, chain, parent, points = "full", stamp, None, 1
             if incremental and last_checkpoint:

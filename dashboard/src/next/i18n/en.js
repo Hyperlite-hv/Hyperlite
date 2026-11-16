@@ -1263,6 +1263,7 @@ export default {
   "vb.integrity": "Integrity",
   "vb.v.ok": "Verified",
   "vb.v.bad": "Corrupted",
+  "vb.v.unreadable": "Unreadable",
   "vb.v.never": "Not verified yet",
   "vb.v.neverHelp": "Every backup is verified automatically within a week, or now with Verify.",
   "vb.verifiedOn": "Verified on {date}",

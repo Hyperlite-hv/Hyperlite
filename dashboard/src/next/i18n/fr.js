@@ -1294,6 +1294,7 @@ export default {
   "vb.integrity": "Intégrité",
   "vb.v.ok": "Vérifiée",
   "vb.v.bad": "Corrompue",
+  "vb.v.unreadable": "Illisible",
   "vb.v.never": "Pas encore vérifiée",
   "vb.v.neverHelp": "Chaque sauvegarde est vérifiée automatiquement dans la semaine, ou tout de suite avec Vérifier.",
   "vb.verifiedOn": "Vérifiée le {date}",

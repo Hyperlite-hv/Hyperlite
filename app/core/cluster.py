@@ -338,7 +338,8 @@ def ensure_reverse_trust(node):
             f'from="{node["hostname"]}",no-port-forwarding,no-X11-forwarding,no-agent-forwarding {pub_line} {marker}\n'
         )
         with open(auth_path, "a") as f:
-            f.write(line)
+            # A file left without its last newline would have the key glued onto its last line, as a comment.
+            f.write(("\n" if existing and not existing.endswith("\n") else "") + line)
         auth_path.chmod(0o600)
 
 
