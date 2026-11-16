@@ -752,7 +752,10 @@ def delete_user(username: str, user: dict = Depends(require_role("admin"))):
     for group_id in get_user_groups(username):
         remove_group_member(group_id, username)
     delete_acl_for_user(username)
-    from app.core import account_expiry
+    from app.core import access_requests, account_expiry, vault
+
+    access_requests.forget_account(username)
+    vault.forget_account(username)
 
     account_expiry.set_date(username, None, user["username"])  # a later account of that name starts afresh
     log_action(user["username"], "delete_user", username, "success")
