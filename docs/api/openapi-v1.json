@@ -4373,6 +4373,19 @@
       "title": "Minutes",
       "type": "integer"
      },
+     "password": {
+      "anyOf": [
+       {
+        "maxLength": 1024,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Asked of an account without TOTP",
+      "title": "Password"
+     },
      "reason": {
       "maxLength": 500,
       "minLength": 1,
@@ -16318,6 +16331,7 @@
   },
   "/api/v1/guest-scripts/runs": {
    "get": {
+    "description": "The runs; a run's parameters and outputs only to who started it or may run commands in each of its VMs (they\nmay hold what the script printed from those VMs).",
     "operationId": "list_script_runs_api_v1_guest_scripts_runs_get",
     "responses": {
      "200": {
@@ -17897,6 +17911,26 @@
    "get": {
     "description": "The host's interfaces (`configured_by`: hyperlite, system or none), the managed ones, the change waiting for\nits confirmation and the tools the node has.",
     "operationId": "network_state_api_v1_host_network_get",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -17905,6 +17939,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "security": [
@@ -17922,6 +17966,26 @@
    "post": {
     "description": "Apply, then confirm within `timeout_s` (POST /host/network/confirm) or the previous configuration comes back.",
     "operationId": "network_apply_api_v1_host_network_apply_post",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -17966,6 +18030,26 @@
   "/api/v1/host/network/confirm": {
    "post": {
     "operationId": "network_confirm_api_v1_host_network_confirm_post",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -18011,6 +18095,26 @@
    "post": {
     "description": "The diff of the managed file and the interfaces that would come down and up; nothing changes.",
     "operationId": "network_preview_api_v1_host_network_preview_post",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -18055,6 +18159,26 @@
   "/api/v1/host/network/rollback": {
    "post": {
     "operationId": "network_rollback_api_v1_host_network_rollback_post",
+    "parameters": [
+     {
+      "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+      "in": "query",
+      "name": "node",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The member that holds the object (absent, `local` or this node: here): the request is sent to it",
+       "title": "Node"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
