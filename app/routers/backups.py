@@ -106,12 +106,26 @@ class BackupRequest(BaseModel):
     store: str | None = None
 
 
-def _store_for(name, target_dir):
-    """The store a backup or a schedule names, checked: it exists and this node reaches it; never with a directory."""
+def store_allowed(user, name):
+    from app.core import permissions
+
+    return (
+        user.get("role") == "admin"
+        or permissions.has_area_privilege(user, "backup.manage")
+        or permissions.has_scoped_privilege(user, "backup_store", name, "backup_store.read")
+    )
+
+
+def _store_for(name, target_dir, user=None, kept=None):
+    """The store a backup or a schedule names, checked: it exists and this node reaches it; never with a directory.
+    Written as root, as a directory is: an administrator's choice, or a store given to the account (backup_store.read
+    on it, or backup.manage), or the one an administrator already set in this schedule (`kept`)."""
     if not name:
         return None
     if target_dir:
         raise HTTPException(status_code=422, detail="Choose a backup store or a directory, not both")
+    if user is not None and name != kept and not store_allowed(user, name):
+        raise HTTPException(status_code=403, detail=f"Backup store '{name}' is not one you may write to")
     try:
         backup_stores.check(name)
     except backup_stores.StoreError as e:
@@ -143,7 +157,7 @@ def create_backup(
     _: None = Depends(_on_vm_node),
 ):
     target_dir = _target_dir(payload.target_dir, user)
-    store = _store_for(payload.store, target_dir)
+    store = _store_for(payload.store, target_dir, user)
     if not store:  # a store takes every disk type, and only what it lacks
         refuse_vm_with_block_disks(name, "A backup")
         try:
@@ -337,7 +351,7 @@ def set_backup_schedule(
     current = backup_service.schedule_of(name)
     # Empty: the default directory (backup_groups.validate_target).
     target = _target_dir(payload.target_dir, user, current and current.get("target_dir")) or ""
-    store = _store_for(payload.store, target)
+    store = _store_for(payload.store, target, user, current and current.get("store"))
     next_run = _next_run(payload.frequency, payload.time)
     backup_service.set_schedule(
         name,
@@ -754,7 +768,7 @@ def import_backup_into_store(
     """Copy a backup of today's format into a backup store, in the background (a task); the backup stays as it is."""
     from app.core.backups import import_into_store
 
-    _store_for(payload.store, None)
+    _store_for(payload.store, None, user)
     row = backup_service.find(backup_id)
     if not row:
         raise HTTPException(status_code=404, detail="Backup not found")

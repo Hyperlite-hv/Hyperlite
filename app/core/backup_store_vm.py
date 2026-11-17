@@ -553,6 +553,9 @@ def store_backup_of(path):
     from app.core import backup_stores
 
     path = Path(path)
+    # A path naming a parent (..) would make its "time" the VM directory itself, deleted whole with it.
+    if ".." in path.parts or "." in path.parts:
+        return None
     if len(path.parents) < 3 or not (path.parents[2] / backup_store.CONFIG).is_file():
         return None
     return backup_stores.open_root(path.parents[2]), path.parent.name, path.name

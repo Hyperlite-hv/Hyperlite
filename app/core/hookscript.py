@@ -204,7 +204,7 @@ def _record(vm, phase, code, output, seconds):
             lines = path.read_text(errors="replace").splitlines()[-(RUNS_KEPT - 1) :]
         except FileNotFoundError:
             lines = []
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f"{path.name}.tmp")  # a VM's own: with_suffix gave a.b and a.c the same one
         tmp.write_text("".join(f"{line}\n" for line in [*lines, json.dumps(run)]))
         tmp.replace(path)
     except OSError as e:

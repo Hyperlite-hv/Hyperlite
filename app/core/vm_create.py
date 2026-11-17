@@ -7,6 +7,7 @@ written, as root. The API keeps who may ask, the lock, the task, what it records
 A refusal or a failure is a CreateError, whose kind is the daemon's; the checks' refusals are one list, as the route
 always answered them."""
 
+import contextlib
 import json
 import logging
 import subprocess
@@ -25,7 +26,7 @@ from app.core.libvirt_utils import (
     pool_type_and_target_path,
     refresh_pools_for_paths,
 )
-from app.core.network_alloc import allocate_static_ip, generate_mac
+from app.core.network_alloc import allocate_static_ip, generate_mac, release_static_ip
 from app.core.safe_paths import safe_child
 from app.core.vm_builder import (
     BASE_IMAGE,
@@ -413,13 +414,16 @@ def create(conn, payload, pending=frozenset(), check_only=False):
     # Best-effort: a failure here must not prevent the VM from being created, it only
     # deprives it of a fixed IP (the usual DHCP behaviour as a fallback).
     mac = generate_mac(conn)
+    reserved = False
     try:
         allocate_static_ip(conn, payload.network, mac)
+        reserved = True
     except libvirt.libvirtError:
         logger.debug("Ignored exception in create_vm()", exc_info=True)
 
-    # A creation failing past this point removes the disks and drives it made (vm_builder.undone_on_failure).
-    with vm_builder.undone_on_failure():
+    # A creation failing past this point removes the disks and drives it made (vm_builder.undone_on_failure), and its
+    # address reservation: each failed creation kept one, and a MAC, for ever.
+    with _released_on_failure(conn, payload.network, mac, reserved), vm_builder.undone_on_failure():
         try:
             if luns and extra_imports:
                 raise ValueError("Imported data disks are not written to iSCSI LUNs: choose another storage pool")
@@ -578,3 +582,16 @@ def create(conn, payload, pending=frozenset(), check_only=False):
         # The drive's customisation, for the API to keep in its database (cloudinit_edit.save_state).
         "customised": customised,
     }
+
+
+@contextlib.contextmanager
+def _released_on_failure(conn, network, mac, reserved):
+    try:
+        yield
+    except BaseException:
+        if reserved:
+            try:
+                release_static_ip(conn, network, mac)
+            except libvirt.libvirtError:
+                logger.warning("Reservation of %s on %s left after a failed creation", mac, network, exc_info=True)
+        raise

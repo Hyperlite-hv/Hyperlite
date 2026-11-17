@@ -334,7 +334,16 @@ class StoreBackupArgs(Args):
 
 
 # One call that waits: a first backup into a store reads every disk.
-@operation("store.backup", StoreBackupArgs, needs=on_vm("vm.snapshot"))
+def _may_back_up_into(user, args):
+    """vm.snapshot on the VM, and a store the account may write to (app/routers/backups.py, store_allowed)."""
+    from app.routers.backups import store_allowed
+
+    return on_vm("vm.snapshot").refusal(user, args) or (
+        None if store_allowed(user, args.store) else f"Backup store '{args.store}' is not one you may write to"
+    )
+
+
+@operation("store.backup", StoreBackupArgs, needs=by_rule(_may_back_up_into))
 def store_backup(args, ctx):
     """A VM of this node backed up into a store, only the chunks it lacks written: {"path", "size", "mode"}."""
     from app.core import backups
