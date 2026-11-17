@@ -342,3 +342,10 @@ def test_a_deleted_group_a_vm_still_references_is_kept(daemon_libvirt, monkeypat
     fw.sync_groups(fw.normalize({"groups": [WEB]}))
     assert not used.gone and unused.gone and not vm.gone
     assert len(conn.defined) == 1 and "hyperlite-group-web" in conn.defined[0]
+
+
+def test_an_ipv6_member_goes_in_a_set_of_its_own():
+    script = fw.render(fw.normalize(DOC), "node-a", members=["192.0.2.11", "2001:db8::12"])
+    assert "set members { type ipv4_addr; flags interval; elements = { 192.0.2.11 } }" in script
+    assert "set members6 { type ipv6_addr; flags interval; elements = { 2001:db8::12 } }" in script
+    assert "ip6 saddr @members6 accept" in script
