@@ -15,6 +15,11 @@ ENABLED = os.environ.get("HYPERLITE_CFS_CLUSTER") == "1" and os.geteuid() == 0 a
 def pytest_collection_modifyitems(config, items):
     if ENABLED:
         return
+    if os.environ.get("HYPERLITE_CFS_CLUSTER") == "1":
+        # Asked for (a nightly run) but not possible here: said as an error, never a quiet skip.
+        raise pytest.UsageError(
+            "HYPERLITE_CFS_CLUSTER=1 but no lab here: run as root with HYPERLITE_CFS_BIN or HYPERLITE_CFS_LAB"
+        )
     skip = pytest.mark.skip(
         reason="needs root and HYPERLITE_CFS_CLUSTER=1, with HYPERLITE_CFS_BIN (namespaces) or HYPERLITE_CFS_LAB (VMs)"
     )
