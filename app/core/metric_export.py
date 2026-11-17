@@ -126,7 +126,10 @@ def get_server(server_id):
 def save_server(payload, server_id=None):
     clean = validate(payload)
     token = payload.get("token")
-    if clean["type"] == "influxdb" and not token and server_id is None:
+    stored = (get_server(server_id) or {}) if server_id is not None else {}
+    # A server changed to InfluxDB needs a token as a new one does: one kept from before (an empty token keeps it)
+    # exists only if it was already InfluxDB.
+    if clean["type"] == "influxdb" and not token and not (stored.get("type") == "influxdb" and stored.get("token")):
         raise ExportError("InfluxDB needs an API token with write access to the bucket")
     values = {c: clean.get(c) for c in ("name", "type", "url", "host", "port", "org", "bucket", "prefix", "active")}
     values["prefix"] = clean.get("prefix") or "hyperlite"

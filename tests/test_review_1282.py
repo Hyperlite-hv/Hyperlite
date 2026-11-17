@@ -548,3 +548,25 @@ def test_a_rename_whose_files_cannot_move_leaves_the_vm_as_it_was(monkeypatch):
     with pytest.raises(vm_rename.RenameError):
         vm_rename.rename(Conn(), Dom(), "web", "web2")
     assert names["cur"] == "web", "libvirt names it as Hyperlite's records do"
+
+
+def test_a_power_action_is_refused_while_libvirt_does_not_answer(monkeypatch):
+    import libvirt
+
+    from app.core import host_system, libvirt_utils
+
+    def down(*a, **k):
+        raise libvirt.libvirtError("Failed to connect socket to '/var/run/libvirt/virtqemud-sock'")
+
+    monkeypatch.setattr(libvirt_utils, "open_conn", down)
+    with pytest.raises(host_system.GuestsUnknown):
+        host_system.running_guests()
+
+
+def test_a_server_turned_influxdb_needs_its_token(database):
+    from app.core import metric_export
+
+    graphite = metric_export.save_server({"name": "m", "type": "graphite", "host": "10.0.0.9", "port": 2003})
+    with pytest.raises(metric_export.ExportError, match="token"):
+        metric_export.save_server({"name": "m", "type": "influxdb", "url": "https://influx.example", "org": "o",
+                                   "bucket": "b"}, graphite["id"])  # fmt: skip

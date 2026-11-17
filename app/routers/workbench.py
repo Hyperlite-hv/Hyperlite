@@ -171,9 +171,18 @@ async def upload(sid: str, request: Request, path: str, user: dict = Depends(get
     from fastapi.concurrency import run_in_threadpool
 
     _own_open_session(sid, user)
-    body = await request.body()
-    if len(body) > 20 * 1024 * 1024:
+    limit = 20 * 1024 * 1024
+    # Refused as soon as it is known to be too big, never read whole first: a body of several GB (or chunked, without
+    # a length) would sit in the API's memory.
+    if int(request.headers.get("content-length") or 0) > limit:
         raise HTTPException(status_code=413, detail="At most 20 MB per file")
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(status_code=413, detail="At most 20 MB per file")
+        chunks.append(chunk)
+    body = b"".join(chunks)
     done = await run_in_threadpool(_daemon, "workbench.file_put", user, sid=sid, path=path,
                                    data=base64.b64encode(body).decode())  # fmt: skip
     log_action(user["username"], "terminal_upload", sid, "success", f"{done['path']} ({done['size']} bytes)")

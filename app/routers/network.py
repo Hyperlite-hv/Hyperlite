@@ -663,15 +663,21 @@ def rename_network(name: str, payload: NetworkRename, user: dict = Depends(requi
         new_name=new,
     )["guests_updated"]
     renaming.network_records(name, new)
+    warnings = []
     if firewall["rules"] or firewall["default_policy"] != "accept":
         try:
             apply_network_firewall(new, firewall, user=user["username"])
         except (ValueError, RuntimeError) as e:
+            # Said in the answer too: the network runs without its firewall until it is applied again.
+            warnings.append(
+                f"Its firewall could not be applied again: {e}. Save it again in the network's Firewall tab."
+            )
             log_action(user["username"], "rename_network", new, "failed", f"firewall not reapplied: {e}")
-    log_action(user["username"], "rename_network", name, "success", f"-> {new} ({len(moved)} guest(s) moved over)")
+    if not warnings:
+        log_action(user["username"], "rename_network", name, "success", f"-> {new} ({len(moved)} guest(s) moved over)")
     conn = open_conn(readonly=True)
     try:
-        return {**_network_summary(conn.networkLookupByName(new)), "guests_updated": moved}
+        return {**_network_summary(conn.networkLookupByName(new)), "guests_updated": moved, "warnings": warnings}
     finally:
         conn.close()
 
