@@ -36,9 +36,14 @@ static sim_msg queue[QUEUE_MAX];
 static size_t queued;
 static int64_t clock_now = 1000;
 
+/* What each node's transport answers: 0 sends, 1 asks to retry (Corosync's TRY_AGAIN), -1 fails. */
+static int sim_mode[NODES];
+
 static int sim_send(void *arg, const uint8_t *msg, size_t len)
 {
     sim_node *s = arg;
+    if (sim_mode[s->node.self - 1])
+        return sim_mode[s->node.self - 1];
     if (queued == QUEUE_MAX)
         return 1;
     uint8_t *copy = malloc(len);
@@ -68,10 +73,17 @@ static sim_node *by_id(uint32_t id)
 
 /* Deliver the first `limit` messages queued (what they cause to be sent stays queued), in order, to the members of
  * the sender's partition. */
+/* When set, the record count of the next end of a state transfer is made wrong on its way: a corrupted transfer. */
+static bool doctor_xfer_end;
+
 static void pump_n(size_t limit)
 {
     size_t i = 0;
     for (; i < queued && i < limit; i++) {
+        if (doctor_xfer_end && queue[i].len >= 10 && queue[i].msg[5] == 5) { /* MSG_XFER_END: u32 records at 6 */
+            queue[i].msg[9] ^= 1;
+            doctor_xfer_end = false;
+        }
         sim_node *from = by_id(queue[i].sender);
         for (int k = 0; k < NODES; k++)
             if (from->group >= 0 && sim[k].group == from->group)
@@ -601,6 +613,60 @@ static void test_a_late_state_after_an_agreement_starts_a_new_round(void)
     teardown();
 }
 
+/* A confirmation queued behind a busy transport, then dropped by it, is sent again with the next one: the node did not
+ * stop confirming, and the changes of the others are still answered. */
+static void test_a_dropped_confirmation_is_sent_again(void)
+{
+    setup();
+    put(0, "/a", "1", CFS_ANY_VERSION);
+    sim_mode[1] = 1; /* node 2's transport is busy: its confirmation waits in its queue */
+    pump();
+    CHECK_EQ(sim[0].status, -1);
+    sim_mode[1] = -1; /* then fails it */
+    cfs_node_flush(&sim[1].node);
+    sim_mode[1] = 0;
+    CHECK(!sim[1].node.failed && !sim[1].node.confirming);
+    put(2, "/b", "1", CFS_ANY_VERSION);
+    pump();
+    CHECK_EQ(sim[0].status, CFS_OK); /* /a answered at last, confirmed with /b */
+    teardown();
+}
+
+/* A change queued behind a busy transport and then dropped would leave the members waiting for it: its node leaves. */
+static void test_a_dropped_change_makes_its_node_leave(void)
+{
+    setup();
+    sim_mode[0] = 1;
+    put(0, "/a", "1", CFS_ANY_VERSION);
+    sim_mode[0] = -1;
+    cfs_node_flush(&sim[0].node);
+    sim_mode[0] = 0;
+    CHECK(sim[0].node.failed);
+    CHECK_EQ(sim[0].group, -1);
+    teardown();
+}
+
+/* A state transfer that does not add up (a record count, a checksum) never leaves its receiver with half a tree: it
+ * leaves the cluster, its store as it was. */
+static void test_a_corrupted_transfer_makes_its_receiver_leave_unchanged(void)
+{
+    setup();
+    int split[NODES] = {0, 0, 1};
+    partition(split);
+    put(0, "/a", "1", CFS_ANY_VERSION);
+    pump();
+    CHECK(!has(2, "/a"));
+    doctor_xfer_end = true;
+    int all[NODES] = {0, 0, 0};
+    partition(all);
+    CHECK(!doctor_xfer_end); /* the transfer did end, and was corrupted on its way */
+    CHECK(sim[2].node.failed);
+    CHECK_EQ(sim[2].group, -1);
+    CHECK(!has(2, "/a"));
+    CHECK(!sim[0].node.failed && !sim[1].node.failed);
+    teardown();
+}
+
 int main(void)
 {
     test_changes_are_applied_alike_everywhere();
@@ -616,5 +682,8 @@ int main(void)
     test_a_change_held_by_a_minority_is_never_answered_nor_kept();
     test_answers_wait_for_every_member();
     test_a_late_state_after_an_agreement_starts_a_new_round();
+    test_a_dropped_confirmation_is_sent_again();
+    test_a_dropped_change_makes_its_node_leave();
+    test_a_corrupted_transfer_makes_its_receiver_leave_unchanged();
     return check_failures;
 }
