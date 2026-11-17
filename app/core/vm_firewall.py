@@ -3,6 +3,7 @@ its interfaces, applied by the QEMU driver at every (re)start with no external s
 hyperlite-daemon writes it on this node (app/daemon/ops/vm.py, docs/design/privilege-separation.md, section 13); the
 filter's definition is built here with ElementTree from checked rules."""
 
+import contextlib
 import xml.etree.ElementTree as ET
 
 import libvirt
@@ -101,3 +102,46 @@ def apply(conn, domain, config):
                 "failed", f"Filter created but not applied to the interface: {describe_exception(e)}"
             ) from e
     return applied
+
+
+def carry(conn, root, new):
+    """In a definition copied (a clone, a deployment) or renamed to `new`: its interfaces referenced another VM's
+    filter, which then filtered this one too and changed with it. They now reference `new`'s own filter, a copy of that
+    one; dropped when that one no longer exists. True when the definition changed."""
+    new_name = filter_name(new)
+    refs = [
+        (iface, ref)
+        for iface in root.findall("./devices/interface")
+        for ref in iface.findall("filterref")
+        if (ref.get("filter") or "").startswith("hyperlite-vm-") and ref.get("filter") != new_name
+    ]
+    if not refs:
+        return False
+    old_name = refs[0][1].get("filter")
+    try:
+        xml = conn.nwfilterLookupByName(old_name).XMLDesc(0)
+    except libvirt.libvirtError:
+        xml = None
+    if xml is None:
+        for iface, ref in refs:
+            iface.remove(ref)
+        return True
+    copy = ET.fromstring(xml)
+    copy.set("name", new_name)
+    uuid = copy.find("uuid")
+    if uuid is not None:
+        copy.remove(uuid)
+    try:
+        conn.nwfilterDefineXML(ET.tostring(copy, encoding="unicode"))
+    except libvirt.libvirtError as e:
+        raise FirewallError("failed", f"The firewall could not be copied: {describe_exception(e)}") from e
+    for _iface, ref in refs:
+        ref.set("filter", new_name)
+    return True
+
+
+def forget(conn, vm_name):
+    """A VM's filter, once nothing references it (the VM deleted or renamed): a new VM of that name starts without
+    it."""
+    with contextlib.suppress(libvirt.libvirtError):  # none, or still used
+        conn.nwfilterLookupByName(filter_name(vm_name)).undefine()

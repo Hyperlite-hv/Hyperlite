@@ -570,3 +570,28 @@ def test_a_server_turned_influxdb_needs_its_token(database):
     with pytest.raises(metric_export.ExportError, match="token"):
         metric_export.save_server({"name": "m", "type": "influxdb", "url": "https://influx.example", "org": "o",
                                    "bucket": "b"}, graphite["id"])  # fmt: skip
+
+
+def test_a_copied_vm_gets_a_firewall_of_its_own():
+    """A clone kept the source's filter: it was filtered by the source's rules, and changed with them."""
+    from app.core import vm_firewall
+
+    defined = []
+
+    class Filter:
+        def XMLDesc(self, flags=0):
+            return "<filter name='hyperlite-vm-web' chain='root'><uuid>u</uuid><rule action='drop'/></filter>"
+
+    class Conn:
+        def nwfilterLookupByName(self, name):
+            return Filter()
+
+        def nwfilterDefineXML(self, xml):
+            defined.append(xml)
+
+    root = ET.fromstring("<domain><devices><interface><filterref filter='hyperlite-vm-web'/></interface></devices>"
+                         "</domain>")  # fmt: skip
+    assert vm_firewall.carry(Conn(), root, "web2")
+    assert root.find(".//filterref").get("filter") == "hyperlite-vm-web2"
+    copy = ET.fromstring(defined[0])
+    assert copy.get("name") == "hyperlite-vm-web2" and copy.find("uuid") is None and copy.find("rule") is not None

@@ -101,14 +101,22 @@ def rename_own_files(conn, domain, old, new, node):
     except BaseException:
         _put_back(files, moved)  # a file that could not be moved: those moved before it go back
         raise
+    from app.core import vm_firewall
+
+    # Its firewall follows its name: left on the old one, a new VM of that name would have rewritten it.
+    if node is None and vm_firewall.carry(conn, root, new):
+        changed = True
     if not changed:
         return
     try:
         conn.defineXML(ET.tostring(root, encoding="unicode"))
     except BaseException:
         _put_back(files, moved)
+        if node is None:
+            vm_firewall.forget(conn, new)
         raise
     if node is None:
+        vm_firewall.forget(conn, old)
         refresh_pools_for_paths(conn, [t for _p, t in moved])
 
 
