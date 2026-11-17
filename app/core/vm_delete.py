@@ -179,6 +179,10 @@ def delete(conn, name, node=None):
     except libvirt.libvirtError as e:
         raise DeleteError("failed", f"Unable to delete the VM: {describe_exception(e)}") from e
     vm_records.release_addresses(conn, found.reservations)
+    if not node:
+        from app.core import vm_firewall
+
+        vm_firewall.forget(conn, name)  # a new VM of that name starts without the old one's firewall
     found.files = [path for path in found.files if str(path) not in keep]
     found.devices = [dev for dev in found.devices if dev not in keep]
     for path in keep:

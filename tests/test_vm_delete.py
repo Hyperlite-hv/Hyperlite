@@ -31,6 +31,11 @@ class _Dom:
 
 
 class _Conn:
+    def nwfilterLookupByName(self, name):  # no VM firewall here
+        import libvirt
+
+        raise libvirt.libvirtError("no filter")
+
     def __init__(self, *domains):
         self.domains = {d.name(): d for d in domains}
 

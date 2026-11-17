@@ -19,7 +19,7 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import bridge_vlan, disk_images, disk_space, firmware, iscsi
+from app.core import bridge_vlan, disk_images, disk_space, firmware, iscsi, vm_firewall
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import refresh_pools_for_paths
 from app.core.network_alloc import allocate_static_ip, generate_mac, release_static_ip
@@ -166,6 +166,9 @@ def clone(conn, name, new_name, check_only=False):
                     reservations.append((network, new_mac))
                 except libvirt.libvirtError:
                     logger.warning("No fixed address for %s of the clone %s", new_mac, new_name, exc_info=True)
+
+        # Its own firewall, a copy of the source's: the source's filter would filter it too, and change with it.
+        vm_firewall.carry(conn, root, new_name)
 
         if source_has_cloudinit:
             try:

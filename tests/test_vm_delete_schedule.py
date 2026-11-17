@@ -19,6 +19,11 @@ class _Domain:
 
 
 class _Conn:
+    def nwfilterLookupByName(self, name):  # no VM firewall here
+        import libvirt
+
+        raise libvirt.libvirtError("no filter")
+
     """This node's libvirt as hyperlite-daemon sees it: the VM, no other, no pool."""
 
     def __init__(self, domain):

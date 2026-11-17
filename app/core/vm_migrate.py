@@ -10,6 +10,7 @@ running on its source node."""
 
 import logging
 import os
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -27,6 +28,7 @@ from app.core.libvirt_utils import (
     uses_shared_storage,
 )
 from app.core.tasks import task_log, update_task_progress
+from app.core.vm_builder import generated_drives
 
 logger = logging.getLogger(__name__)
 
@@ -315,25 +317,36 @@ def migrate(task_id, vm_name, source_node, target_node, aborts):
         if source and dest is None:
             _pre_create_disks(domain)
 
+        # The VM's own drives (its cloud-init ISO) go with it and leave the source. An image of the ISO library is
+        # shared by every VM of the node: copied only where the target lacks it (never over one of the same name), and
+        # never removed from the source.
+        own = {str(path) for _disk, path in generated_drives(ET.fromstring(domain.XMLDesc(0)), vm_name)}
         copied_cdroms = []
-        if not source:
-            for path in _cdrom_source_paths(domain):
-                if Path(path).exists():
-                    copy_file_to_node(path, target_node, path)
-                    copied_cdroms.append(path)
-        elif dest is not None:
-            # Between two other nodes (a drain or a rolling update driven from here): through this host, which has
-            # the SSH trust of both.
-            for path in _cdrom_source_paths(domain):
+
+        def target_has(path):
+            if not _remote(dest if source else target_node):
+                return Path(path).exists()
+            return _ssh(dest if source else target_node, "test", "-e", "--", shlex.quote(path))[1].returncode == 0
+
+        for path in _cdrom_source_paths(domain):
+            if path not in own and target_has(path):
+                continue
+            if not source:
+                if not Path(path).exists():
+                    continue
+                copy_file_to_node(path, target_node, path)
+            elif dest is not None:
+                # Between two other nodes (a drain or a rolling update driven from here): through this host, which has
+                # the SSH trust of both.
                 _relay_file(source, dest, path)
-                copied_cdroms.append(path)
-        else:
-            for path in _cdrom_source_paths(domain):
+            else:
                 try:
                     copy_file_from_node(source, path, path)
-                    copied_cdroms.append(path)
                 except RuntimeError:
                     logger.warning("CD-ROM %s not copied from %s: migrateToURI3 will say why", path, source)
+                    continue
+            if path in own:
+                copied_cdroms.append(path)
 
         shared = uses_shared_storage(src_conn, dest_conn, domain)
         flags = (

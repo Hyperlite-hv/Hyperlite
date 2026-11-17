@@ -26,6 +26,17 @@ def _xml(cdrom):
 
 
 class _Conn:
+    def nwfilterLookupByName(self, name):  # no VM firewall here
+        import libvirt
+
+        raise libvirt.libvirtError("no filter")
+
+    def listAllDomains(self, flags=0):
+        return []
+
+    def listAllNetworks(self, flags=0):
+        return []
+
     def __init__(self):
         self.defined = []
 

@@ -17,9 +17,19 @@ from pathlib import Path
 
 import libvirt
 
-from app.core import disk_images, disk_space, firmware, linked_disks, templates_store, vm_records
+from app.core import (
+    bridge_vlan,
+    disk_images,
+    disk_space,
+    firmware,
+    linked_disks,
+    templates_store,
+    vm_firewall,
+    vm_records,
+)
 from app.core.error_messages import describe_exception
 from app.core.libvirt_utils import refresh_pools_for_paths
+from app.core.network_alloc import generate_mac
 from app.core.safe_paths import safe_child
 from app.core.vm_builder import IMAGES_DIR, create_cloudinit_reseed_iso, generated_drives, validate_name
 
@@ -252,9 +262,16 @@ def deploy(conn, template, new_name, network=None, linked=False, check_only=Fals
             mac = iface.find("mac")
             if mac is not None:
                 iface.remove(mac)
+            # A MAC address of its own, chosen here: the VLANs of a VLAN-aware bridge are recorded by MAC address
+            # (app/core/bridge_vlan.py), and the template's would leave the new VM on the untagged VLAN.
+            new_mac = generate_mac(conn)
+            ET.SubElement(iface, "mac", {"address": new_mac})
+            if mac is not None and mac.get("address"):
+                bridge_vlan.remap_mac(root, mac.get("address"), new_mac)
             source = iface.find("source")
             if network and source is not None:
                 source.set("network", network)
+        vm_firewall.carry(conn, root, new_name)  # its own firewall, a copy of the template's VM's
         try:
             made = conn.defineXML(ET.tostring(root, encoding="unicode"))
         except libvirt.libvirtError as e:
