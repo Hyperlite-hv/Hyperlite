@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on 
 
 ## [Unreleased]
 
+## [1.28.2] - 2026-11-17
+
+### Fixed
+
+- Kubernetes cluster creation works again: its steps in the VMs are hyperlite-daemon's (they failed after ten minutes, the VMs left behind).
+- HA: a UEFI (q35) VM can fail over; a member with no status yet is never powered off through its BMC; a slow BMC no longer costs the HA lead; must rules hold at recovery; a paused guest is never started elsewhere; the watchdog wait counts the heartbeat's own delay; admission ignores members in maintenance.
+- The host network page of another member changes that member's network, not the one the browser is connected to.
+- Deleting a ZFS pool built on one partition no longer wipes the whole disk.
+- A rename of a VM keeps its HA policy, monitoring, load balancing, schedules, protections and DRS rules, and is undone whole when its files cannot move.
+- A live migration without shared storage no longer deletes the source node's ISO library images nor overwrites the target's.
+- Clones and deployed templates get their own firewall and keep their VLANs; a deleted VM's firewall goes with it.
+- A template is made from a VM with one disk only; making, renaming and deleting a template hold its name.
+- VM schedules run once on the day summer time ends; cluster cost budgets count every node's VMs.
+- One unreadable backup no longer stops every weekly verification, the stores' garbage collection and copies (shown as unreadable).
+- File restore: a slow request no longer shifts every later answer; failed starts leave nothing behind.
+- Power actions are refused while libvirt does not answer, instead of powering off running guests.
+- Updates: files of a running update are never replaced; the right previous version is kept for a return; rolling updates take the single-update guard; a viewer's check no longer replaces the last result.
+- A network firewall refused half-way puts the previous rules back; an IPv6 cluster member no longer prevents the node firewall.
+- A node removed then installed again keeps its keys; a stopped publication can be resumed.
+- hyperlite-cfs: a stat through the mount is a point lookup; a message dropped by Corosync no longer leaves a node silent; the mount's own names at the root are never written in the tree.
+- Smaller fixes: a creation's address reservation released on failure, node tunnels drained, migrations always close their task, failures said instead of success (network rename, node registration), console and host shell sessions never doubled.
+
+### Security
+
+- Copying a VM's raw disk can read a host file into the copy (GHSA-r9vf-wxm8-wf22).
+- A VM can be given another VM's base image or a binned VM's disk (GHSA-jrq9-rv57-vjpp).
+- A delegated API token acts with all of its owner's rights on other nodes and in tasks (GHSA-4gxx-phrv-c982).
+- A backup remote can write files anywhere on the node as root (GHSA-whq5-r2x7-g2xr).
+- A live restore reads through a backup image that names a host file (GHSA-cm79-vwgw-r3mc).
+- Guest updates run with rights their requester no longer has, or someone else's (GHSA-mfjf-gf4f-5wcq).
+- Freeze and keep protections can be bypassed, and VM groups can delete unrelated VMs (GHSA-hj96-7246-pvrc).
+- The node firewall is not applied again after a reboot (GHSA-v75v-jr4m-f425).
+- A Terminal session can leave its sandbox through its relay (GHSA-mq6r-258x-pr54).
+- The root daemon accepts what the routes refuse (GHSA-rp5h-2xmm-6677).
+- The assistant's API key can be sent to another address, and its tools steered (GHSA-7j7j-rcpm-vqm6).
+- On-demand rights are taken with a session alone (GHSA-8j5q-vf8f-whhm).
+- Remote desktop sessions can share a display, or reach the host (GHSA-wqm2-943r-5vgw).
+- A live move's destination definition can name host resources by a detour (GHSA-9xwv-7c85-6q67).
+- A cluster member's replicated rows can carry SQL in their column names (GHSA-2pjp-r96f-rmm9).
+- The CLI accepts a changed server certificate as a first contact (GHSA-x252-fw56-w343).
+- Backups can be written to any store, or in clear to an encrypted one (GHSA-p895-835r-g474).
+- A Terminal file transfer can follow a link out of the home (GHSA-xrrp-j772-pgqm).
+- Task details and script runs show what the reader may not see (GHSA-j397-5j6m-gjpp).
+- A TOTP code can be used again on another node (GHSA-prrq-vw36-qpjh).
+
 ## [1.28.1] - 2026-11-15
 
 ### Fixed
