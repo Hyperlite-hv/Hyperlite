@@ -214,20 +214,35 @@ static bool send_or_queue(cfs_node *n, uint8_t *msg, size_t len)
     return true;
 }
 
+static void fail_node(cfs_node *n, const char *why);
+
 bool cfs_node_flush(cfs_node *n)
 {
     size_t sent = 0;
+    bool lost = false;
     while (sent < n->nqueue) {
         int rc = n->tr.send(n->tr.arg, n->queue[sent].p, n->queue[sent].len);
         if (rc == 1)
             break;
-        if (rc < 0)
+        if (rc < 0) {
             fprintf(stderr, "hyperlite-cfs: a queued message could not be sent and is dropped\n");
+            /* A dropped confirmation is sent again (none would ever follow: one is in flight at a time). A dropped
+             * state or change leaves the members waiting for it for ever: this node leaves and joins again. */
+            uint8_t kind = n->queue[sent].len > 5 ? n->queue[sent].p[5] : 0;
+            if (kind == MSG_APPLIED) {
+                n->confirming = false;
+                n->reported = UINT64_MAX;
+            } else {
+                lost = true;
+            }
+        }
         free(n->queue[sent].p);
         sent++;
     }
     memmove(n->queue, n->queue + sent, (n->nqueue - sent) * sizeof(*n->queue));
     n->nqueue -= sent;
+    if (lost && !n->failed)
+        fail_node(n, "a message the members wait for could not be sent");
     return n->nqueue > 0;
 }
 
