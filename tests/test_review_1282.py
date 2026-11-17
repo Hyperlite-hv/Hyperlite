@@ -595,3 +595,26 @@ def test_a_copied_vm_gets_a_firewall_of_its_own():
     assert root.find(".//filterref").get("filter") == "hyperlite-vm-web2"
     copy = ET.fromstring(defined[0])
     assert copy.get("name") == "hyperlite-vm-web2" and copy.find("uuid") is None and copy.find("rule") is not None
+
+
+def test_a_backup_goes_only_to_a_store_the_account_may_write_to(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.core import backup_stores, permissions
+    from app.routers import backups as route
+
+    monkeypatch.setattr(backup_stores, "check", lambda name: None)
+    monkeypatch.setattr(permissions, "has_area_privilege", lambda user, p: False)
+    monkeypatch.setattr(permissions, "has_scoped_privilege", lambda user, kind, name, p: name == "team-a")
+    operator = {"username": "op", "role": "operator"}
+    assert route._store_for("team-a", None, operator) == "team-a"
+    with pytest.raises(HTTPException) as e:
+        route._store_for("offsite", None, operator)
+    assert e.value.status_code == 403
+    assert route._store_for("offsite", None, operator, kept="offsite") == "offsite"  # set by an administrator
+
+
+def test_a_store_path_naming_a_parent_is_no_backup():
+    from app.core import backup_store_vm
+
+    assert backup_store_vm.store_backup_of("/srv/store/vm/6f1c2a3b-0000-4000-8000-000000000001/..") is None
