@@ -47,6 +47,7 @@ TABLE = "hyperlite"
 STATE_DIR = paths.VAR / "host-firewall"  # root's: the change waiting for its confirmation, the ruleset it replaced
 ROLLBACK_UNIT = "hyperlite-firewall-rollback"
 TIMEOUT_MIN_S, TIMEOUT_MAX_S = 30, 600
+CONFIRMED_KEEP_S = 120
 FOLLOW_S = 15
 
 ACTIONS = ("accept", "drop", "reject")
@@ -245,10 +246,14 @@ def render(doc, node, members=(), vm_bridges=()):
     for s in doc["ipsets"]:
         elements = f" elements = {{ {', '.join(s['cidrs'])} }}" if s["cidrs"] else ""
         lines.append(f"  set {_set_name(s['name'])} {{ type ipv4_addr; flags interval;{elements} }}")
+    # A member may be reached over IPv4 or IPv6: one set of each, as nft's sets hold one family.
+    v4 = sorted({m for m in members if ":" not in m})
+    v6 = sorted({m for m in members if ":" in m})
     lines.append(
-        "  set members { type ipv4_addr; flags interval;"
-        + (f" elements = {{ {', '.join(sorted(set(members)))} }}" if members else "")
-        + " }"
+        "  set members { type ipv4_addr; flags interval;" + (f" elements = {{ {', '.join(v4)} }}" if v4 else "") + " }"
+    )
+    lines.append(
+        "  set members6 { type ipv6_addr; flags interval;" + (f" elements = {{ {', '.join(v6)} }}" if v6 else "") + " }"
     )
     lines.append("  chain input {")
     lines.append(f"    type filter hook input priority filter; policy {doc['policy']};")
@@ -257,6 +262,7 @@ def render(doc, node, members=(), vm_bridges=()):
     lines.append("    ct state invalid drop")
     lines.append('    meta l4proto ipv6-icmp accept comment "pinned: IPv6 needs ICMPv6"')
     lines.append('    ip saddr @members accept comment "pinned: the cluster\'s members"')
+    lines.append('    ip6 saddr @members6 accept comment "pinned: the cluster\'s members"')
     if vm_bridges:
         names = ", ".join(f'"{b}"' for b in sorted(set(vm_bridges)))
         lines.append(
@@ -545,6 +551,10 @@ def confirm(change_id):
         if waiting is None or waiting["id"] != change_id:
             raise FirewallError("No change of this id waits for its confirmation (it may have been rolled back)")
         rollback_timer.stop(ROLLBACK_UNIT)
+        # Kept here until the cluster's setting holds it (saved()): between this and the API's save, the follow loop
+        # would otherwise see no change waiting and apply the old document again.
+        STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _confirmed_path().write_text(json.dumps(waiting["document"]))
         _pending_path().unlink(missing_ok=True)
         logger.info("Host firewall change %s confirmed", change_id)
         return {"confirmed": change_id, "document": waiting["document"]}
@@ -577,11 +587,26 @@ def _rollback_locked(change_id):
     return {"rolled_back": data["id"]}
 
 
+def _confirmed_path():
+    return STATE_DIR / "confirmed.json"
+
+
 def saved():
-    """The document the cluster agreed on (the replicated setting), or the default."""
+    """The document the cluster agreed on (the replicated setting), or the default; a change confirmed here and not
+    saved yet wins for a while (CONFIRMED_KEEP_S), so it is never undone by the follow loop meanwhile."""
     from app.repositories import registry
 
     raw = registry.settings().sync.app_setting(SETTING)
+    try:
+        confirmed = _confirmed_path().read_text()
+        age = time.time() - _confirmed_path().stat().st_mtime
+    except FileNotFoundError:
+        confirmed, age = None, 0
+    if confirmed is not None:
+        if (raw and json.loads(raw) == json.loads(confirmed)) or age > CONFIRMED_KEEP_S:
+            _confirmed_path().unlink(missing_ok=True)  # saved for the cluster (or its save failed long ago)
+        else:
+            raw = confirmed
     if not raw:
         return dict(DEFAULT)
     try:

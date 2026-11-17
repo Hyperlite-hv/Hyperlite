@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchAclRoles, fetchCustomRoles, fetchPools, fetchVmIdentity, setVmIdentity, deleteVmIdentity } from "../../api/client";
 import { useInfraStore } from "../../store/useInfraStore";
 import { useLangStore, useT } from "../i18n";
@@ -21,7 +21,12 @@ export default function IdentityCard({ vm }) {
   const [pools, setPools] = useState([]);
   const [f, setF] = useState({ role: "drive", shell: "sh" });
   const [at, setAt] = useState({ resource_type: "vm", resource_id: vm.name });
-  const load = useCallback(() => fetchVmIdentity(vm.name).then(setId).catch(() => setId(null)), [vm.name]);
+  const shown = useRef(vm.name); // a late answer about the VM shown before is dropped
+  useEffect(() => { shown.current = vm.name; }, [vm.name]);
+  const load = useCallback(() => {
+    const asked = vm.name;
+    return fetchVmIdentity(asked).then((r) => { if (shown.current === asked) setId(r); }).catch(() => { if (shown.current === asked) setId(null); });
+  }, [vm.name]);
   useEffect(() => {
     load();
     Promise.all([fetchAclRoles(), fetchCustomRoles(), fetchPools().catch(() => [])]).then(([r, c, p]) => { setRoles({ ...localizeRoles(t, r), ...Object.fromEntries(c.map((x) => [x.key, x])) }); setPools(p); }).catch(() => {});

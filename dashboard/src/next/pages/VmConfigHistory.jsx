@@ -29,13 +29,17 @@ export default function VmConfigHistoryPage({ resource: vm }) {
   const [version, setVersion] = useState(null);
   const [full, setFull] = useState(false);
   useEffect(() => {
+    let alive = true;
     setItems(null); setPicked(null);
-    fetchVmConfigHistory(vm.name, vm.node).then((r) => { const l = asList(r); setItems(l); setPicked(l[0]?.id ?? null); setError(null); }).catch((e) => { setItems([]); setError(errorMessage(e)); });
+    fetchVmConfigHistory(vm.name, vm.node).then((r) => { if (!alive) return; const l = asList(r); setItems(l); setPicked(l[0]?.id ?? null); setError(null); }).catch((e) => { if (!alive) return; setItems([]); setError(errorMessage(e)); });
+    return () => { alive = false; };
   }, [vm.name, vm.node]);
   useEffect(() => {
-    if (picked == null) return;
+    if (picked == null) return undefined;
+    let alive = true; // the version picked last wins, not the answer that arrives last
     setVersion(null); setFull(false);
-    fetchVmConfigVersion(vm.name, picked, vm.node).then(setVersion).catch((e) => setVersion({ error: errorMessage(e) }));
+    fetchVmConfigVersion(vm.name, picked, vm.node).then((v) => { if (alive) setVersion(v); }).catch((e) => { if (alive) setVersion({ error: errorMessage(e) }); });
+    return () => { alive = false; };
   }, [picked, vm.name, vm.node]);
   if (error) return <InlineError message={error} />;
   if (!items) return <p className="nx-muted">{t("loading")}</p>;
