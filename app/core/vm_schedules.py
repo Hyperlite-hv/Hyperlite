@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from datetime import time as day_time
 
 from app.core.audit import log_action
 
@@ -45,12 +46,14 @@ def next_run(days, at, after):
     """The first moment after `after` (aware) that falls on one of `days` (0 = Monday) at `at` ("HH:MM"), in the
     node's local time; returned in UTC."""
     hh, mm = (int(x) for x in at.split(":"))
-    local = after.astimezone()
-    candidate = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    for _ in range(8):
-        if candidate > local and candidate.weekday() in days:
+    day = after.astimezone().date()
+    for _ in range(9):
+        # Each day's local time is placed with that day's own offset (a naive local time made aware): a day stepped
+        # on an aware value kept the offset of the first one, and a change of summer time ran a schedule twice.
+        candidate = datetime.combine(day, day_time(hh, mm)).astimezone()
+        if candidate > after and candidate.weekday() in days:
             return candidate.astimezone(UTC)
-        candidate = (candidate + timedelta(days=1)).replace(hour=hh, minute=mm)
+        day += timedelta(days=1)
     raise ValueError("A schedule needs at least one day")
 
 

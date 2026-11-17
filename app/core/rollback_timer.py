@@ -39,3 +39,25 @@ def start(unit, module, change_id, timeout_s):
 def stop(unit):
     with contextlib.suppress(OSError, subprocess.SubprocessError):
         subprocess.run(["systemctl", "stop", f"{unit}.timer"], capture_output=True, timeout=30)
+
+
+def armed(unit):
+    """Whether the timer still waits (it does not survive a reboot)."""
+    try:
+        r = subprocess.run(["systemctl", "is-active", "--quiet", f"{unit}.timer"], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+def rearm_or_due(unit, module, change_id, deadline, now):
+    """At start-up, for a change still waiting: True when it must be rolled back now (its deadline passed); otherwise
+    its timer, lost with a reboot, is armed again for the time left."""
+    if deadline <= now:
+        return True
+    if not armed(unit):
+        try:
+            start(unit, module, change_id, max(1, int(deadline - now)))
+        except TimerError:
+            return True  # nothing would undo it in time: undone now
+    return False

@@ -62,7 +62,7 @@ def test_self_service_right(client, auth_headers, make_user, here):
                 "resource_id": str(pool), "max_minutes": 60, "approval": "auto"}  # fmt: skip
     eligibility = client.post("/access/eligibility", json=eligible, headers=admin).json()["id"]
     assert not permissions.has_privilege(bob(), "vm-a", "vm.resize")
-    ask = {"eligibility_id": eligibility, "minutes": 90, "reason": "incident 42"}
+    ask = {"eligibility_id": eligibility, "minutes": 90, "reason": "incident 42", "password": "correct horse battery"}
     assert client.post("/access/requests", json=ask, headers=headers).status_code == 422  # past its maximum
     granted = client.post("/access/requests", json=ask | {"minutes": 30}, headers=headers).json()
     assert granted["status"] == "granted" and granted["expires_at"]
@@ -81,7 +81,7 @@ def test_right_after_approval(client, auth_headers, make_user, here):
     eligible = {"subject_type": "user", "subject_id": "bob", "role": "maintainer", "resource_type": "node",
                 "resource_id": "node-a", "max_minutes": 120, "approval": "approval"}  # fmt: skip
     eligibility = client.post("/access/eligibility", json=eligible, headers=admin).json()["id"]
-    ask = {"eligibility_id": eligibility, "minutes": 60, "reason": "kernel update"}
+    ask = {"eligibility_id": eligibility, "minutes": 60, "reason": "kernel update", "password": "correct horse battery"}
     pending = client.post("/access/requests", json=ask, headers=headers).json()
     assert pending["status"] == "pending"
     assert not permissions.has_area_privilege(bob(), "update.apply")
@@ -139,3 +139,55 @@ def test_delegated_token(client, auth_headers, make_user, here):
     # The owner loses its rights: the token loses them too.
     permissions.delete_acl(permissions.list_acl()[0]["id"])
     assert not permissions.has_privilege(verify_token(made["token"]), "ci-1", "vm.power")
+
+
+def test_taking_a_right_asks_the_person_again_and_stops_after_repeated_failures(client, auth_headers, make_user, here):
+    headers = auth_headers("bob", "viewer")
+    admin = auth_headers("root", "admin")
+    eligible = {"subject_type": "user", "subject_id": "bob", "role": "manager", "resource_type": "node",
+                "resource_id": "node-a", "max_minutes": 60, "approval": "auto"}  # fmt: skip
+    eligibility = client.post("/access/eligibility", json=eligible, headers=admin).json()["id"]
+    ask = {"eligibility_id": eligibility, "minutes": 30, "reason": "incident"}
+    assert client.post("/access/requests", json=ask, headers=headers).status_code == 422  # no password given
+    for _ in range(5):
+        assert client.post("/access/requests", json=ask | {"password": "wrong"}, headers=headers).status_code == 403
+    r = client.post("/access/requests", json=ask | {"password": "correct horse battery"}, headers=headers)
+    assert r.status_code == 429
+
+
+def test_an_approval_rechecks_the_account_and_its_eligibility(client, auth_headers, make_user, here):
+    headers = auth_headers("bob", "viewer")
+    admin = auth_headers("root", "admin")
+    eligible = {"subject_type": "user", "subject_id": "bob", "role": "maintainer", "resource_type": "node",
+                "resource_id": "node-a", "max_minutes": 120, "approval": "approval"}  # fmt: skip
+    eligibility = client.post("/access/eligibility", json=eligible, headers=admin).json()["id"]
+    ask = {"eligibility_id": eligibility, "minutes": 60, "reason": "x", "password": "correct horse battery"}
+    pending = client.post("/access/requests", json=ask, headers=headers).json()
+    client.delete(f"/access/eligibility/{eligibility}", headers=admin)
+    r = client.post(f"/access/requests/{pending['id']}/approve", headers=admin)
+    assert r.status_code == 409
+
+
+def test_a_deleted_accounts_eligibilities_and_secrets_never_pass_to_a_new_account_of_its_name(
+    client, auth_headers, make_user, here
+):
+    auth_headers("bob", "viewer")
+    admin = auth_headers("root", "admin")
+    eligible = {"subject_type": "user", "subject_id": "bob", "role": "manager", "resource_type": "node",
+                "resource_id": "node-a", "max_minutes": 60, "approval": "auto"}  # fmt: skip
+    client.post("/access/eligibility", json=eligible, headers=admin)
+    with database_conn() as db:
+        db.execute(
+            "INSERT INTO vault_grants (id, secret_id, subject_type, subject_id) VALUES ('g', 's', 'user', 'bob')"
+        )
+        db.commit()
+    assert client.delete("/auth/users/bob", headers=admin).status_code == 200
+    assert not [e for e in permissions.list_eligibility() if e["subject_id"] == "bob"]
+    with database_conn() as db:
+        assert db.execute("SELECT COUNT(*) FROM vault_grants WHERE subject_id = 'bob'").fetchone()[0] == 0
+
+
+def database_conn():
+    from app.core.database import get_conn
+
+    return get_conn()

@@ -94,7 +94,11 @@ def set_readers(secret_id, readers):
 
 
 def may_read(user, secret):
-    if user["role"] == "admin" and not user.get("token_scope"):
+    if user.get("token_scope"):
+        # A delegated token acts with one role on one perimeter: the vault's secrets are not in it, whatever its owner
+        # may read.
+        return False
+    if user["role"] == "admin":
         return True
     from app.core import permissions
 
@@ -121,3 +125,10 @@ def resolve(user, value):
     if isinstance(value, str) and value.startswith(PREFIX):
         return reveal(user, value[len(PREFIX) :])
     return value
+
+
+def forget_account(username):
+    """A deleted account's read grants: never handed to the next account created under that name."""
+    with get_conn() as db:
+        db.execute("DELETE FROM vault_grants WHERE subject_type = 'user' AND subject_id = ?", (username,))
+        db.commit()

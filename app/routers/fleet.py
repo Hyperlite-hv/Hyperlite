@@ -239,7 +239,20 @@ def delete_script(script_id: str, user: dict = Depends(require_role("admin"))):
 
 @router.get("/guest-scripts/runs")
 def list_script_runs(user: dict = Depends(require_area("node.view"))):
-    return listing(guest_scripts.runs())
+    """The runs; a run's parameters and outputs only to who started it or may run commands in each of its VMs (they
+    may hold what the script printed from those VMs)."""
+    from app.core import permissions
+
+    def visible(run):
+        if user["role"] == "admin" or run.get("created_by") == user["username"]:
+            return run
+        if all(permissions.has_privilege(user, vm, "vm.exec") for vm in run.get("vms") or []):
+            return run
+        hidden = {vm: {k: v for k, v in (r or {}).items() if k not in ("output", "error")}
+                  for vm, r in (run.get("results") or {}).items()}  # fmt: skip
+        return {**run, "params": {}, "results": hidden}
+
+    return listing([visible(r) for r in guest_scripts.runs()])
 
 
 @router.post("/guest-scripts/runs", status_code=201)

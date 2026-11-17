@@ -106,7 +106,7 @@ def test_a_download_that_hangs_costs_the_kept_package_not_the_update(tmp_path, m
 
     monkeypatch.setattr(update, "PREVIOUS_DIR", tmp_path)
     monkeypatch.setattr(update, "_raw_installed_version", lambda: "1:1.16.0")
-    monkeypatch.setattr(update, "_raw_candidate_version", lambda: "1:1.17.0")
+    monkeypatch.setattr(update, "_raw_candidate_version", lambda apt_opts=(): "1:1.17.0")
     monkeypatch.setattr(update.version, "knows_layout", lambda v: True)
     logged, seen = [], []
     monkeypatch.setattr(update, "task_log", lambda task_id, line: logged.append(line))

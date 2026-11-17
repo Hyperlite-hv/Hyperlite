@@ -214,18 +214,29 @@ def _follow_drain(group, s, domains, now):
     with get_conn() as db:
         db.execute("UPDATE vm_groups SET count = MAX(count - 1, 0) WHERE id = ?", (group["id"],))
         db.commit()
+    from app.core import vm_groups
+
+    vm_groups._set_made(group["id"], [n for n in group.get("made") or [] if n != name])
     _set(group["id"], draining=None, draining_since=None)
     return False
+
+
+def _removable(members):
+    """The members autoscaling may remove: never one a protection holds (app/core/protections.py)."""
+    from app.core import protections
+
+    return [m for m in members if not protections.refusal("vm", m[1], deleting=True)]
 
 
 def decide(group, s, members, avg, now):
     """('up', n) / ('down', name) / None, and the reason, for a group's settings and its members' average CPU."""
     count = len(members)
     running = [m for m in members if m[2]]
+    removable = _removable(members)
     if count < s["min_count"]:
         return ("up", s["min_count"] - count), f"{count} VM(s), under the minimum of {s['min_count']}"
-    if count > s["max_count"]:
-        victim = sorted(members, key=lambda m: (m[2], -m[0]))[0][1]
+    if count > s["max_count"] and removable:
+        victim = sorted(removable, key=lambda m: (m[2], -m[0]))[0][1]
         return ("down", victim), f"{count} VM(s), over the maximum of {s['max_count']}"
     if (
         s["last_action_at"]
@@ -237,8 +248,8 @@ def decide(group, s, members, avg, now):
     if avg > s["up_pct"] and count < s["max_count"]:
         n = min(s["step"], s["max_count"] - count)
         return ("up", n), f"average CPU {avg:.0f} % over {s['window_min']} min, above {s['up_pct']:.0f} %"
-    if avg < s["down_pct"] and count > s["min_count"]:
-        victim = sorted(members, key=lambda m: (m[2], -m[0]))[0][1]
+    if avg < s["down_pct"] and count > s["min_count"] and removable:
+        victim = sorted(removable, key=lambda m: (m[2], -m[0]))[0][1]
         return ("down", victim), f"average CPU {avg:.0f} % over {s['window_min']} min, below {s['down_pct']:.0f} %"
     return None, "within the thresholds"
 
@@ -274,7 +285,9 @@ def tick(now=None):
                     "system", "vm_group_autoscale", group["name"], "success", f"+{', '.join(done['made'])}: {reason}"
                 )
             else:
-                privileged.run("vm.power", user="system", vm=what[1], action="shutdown")
+                # A stopped member is drained as it is: asking it to shut down was refused, and nothing was ever removed.
+                if domains.get(what[1]):
+                    privileged.run("vm.power", user="system", vm=what[1], action="shutdown")
                 _record(group["id"], f"-{what[1]}", reason, now, draining=what[1])
                 log_action("system", "vm_group_autoscale", group["name"], "success", f"-{what[1]}: {reason}")
         except (DaemonError, vm_groups.GroupError, Exception) as e:

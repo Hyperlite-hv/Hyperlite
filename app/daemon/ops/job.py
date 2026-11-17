@@ -111,3 +111,65 @@ def cancel(args, ctx):
         return {"cancelled": False}
     _signal_group(proc, signal.SIGTERM)
     return {"cancelled": True}
+
+
+# ---- Kubernetes clusters (app/core/k8s_cluster.py): their VMs set up over SSH with the automation key ----
+
+VM_SCRIPT_TIMEOUT_S = 900
+
+
+class VmScriptArgs(Args):
+    vm: str = Field(min_length=1, max_length=64)
+    script: str = Field(min_length=1, max_length=262144)
+    secret: str = Field(default="", max_length=4096, description="Read by the script into $HL_SECRET, never shown")
+    timeout_s: int = Field(default=STEP_TIMEOUT_S, ge=1, le=VM_SCRIPT_TIMEOUT_S)
+
+
+class VmCopyArgs(Args):
+    vm: str = Field(min_length=1, max_length=64)
+    files: list[str] = Field(min_length=1, max_length=8)
+    remote_dir: str = Field(pattern=r"^[A-Za-z0-9._-]{1,64}$")
+
+
+@operation("job.vm_script", VmScriptArgs)
+def vm_script(args, ctx):
+    """A bash script run in a VM of this node as its account: the secret is the first line of its standard input, the
+    script the rest, so neither shows on a command line. {"stdout", "stderr", "exit"}; exit 124 on a timeout."""
+    argv = _vm_ssh(args.vm, "bash -c 'read -r HL_SECRET; export HL_SECRET; exec bash -s'")
+    try:
+        r = subprocess.run(
+            argv, input=f"{args.secret}\n{args.script}", capture_output=True, text=True, timeout=args.timeout_s
+        )
+    except subprocess.TimeoutExpired:
+        return {"stdout": "", "stderr": f"Timed out after {args.timeout_s}s", "exit": 124}
+    return {"stdout": _output(r.stdout), "stderr": _output(r.stderr), "exit": r.returncode}
+
+
+@operation("job.vm_copy", VmCopyArgs)
+def vm_copy(args, ctx):
+    """Files Hyperlite downloaded for Kubernetes (under its k3s directory, nowhere else) copied into a directory of
+    the VM account's home."""
+    from pathlib import Path
+
+    from app.core import paths
+
+    root = Path(paths.K3S).resolve()
+    sources = []
+    for name in args.files:
+        path = Path(name).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise DaemonError("invalid_arguments", f"Not a file of the Kubernetes downloads: {name}")
+        sources.append(path)
+    for path in sources:
+        target = f"{args.remote_dir}/{path.name}"
+        argv = _vm_ssh(args.vm, f"mkdir -p ~/{args.remote_dir} && cat > ~/{target}")
+        with path.open("rb") as f:
+            try:
+                r = subprocess.run(argv, stdin=f, capture_output=True, timeout=VM_SCRIPT_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                raise DaemonError("failed", f"Copy of {path.name} to {args.vm} timed out") from None
+        if r.returncode != 0:
+            raise DaemonError(
+                "failed", f"Copy of {path.name} to {args.vm} failed: {r.stderr.decode(errors='replace')[-300:]}"
+            )
+    return {"copied": [p.name for p in sources]}

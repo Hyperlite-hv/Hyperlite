@@ -359,7 +359,14 @@ def peer(credential, targets):
     tickets.ensure_keys()
     publish()  # a key made since: the members called can find it before they see a ticket signed with it
     me = self_node.name()
-    claims = {"typ": PEER, "iss": me, "sub": user["username"], "uid": user["id"], **_root_claim(user)}
+    claims = {
+        "typ": PEER,
+        "iss": me,
+        "sub": user["username"],
+        "uid": user["id"],
+        **_root_claim(user),
+        **_scope_claim(user),
+    }
     return {t: _sign({**claims, "aud": t}, PEER_LIFETIME_S) for t in targets}
 
 
@@ -369,6 +376,14 @@ def _root_claim(user):
     from app.core import security
 
     return {security.LOCAL_ROOT_CLAIM: True} if user.get(security.LOCAL_ROOT_CLAIM) else {}
+
+
+def _scope_claim(user):
+    """A delegated token's perimeter goes with every ticket made for it (app/core/security.py, _session_user puts it
+    back): a ticket naming only the account would act with all of the owner's rights, on another member or in a
+    task's later steps."""
+    scope = user.get("token_scope")
+    return {"token_scope": dict(scope)} if scope else {}
 
 
 def delegate(credential):
@@ -388,7 +403,8 @@ def bound_ticket(credential, task_id):
     still valid makes one for another task of the same account: the next VM of a backup group, a drain's migrations."""
     user = _account(credential)  # never a call from another member: _account refuses those
     _refuse_unless_running(task_id, user["username"], margin=False)
-    claims = {"typ": TASK, "sub": user["username"], "uid": user["id"], "task": task_id, **_root_claim(user)}
+    claims = {"typ": TASK, "sub": user["username"], "uid": user["id"], "task": task_id, **_root_claim(user),
+              **_scope_claim(user)}  # fmt: skip
     return _sign(claims, BOUND_LIFETIME_S)
 
 

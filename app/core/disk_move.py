@@ -108,6 +108,7 @@ def plan(conn, domain, target_dev, dest_pool_name):
         "dest_pool": dest_pool,
         "capacity": capacity,
         "live": bool(domain.isActive()),
+        "format": driver_el.get("type"),
     }
 
 
@@ -169,24 +170,25 @@ def _mirror_live(domain, target_dev, dest, progress, stop=None):
         except libvirt.libvirtError:
             logger.debug("No copy job to cancel on %s", target_dev, exc_info=True)
         raise
-    # Some libvirt versions pivot the live disk but leave the persistent definition on the old file.
-    config_el = _disk_config_path(domain, target_dev)
-    if config_el is None or config_el.find("source").get("file") != dest:
-        try:
+    # Some libvirt versions pivot the live disk but leave the persistent definition on the old file. Whatever fails from
+    # here on is a Pivoted: the VM writes to `dest`, which must never be removed.
+    try:
+        config_el = _disk_config_path(domain, target_dev)
+        if config_el is None or config_el.find("source").get("file") != dest:
             _point_config_at(domain, target_dev, dest)
-        except Exception as e:
-            # The VM already writes to `dest`: it must never be removed now, nor the source, which lacks what was
-            # written since the pivot. Said with both paths, for an administrator to point the definition at dest.
-            raise Pivoted(
-                f"The VM now runs on {dest}, but its definition still names its old disk: point its disk "
-                f"{target_dev} at {dest} before it is stopped, both files are kept ({e})",
-                500,
-            ) from e
+    except Exception as e:
+        # The VM already writes to `dest`: it must never be removed now, nor the source, which lacks what was written
+        # since the pivot. Said with both paths, for an administrator to point the definition at dest.
+        raise Pivoted(
+            f"The VM now runs on {dest}, but its definition still names its old disk: point its disk "
+            f"{target_dev} at {dest} before it is stopped, both files are kept ({e})",
+            500,
+        ) from e
 
 
-def _convert_cold(source, dest, progress, stop=None):
+def _convert_cold(source, dest, progress, stop=None, fmt="raw"):
     proc = subprocess.Popen(
-        ["qemu-img", "convert", "-p", "-O", "qcow2", source, dest],
+        ["qemu-img", "convert", "-p", "-f", fmt, "-O", "qcow2", source, dest],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -239,7 +241,7 @@ def move(domain, target_dev, how, delete_source, progress=lambda pct: None, stop
             )
             _mirror_live(domain, target_dev, dest, progress, stop)
         else:
-            _convert_cold(src, dest, progress, stop)
+            _convert_cold(src, dest, progress, stop, how.get("format", "raw"))
             _point_config_at(domain, target_dev, dest)
     except Pivoted:
         raise  # the VM writes to dest now: removing it would lose everything written since

@@ -3,7 +3,7 @@ account may sign in and use the API.
 
 A rule applies to everyone, a global role, a group or one account. It holds in one of two modes: "watch" journals what
 it would have refused and lets it through (to try a rule before enforcing it), "enforce" refuses. The source networks
-and the hours are checked at sign-in and on every request; the second factor at a password sign-in (a session made with
+and the hours are checked at sign-in and on every request; the second factor at a sign-in, by password or SSO (a session made with
 one is proof enough; API tokens are for scripts and carry none). Root of a node (hyperlite-admin) is never held: it is
 the way back in when a rule locks everyone out.
 """

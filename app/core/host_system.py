@@ -568,17 +568,36 @@ POWER_ACTIONS = {"reboot": "reboot", "poweroff": "poweroff"}
 POWER_DELAY_S = 5
 
 
+class GuestsUnknown(RuntimeError):
+    """libvirt does not answer: what runs on this node is not known."""
+
+
+def _open_lxc(readonly=True):
+    """The LXC connection, None when this node has no LXC driver at all (it then has no containers); GuestsUnknown when
+    libvirt does not answer."""
+    from app.core.libvirt_utils import _lxc
+
+    try:
+        return _lxc(readonly)
+    except libvirt.libvirtError as e:
+        if e.get_error_code() == libvirt.VIR_ERR_NO_CONNECT and "driver" in str(e).lower():
+            return None
+        raise GuestsUnknown(f"The containers cannot be listed: {e}") from e
+
+
 def running_guests():
-    """Running VMs and containers of this node, as (kind, name)."""
-    from app.core.libvirt_utils import open_conn, open_lxc_conn_if_any
+    """Running VMs and containers of this node, as (kind, name). GuestsUnknown when libvirt does not answer: a power
+    action must not take an empty list for "nothing runs" and power off running guests."""
+    from app.core.libvirt_utils import open_conn
 
     found = []
-    for kind, opener in (("vm", open_conn), ("container", open_lxc_conn_if_any)):  # both read-only
+    for kind, opener in (("vm", open_conn), ("container", _open_lxc)):  # both read-only
         try:
             conn = opener(readonly=True)
-        except Exception as e:  # libvirt unreachable: no guest of this kind can be listed, none is waited for
-            logger.warning("Cannot list the running %ss: %s", kind, e)
-            continue
+        except GuestsUnknown:
+            raise
+        except Exception as e:
+            raise GuestsUnknown(f"The running {kind}s cannot be listed: {e}") from e
         if conn is None:
             continue
         try:

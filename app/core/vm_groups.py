@@ -1,7 +1,8 @@
 """VM groups (docs/design/governance.md, section 13): N identical VMs made from one template, with a count to raise
 or lower.
 
-The members are the VMs of this node named <prefix>-<n>. Raising the count deploys the missing ones from the template
+The members are the VMs of this node the group made, named <prefix>-<n> (a VM someone else named so is never one: the
+group would count it, and delete it when lowered). Raising the count deploys the missing ones from the template
 (each its own task, as a deployment by hand); lowering it deletes the highest-numbered ones (to the recycle bin when it
 is on), stopped ones first, and running ones only when asked. Each new member joins the group's pool and carries its
 tags.
@@ -28,7 +29,14 @@ def _row(r):
     g = dict(r)
     g["tags"] = json.loads(g["tags"] or "[]")
     g["linked"] = bool(g["linked"])
+    g["made"] = json.loads(g["made"]) if g.get("made") is not None else None
     return g
+
+
+def _set_made(group_id, names):
+    with get_conn() as db:
+        db.execute("UPDATE vm_groups SET made = ? WHERE id = ?", (json.dumps(sorted(set(names))), group_id))
+        db.commit()
 
 
 def _domains():
@@ -45,8 +53,12 @@ def members(group, domains=None):
     """[(n, name, running)] of the group's VMs on this node, by number."""
     domains = _domains() if domains is None else domains
     pattern = re.compile(rf"^{re.escape(group['prefix'])}-(\d+)$")
-    found = [(int(m.group(1)), name, running) for name, running in domains.items() if (m := pattern.match(name))]
-    return sorted(found)
+    named = {name: (int(m.group(1)), running) for name, running in domains.items() if (m := pattern.match(name))}
+    if group.get("made") is None:
+        # A group from before its VMs were recorded: those named so now are taken as its own, once.
+        group["made"] = sorted(named)
+        _set_made(group["id"], group["made"])
+    return sorted((named[n][0], n, named[n][1]) for n in group["made"] if n in named)
 
 
 def groups():
@@ -71,6 +83,10 @@ def create(fields, username):
 
     if not PREFIX_RE.match(fields["prefix"]):
         raise GroupError(422, "The prefix is lowercase letters, digits and dashes, starting with a letter")
+    pattern = re.compile(rf"^{re.escape(fields['prefix'])}-\d+$")
+    taken = sorted(name for name in _domains() if pattern.match(name))
+    if taken:
+        raise GroupError(409, f"VM {taken[0]} already has this prefix: choose another one")
     try:
         tags = object_meta.normalize_tags(fields.get("tags") or [])
     except object_meta.MetaError as e:
@@ -82,7 +98,7 @@ def create(fields, username):
         with get_conn() as db:
             db.execute(
                 "INSERT INTO vm_groups (id, name, template, network, linked, pool_id, tags, prefix, count, created_by, "
-                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+                "created_at, made) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, '[]')",
                 (
                     group_id,
                     fields["name"],
@@ -125,7 +141,7 @@ def scale(group_id, count, user, force=False):
         while len(have) + len(made) < count:
             n += 1
             name = f"{g['prefix']}-{n}"
-            if n in taken or recycle_bin.holds(name):
+            if n in taken or recycle_bin.holds(name) or name in _domains():
                 continue
             deploy_template(g["template"], DeployRequest(new_name=name, network=g["network"], linked=g["linked"]), user,
                             wait=False)  # fmt: skip
@@ -134,9 +150,15 @@ def scale(group_id, count, user, force=False):
             if g["tags"]:
                 object_meta.put("vm", name, "", g["tags"])
             made.append(name)
+            _set_made(group_id, [*g["made"], *made])
     elif count < len(have):
         # The highest numbers go first, stopped ones before running ones.
         extra = sorted(have, key=lambda m: (m[2], -m[0]))[: len(have) - count]
+        from app.core import protections
+
+        held = [why for _, name, _r in extra if (why := protections.refusal("vm", name, deleting=True))]
+        if held:
+            raise GroupError(409, held[0])
         running = [name for _, name, r in extra if r]
         if running and not force:
             raise GroupError(
@@ -149,6 +171,7 @@ def scale(group_id, count, user, force=False):
                 privileged.run("vm.power", user=user["username"], vm=name, action="stop")
             lifecycle.delete_vm(name, confirm=True, node=None, purge=False, user=user)
             removed.append(name)
+            _set_made(group_id, [n for n in g["made"] if n not in removed])
     with get_conn() as db:
         db.execute("UPDATE vm_groups SET count = ? WHERE id = ?", (count, group_id))
         db.commit()

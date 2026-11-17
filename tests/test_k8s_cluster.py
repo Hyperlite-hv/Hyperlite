@@ -233,10 +233,19 @@ def test_a_restart_during_provisioning_is_reported(k8s, database):
 
 
 def test_the_join_token_never_appears_on_a_command_line(database, monkeypatch):
+    """The steps in the cluster's VMs are hyperlite-daemon's (only it reads the automation key, the API runs
+    unprivileged): the token goes on the script's standard input, never on a command line."""
     from app.core import k8s_cluster
+    from app.daemon.ops import job
+
+    asked = []
+    monkeypatch.setattr(k8s_cluster, "_ask", lambda op, **kw: asked.append((op, kw)) or {"stdout": "", "stderr": "",
+                                                                                          "exit": 0})  # fmt: skip
+    k8s_cluster.vm_run("demo-server", 'echo "$HL_SECRET" > /dev/null', secret="s3cr3t-token")
+    assert asked[0][0] == "job.vm_script" and asked[0][1]["secret"] == "s3cr3t-token"
 
     seen = {}
-    monkeypatch.setattr(k8s_cluster, "_ssh_target", lambda vm: ("10.0.0.10", "kube", ["-o", "BatchMode=yes"]))
+    monkeypatch.setattr(job, "_vm_ssh", lambda vm, command: ["ssh", "kube@10.0.0.10", command])
 
     class _R:
         returncode, stdout, stderr = 0, "", ""
@@ -245,10 +254,21 @@ def test_the_join_token_never_appears_on_a_command_line(database, monkeypatch):
         seen["args"], seen["input"] = args, kwargs.get("input")
         return _R()
 
-    monkeypatch.setattr(k8s_cluster.subprocess, "run", fake_run)
-    k8s_cluster.vm_run("demo-server", 'echo "$HL_SECRET" > /dev/null', secret="s3cr3t-token")
+    monkeypatch.setattr(job.subprocess, "run", fake_run)
+    job.vm_script(job.VmScriptArgs(vm="demo-server", script="true", secret="s3cr3t-token"), None)
     assert not any("s3cr3t-token" in a for a in seen["args"])
     assert seen["input"].startswith("s3cr3t-token\n")
+
+
+def test_only_the_kubernetes_downloads_are_copied_into_a_vm(tmp_path, monkeypatch):
+    from app.core import paths
+    from app.daemon.ops import job
+    from app.daemon.registry import DaemonError
+
+    monkeypatch.setattr(paths, "K3S", tmp_path / "k3s")
+    (tmp_path / "k3s").mkdir()
+    with pytest.raises(DaemonError, match="Not a file of the Kubernetes downloads"):
+        job.vm_copy(job.VmCopyArgs(vm="v", files=["/etc/shadow"], remote_dir="d"), None)
 
 
 def test_k3s_downloads_are_verified_and_cached(database, monkeypatch, tmp_path):

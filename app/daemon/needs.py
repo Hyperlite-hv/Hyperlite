@@ -14,6 +14,22 @@ from dataclasses import dataclass
 from app.daemon.registry import DaemonError
 
 
+def _by_token(user):
+    """Whether the proof was an API token (a delegated one included) rather than a session."""
+    return user.get("api_token_id") is not None or bool(user.get("token_scope"))
+
+
+def own_refusal(user, username):
+    """What an account does to itself (its password, second factors, tokens, sessions) needs a signed-in session: an
+    API token never mints tokens, changes the password or the second factors of its own account, as the routes already
+    say (app/routers/auth.py). An administrator's token may still act on other accounts."""
+    if _by_token(user) and (username == user["username"] or user["role"] != "admin"):
+        return "This is done from a signed-in session, not with an API token"
+    if username != user["username"] and user["role"] != "admin":
+        return "Only the account itself or an administrator may do this"
+    return None
+
+
 @dataclass(frozen=True)
 class Need:
     """`kind`: "admin", "anyone" (any proven account), "public" (no proof: the sign-in itself), "own" (the account
@@ -27,6 +43,12 @@ class Need:
 
     def refusal(self, user, args):
         """Why `user` (a users row) may not, or None."""
+        if _by_token(user):
+            # An administrator's API token does not skip what an account does to itself from a session.
+            if self.kind == "own":
+                return own_refusal(user, getattr(args, self.arg, None))
+            if self.kind == "rule" and getattr(self.rule, "own_account", False):
+                return self.rule(user, args)
         if user["role"] == "admin" or self.kind == "anyone":
             return None
         if self.kind == "admin":
@@ -46,7 +68,7 @@ class Need:
                 f"Insufficient rights on VM '{refused[0]}' (required privilege: {self.privilege})" if refused else None
             )
         if self.kind == "own":
-            return None if value == user["username"] else "Only the account itself or an administrator may do this"
+            return own_refusal(user, value)
         from app.core import permissions
 
         if value is None:
@@ -74,6 +96,12 @@ class _Named:
 
 def on_vms(privilege, arg="vms"):
     return Need("vms", privilege, arg)
+
+
+def own_account(rule):
+    """Marks a rule about what an account does to itself: checked for an administrator's API token too."""
+    rule.own_account = True
+    return rule
 
 
 def by_rule(rule):
@@ -135,6 +163,11 @@ def on_network(privilege, arg="network"):
 def on_area(privilege):
     """An area privilege (backup.manage, update.apply...) on the cluster, or on this node for a node-bound area."""
     return Need("area", privilege)
+
+
+def all_of(*needs):
+    """Every one of `needs` (the first refusal is said)."""
+    return by_rule(lambda user, args: next((why for n in needs if (why := n.refusal(user, args))), None))
 
 
 def own(arg="username"):

@@ -43,7 +43,21 @@ def _guest_address(vm, node):
         ip = guest_agent.address_now(domain)
     if not ip:
         raise DaemonError("refused", f"VM '{vm}' reports no address: its guest agent must be running")
+    if ip in _host_addresses():
+        # The address may be the guest agent's word: a guest naming this host would have the session connect to the
+        # host's own services, the only address its unit may reach.
+        raise DaemonError("refused", f"VM '{vm}' reports an address of this node: refused")
     return ip
+
+
+def _host_addresses():
+    import json
+
+    r = _run(["ip", "-j", "addr", "show"])
+    try:
+        return {a["local"] for link in json.loads(r.stdout or "[]") for a in link.get("addr_info", [])}
+    except (ValueError, KeyError, TypeError):
+        return set()
 
 
 class OpenArgs(Args):

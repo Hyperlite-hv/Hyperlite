@@ -148,13 +148,14 @@ def refuse_vm_with_block_disks(name, action):
         conn.close()
 
 
-def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct):
+def qemu_img_convert_with_progress(source, dest, task_id, base_pct, span_pct, fmt="qcow2"):
     """Copy with qemu-img convert -p, parse the real progress on stdout and report it
     in the task (base_pct/span_pct allow calling this several times, e.g. for
     several disks, without each one restarting from 0%)."""
     raise_if_cancelled(task_id)
     proc = subprocess.Popen(
-        ["qemu-img", "convert", "-p", "-O", "qcow2", str(source), str(dest)],
+        # The source read in the format its definition names (app/core/disk_images.py, declared_format), never guessed.
+        ["qemu-img", "convert", "-p", "-f", fmt, "-O", "qcow2", str(source), str(dest)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -206,9 +207,11 @@ def backup_cold(domain, vm_name, dest_dir, task_id, disks=None):
         raise RuntimeError("No disk found on this VM")
     dest_paths = []
     span = 90 / len(disks)
+    formats = disk_images.formats_of(domain)
     for i, (dev, source) in enumerate(disks):
         dest = dest_dir / f"{dev}.qcow2"
-        qemu_img_convert_with_progress(source, dest, task_id, base_pct=5 + i * span, span_pct=span)
+        qemu_img_convert_with_progress(source, dest, task_id, base_pct=5 + i * span, span_pct=span,
+                                       fmt=formats.get(source, "raw"))  # fmt: skip
         dest_paths.append(dest)
     return dest_paths
 
@@ -248,6 +251,7 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
             disk_xml_parts.append(f"<disk name='{dev}' snapshot='external'><source file='{overlay}'/></disk>")
         else:
             disk_xml_parts.append(f"<disk name='{dev}' snapshot='no'/>")
+    formats = disk_images.formats_of(domain)  # read before the overlays take the disks' place in the definition
     snap_name = f"hyperlite-backup-{int(time.time())}"
     snap_xml = f"<domainsnapshot><name>{snap_name}</name><disks>{''.join(disk_xml_parts)}</disks></domainsnapshot>"
 
@@ -265,7 +269,8 @@ def backup_hot(conn, domain, vm_name, dest_dir, task_id, disks=None):
             # We copy the FROZEN base (the original `source` file, no longer touched by the VM
             # while the overlay is active), not the overlay, which keeps growing with the VM's
             # activity.
-            qemu_img_convert_with_progress(source, dest, task_id, base_pct=15 + i * span, span_pct=span)
+            qemu_img_convert_with_progress(source, dest, task_id, base_pct=15 + i * span, span_pct=span,
+                                           fmt=formats.get(source, "raw"))  # fmt: skip
             dest_paths.append(dest)
     except BaseException:
         copy_failed = True
@@ -597,7 +602,13 @@ def _run_store_backup(vm_name, store_name, job_id, username):
     from app.daemon.registry import DaemonError
 
     task_id = create_task("backup_vm", vm_name, node=None, username=username)
-    conn = open_conn(readonly=True)
+    try:
+        conn = open_conn(readonly=True)
+    except libvirt.libvirtError as e:
+        # libvirt not reachable (restarting): a failed task, said, never one left running.
+        finish_task(task_id, "failed", f"libvirt cannot be reached: {e}")
+        log_action(username, "backup_vm", vm_name, "failed", f"libvirt cannot be reached: {e}", task_id=task_id)
+        raise RuntimeError(f"libvirt cannot be reached: {e}") from None
     try:
         try:
             mode = "live" if conn.lookupByName(vm_name).isActive() else "cold"
@@ -942,6 +953,14 @@ def _restore_backup(backup_id, mode, new_name=None, username="system", claim=Non
     if mode not in ("overwrite", "new"):
         raise RuntimeError("invalid mode (expected 'overwrite' or 'new')")
     target_name = row["vm_name"] if mode == "overwrite" else new_name
+    if mode == "overwrite":
+        # Protections hold on the operation, not only on the URLs about the VM (app/core/protections.py): a restore
+        # that replaces a frozen or kept VM's disks is refused here, whoever asks and by whatever route.
+        from app.core import protections
+
+        why = protections.refusal("vm", target_name, deleting=True)
+        if why:
+            raise RuntimeError(why)
     if claim is None:
         claim = vm_locks.claim(target_name or "", "a backup restore")
 
@@ -1258,7 +1277,14 @@ def _verify_due_backup():
     if backup_id is None or not _backup_lock.acquire(blocking=False):
         return None
     try:
-        return verify_backup(backup_id, username="scheduler")
+        try:
+            return verify_backup(backup_id, username="scheduler")
+        except Exception as e:
+            # Recorded, so the next tick takes the next backup: one that cannot be read (a disk with I/O errors, a
+            # store whose key is gone) must not hold every other verification, and what runs after it, for ever.
+            logger.warning("Backup %s could not be verified: %s", backup_id, e)
+            _store().set_verification(backup_id, "unverifiable", _now().isoformat(), str(e)[:500])
+            return None
     finally:
         _backup_lock.release()
 
@@ -1365,13 +1391,14 @@ def _scheduler_loop():
             from app.core import backup_groups
 
             backup_groups.run_due(now)
-            _verify_due_backup()
-            from app.core import backup_stores
+            from app.core import backup_store_sync, backup_stores
 
-            backup_stores.collect_due()
-            from app.core import backup_store_sync
-
-            backup_store_sync.run_due(now)
+            # Each its own step: one that fails does not stop the others.
+            for step in (_verify_due_backup, backup_stores.collect_due, lambda at=now: backup_store_sync.run_due(at)):
+                try:
+                    step()
+                except Exception:
+                    logger.exception("Backup scheduler step failed")
             db_health.succeeded("backup-scheduler")
         except Exception as e:
             logger.exception("Backup scheduler tick failed")

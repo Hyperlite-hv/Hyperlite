@@ -159,6 +159,26 @@ def test_every_member_follows_the_saved_rules_once(node):
     assert fw.follow_once() is True and node["table"]["text"] == ""
 
 
+def test_a_firewall_that_is_on_comes_back_after_a_reboot(node):
+    """The kernel's table does not survive a reboot: an unchanged firewall that is on is applied again."""
+    node["saved"]["value"] = json.dumps(DOC)
+    assert fw.follow_once() is True
+    node["table"]["text"] = ""  # rebooted
+    assert fw.follow_once() is True and "ipset_admins" in node["table"]["text"]
+    assert fw.follow_once() is False
+
+
+def test_a_change_waiting_after_a_reboot_gets_its_timer_back(node, monkeypatch):
+    from app.core import rollback_timer
+
+    change = fw.apply(DOC, 300)
+    monkeypatch.setattr(rollback_timer, "armed", lambda unit: False)  # the timer went with the reboot
+    node["ran"].clear()
+    fw.finish_interrupted()
+    assert fw.pending()["id"] == change["id"]
+    assert any(a[0] == "systemd-run" and change["id"] in a for a, _ in node["ran"])
+
+
 def test_a_reboot_before_the_confirmation_drops_the_change(node, monkeypatch):
     change = fw.apply(DOC, 30)
     fw.finish_interrupted()
@@ -322,3 +342,10 @@ def test_a_deleted_group_a_vm_still_references_is_kept(daemon_libvirt, monkeypat
     fw.sync_groups(fw.normalize({"groups": [WEB]}))
     assert not used.gone and unused.gone and not vm.gone
     assert len(conn.defined) == 1 and "hyperlite-group-web" in conn.defined[0]
+
+
+def test_an_ipv6_member_goes_in_a_set_of_its_own():
+    script = fw.render(fw.normalize(DOC), "node-a", members=["192.0.2.11", "2001:db8::12"])
+    assert "set members { type ipv4_addr; flags interval; elements = { 192.0.2.11 } }" in script
+    assert "set members6 { type ipv6_addr; flags interval; elements = { 2001:db8::12 } }" in script
+    assert "ip6 saddr @members6 accept" in script

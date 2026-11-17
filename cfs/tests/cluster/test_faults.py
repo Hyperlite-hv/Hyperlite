@@ -55,6 +55,8 @@ def test_the_sender_killed_mid_write_loses_no_answered_write(nodes, socks):
     time.sleep(1)
     stop_writers(writers)
     assert check(nodes, writers) > 0
+    # Not only no write lost: every node, the one that failed included, takes writes again.
+    until(lambda: writable(nodes, "/b3/sender/after"), what="every node writable again")
     clean(nodes[0], "/b3/sender")
 
 
@@ -67,6 +69,8 @@ def test_a_receiver_killed_mid_write_loses_no_answered_write(nodes, socks):
     time.sleep(1)
     stop_writers(writers)
     assert check(nodes, writers) > 0
+    # Not only no write lost: every node, the one that failed included, takes writes again.
+    until(lambda: writable(nodes, "/b3/receiver/after"), what="every node writable again")
     clean(nodes[0], "/b3/receiver")
 
 
@@ -79,6 +83,8 @@ def test_a_node_whose_cluster_stack_crashes_comes_back(nodes, socks):
     time.sleep(1)
     stop_writers(writers)
     assert check(nodes, writers) > 0
+    # Not only no write lost: every node, the one that failed included, takes writes again.
+    until(lambda: writable(nodes, "/b3/crash/after"), what="every node writable again")
     clean(nodes[0], "/b3/crash")
 
 

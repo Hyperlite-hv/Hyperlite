@@ -45,7 +45,11 @@ def _cluster():
     table = statd.table()
     names = [me, *(m["name"] for m in cluster_view.members())]
     online = [n for n in names if n == me or (n in latest and latest[n][0] <= LOST_S)]
-    free = {n: (table.get(n) or {}).get("mem_free_mb") for n in online}
+    # A member in maintenance takes no VM at a failure (ha_recovery.candidates): its room is not counted.
+    from app.core.ha_recovery import _in_maintenance
+
+    on_duty = {n for n in online if not _in_maintenance(n)}
+    free = {n: (table.get(n) or {}).get("mem_free_mb") for n in online if n in on_duty}
     running = {n: _running(latest[n][1]) if n in latest else set() for n in online}
     loads = {n: [] for n in online}
     for row in ha.list_protected():

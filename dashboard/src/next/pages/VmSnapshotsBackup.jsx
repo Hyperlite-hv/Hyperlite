@@ -260,6 +260,7 @@ export function VmBackupPage({ resource: vm }) {
   const integrity = (b) => (b.status !== "succeeded" ? null
     : b.verification === "verified" ? <span className="nx-chip" data-tone="success" title={t("vb.verifiedOn", { date: formatDateTime(b.verified_at, lang) })}>{t("vb.v.ok")}</span>
     : b.verification === "corrupted" ? <span className="nx-chip" data-tone="danger" title={b.verification_detail || ""}>{t("vb.v.bad")}</span>
+    : b.verification === "unverifiable" ? <span className="nx-chip" data-tone="warning" title={b.verification_detail || ""}>{t("vb.v.unreadable")}</span>
     : <span className="nx-chip" title={t("vb.v.neverHelp")}>{t("vb.v.never")}</span>);
 
   return (

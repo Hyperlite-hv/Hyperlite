@@ -258,8 +258,8 @@ def _raw_installed_version():
     return r.stdout.strip() if r.returncode == 0 else None
 
 
-def _raw_candidate_version():
-    for line in _run_c(["apt-cache", "policy", "hyperlite"]).stdout.splitlines():
+def _raw_candidate_version(apt_opts=()):
+    for line in _run_c(["apt-cache", *apt_opts, "policy", "hyperlite"]).stdout.splitlines():
         if line.strip().startswith("Candidate:"):
             return line.split(":", 1)[1].strip()
     return None
@@ -286,7 +286,9 @@ def _previous():
 def _keep_previous(task_id, apt_opts=()):
     """Before Hyperlite changes: keep the installed version's package (from the mirror's pool, which keeps every
     version). Best effort: without it, the return to the previous version is just not offered."""
-    installed, candidate = _raw_installed_version(), _raw_candidate_version()
+    # The candidate as this update sees it: an update from a file reads its own lists, not the node's stale ones (which
+    # would say nothing changes, and leave an older kept package as "the previous version").
+    installed, candidate = _raw_installed_version(), _raw_candidate_version(apt_opts)
     if not installed or not candidate or installed == candidate:
         return
     if not version.knows_layout(installed):
@@ -555,7 +557,9 @@ def check_update(lang: str = "en", user: dict = Depends(require_area("update.vie
         previous = _previous()
         result["previous"] = previous["version"] if previous else None
         result["channel"] = host_system.channel()
-        if user and user.get("username"):  # a check asked from the console: the Updates page shows it from now on
+        if user and user.get("username") and result.get("verifiable"):
+            # A check asked from the console, that could reach the repository: the Updates page shows it from now on
+            # (a failed one, a viewer's refused refresh included, never replaces the last good result).
             from app.core import update_check
 
             update_check.remember(result)
@@ -945,6 +949,13 @@ def _start_job(user, kind, task_id, system=True):
         raise privileged.http_error(e, refused=409) from None
 
 
+def _refuse_while_updating():
+    """The file's packages and lists are what a running update installs from: never replaced or removed under it."""
+    running = _update_in_progress()
+    if running:
+        raise HTTPException(status_code=409, detail=f"An update started by {running} is running: wait for its end")
+
+
 def _update_in_progress():
     """Username of whoever started an update that is still running, else None.
 
@@ -1117,6 +1128,7 @@ async def upload_offline_update(
     installed: POST /update/offline/apply does."""
     if _install_method() != "apt":
         raise HTTPException(status_code=409, detail="Only a node installed from the package can be updated from a file")
+    _refuse_while_updating()
     try:
         try:
             info = await run_in_threadpool(offline_update.receive, file.file)
@@ -1140,6 +1152,7 @@ def get_offline_update(lang: str = "en", user: dict = Depends(require_area("upda
 
 @router.delete("/offline")
 def delete_offline_update(user: dict = Depends(require_area("update.apply"))):
+    _refuse_while_updating()
     offline_update.discard()
     log_action(user["username"], "delete_update_file", "hyperlite", "success")
     return {"version": None}

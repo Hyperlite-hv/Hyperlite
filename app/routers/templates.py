@@ -74,12 +74,60 @@ class ConvertRequest(BaseModel):
     keep_vm: bool = False
 
 
+def _claim_template(name, what):
+    """The template `name` held for `what` (making it, renaming or deleting it): two such at once on one template would
+    write or remove the same disk. A deployment does not take it (several run at once from one template); renaming or
+    deleting is refused while one runs."""
+    from app.core import shared_claims
+
+    try:
+        return vm_locks.Claim(shared_claims.take("template", "local", name, what))
+    except shared_claims.Busy as e:
+        raise HTTPException(status_code=409, detail=f"Template '{name}' is busy with {e.running}") from None
+
+
+def _refuse_while_deploying(name):
+    from app.core.database import get_conn
+
+    with get_conn() as db:
+        running = db.execute(
+            "SELECT 1 FROM tasks WHERE type = 'deploy_template' AND target = ? AND status IN ('pending', 'running')",
+            (name,),
+        ).fetchone()
+    if running:
+        raise HTTPException(status_code=409, detail=f"A VM is being deployed from template '{name}': wait for its end")
+
+
+class _Both:
+    """Two claims released together."""
+
+    def __init__(self, *claims):
+        self.claims = claims
+
+    def release(self):
+        for c in self.claims:
+            c.release()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.release()
+        return False
+
+
 @router.post("/from-vm/{name}", status_code=201)
 def convert_to_template(
     name: str, payload: ConvertRequest, user: dict = Depends(require_role("admin")), wait: bool = True
 ):
     """wait=false: every check is made, then the work runs as a task and the answer is 202 with its id."""
     claim = vm_locks.claim_or_409(name, "a copy to a template" if payload.keep_vm else "a conversion to a template")
+    try:
+        tpl_claim = _claim_template((payload.template_name or name).strip(), "its making")
+    except BaseException:
+        claim.release()
+        raise
+    claim = _Both(claim, tpl_claim)
     try:
         _convert_to_template(name, payload, user, check_only=True)
         # A task as for a clone: a copy to a template takes minutes, and shows in Tasks while it runs.
@@ -199,7 +247,9 @@ class TemplateRename(BaseModel):
 @router.post("/{template_name}/rename")
 def rename_template_endpoint(template_name: str, payload: TemplateRename, user: dict = Depends(require_role("admin"))):
     new = payload.new_name
-    _daemon("template.rename", user, "rename_template", template_name, template=template_name, new_name=new)
+    _refuse_while_deploying(template_name)
+    with _claim_template(template_name, "a rename"), _claim_template(new, "a rename"):
+        _daemon("template.rename", user, "rename_template", template_name, template=template_name, new_name=new)
     log_action(user["username"], "rename_template", template_name, "success", f"-> {new}")
     return templates_store.get_template(new) | {"xml": None}
 
@@ -210,6 +260,8 @@ def delete_template_endpoint(template_name: str, confirm: bool = False, user: di
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required (?confirm=true)")
-    _daemon("template.delete", user, "delete_template", template_name, template=template_name)
+    _refuse_while_deploying(template_name)
+    with _claim_template(template_name, "a deletion"):
+        _daemon("template.delete", user, "delete_template", template_name, template=template_name)
     log_action(user["username"], "delete_template", template_name, "success")
     return {"template": template_name, "deleted": True}

@@ -196,7 +196,11 @@ def table():
     return out
 
 
-def latest():
+class StatusesUnread(RuntimeError):
+    """hyperlite-cfs did not answer: no status is known, which is not "no node was ever seen"."""
+
+
+def latest(strict=False):
     """{node name: (age in seconds, its VMs)} of the latest status of every node the daemon holds one of, however old:
     HA counts from the moment a node was last seen, and restarts what ran there then (app/core/ha_recovery.py). Empty
     when hyperlite-cfs does not answer."""
@@ -207,6 +211,8 @@ def latest():
         statuses = shadow._get_client().stat_get()
     except (CfsError, OSError) as e:
         logger.debug("Statuses not read: %s", e)
+        if strict:
+            raise StatusesUnread(str(e)) from e
         return {}
     out = {}
     for s in statuses:
@@ -218,9 +224,10 @@ def latest():
     return out
 
 
-def ages():
-    """{node name: age in seconds of its latest status}, however old (latest)."""
-    return {name: age for name, (age, _) in latest().items()}
+def ages(strict=False):
+    """{node name: age in seconds of its latest status}, however old (latest). strict: StatusesUnread when
+    hyperlite-cfs does not answer, instead of an empty table."""
+    return {name: age for name, (age, _) in latest(strict).items()}
 
 
 # What this node's database accepts that an older version did not: an assignment on a storage pool or a network, then

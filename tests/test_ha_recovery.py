@@ -3,6 +3,7 @@ member once it is fenced, by priority, where they fit, at most 3 times an hour; 
 them. Everything around (members, statuses, BMC, watchdog, libvirt) is faked."""
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import libvirt
@@ -51,10 +52,12 @@ def cluster(database, monkeypatch):
     monkeypatch.setattr(cluster_lead, "is_leader", lambda: True)
     monkeypatch.setattr(cluster_lead, "read_only_reason", lambda: None)
     monkeypatch.setattr(ha_recovery, "_members", lambda: ["n2", "n3"])
-    monkeypatch.setattr(statd, "ages", lambda: dict(world["ages"]))
+    monkeypatch.setattr(statd, "ages", lambda strict=False: dict(world["ages"]))
     # The members' last statuses: None for a member means none is held (every HA VM of it counts).
     world["last_vms"] = {}
-    monkeypatch.setattr(statd, "latest", lambda: {n: (world["ages"][n], vms) for n, vms in world["last_vms"].items()})
+    monkeypatch.setattr(
+        statd, "latest", lambda strict=False: {n: (world["ages"][n], vms) for n, vms in world["last_vms"].items()}
+    )
     monkeypatch.setattr(statd, "table", lambda: {n: {"mem_free_mb": f} for n, f in world["free"].items()})
     monkeypatch.setattr(ha_fencing, "get", lambda node: {"method": world["fencing"]} if world["fencing"] else None)
     monkeypatch.setattr(ha_fencing, "power_off", lambda node: dict(world["power_off"]))
@@ -85,6 +88,8 @@ def cluster(database, monkeypatch):
         ha, "adopt", lambda row, node: ha._store().sync_definition(row["vm_name"], row["domain_xml"], "now", node=node)
     )
     ha_recovery._lost.clear()
+    # This node has led for long: a member without any status is lost (a leader that just took over waits first).
+    monkeypatch.setattr(ha_recovery, "_leading_since", time.monotonic() - 3600)
     yield world
     ha_recovery._lost.clear()
 
@@ -465,3 +470,57 @@ def test_a_vm_stopped_on_purpose_on_a_fenced_member_stays_stopped_once_it_answer
     ha_recovery.tick()
     ha_recovery.tick()
     assert cluster["started"] == [("web", "n3")] and "n2" not in ha_recovery._lost
+
+
+def test_no_status_read_is_not_every_member_lost(cluster, database, monkeypatch):
+    """hyperlite-cfs restarting on the leader: no status could be read. Nothing is decided, no BMC is called."""
+
+    def unread(strict=False):
+        raise statd.StatusesUnread("cfs restarting")
+
+    protect(database, "web")
+    cluster["fencing"] = "ipmi"
+    monkeypatch.setattr(statd, "ages", unread)
+    assert ha_recovery.tick() == {} and cluster["started"] == []
+
+
+def test_a_member_without_status_is_not_lost_while_a_new_leader_waits(cluster, database, monkeypatch):
+    protect(database, "web")
+    cluster["fencing"] = "ipmi"
+    del cluster["ages"]["n2"]
+    monkeypatch.setattr(ha_recovery, "_leading_since", time.monotonic())
+    assert ha_recovery.tick() == {"n2": "ok"} and cluster["started"] == []
+
+
+def test_a_slow_bmc_never_holds_the_round(cluster, database, monkeypatch):
+    """An unreachable BMC takes minutes: the round goes on (the lead's health is its age), and the answer is read at a
+    later round."""
+    import threading
+
+    protect(database, "web")
+    cluster["ages"]["n2"] = 70.0
+    cluster["fencing"] = "ipmi"
+    release = threading.Event()
+
+    def slow(node):
+        release.wait(10)
+        return {"fenced": True, "detail": "off"}
+
+    monkeypatch.setattr(ha_fencing, "power_off", slow)
+    monkeypatch.setattr(ha_recovery, "BMC_IN_ROUND_S", 0.05)
+    started = time.monotonic()
+    assert ha_recovery.tick() == {"n2": "fencing"}
+    assert time.monotonic() - started < 5 and cluster["started"] == []
+    release.set()
+    ha_recovery._lost["n2"]["bmc_asking"].join(5)
+    assert ha_recovery.tick() == {"n2": "recovering"}
+
+
+def test_a_paused_vm_on_a_member_back_is_not_started_elsewhere(cluster, database, monkeypatch):
+    protect(database, "web")
+    cluster["ages"]["n2"] = 70.0
+    cluster["watchdog"] = {"armed": True, "reset_within_s": 120}
+    assert ha_recovery.tick() == {"n2": "fencing"}
+    cluster["ages"]["n2"] = 1.0  # back before it was proven stopped, its guest paused on an I/O error
+    monkeypatch.setattr(statd, "table", lambda: {"n2": {"vms": [{"name": "web", "state": "paused"}]}})
+    assert ha_recovery.tick() == {"n2": "ok"} and cluster["started"] == []

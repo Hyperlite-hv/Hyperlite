@@ -143,10 +143,13 @@ def save(fields, username, plan_id=None):
                 (*values, plan_id, username, now.isoformat()),
             )
         else:
+            # Whoever changes a plan becomes its author: it acts with the rights of the last person who decided what
+            # it does, never with those of someone who did not choose its new targets.
             cur = db.execute(
                 "UPDATE guest_update_plans SET name = ?, target_kind = ?, target = ?, days = ?, monthday = ?, "
-                "at_time = ?, tz = ?, duration_min = ?, reboot = ?, enabled = ?, last_occurrence = ? WHERE id = ?",
-                (*values, plan_id),
+                "at_time = ?, tz = ?, duration_min = ?, reboot = ?, enabled = ?, last_occurrence = ?, created_by = ? "
+                "WHERE id = ?",
+                (*values, username, plan_id),
             )
             if cur.rowcount == 0:
                 return None
@@ -244,7 +247,7 @@ def _author(name):
 
 def tick(now=None):
     """Schedule the runs of the plans whose occurrence came (every minute)."""
-    from app.core import guest_updates, permissions
+    from app.core import guest_updates
     from app.core.audit import log_action
 
     now = now or _now()
@@ -265,7 +268,7 @@ def tick(now=None):
         if author is None:
             log_action("system", "patch_plan", plan["name"], "failed", "its author no longer exists: plan skipped")
             continue
-        vms = [vm for vm in resolve(plan) if permissions.has_privilege(author, vm, "vm.exec")]
+        vms = [vm for vm in resolve(plan) if guest_updates._may(author, vm, "vm.exec")]
         if not vms:
             log_action("system", "patch_plan", plan["name"], "success", "no running VM to update")
             continue

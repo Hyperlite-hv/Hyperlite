@@ -104,7 +104,11 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
 
   useStageHeight(stage, standalone, [mode, standalone, closedHints, clipOpen, note]);
 
+  // Each connection attempt's number: one still awaiting its ticket or its module when the mode or the VM changed (or
+  // another attempt began) drops what it gets, instead of mounting a second session on the same screen.
+  const generation = useRef(0);
   const cleanup = useCallback(() => {
+    generation.current += 1;
     try { rfb.current?.disconnect(); } catch { /* already closed */ }
     try { ws.current?.close(); } catch { /* already closed */ }
     try { term.current?.dispose(); } catch { /* already disposed */ }
@@ -113,13 +117,15 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
     if (screen.current) screen.current.innerHTML = "";
     setStatus("idle"); setSize(null);
   }, []);
-  const failed = useCallback((e) => {
+  const failed = useCallback((e, gen) => {
+    if (gen !== undefined && gen !== generation.current) return; // an abandoned attempt says nothing
     setError(errorMessage(e)); setStatus("error");
     if (e?.status >= 400 && e.status < 500) setGaveUp(true); // a refusal does not change by asking again
   }, []);
 
   // Graphical modes: noVNC on the console relay (VNC) or on the remote desktop's session (RDP).
   const connectRfb = useCallback(async (kind) => {
+    const gen = ++generation.current;
     setStatus("connecting"); setError(null);
     try {
       let path;
@@ -134,7 +140,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       }
       // noVNC lives in public/novnc, outside the bundle: loaded as is at runtime.
       const mod = await import(/* @vite-ignore */ new URL("/novnc/core/rfb.js", window.location.origin).href);
-      if (!screen.current) return;
+      if (!screen.current || gen !== generation.current) return;
       screen.current.innerHTML = "";
       const r = new mod.default(screen.current, wsUrl(path));
       r.background = "transparent";
@@ -148,8 +154,9 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       let reason = "";
       try { r._sock?._websocket?.addEventListener?.("close", (ev) => { reason = ev.reason || ""; }); } catch { /* noVNC's socket not reachable: no reason shown */ }
       const readSize = () => { if (r._fbWidth) setSize({ w: r._fbWidth, h: r._fbHeight }); };
-      r.addEventListener("connect", () => { attempts.current = 0; setStatus("connected"); readSize(); setTimeout(readSize, 1500); });
+      r.addEventListener("connect", () => { if (gen !== generation.current) return; attempts.current = 0; setStatus("connected"); readSize(); setTimeout(readSize, 1500); });
       r.addEventListener("disconnect", (ev) => {
+        if (gen !== generation.current) return; // a session already left: its end changes nothing of the current one
         rfb.current = null; setSize(null);
         if (kind === "rdp") { setError(reason || (ev.detail?.clean ? null : t("rdp.dropped"))); setGaveUp(true); setStatus("error"); return; }
         if (!ev.detail?.clean) setError(reason || t("cs.dropped"));
@@ -159,19 +166,21 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       // A guest with a clipboard agent sends what it copies: offered in the clipboard panel.
       r.addEventListener("clipboard", (e) => setGuestClip(e.detail?.text || null));
       r.addEventListener("desktopname", readSize);
-    } catch (e) { failed(e); }
+    } catch (e) { failed(e, gen); }
   }, [name, node, rdpForm, scale, t, failed]);
 
   const connectTerminal = useCallback(async () => {
+    const gen = ++generation.current;
     setStatus("connecting"); setError(null);
     try {
       await ensureXtermLoaded();
       const serial = mode === "serial";
       const ticket = await (serial ? createSerialTicket : createTerminalTicket)(name, node);
-      if (!screen.current) return;
+      if (!screen.current || gen !== generation.current) return;
       screen.current.innerHTML = "";
       const options = termOptions();
       await loadTerminalFont(options);
+      if (!screen.current || gen !== generation.current) return;
       // eslint-disable-next-line no-undef
       const tm = new Terminal(options);
       // eslint-disable-next-line no-undef
@@ -185,7 +194,7 @@ export default function VmConsole({ resource: vm, standalone = false, initialMod
       tm.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(d); });
       tm.onResize(({ cols, rows }) => { if (sock.readyState === WebSocket.OPEN) sock.send("\x00" + JSON.stringify({ cols, rows })); });
       onResize.current = keepFitted(screen.current, fit);
-    } catch (e) { failed(e); }
+    } catch (e) { failed(e, gen); }
   }, [mode, name, node, t, failed]);
 
   // A change of VM or mode ends the session; leaving the page too.

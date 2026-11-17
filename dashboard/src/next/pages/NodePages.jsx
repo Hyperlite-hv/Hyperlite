@@ -34,10 +34,13 @@ function useHardware(node) {
   const id = node?.id;
   const [hw, setHw] = useState(null);
   const [error, setError] = useState(null);
+  const current = useRef(id); // a late answer about another node than the one shown now is dropped
+  useEffect(() => { current.current = id; }, [id]);
   const load = useCallback(() => {
     if (!id) return;
     setError(null);
-    fetchNodeHardware(id).then(setHw).catch((e) => setError(errorMessage(e)));
+    const asked = id;
+    fetchNodeHardware(id).then((r) => { if (current.current === asked) setHw(r); }).catch((e) => { if (current.current === asked) setError(errorMessage(e)); });
   }, [id]);
   useEffect(() => { setHw(null); load(); }, [load]);
   useEffect(() => {
@@ -210,6 +213,7 @@ export function NodeShellPage({ resource: node }) {
   useEffect(() => cleanup, [cleanup]);
 
   async function connect() {
+    cleanup(); // the previous shell ends before another opens: never two root shells for one tab
     setStatus("connecting"); setError(null);
     try {
       await ensureXtermLoaded();
@@ -228,7 +232,8 @@ export function NodeShellPage({ resource: node }) {
       ws.current = sock;
       sock.onopen = () => { setStatus("connected"); fit.fit(); sock.send("\x00" + JSON.stringify({ cols: tm.cols, rows: tm.rows })); };
       sock.onmessage = (ev) => tm.write(ev.data);
-      sock.onclose = () => { tm.write("\r\n\x1b[33m[session ended]\x1b[0m\r\n"); setStatus("idle"); };
+      // The end of a socket already replaced says nothing about the current one.
+      sock.onclose = () => { if (ws.current !== sock) return; tm.write("\r\n\x1b[33m[session ended]\x1b[0m\r\n"); setStatus("idle"); };
       sock.onerror = () => setError(t("nn.shellError"));
       tm.onData((d) => { if (sock.readyState === WebSocket.OPEN) sock.send(d); });
       tm.onResize(({ cols, rows }) => { if (sock.readyState === WebSocket.OPEN) sock.send("\x00" + JSON.stringify({ cols, rows })); });

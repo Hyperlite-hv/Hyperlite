@@ -77,7 +77,7 @@ def iptables(monkeypatch):
     calls = []
 
     class Ok:
-        returncode, stderr = 0, ""
+        returncode, stdout, stderr = 0, "", ""
 
     def run(*args):
         calls.append(args)

@@ -464,8 +464,8 @@ def _init_db():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_backups_vm ON backups(vm_name, created_at)")
-        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verified' or 'corrupted'
-        # with the date and what was wrong.
+        # Integrity (app/core/backup_integrity.py): NULL until the first verification, then 'verified', 'corrupted' or
+        # 'unverifiable' (it could not be read), with the date and what was wrong.
         for ddl in (
             "ALTER TABLE backups ADD COLUMN verification TEXT",
             "ALTER TABLE backups ADD COLUMN verified_at TEXT",
@@ -927,6 +927,17 @@ def _init_db():
                 created_by TEXT
             )
         """)
+        # What each node's VMs cost, per budget (the latest look, every 15 minutes): a budget on the cluster, a pool or
+        # a tag holds VMs of every node, and its spend is the sum of every node's row.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cost_spend (
+                node TEXT NOT NULL,
+                budget_id TEXT NOT NULL,
+                spent REAL NOT NULL,
+                at TEXT NOT NULL,
+                PRIMARY KEY (node, budget_id)
+            )
+        """)
         # Guest updates (docs/design/governance.md, section 11): what each guest has pending, and the runs that
         # install it within a window.
         conn.execute("""
@@ -970,6 +981,10 @@ def _init_db():
                 created_at TEXT
             )
         """)
+        # The VMs a group made (JSON list): only they are its members. NULL for a group made before this was
+        # recorded, adopted once from the VMs named <prefix>-<n> then (app/core/vm_groups.py, members).
+        with contextlib.suppress(sqlite3.OperationalError):  # column already exists
+            conn.execute("ALTER TABLE vm_groups ADD COLUMN made TEXT")
         # The Terminal (docs/design/workbench.md): each account's stable uid on this node (its home's owner), and the
         # sessions. This node's own, never replicated: a session lives on the node that served the browser.
         conn.execute("""

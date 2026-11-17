@@ -333,6 +333,12 @@ def delete_vm(
 
 
 def _delete_vm(name, confirm, node, user, purge=False):
+    from app.core import protections
+
+    # Held here, not only by the URL check of the request (app/main.py): VM groups and autoscaling delete through this.
+    why = protections.refusal("vm", name, deleting=True)
+    if why:
+        raise HTTPException(status_code=409, detail=why)
     conn = open_conn(node, readonly=True)
     task_id = create_task("delete_vm", name, node=node, username=user["username"])
     try:

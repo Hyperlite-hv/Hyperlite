@@ -88,6 +88,10 @@ int main(void)
     CHECK_EQ(get("/priv/authkey", 0, NULL, 0), CFS_OK);
     CHECK_EQ(put("/nodes/node1/priv/key", "k", other), CFS_FORBIDDEN);
 
+    /* The names the mount gives the root itself are never written in the tree. */
+    CHECK_EQ(put("/.members", "x", 0), CFS_INVALID);
+    CHECK_EQ(put("/local/priv/env", "x", 0), CFS_INVALID);
+
     /* Paths are checked before the store sees them. */
     CHECK_EQ(put("/a/../priv/authkey", "x", 0), CFS_INVALID);
     CHECK_EQ(get("relative", 0, reason, sizeof(reason)), CFS_INVALID);

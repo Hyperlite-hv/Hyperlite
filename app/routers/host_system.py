@@ -197,7 +197,10 @@ def power(payload: PowerRequest, user: dict = Depends(require_role("admin"))):
     hostname = socket.gethostname()
     if payload.confirmation.strip() != hostname:
         raise HTTPException(status_code=422, detail=f"Type the node's name ({hostname}) to confirm")
-    guests = host_system.running_guests()
+    try:
+        guests = host_system.running_guests()
+    except host_system.GuestsUnknown as e:
+        raise HTTPException(status_code=503, detail=f"{e}: try again once libvirt answers") from None
     if guests and not payload.stop_guests:
         names = ", ".join(n for _, n in guests)
         raise HTTPException(

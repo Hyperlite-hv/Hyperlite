@@ -39,7 +39,11 @@ LVM_DEVICE_RE = re.compile(r"^/dev/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9/_.:-]{0,200}$
 # below them.
 SYSTEM_TREES = (
     "/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32", "/proc", "/root", "/run", "/sbin", "/sys",
-    "/usr", "/var/lib/hyperlite", "/var/lib/apt", "/var/lib/dpkg", "/var/log",
+    "/usr", "/var/lib/hyperlite", "/var/lib/hyperlite-cfs", "/var/lib/apt", "/var/lib/dpkg", "/var/log",
+    # libvirt's and the cluster's own state (its secrets, the VMs' NVRAM, its networks), and the system's queues.
+    "/var/lib/libvirt/secrets", "/var/lib/libvirt/qemu", "/var/lib/libvirt/network", "/var/lib/libvirt/storage",
+    "/var/lib/libvirt/dnsmasq", "/var/lib/libvirt/swtpm", "/var/lib/corosync", "/var/lib/systemd", "/var/spool",
+    "/var/cache", "/var/backups", "/var/mail",
     "/tmp",  # noqa: S108 - emptied at boot (a tmpfs on many hosts): the disks would vanish
 )  # fmt: skip
 # Refused as such, a directory below them is fine (/home/vms, /srv/pool, /mnt/disk2).
@@ -623,6 +627,11 @@ def volume_delete(conn, pool_name, volume_name):
         raise PoolError("not_found", f"Volume '{volume_name}' not found") from None
     if vol.path() in get_disk_paths_in_use(conn):
         raise PoolError("in_use", f"Volume '{volume_name}' is used by a VM, deletion refused")
+    from app.core import linked_disks
+
+    why = linked_disks.refusal(vol.path(), conn) if vol.info()[0] == libvirt.VIR_STORAGE_VOL_FILE else None
+    if why:
+        raise PoolError("in_use", f"Volume '{volume_name}' is not deleted: {why}")
     try:
         vol.delete(0)
     except libvirt.libvirtError as e:

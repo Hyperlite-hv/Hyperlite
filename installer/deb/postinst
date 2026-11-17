@@ -19,8 +19,12 @@ OLD=/root/hyperlite  # up to 1.0
 # From 1.14 the node's files are in the cluster's tree, mounted read-only at /etc/hyperlite (docs/design/cfs-files.md,
 # section 15): its keys are then at local/priv/env. The bridge's restore (1.13) is not run here: it would take them out
 # of the tree; a return to 1.13 runs it from 1.13's own postinst.
+# A node removed (not purged) then installed again has its keys in hyperlite-cfs's database only, its tree unmounted
+# while the package was gone: its data says it is no new node, and nothing is generated again (a new secret key and SSH
+# key would no longer match the other members').
 FRESH_INSTALL=0
-[ ! -f "$PRIV/env" ] && [ ! -f "$ETC/local/priv/env" ] && [ ! -f "$OLD/.env" ] && FRESH_INSTALL=1
+[ ! -f "$PRIV/env" ] && [ ! -f "$ETC/local/priv/env" ] && [ ! -f "$OLD/.env" ] \
+    && [ ! -f "$VAR/hyperlite.db" ] && [ ! -f /var/lib/hyperlite-cfs/config.db ] && FRESH_INSTALL=1
 
 chmod +x "$CODE/scripts/"*.sh 2>/dev/null || true
 # Readable by libvirt-qemu down to the ISO images (template/iso); what holds secrets is closed below it.

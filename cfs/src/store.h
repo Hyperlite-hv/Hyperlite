@@ -26,6 +26,9 @@ void cfs_store_clear_error(cfs_store *s);
 
 /* *data is malloc'ed (NULL for an empty file); the caller frees it. */
 int cfs_store_get(cfs_store *s, const char *path, int64_t *version, int64_t *mtime, uint8_t **data, size_t *len);
+/* What `path` is, by two point lookups (never a listing): a file (its size and date) or a directory (an entry lies
+ * below it). CFS_OK, CFS_NOT_FOUND or CFS_INTERNAL. */
+int cfs_store_stat(cfs_store *s, const char *path, bool *is_dir, int64_t *size, int64_t *mtime);
 /* Changes take `now` (seconds since the epoch) from the caller: in cluster mode every node applies the same change
  * with the time its sender stamped, so the trees stay identical whatever each node's clock says. */
 int cfs_store_put(cfs_store *s, const char *path, const uint8_t *data, size_t len, int64_t expected, int64_t now,

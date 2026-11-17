@@ -109,7 +109,7 @@ async def get_task(
     if (body := await _on_peer(on or node, task_id, user, "GET", f"/tasks/{task_id}")) is not None:
         return body
     try:
-        return await task_service.get_task(task_id)
+        return await task_service.get_task(task_id, user)
     except task_service.TaskNotFound:
         raise HTTPException(status_code=404, detail="Task not found") from None
 

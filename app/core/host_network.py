@@ -543,7 +543,9 @@ def finish_interrupted():
     """At hyperlite-daemon's start: a change still pending past its deadline (the node rebooted before the timer
     fired, or the timer did not run) is rolled back."""
     waiting = pending()
-    if waiting and waiting["deadline"] < time.time():
+    if waiting and rollback_timer.rearm_or_due(
+        ROLLBACK_UNIT, "app.core.host_network", waiting["id"], waiting["deadline"], time.time()
+    ):
         logger.warning("Host network change %s was not confirmed before the restart: rolling it back", waiting["id"])
         rollback(waiting["id"])
 

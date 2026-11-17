@@ -52,6 +52,11 @@ def holds(name):
         return False  # a database made before the bin (hyperlite-daemon's own checks in the test suite)
 
 
+def binned_paths():
+    """The disk files of the VMs in this node's bin: theirs until the bin is emptied, never another VM's."""
+    return {path for item in items() for path in item["disks"]}
+
+
 def put(domain, username):
     """Bin a stopped VM of this node; returns its row."""
     info = domain.info()

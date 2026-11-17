@@ -82,12 +82,20 @@ def _portable_xml(raw_xml):
 
     type_el = root.find("os/type")
     if type_el is not None and type_el.get("machine"):
-        type_el.set("machine", "pc")
+        # The machine's family is kept (q35 stays q35: a UEFI guest, its PCIe controllers and SATA drives, cannot start
+        # on i440fx), only its version is left to the target's QEMU.
+        machine = type_el.get("machine")
+        type_el.set(
+            "machine", "q35" if "q35" in machine else "pc" if "i440fx" in machine or machine == "pc" else machine
+        )
 
     cpu_el = root.find("cpu")
+    topology = cpu_el.find("topology") if cpu_el is not None else None
     if cpu_el is not None:
         root.remove(cpu_el)
-    ET.SubElement(root, "cpu", mode="host-model")
+    new_cpu = ET.SubElement(root, "cpu", mode="host-model")
+    if topology is not None:
+        new_cpu.append(topology)  # the guest's sockets, cores and threads, which its licences and its OS may count
 
     return ET.tostring(root, encoding="unicode")
 

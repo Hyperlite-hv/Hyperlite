@@ -10,6 +10,7 @@ used, its text only when the administrator asks for it.
 
 import json
 import logging
+import re
 import time
 
 from app.core import http_safety, secrets_crypto
@@ -96,6 +97,7 @@ def settings(with_secret=False):
 
 def set_settings(changes):
     current = settings(with_secret=True)
+    where = (current.get("provider"), current.get("base_url"))
     for key, value in changes.items():
         if key not in DEFAULTS:
             raise AssistantError(422, f"Unknown setting: {key}")
@@ -103,7 +105,7 @@ def set_settings(changes):
             raise AssistantError(422, "The provider is openai (an OpenAI-compatible endpoint) or anthropic")
         if key == "base_url" and value:
             try:
-                http_safety.require_http_url(value)
+                http_safety.refuse_link_local(http_safety.require_http_url(value))
             except ValueError as e:
                 raise AssistantError(422, str(e)) from None
         if key == "api_key":
@@ -111,6 +113,9 @@ def set_settings(changes):
         if key in ("enabled", "log_text"):
             value = bool(value)
         current[key] = value
+    if (current["provider"], current["base_url"]) != where and not changes.get("api_key"):
+        # The key was given for one service: it never goes to another one without being given again.
+        current["api_key"] = ""
     if current["enabled"] and current["provider"] == "openai" and not current["base_url"]:
         raise AssistantError(422, "Give the endpoint's address")
     if current["enabled"] and current["provider"] == "anthropic" and not current["api_key"]:
@@ -150,8 +155,23 @@ def _items(data):
     return data.get("items", data) if isinstance(data, dict) else data
 
 
+_ARG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def _check_args(name, args):
+    """What a model gives a tool is text it may have read in a VM's name, note or log: a name or a node goes into an
+    API path only as one plain name, and a kind only among those the tool offers."""
+    for key in ("name", "node"):
+        value = args.get(key)
+        if value is not None and (not isinstance(value, str) or not _ARG.match(value)):
+            raise AssistantError(422, f"{name}: not a valid {key}")
+    if name == "availability" and args.get("kind") not in ("vm", "node"):
+        raise AssistantError(422, "availability: the kind is vm or node")
+
+
 async def run_tool(get, name, args):
     """One tool's answer as text. `get(path, params)` reads Hyperlite's API as the asking account."""
+    _check_args(name, args)
     node = args.get("node") or None
     if name == "list_vms":
         vms = _items(await get("/vms", {}))
@@ -260,7 +280,7 @@ async def _ask_openai(s, history, question, call_tool, used):
     import httpx2
 
     url = s["base_url"].rstrip("/") + "/chat/completions"
-    http_safety.require_http_url(url)
+    http_safety.refuse_link_local(http_safety.require_http_url(url))
     headers = {"Authorization": f"Bearer {secrets_crypto.decrypt(s['api_key'])}"} if s.get("api_key") else {}
     tools = [{"type": "function", "function": {"name": t["name"], "description": t["description"],
                                                "parameters": t["schema"]}} for t in _tool_specs()]  # fmt: skip
@@ -274,7 +294,9 @@ async def _ask_openai(s, history, question, call_tool, used):
             except httpx2.HTTPError as e:
                 raise AssistantError(502, f"The model's endpoint cannot be reached: {e.__class__.__name__}") from None
             if r.status_code != 200:
-                raise AssistantError(502, f"The model's endpoint answered {r.status_code}: {r.text[:200]}")
+                # Its words go to the service's log, not to whoever asked: the endpoint may be any address.
+                logger.warning("The assistant's endpoint answered %s: %s", r.status_code, r.text[:200])
+                raise AssistantError(502, f"The model's endpoint answered {r.status_code}")
             choice = (r.json().get("choices") or [{}])[0]
             msg = choice.get("message") or {}
             calls = msg.get("tool_calls") or []

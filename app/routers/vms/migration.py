@@ -53,6 +53,17 @@ MIGRATE_TIMEOUT_S = 24 * 3600
 
 
 def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
+    """The job, whose task always ends: an unexpected error closes it as failed instead of leaving it running."""
+    try:
+        _migrate_vm_steps(task_id, username, source_node, target_node, vm_name)
+    except Exception as e:
+        logger.exception("Migration of %s to %s stopped", vm_name, target_node)
+        finish_task(task_id, "failed", describe_exception(e))
+        log_action(username, "migrate_vm", vm_name, "failed", describe_exception(e))
+        raise
+
+
+def _migrate_vm_steps(task_id, username, source_node, target_node, vm_name):
     """Migrated by hyperlite-daemon (app/core/vm_migrate.py), which writes the progress into the task; what follows
     the VM in Hyperlite's records is written here once it runs on target_node. A failure closes the task."""
     source = _norm_node(source_node)
@@ -72,8 +83,6 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
         finish_task(task_id, "failed", msg)
         log_action(username, "migrate_vm", vm_name, "failed", msg)
         return
-    if moved["checkpoints_dropped"]:
-        checkpoints.forget(vm_name, moved["checkpoints_dropped"])
     # What says where the VM is, HA above all: a protection left on the node the VM just left would let a recovery
     # start a second copy of it there. Each step that fails is a warning on the task, never the end of the others.
     warnings = list(moved["warnings"])
@@ -92,6 +101,9 @@ def _migrate_vm_job(task_id, username, source_node, target_node, vm_name):
 
     before = len(warnings)
     after("moving its HA protection", follow_ha)
+    if moved["checkpoints_dropped"]:
+        after("forgetting its replication checkpoints",
+              lambda: checkpoints.forget(vm_name, moved["checkpoints_dropped"]))  # fmt: skip
     if len(warnings) > before:
         log_action(
             username, "ha_follow", vm_name, "failed",

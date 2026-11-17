@@ -84,15 +84,24 @@ def _fill(table, row):
 
 
 def _upsert(db, table, row):
+    # The row comes from another member's tree: its column names go into the statement only once this node's table
+    # has them all. A column it lacks (a newer member's) fails the apply as SQLite itself would, never as SQL text.
     columns = list(row)
+    unknown = sorted(set(columns) - _columns(db, table.name))
+    if unknown:
+        raise sqlite3.OperationalError(f"table {table.name} has no column named {unknown[0]!r}")
     keys = ", ".join(f'"{c}"' for c in table.pk)
     updates = ", ".join(f'"{c}" = excluded."{c}"' for c in columns if c not in table.pk)
     names = ", ".join(f'"{c}"' for c in columns)
     marks = ", ".join("?" for _ in columns)
-    # Table and column names come from tables.py and the schema; values are bound.
+    # Table names come from tables.py, column names from this node's schema; values are bound.
     sql = f'INSERT INTO "{table.name}" ({names}) VALUES ({marks}) ON CONFLICT({keys}) '  # noqa: S608
     sql += f"DO UPDATE SET {updates}" if updates else "DO NOTHING"
     db.execute(sql, [row[c] for c in columns])
+
+
+def _columns(db, name):
+    return {r[1] for r in db.execute(f'PRAGMA table_info("{name}")')}
 
 
 def _delete(db, table, row):

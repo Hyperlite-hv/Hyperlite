@@ -21,7 +21,6 @@ import json
 import logging
 import re
 import secrets
-import subprocess
 import threading
 import time
 import urllib.parse
@@ -187,47 +186,42 @@ def ensure_artifacts(tag):
 # ---------------------------------------------------------------- SSH to the cluster VMs
 
 
-def _ssh_target(vm):
-    from app.core.jobs import _resolve_vm_ssh
+_actor = threading.local()  # the account a cluster is built for, in its thread (_provision)
 
-    ip, user, key = _resolve_vm_ssh(vm)
-    opts = [
-        "-i", str(key),
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        "-o", "LogLevel=ERROR",
-    ]  # fmt: skip
-    return ip, user, opts
+
+def _ask(op, **kwargs):
+    """A step in a VM, by hyperlite-daemon: only it reads the automation key (app/daemon/ops/job.py)."""
+    from app.core import privileged
+
+    return privileged.run(op, user=getattr(_actor, "username", "system"), **kwargs)
 
 
 def vm_run(vm, script, secret="", timeout=STEP_TIMEOUT_S):
     """Run a bash script on a VM. The first line of standard input is read into $HL_SECRET, the rest is the script:
     neither the secret nor the script shows on a command line."""
-    ip, user, opts = _ssh_target(vm)
-    r = subprocess.run(
-        ["ssh", *opts, f"{user}@{ip}", "bash -c 'read -r HL_SECRET; export HL_SECRET; exec bash -s'"],
-        input=f"{secret}\n{script}",
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if r.returncode != 0:
-        raise RuntimeError(f"{vm}: {(r.stderr or r.stdout).strip()[-400:] or f'exit code {r.returncode}'}")
-    return r.stdout
+    r = _ask("job.vm_script", vm=vm, script=script, secret=secret, timeout_s=min(int(timeout), 900))
+    if r["exit"] != 0:
+        said = (r["stderr"] or r["stdout"]).strip()[-400:] or f"exit code {r['exit']}"
+        raise RuntimeError(f"{vm}: {said}")
+    return r["stdout"]
 
 
 def vm_copy(vm, local_paths, remote_dir):
-    ip, user, opts = _ssh_target(vm)
-    r = subprocess.run(
-        ["scp", *opts, *map(str, local_paths), f"{user}@{ip}:{remote_dir}/"],
-        capture_output=True,
-        text=True,
-        timeout=STEP_TIMEOUT_S,
-    )
-    if r.returncode != 0:
-        raise RuntimeError(f"{vm}: copy failed: {r.stderr.strip()[-300:]}")
+    _ask("job.vm_copy", vm=vm, files=[str(p) for p in local_paths], remote_dir=remote_dir)
+
+
+def _address(vm):
+    from app.core import guest_agent
+    from app.core.libvirt_utils import open_conn
+
+    conn = open_conn(readonly=True)
+    try:
+        address = guest_agent.address_now(conn.lookupByName(vm))
+    finally:
+        conn.close()
+    if not address:
+        raise RuntimeError("no address yet")
+    return address
 
 
 def wait_ssh(vm, timeout=SSH_READY_TIMEOUT_S):
@@ -237,7 +231,7 @@ def wait_ssh(vm, timeout=SSH_READY_TIMEOUT_S):
     while time.monotonic() < deadline:
         try:
             vm_run(vm, "cloud-init status --wait >/dev/null 2>&1 || true", timeout=300)
-            return _ssh_target(vm)[0]
+            return _address(vm)
         except Exception as e:  # not up yet: no address, SSH refused, cloud-init still running
             last = str(e)
             time.sleep(5)
@@ -431,6 +425,7 @@ def start_create(name, workers, vcpu, memory_mb, disk_gb, network, username):
 
 
 def _provision(name, server, agents, vcpu, memory_mb, disk_gb, network, username, task_id):
+    _actor.username = username
     step = "preparing"
     try:
         step = "downloading k3s"

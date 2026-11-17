@@ -165,8 +165,11 @@ def add_node(payload: NodeCreate, user: dict = Depends(require_role("admin"))):
         from app.routers.storage import apply_shared_pools
 
         node = {**node, "shared_pools": apply_shared_pools(payload.name, user["username"])}
-    except Exception:
+    except Exception as e:
+        # Said in the answer and the journal: VMs placed there later would not find their storage.
         logger.warning("Shared storage not applied to the new node %s", payload.name, exc_info=True)
+        node = {**node, "shared_pools": {"error": f"The shared storage pools were not created there: {e}"}}
+        log_action(user["username"], "shared_pools_apply", payload.name, "failed", str(e))
     # Compatibility diagnostic from the local host to the new node: informational, it
     # never cancels the registration.
     try:

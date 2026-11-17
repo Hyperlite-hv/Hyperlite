@@ -49,6 +49,19 @@ static int check_path(const char *path, bool allow_root, uid_t uid, char *reason
     return CFS_OK;
 }
 
+/* The names the mount gives the root itself (src/mount.c): an entry of the tree under one of them, or below it, could
+ * never be read through the mount. */
+static bool shadowed(const char *path)
+{
+    static const char *const names[] = {"/local", "/.version", "/.quorum", "/.members"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        size_t n = strlen(names[i]);
+        if (strncmp(path, names[i], n) == 0 && (path[n] == '\0' || path[n] == '/'))
+            return true;
+    }
+    return false;
+}
+
 int cfs_check(const cfs_request *req, uid_t uid, char *reason, size_t cap)
 {
     /* Only root changes the configuration (and the user this daemon runs as: a test's): the API, which runs as another
@@ -63,12 +76,22 @@ int cfs_check(const cfs_request *req, uid_t uid, char *reason, size_t cap)
     }
     switch (req->op) {
     case CFS_OP_GET:
+        return check_path(req->path, false, uid, reason, cap);
     case CFS_OP_PUT:
+        if (shadowed(req->path)) {
+            snprintf(reason, cap, "this name is the mount's own at the root");
+            return CFS_INVALID;
+        }
+        return check_path(req->path, false, uid, reason, cap);
     case CFS_OP_DELETE:
         return check_path(req->path, false, uid, reason, cap);
     case CFS_OP_LIST:
         return check_path(req->path, true, uid, reason, cap);
     case CFS_OP_RENAME: {
+        if (shadowed(req->path2)) {
+            snprintf(reason, cap, "this name is the mount's own at the root");
+            return CFS_INVALID;
+        }
         int rc = check_path(req->path, false, uid, reason, cap);
         return rc != CFS_OK ? rc : check_path(req->path2, false, uid, reason, cap);
     }

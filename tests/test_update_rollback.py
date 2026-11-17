@@ -130,7 +130,7 @@ def test_no_return_below_1_0_once_on_it(node, client, auth_headers, monkeypatch)
 
 def test_the_update_to_1_0_keeps_no_dated_package(node, monkeypatch):
     monkeypatch.setattr(update, "_raw_installed_version", lambda: "2026.10.19.0616")
-    monkeypatch.setattr(update, "_raw_candidate_version", lambda: "1:1.0.0")
+    monkeypatch.setattr(update, "_raw_candidate_version", lambda apt_opts=(): "1:1.0.0")
     update.PREVIOUS_DIR.mkdir(parents=True)
     (update.PREVIOUS_DIR / "hyperlite_2026.10.18.2047_amd64.deb").write_text("kept by an earlier update")
     update._keep_previous("t1")

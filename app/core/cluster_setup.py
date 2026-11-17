@@ -246,10 +246,27 @@ def _local_version():
 
 
 def shared_conf():
+    return _conf_and_version()[0]
+
+
+def _conf_and_version():
+    """The cluster's configuration and the version of its entry, (None, None) when there is none."""
     try:
-        return _check_conf(json.loads(_client().get(CONF_PATH).data))
+        entry = _client().get(CONF_PATH)
     except NotFound:
-        return None
+        return None, None
+    return _check_conf(json.loads(entry.data)), entry.version
+
+
+def _put_conf(client, conf, version):
+    """The configuration written only over the version it was read at: a change made meanwhile through another member
+    (a join, a removal) is never overwritten, nor a node id given twice."""
+    from app.core.cfs_client import Conflict
+
+    try:
+        client.put(CONF_PATH, json.dumps(conf).encode(), expected=version)
+    except Conflict:
+        raise ClusterError("The cluster's members changed meanwhile, through another member: try again") from None
 
 
 # ---- State ----
@@ -566,7 +583,7 @@ def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=No
         fingerprint = _check_fingerprint(fingerprint)
         auth_keys = _check_auth_keys(auth_keys)
         client = _client()
-        conf = shared_conf()
+        conf, conf_version = _conf_and_version()
         if not conf:
             raise ClusterError("This node is not in a cluster")
         if any(m["name"] == name for m in conf["members"]):
@@ -597,7 +614,7 @@ def accept_member(ticket, name, address, ssh_key, fingerprint=None, auth_keys=No
             client.put(ssh_entry, ssh_key.strip().encode())
             for path, value in published.items():
                 client.put(path, json.dumps(value).encode())
-            client.put(CONF_PATH, json.dumps(conf).encode())
+            _put_conf(client, conf, conf_version)
         except Exception:  # The cluster does not list the new node: neither do the nodes table and the SSH keys
             for path in (ssh_entry, *published):
                 with contextlib.suppress(Exception):
@@ -910,12 +927,12 @@ def _take_out(name):
 
     with _members_lock:
         client = _client()
-        conf = shared_conf()
+        conf, conf_version = _conf_and_version()
         if not conf or not any(m["name"] == name for m in conf["members"]):
             raise ClusterError(f"{name} is not a member of the cluster")
         conf["members"] = [m for m in conf["members"] if m["name"] != name]
         conf["version"] += 1
-        client.put(CONF_PATH, json.dumps(conf).encode())
+        _put_conf(client, conf, conf_version)
         with contextlib.suppress(NotFound):
             client.delete(f"{SSH_DIR}/{shadow.component(name)}")
         # Its own files (certificate, keys) go with it: the node is gone (docs/design/cfs-files.md, section 5).
@@ -961,7 +978,13 @@ def withdraw_member(name, token):
             del _withdrawals[name]
     if not valid:
         raise PermissionError("Unknown or expired withdrawal: remove the node by hand")
-    conf = _take_out(name)
+    try:
+        conf = _take_out(name)
+    except Exception:
+        # Not taken out (no quorum for a moment, hyperlite-cfs restarting): the secret stays, so the node may ask again.
+        with _withdrawals_lock:
+            _withdrawals.setdefault(name, entry)
+        raise
     log_action("system", "cluster_join_withdrawn", name, "success", f"{name} gave up joining {conf['cluster']}")
     return {"withdrawn": name}
 
@@ -987,7 +1010,7 @@ def set_primary(name, username):
         name = _node_name(name)
     with _members_lock:
         client = _client()
-        conf = shared_conf()
+        conf, conf_version = _conf_and_version()
         if not conf:
             raise ClusterError("This node is not in a cluster")
         if name is not None and not any(m["name"] == name for m in conf["members"]):
@@ -995,7 +1018,7 @@ def set_primary(name, username):
         for m in conf["members"]:
             m["votes"] = PRIMARY_VOTES if m["name"] == name else 1
         conf["version"] += 1
-        client.put(CONF_PATH, json.dumps(conf).encode())
+        _put_conf(client, conf, conf_version)
         sync()
     log_action(username, "cluster_primary", name or "none", "success", conf["cluster"])
     return state()

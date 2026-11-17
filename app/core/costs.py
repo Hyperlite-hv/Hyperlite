@@ -8,7 +8,7 @@ reaches its threshold, and once more when it is exceeded.
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.core.database import get_conn
 
@@ -99,9 +99,15 @@ def budgets(rep=None):
     with get_conn() as db:
         rows = [dict(r) for r in db.execute("SELECT * FROM cost_budgets ORDER BY name")]
     if rows:
+        from app.core import cluster_lead
+
         rep = rep or report()
+        clustered = cluster_lead.in_cluster()
         for b in rows:
             b["spent"] = _spent(b["scope"], rep)
+            if clustered:
+                # Every node's VMs (cost_spend), this node's own counted as it is now.
+                b["spent"] = max(b["spent"], cluster_spend(b["id"]))
             b["percent"] = round(100 * b["spent"] / b["monthly"]) if b["monthly"] else 0
     return rows
 
@@ -135,12 +141,51 @@ def delete_budget(budget_id):
     return cur.rowcount > 0
 
 
+SPEND_FRESH_S = 3 * 3600  # a node silent for longer counts no more (removed, or down for long)
+
+
+def publish_spend(rows, now=None):
+    """This node's VMs' spend for each budget, for the cluster's sum (cost_spend)."""
+    from app.core import self_node
+
+    at = (now or datetime.now(UTC)).isoformat()
+    me = self_node.name()
+    with get_conn() as db:
+        db.execute("DELETE FROM cost_spend WHERE node = ? AND budget_id NOT IN (SELECT id FROM cost_budgets)", (me,))
+        for b in rows:
+            db.execute(
+                "INSERT INTO cost_spend (node, budget_id, spent, at) VALUES (?, ?, ?, ?) ON CONFLICT(node, budget_id) "
+                "DO UPDATE SET spent = excluded.spent, at = excluded.at",
+                (me, b["id"], b["spent"], at),
+            )
+        db.commit()
+
+
+def cluster_spend(budget_id, now=None):
+    """The budget's spend over every node that published one recently."""
+    since = ((now or datetime.now(UTC)) - timedelta(seconds=SPEND_FRESH_S)).isoformat()
+    with get_conn() as db:
+        row = db.execute(
+            "SELECT COALESCE(SUM(spent), 0) FROM cost_spend WHERE budget_id = ? AND at >= ?", (budget_id, since)
+        ).fetchone()
+    return round(row[0], 2)
+
+
 def check_budgets(now=None):
-    """Alert once per month per level (1: threshold reached, 2: exceeded); hyperlite-scheduler, every minute."""
+    """Alert once per month per level (1: threshold reached, 2: exceeded); hyperlite-scheduler, every 15 minutes. Each
+    node publishes its own VMs' spend; in a cluster only the leader alerts, on the sum of every node's."""
+    from app.core import cluster_lead
     from app.core.audit import log_action
 
     month = (now or datetime.now(UTC)).strftime("%Y-%m")
     rows = budgets()
+    publish_spend(rows, now)
+    if cluster_lead.in_cluster():
+        if not cluster_lead.is_leader():
+            return
+        for b in rows:
+            b["spent"] = cluster_spend(b["id"], now)
+            b["percent"] = round(100 * b["spent"] / b["monthly"]) if b["monthly"] else 0
     for b in rows:
         level = 2 if b["percent"] >= 100 else 1 if b["percent"] >= b["alert_percent"] else 0
         done = b["alerted_level"] if b["alerted_month"] == month else 0

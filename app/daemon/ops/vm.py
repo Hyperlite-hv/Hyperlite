@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator
 
 from app.core.vm_create import VMCreate
-from app.daemon.needs import by_rule, on_vm, on_vms
+from app.daemon.needs import all_of, by_rule, on_network, on_storage, on_vm, on_vms
 from app.daemon.ops.network import FirewallConfig
 from app.daemon.registry import Args, DaemonError, operation
 
@@ -442,7 +442,7 @@ class AttachDiskArgs(Args):
     target: str = Field(pattern=TARGET)
 
 
-@operation("vm.attach_disk", AttachDiskArgs, needs=on_vm("vm.hardware"))
+@operation("vm.attach_disk", AttachDiskArgs, needs=all_of(on_vm("vm.hardware"), on_storage("storage.allocate")))
 @_definition
 def attach_disk(args, conn, domain):
     """A volume of a pool, found here, attached with the format it really has, once it names no other file to read."""
@@ -475,7 +475,7 @@ class SetInterfaceArgs(InterfaceArgs):
     mac: str | None = Field(None, max_length=32)
 
 
-@operation("vm.set_interface", SetInterfaceArgs, needs=on_vm("vm.hardware"))
+@operation("vm.set_interface", SetInterfaceArgs, needs=all_of(on_vm("vm.hardware"), on_network("network.assign")))
 @_definition
 def set_interface(args, conn, domain):
     """An interface moved to another network in place, keeping its MAC address, with its VLANs."""
@@ -484,7 +484,7 @@ def set_interface(args, conn, domain):
     vm_devices.set_interface(conn, domain, args.mac, args.network, args.vlan_tag, args.vlan_trunks)
 
 
-@operation("vm.attach_interface", InterfaceArgs, needs=on_vm("vm.hardware"))
+@operation("vm.attach_interface", InterfaceArgs, needs=all_of(on_vm("vm.hardware"), on_network("network.assign")))
 @_definition
 def attach_interface(args, conn, domain):
     from app.core import vm_devices

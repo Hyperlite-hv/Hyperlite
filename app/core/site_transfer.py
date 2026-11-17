@@ -369,6 +369,19 @@ def define(conn, incoming, networks, start=False, wait_s=120):
         )
     except site_spec.SpecError as e:
         raise TransferError("refused", str(e)) from None
+    # Checked again now, not only when it was prepared: libvirt redefines a VM of the same name and UUID silently, and
+    # another move or a restore may have made one meanwhile.
+    for lookup, value in (
+        (conn.lookupByName, state["spec"]["name"]),
+        (conn.lookupByUUIDString, state["spec"].get("uuid")),
+    ):
+        if not value:
+            continue
+        try:
+            lookup(value)
+        except libvirt.libvirtError:
+            continue
+        raise TransferError("in_use", f"A VM {value} exists here already: the incoming one is not defined over it")
     try:
         domain = conn.defineXML(xml)
     except libvirt.libvirtError as e:
