@@ -160,7 +160,7 @@ The verdict says which of them stops it: a Hyperlite rule, nothing listening, th
 
 **Rules.**
 - Off until an administrator turns it on and chooses where questions go: a model reached through an
-  OpenAI-compatible endpoint (a local server such as Ollama or vLLM keeps everything on site) or the Anthropic API.
+  OpenAI-compatible endpoint (a local server such as Ollama or vLLM keeps everything on site).
   The key is kept with the node's secrets. The settings page says plainly what leaves the node.
 - The assistant reads only, with the asking account's own rights: its tools are read-only API calls (lists, a VM's
   details, metrics summaries, availability, alerts firing, the journal) made as that account. It never changes

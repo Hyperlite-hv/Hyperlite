@@ -40,7 +40,7 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
-- Assistant: questions in plain words answered from Hyperlite's data, read with each person's own rights and never changing anything; off until an administrator turns it on, with a local model server (Ollama, vLLM...) or the Anthropic API.
+- Assistant: questions in plain words answered from Hyperlite's data, read with each person's own rights and never changing anything; off until an administrator turns it on, with a local model server (Ollama, vLLM...).
 - Connection diagnosis: can a VM reach another VM or an address on a port? Hyperlite's firewalls on the path, where both machines are, a real try from inside the VM and whether the target listens, with a verdict saying what stops it.
 - Remote desktop in the browser: a Windows VM's desktop (or any guest with an RDP server) in a browser window, the node speaking RDP to the guest in an isolated session; the password is used once and never kept. The package now recommends tigervnc-standalone-server and freerdp3-x11.
 

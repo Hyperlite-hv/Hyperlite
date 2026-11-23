@@ -98,12 +98,24 @@ def test_rdp_tickets_follow_console_rights(client, auth_headers):
 
 
 def test_assistant_settings_keep_the_key_sealed(database):
-    s = assistant.set_settings({"provider": "anthropic", "api_key": "sk-test", "enabled": True})
+    s = assistant.set_settings({"api_key": "sk-test", "enabled": True})
     assert s["has_key"] and "api_key" not in s
     with pytest.raises(assistant.AssistantError):
         assistant.set_settings({"base_url": "file:///etc/passwd"})
     with pytest.raises(assistant.AssistantError):
         assistant.set_settings({"provider": "other"})
+    with pytest.raises(assistant.AssistantError):
+        assistant.set_settings({"base_url": ""})  # on, it needs an endpoint
+
+
+def test_assistant_settings_from_a_provider_no_longer_offered_load_off(database):
+    import json
+
+    assistant._store().set_app_setting(
+        assistant.SETTINGS, json.dumps({"enabled": True, "provider": "remote", "model": "m", "api_key": "x"})
+    )
+    s = assistant.settings()
+    assert s["enabled"] is False and s["provider"] == "openai" and not s["model"] and not s["has_key"]
 
 
 @pytest.mark.anyio

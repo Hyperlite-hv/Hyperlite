@@ -19,5 +19,5 @@ pyasn1==0.6.5
 zstandard==0.25.0
 # pip itself, pinned too: the package installs it first, from this file, instead of the newest one of the day.
 pip==26.2.1
-# The assistant's Anthropic provider (docs/design/console-2.md, section 10); used only when an administrator chooses it.
-anthropic==2.8.0
+# The assistant's client for its model endpoint (docs/design/console-2.md, section 10).
+httpx2==2.16.0

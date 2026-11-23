@@ -17,19 +17,18 @@ export default function AssistantSettingsPage() {
   if (!s) return <><PageHeader title={t("tab.assistant")} desc={t("as2.desc")} /><Loading /></>;
   const set = (k) => (e) => setS((x) => ({ ...x, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
   async function save() {
-    const body = { enabled: s.enabled, provider: s.provider, base_url: s.base_url, model: s.model, log_text: s.log_text, ...(key ? { api_key: key } : {}) };
+    const body = { enabled: s.enabled, base_url: s.base_url, model: s.model, log_text: s.log_text, ...(key ? { api_key: key } : {}) };
     try { setS(await saveAssistantSettings(body)); setKey(""); pushToast({ kind: "success", title: t("as2.saved") }); } catch (e) { pushToast({ kind: "error", title: t("ac.failed"), message: errorMessage(e) }); }
   }
   return (
     <>
       <PageHeader title={t("tab.assistant")} desc={t("as2.desc")} actions={<button type="button" className="nx-btn nx-btn--primary" onClick={save}>{t("as2.save")}</button>} />
-      <div className="nx-bn" data-tone="info"><MessageCircleQuestion size={16} aria-hidden="true" /><span className="nx-bn-t">{t(s.provider === "anthropic" ? "as2.privacyRemote" : "as2.privacyLocal")}</span></div>
+      <div className="nx-bn" data-tone="info"><MessageCircleQuestion size={16} aria-hidden="true" /><span className="nx-bn-t">{t("as2.privacyLocal")}</span></div>
       <Card>
         <label className="nx-check"><input type="checkbox" checked={s.enabled} onChange={set("enabled")} /> {t("as2.enabled")}</label>
-        <Field label={t("as2.provider")}>{(p) => <select {...p} className="nx-inp" value={s.provider} onChange={set("provider")}><option value="openai">{t("as2.p.openai")}</option><option value="anthropic">{t("as2.p.anthropic")}</option></select>}</Field>
-        {s.provider === "openai" && <Field label={t("as2.baseUrl")} hint={t("as2.baseUrlHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={s.base_url} onChange={set("base_url")} />}</Field>}
-        <Field label={t("as2.model")} hint={s.provider === "anthropic" ? t("as2.modelHintA") : t("as2.modelHintO")}>{(p) => <input {...p} className="nx-inp nx-mono" value={s.model} onChange={set("model")} placeholder={s.provider === "anthropic" ? "claude-opus-5-5" : "llama3.1"} />}</Field>
-        <Field label={t("as2.key")} hint={s.has_key ? t("as2.keySet") : s.provider === "anthropic" ? t("as2.keyNeeded") : t("as2.keyOptional")}>{(p) => <input {...p} type="password" autoComplete="off" className="nx-inp nx-mono" value={key} onChange={(e) => setKey(e.target.value)} />}</Field>
+        <Field label={t("as2.baseUrl")} hint={t("as2.baseUrlHint")}>{(p) => <input {...p} className="nx-inp nx-mono" value={s.base_url} onChange={set("base_url")} />}</Field>
+        <Field label={t("as2.model")} hint={t("as2.modelHintO")}>{(p) => <input {...p} className="nx-inp nx-mono" value={s.model} onChange={set("model")} placeholder="llama3.1" />}</Field>
+        <Field label={t("as2.key")} hint={s.has_key ? t("as2.keySet") : t("as2.keyOptional")}>{(p) => <input {...p} type="password" autoComplete="off" className="nx-inp nx-mono" value={key} onChange={(e) => setKey(e.target.value)} />}</Field>
         <label className="nx-check"><input type="checkbox" checked={s.log_text} onChange={set("log_text")} /> {t("as2.logText")}</label>
       </Card>
     </>
