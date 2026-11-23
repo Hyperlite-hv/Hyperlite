@@ -1,0 +1,1 @@
+- Assistant: the model is reached only through an OpenAI-compatible endpoint (Ollama, vLLM, LM Studio...); settings saved with another provider load turned off, without their key, until an administrator sets the endpoint.

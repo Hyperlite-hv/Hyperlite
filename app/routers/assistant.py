@@ -13,7 +13,7 @@ FORWARDED = ("authorization", "cookie", "x-hyperlite-csrf")
 
 class SettingsIn(BaseModel):
     enabled: bool | None = None
-    provider: str | None = None
+    provider: str | None = None  # API v1 keeps the field: "openai", an OpenAI-compatible endpoint, is the one offered
     base_url: str | None = Field(None, max_length=500)
     model: str | None = Field(None, max_length=200)
     api_key: str | None = Field(None, max_length=500)
@@ -41,8 +41,7 @@ def _answer(fn, *args):
 def assistant_status(user: dict = Depends(get_current_user)):
     """Whether the assistant is on, for the console's button."""
     s = assistant.settings()
-    return {"enabled": s["enabled"], "provider": s["provider"],
-            "model": s["model"] or (assistant.ANTHROPIC_DEFAULT_MODEL if s["provider"] == "anthropic" else "")}  # fmt: skip
+    return {"enabled": s["enabled"], "provider": "openai", "model": s["model"]}
 
 
 @router.get("/settings")
@@ -53,8 +52,10 @@ def get_settings(user: dict = Depends(require_role("admin"))):
 @router.put("/settings")
 def put_settings(payload: SettingsIn, user: dict = Depends(require_role("admin"))):
     changes = payload.model_dump(exclude_none=True)
+    if changes.pop("provider", "openai") != "openai":
+        raise HTTPException(status_code=422, detail="The provider is openai (an OpenAI-compatible endpoint)")
     s = _answer(assistant.set_settings, changes)
-    log_action(user["username"], "assistant_settings", s["provider"], "success",
+    log_action(user["username"], "assistant_settings", "assistant", "success",
                ", ".join(sorted(k for k in changes if k != "api_key")) + (" + key" if "api_key" in changes else ""))  # fmt: skip
     return s
 

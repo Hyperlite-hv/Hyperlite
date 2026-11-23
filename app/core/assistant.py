@@ -1,11 +1,11 @@
 """The assistant (docs/design/console-2.md, section 10): questions in plain words answered from Hyperlite's own data.
 
 Off until an administrator turns it on and chooses where questions go: a model served through an OpenAI-compatible
-endpoint (a local server such as Ollama, vLLM or LM Studio keeps everything on site) or the Anthropic API (through its
-official SDK). Its tools only read, and they read as the asking account: each is a GET on Hyperlite's own API, made in
-process with the request's own credentials, so the account's rights and filters apply exactly as in the console. It
-never changes anything; an action is suggested as a link the person opens. Each question is journaled with the tools it
-used, its text only when the administrator asks for it.
+endpoint (a local server such as Ollama, vLLM or LM Studio keeps everything on site). Its tools only read, and they
+read as the asking account: each is a GET on Hyperlite's own API, made in process with the request's own credentials,
+so the account's rights and filters apply exactly as in the console. It never changes anything; an action is suggested
+as a link the person opens. Each question is journaled with the tools it used, its text only when the administrator
+asks for it.
 """
 
 import json
@@ -19,14 +19,11 @@ logger = logging.getLogger(__name__)
 SETTINGS = "assistant_settings"
 DEFAULTS = {
     "enabled": False,
-    "provider": "openai",  # "openai": an OpenAI-compatible endpoint; "anthropic": the Anthropic API
     "base_url": "http://127.0.0.1:11434/v1",
     "model": "",
     "api_key": "",  # sealed with the node's secret key; never returned
     "log_text": False,
 }
-ANTHROPIC_DEFAULT_MODEL = "claude-opus-5-5"
-FALLBACK_MODELS = {"claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-fable-5-2"}
 MAX_STEPS = 8  # tool rounds per question
 MAX_TOOL_CHARS = 12000  # a tool's answer is cut beyond, said to the model
 MAX_HISTORY = 12
@@ -86,9 +83,13 @@ def _store():
 def settings(with_secret=False):
     raw = _store().app_setting(SETTINGS)
     try:
-        s = {**DEFAULTS, **(json.loads(raw) if raw else {})}
+        stored = json.loads(raw) if raw else {}
     except ValueError:
-        s = dict(DEFAULTS)
+        stored = {}
+    # A provider no longer offered: off, its key and model dropped, until an administrator sets the endpoint again.
+    if stored.pop("provider", "openai") != "openai":
+        stored.update(enabled=False, api_key="", model="")
+    s = {**DEFAULTS, **{k: v for k, v in stored.items() if k in DEFAULTS}, "provider": "openai"}
     if not with_secret:
         s["has_key"] = bool(s.pop("api_key", ""))
     return s
@@ -97,10 +98,10 @@ def settings(with_secret=False):
 def set_settings(changes):
     current = settings(with_secret=True)
     for key, value in changes.items():
+        if key == "provider" and value == "openai":
+            continue
         if key not in DEFAULTS:
             raise AssistantError(422, f"Unknown setting: {key}")
-        if key == "provider" and value not in ("openai", "anthropic"):
-            raise AssistantError(422, "The provider is openai (an OpenAI-compatible endpoint) or anthropic")
         if key == "base_url" and value:
             try:
                 http_safety.require_http_url(value)
@@ -111,10 +112,8 @@ def set_settings(changes):
         if key in ("enabled", "log_text"):
             value = bool(value)
         current[key] = value
-    if current["enabled"] and current["provider"] == "openai" and not current["base_url"]:
+    if current["enabled"] and not current["base_url"]:
         raise AssistantError(422, "Give the endpoint's address")
-    if current["enabled"] and current["provider"] == "anthropic" and not current["api_key"]:
-        raise AssistantError(422, "Give an Anthropic API key")
     _store().set_app_setting(SETTINGS, json.dumps(current))
     return settings()
 
@@ -197,62 +196,7 @@ def _clip(value):
     return text
 
 
-# ---- Providers ----
-
-
-def _anthropic_client(s):
-    import anthropic
-
-    return anthropic.AsyncAnthropic(api_key=secrets_crypto.decrypt(s["api_key"]), timeout=120.0, max_retries=2)
-
-
-async def _ask_anthropic(s, history, question, call_tool, used):
-    """The Anthropic API through its SDK: a manual tool loop (the tools run here, as the account)."""
-    import anthropic
-
-    client = _anthropic_client(s)
-    tools = [{"name": t["name"], "description": t["description"], "input_schema": t["schema"]} for t in _tool_specs()]
-    messages = [*history, {"role": "user", "content": question}]
-    model = s["model"] or ANTHROPIC_DEFAULT_MODEL
-    try:
-        for _ in range(MAX_STEPS):
-            # A model the API may decline with (a safety classifier) gets the server-side fallback, routed by the API.
-            extra = (
-                {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
-                if model in FALLBACK_MODELS
-                else {}
-            )
-            response = await client.beta.messages.create(
-                model=model, max_tokens=16000, system=SYSTEM, tools=tools, messages=messages, **extra
-            )
-            if response.stop_reason == "refusal":
-                return "The model declined to answer this question."
-            if response.stop_reason == "pause_turn":
-                messages.append({"role": "assistant", "content": response.content})
-                continue
-            if response.stop_reason != "tool_use":
-                text = "".join(b.text for b in response.content if b.type == "text").strip()
-                if response.stop_reason == "max_tokens":
-                    text += "\n\n(The answer was cut: ask for less at once.)"
-                return text
-            messages.append({"role": "assistant", "content": response.content})
-            results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-                used.append(block.name)
-                content, failed = await call_tool(block.name, block.input)
-                results.append({"type": "tool_result", "tool_use_id": block.id, "content": content, "is_error": failed})
-            messages.append({"role": "user", "content": results})
-        return "Too many steps for one question: ask something narrower."
-    except anthropic.AuthenticationError:
-        raise AssistantError(502, "The Anthropic API refused the key") from None
-    except anthropic.RateLimitError:
-        raise AssistantError(503, "The Anthropic API is busy (rate limit): try again in a moment") from None
-    except anthropic.APIStatusError as e:
-        raise AssistantError(502, f"The Anthropic API answered {e.status_code}") from None
-    except anthropic.APIConnectionError:
-        raise AssistantError(502, "The Anthropic API cannot be reached from this node") from None
+# ---- The model endpoint ----
 
 
 async def _ask_openai(s, history, question, call_tool, used):
@@ -299,7 +243,7 @@ async def ask(question, history, get):
     s = settings(with_secret=True)
     if not s["enabled"]:
         raise AssistantError(409, "The assistant is off: an administrator turns it on in its settings")
-    if s["provider"] == "openai" and not s["model"]:
+    if not s["model"]:
         raise AssistantError(409, "The assistant has no model set")
     question = (question or "").strip()
     if not 1 <= len(question) <= 4000:
@@ -317,6 +261,5 @@ async def ask(question, history, get):
             logger.info("Assistant tool %s failed: %s", name, e)
             return f"This tool failed: {getattr(e, 'detail', None) or e}", True
 
-    ask_fn = _ask_anthropic if s["provider"] == "anthropic" else _ask_openai
-    answer = await ask_fn(s, turns, question, call_tool, used)
+    answer = await _ask_openai(s, turns, question, call_tool, used)
     return {"answer": answer or "(no answer)", "tools": used, "log_text": s["log_text"]}
